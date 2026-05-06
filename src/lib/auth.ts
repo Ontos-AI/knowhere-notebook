@@ -75,8 +75,13 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
   let res: Response;
   try {
     res = await fetch(url, {
-      method: "GET",
-      headers: { cookie: cookieHeader },
+      method: "POST",
+      headers: {
+        cookie: cookieHeader,
+        "content-type": "application/json",
+      },
+      // oRPC expects a JSON body even when the procedure takes no input.
+      body: "{}",
       cache: "no-store",
       redirect: "manual",
     });
