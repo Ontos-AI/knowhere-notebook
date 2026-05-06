@@ -9,7 +9,6 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@ai-sdk/deepseek": "^2.0.32",
     "@ai-sdk/react": "^3.0.177",
     "@base-ui/react": "^1.4.1",
     "@ontos-ai/knowhere-sdk": "^0.4.0",

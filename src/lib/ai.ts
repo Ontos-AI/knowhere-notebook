@@ -1,22 +1,21 @@
-import { createDeepSeek } from "@ai-sdk/deepseek";
-
 /**
- * Server-side AI provider configuration.
- * Uses DeepSeek via their OpenAI-compatible API.
+ * Server-side AI configuration — routes through the Vercel AI Gateway.
+ *
+ * The Gateway gives us one key, usage monitoring, and easy provider/model
+ * swaps without code changes. The AI SDK picks up `AI_GATEWAY_API_KEY`
+ * automatically when a model is passed as a plain string like
+ * `"deepseek/deepseek-v4-flash"`, so this module just owns the model choice.
+ *
+ * Change CHAT_MODEL here (or via env) when we want to try a different model.
  */
-export function getAIModel() {
-  const apiKey = process.env.DEEPSEEK_API_KEY;
-  if (!apiKey) {
+
+export const CHAT_MODEL = process.env.CHAT_MODEL ?? "deepseek/deepseek-v4-flash";
+
+export function assertAIGatewayConfigured(): void {
+  if (!process.env.AI_GATEWAY_API_KEY) {
     throw new Error(
-      "DEEPSEEK_API_KEY environment variable is required. " +
+      "AI_GATEWAY_API_KEY environment variable is required. " +
         "Set it in your .env.local file."
     );
   }
-
-  const deepseek = createDeepSeek({
-    apiKey,
-    baseURL: "https://api.deepseek.com",
-  });
-
-  return deepseek("deepseek-chat");
 }
