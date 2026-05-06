@@ -62,7 +62,7 @@ export function proxy(req: NextRequest): NextResponse {
   }
 
   const redirectTo = new URL(loginUrl);
-  redirectTo.searchParams.set("returnTo", notebookUrl);
+  redirectTo.searchParams.set("callbackURL", notebookUrl);
   return NextResponse.redirect(redirectTo);
 }
 

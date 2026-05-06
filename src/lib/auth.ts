@@ -9,8 +9,8 @@ import { redirect } from "next/navigation";
  * Design (per @Pi's Dashboard investigation):
  *   - Dashboard is the auth source of truth. Notebook never decodes or
  *     verifies a JWT.
- *   - Dashboard sets a Better Auth session cookie on `Domain=.knowhere.ai`.
- *     Notebook is served from `notebook.knowhere.ai`, so the cookie arrives
+ *   - Dashboard sets a Better Auth session cookie on `Domain=.knowhereto.ai`.
+ *     Notebook is served from `notebook.knowhereto.ai`, so the cookie arrives
  *     on every request automatically.
  *   - Every server-side check calls `getCurrentUser`, which forwards the
  *     incoming Cookie header to Dashboard's oRPC session lookup
@@ -98,7 +98,7 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
 
 /**
  * Page / server-action guard. Redirects to the Dashboard login page with
- * a `returnTo` pointing back at the Notebook public URL when the caller
+ * a `callbackURL` pointing back at the Notebook public URL when the caller
  * is unauthenticated.
  *
  * Throws a Next.js redirect; callers never see the anonymous branch.
@@ -116,7 +116,7 @@ export async function requireUser(): Promise<AuthUser> {
   }
 
   const url = new URL(loginUrl);
-  url.searchParams.set("returnTo", notebookUrl);
+  url.searchParams.set("callbackURL", notebookUrl);
   redirect(url.toString());
 }
 

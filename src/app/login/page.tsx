@@ -7,9 +7,10 @@ import { Card, CardContent } from "@/components/ui/card";
  * Login gate preview for the MVP shell.
  *
  * In N-001 this page becomes an "intercept" route that redirects to the
- * Dashboard login URL (`DASHBOARD_LOGIN_URL`) with a returnTo parameter
- * pointing back at `/`. Today it's a visual preview only — the button is a
- * link to `/` so suguan and Pi can click through the prototype flow.
+ * Dashboard login URL (`DASHBOARD_LOGIN_URL`) with a `callbackURL`
+ * parameter pointing back at `/`. Today it's a visual preview only — the
+ * button is a link to `/` so suguan and Pi can click through the
+ * prototype flow.
  */
 export default function LoginPage() {
   return (
