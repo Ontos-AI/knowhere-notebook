@@ -1,63 +1,67 @@
-import type { RetrievalResult } from "@ontos-ai/knowhere-sdk";
+import type { RetrievalResult } from "@ontos-ai/knowhere-sdk"
+import { Either } from "effect"
 
 import {
   answerQuestionWithRetrieval,
   type GenerateAnswer,
   type RetrievalClient,
-} from "./chat";
-import type { ChatMessage, ChatThread, Source, Workspace } from "./schema";
-import type { ChatCitationView, ChatMessageView } from "./types";
+} from "./chat"
+import type { ChatMessage, ChatThread, Source, Workspace } from "./schema"
+import type { ChatCitationView, ChatMessageView } from "./types"
 
 export type ChatRepository = {
-  ensureDefaultChatThread(workspaceId: string): Promise<ChatThread>;
+  ensureDefaultChatThread(workspaceId: string): Promise<ChatThread>
   findChatThreadInWorkspace(
     workspaceId: string,
     threadId: string,
-  ): Promise<ChatThread | null>;
+  ): Promise<ChatThread | null>
   appendMessageToThread(
     workspaceId: string,
     input: {
-      threadId: string;
-      role: "user" | "assistant";
-      content: string;
-      citations?: readonly RetrievalResult[] | null;
+      threadId: string
+      role: "user" | "assistant"
+      content: string
+      citations?: readonly RetrievalResult[] | null
     },
-  ): Promise<ChatMessage | null>;
-};
+  ): Promise<ChatMessage | null>
+}
 
-export type HandleChatTurnResult =
-  | {
-      ok: true;
-      value: {
-        threadId: string;
-      messages: [ChatMessageView, ChatMessageView];
-      };
-    }
-  | {
-      ok: false;
-      status: 404 | 409;
-      message: string;
-    };
+export type ChatTurnError =
+  | { _tag: "NoReadySources"; message: string; status: 409 }
+  | { _tag: "ThreadNotFound"; message: string; status: 404 }
+
+const noReadySources = {
+  _tag: "NoReadySources" as const,
+  message: "Upload and process a document before asking questions.",
+  status: 409 as const,
+}
+
+const threadNotFound = {
+  _tag: "ThreadNotFound" as const,
+  message: "Chat thread not found.",
+  status: 404 as const,
+}
+
+export type ChatTurnValue = {
+  threadId: string
+  messages: [ChatMessageView, ChatMessageView]
+}
 
 export async function handleChatTurn(input: {
-  workspace: Workspace;
-  sources: readonly Source[];
-  question: string;
-  threadId?: string;
-  excludedSourceIds: readonly string[];
-  retrieval: RetrievalClient;
-  generateAnswer: GenerateAnswer;
-  repository: ChatRepository;
-}): Promise<HandleChatTurnResult> {
+  workspace: Workspace
+  sources: readonly Source[]
+  question: string
+  threadId?: string
+  excludedSourceIds: readonly string[]
+  retrieval: RetrievalClient
+  generateAnswer: GenerateAnswer
+  repository: ChatRepository
+}): Promise<Either.Either<ChatTurnValue, ChatTurnError>> {
   const readySources = input.sources.filter(
     (source) => source.status === "ready" && source.knowhereDocumentId,
-  );
+  )
   if (readySources.length === 0) {
-    return {
-      ok: false,
-      status: 409,
-      message: "Upload and process a document before asking questions.",
-    };
+    return Either.left(noReadySources)
   }
 
   const thread = input.threadId
@@ -65,9 +69,9 @@ export async function handleChatTurn(input: {
         input.workspace.id,
         input.threadId,
       )
-    : await input.repository.ensureDefaultChatThread(input.workspace.id);
+    : await input.repository.ensureDefaultChatThread(input.workspace.id)
   if (!thread) {
-    return { ok: false, status: 404, message: "Chat thread not found." };
+    return Either.left(threadNotFound)
   }
 
   const userMessage = await input.repository.appendMessageToThread(
@@ -77,9 +81,9 @@ export async function handleChatTurn(input: {
       role: "user",
       content: input.question,
     },
-  );
+  )
   if (!userMessage) {
-    return { ok: false, status: 404, message: "Chat thread not found." };
+    return Either.left(threadNotFound)
   }
 
   const answer = await answerQuestionWithRetrieval({
@@ -89,7 +93,7 @@ export async function handleChatTurn(input: {
     excludedSourceIds: input.excludedSourceIds,
     retrieval: input.retrieval,
     generateAnswer: input.generateAnswer,
-  });
+  })
   const assistantMessage = await input.repository.appendMessageToThread(
     input.workspace.id,
     {
@@ -98,21 +102,18 @@ export async function handleChatTurn(input: {
       content: answer.answer,
       citations: answer.citations,
     },
-  );
+  )
   if (!assistantMessage) {
-    return { ok: false, status: 404, message: "Chat thread not found." };
+    return Either.left(threadNotFound)
   }
 
-  return {
-    ok: true,
-    value: {
-      threadId: thread.id,
-      messages: [
-        toChatMessageView(userMessage),
-        toChatMessageView(assistantMessage, answer.citations),
-      ],
-    },
-  };
+  return Either.right({
+    threadId: thread.id,
+    messages: [
+      toChatMessageView(userMessage),
+      toChatMessageView(assistantMessage, answer.citations),
+    ],
+  })
 }
 
 function toChatMessageView(
@@ -124,7 +125,7 @@ function toChatMessageView(
     role: message.role === "assistant" ? "assistant" : "user",
     content: message.content,
     citations: citations.length > 0 ? citations.map(toRetrievalResultView) : undefined,
-  };
+  }
 }
 
 function toRetrievalResultView(result: RetrievalResult): ChatCitationView {
@@ -138,5 +139,5 @@ function toRetrievalResultView(result: RetrievalResult): ChatCitationView {
       sourceFileName: result.source.sourceFileName,
       sectionPath: result.source.sectionPath,
     },
-  };
+  }
 }

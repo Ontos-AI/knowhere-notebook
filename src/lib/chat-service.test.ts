@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { RetrievalResult } from "@ontos-ai/knowhere-sdk";
+import { Either } from "effect";
 
 import { handleChatTurn } from "./chat-service";
 import type { ChatMessage, ChatThread, Source, Workspace } from "./schema";
@@ -26,23 +27,20 @@ describe("handleChatTurn", () => {
       repository,
     });
 
-    expect(result).toMatchObject({
-      ok: true,
-      value: {
+    expect(Either.isRight(result)).toBe(true);
+    if (Either.isRight(result)) {
+      expect(result.right).toMatchObject({
         threadId: "thread_1",
         messages: [
-          {
-            role: "user",
-            content: "What does the document say?",
-          },
+          { role: "user", content: "What does the document say?" },
           {
             role: "assistant",
             content: "Grounded answer.",
             citations: [makeRetrievalResult()],
           },
         ],
-      },
-    });
+      });
+    }
     expect(retrieval.query).toHaveBeenCalledWith({
       namespace: "notebook-namespace",
       query: "What does the document say?",
@@ -76,11 +74,13 @@ describe("handleChatTurn", () => {
       repository,
     });
 
-    expect(result).toEqual({
-      ok: false,
-      status: 409,
-      message: "Upload and process a document before asking questions.",
-    });
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isLeft(result)) {
+      expect(result.left).toMatchObject({
+        status: 409,
+        message: "Upload and process a document before asking questions.",
+      });
+    }
     expect(retrieval.query).not.toHaveBeenCalled();
     expect(repository.appendMessageToThread).not.toHaveBeenCalled();
   });
@@ -101,11 +101,13 @@ describe("handleChatTurn", () => {
       repository,
     });
 
-    expect(result).toEqual({
-      ok: false,
-      status: 404,
-      message: "Chat thread not found.",
-    });
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isLeft(result)) {
+      expect(result.left).toMatchObject({
+        status: 404,
+        message: "Chat thread not found.",
+      });
+    }
     expect(repository.appendMessageToThread).not.toHaveBeenCalled();
   });
 });

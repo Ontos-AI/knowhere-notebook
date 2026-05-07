@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
+import { Effect, Either } from "effect";
 
 import { requireUser } from "@/lib/auth";
 import { generateGroundedAnswer, parseChatRequestBody } from "@/lib/chat";
 import { handleChatTurn } from "@/lib/chat-service";
-import { Effect } from "effect";
 import { KnowhereClient, knowhereClientLayer } from "@/lib/knowhere";
 import { ensureWorkspace, listSourcesForWorkspace } from "@/lib/workspace";
 import {
@@ -13,17 +13,17 @@ import {
 } from "@/lib/workspace";
 
 export async function POST(request: Request): Promise<NextResponse> {
-  const body = parseChatRequestBody(await readJson(request));
+  const body = parseChatRequestBody(await readJson(request))
   if (!body.ok) {
-    return NextResponse.json({ message: body.message }, { status: body.status });
+    return NextResponse.json({ message: body.message }, { status: body.status })
   }
 
-  const user = await requireUser();
-  const workspace = await ensureWorkspace(user.id);
-  const sources = await listSourcesForWorkspace(workspace.id);
+  const user = await requireUser()
+  const workspace = await ensureWorkspace(user.id)
+  const sources = await listSourcesForWorkspace(workspace.id)
   const client = await Effect.runPromise(
     KnowhereClient.pipe(Effect.provide(knowhereClientLayer)),
-  );
+  )
   const result = await handleChatTurn({
     workspace,
     sources,
@@ -37,16 +37,13 @@ export async function POST(request: Request): Promise<NextResponse> {
       findChatThreadInWorkspace,
       appendMessageToThread,
     },
-  });
+  })
 
-  if (!result.ok) {
-    return NextResponse.json(
-      { message: result.message },
-      { status: result.status },
-    );
-  }
-
-  return NextResponse.json(result.value);
+  return Either.match(result, {
+    onLeft: (error) =>
+      NextResponse.json({ message: error.message }, { status: error.status }),
+    onRight: (value) => NextResponse.json(value),
+  })
 }
 
 async function readJson(request: Request): Promise<unknown> {
