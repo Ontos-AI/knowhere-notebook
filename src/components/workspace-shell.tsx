@@ -5,8 +5,14 @@ import { TopNav } from "@/components/top-nav";
 import { SourcesPanel } from "@/components/sources-panel";
 import { ChunksPanel } from "@/components/chunks-panel";
 import { ChatPanel } from "@/components/chat-panel";
-import type { SourceView } from "@/lib/types";
+import type { ParsedChunkView, SourceView } from "@/lib/types";
 import type { UploadSourceActionState } from "@/app/actions";
+
+type ChunkLoadState = {
+  sourceId: string | null;
+  chunks: ParsedChunkView[];
+  isLoading: boolean;
+};
 
 export type WorkspaceShellProps = {
   user: {
@@ -45,6 +51,11 @@ export function WorkspaceShell({
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
   const [focusedChunkId, setFocusedChunkId] = useState<string | null>(null);
   const [sources, setSources] = useState(initialSources);
+  const [chunkLoad, setChunkLoad] = useState<ChunkLoadState>({
+    sourceId: null,
+    chunks: [],
+    isLoading: false,
+  });
 
   useEffect(() => {
     const hasPendingSources = sources.some(
@@ -57,21 +68,84 @@ export function WorkspaceShell({
         const response = await fetch("/api/sources", { cache: "no-store" });
         if (!response.ok) return;
         const body = (await response.json()) as { sources?: SourceView[] };
-        if (Array.isArray(body.sources)) setSources(body.sources);
+        if (!Array.isArray(body.sources)) return;
+
+        setSources(body.sources);
+        const selectedSource = body.sources.find(
+          (source) => source.id === selectedSourceId,
+        );
+        if (
+          selectedSource &&
+          selectedSource.status === "ready" &&
+          chunkLoad.sourceId !== selectedSource.id
+        ) {
+          setChunkLoad({ sourceId: selectedSource.id, chunks: [], isLoading: true });
+        }
       });
     }, 3000);
 
     return () => window.clearInterval(interval);
-  }, [sources]);
+  }, [chunkLoad.sourceId, selectedSourceId, sources]);
+
+  useEffect(() => {
+    if (!chunkLoad.isLoading || !chunkLoad.sourceId) return;
+
+    let isCurrent = true;
+    startTransition(async () => {
+      try {
+        const response = await fetch(
+          `/api/sources/${encodeURIComponent(chunkLoad.sourceId!)}/chunks`,
+          { cache: "no-store" },
+        );
+        if (!response.ok) return;
+        const body = (await response.json()) as {
+          chunks?: ParsedChunkView[];
+        };
+        if (!isCurrent) return;
+        setChunkLoad({
+          sourceId: chunkLoad.sourceId,
+          chunks: Array.isArray(body.chunks) ? body.chunks : [],
+          isLoading: false,
+        });
+      } finally {
+        if (isCurrent) {
+          setChunkLoad((current) =>
+            current.sourceId === chunkLoad.sourceId
+              ? { ...current, isLoading: false }
+              : current,
+          );
+        }
+      }
+    });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [chunkLoad.isLoading, chunkLoad.sourceId]);
 
   const showParsed = selectedSourceId !== null || focusedChunkId !== null;
   const showChat = selectedSourceId === null || focusedChunkId !== null;
+  const selectedSourceTitle =
+    sources.find((source) => source.id === selectedSourceId)?.title ?? null;
 
   function handleSourceUploaded(source: SourceView) {
     setSources((current) => [
       source,
       ...current.filter((candidate) => candidate.id !== source.id),
     ]);
+  }
+
+  function handleSourceSelected(sourceId: string | null) {
+    setSelectedSourceId(sourceId);
+    setFocusedChunkId(null);
+    setChunkLoad({ sourceId: null, chunks: [], isLoading: false });
+
+    if (!sourceId) return;
+
+    const source = sources.find((candidate) => candidate.id === sourceId);
+    if (!source || source.status !== "ready") return;
+
+    setChunkLoad({ sourceId, chunks: [], isLoading: true });
   }
 
   return (
@@ -86,18 +160,20 @@ export function WorkspaceShell({
           onSourceUploaded={handleSourceUploaded}
           selectedSourceId={selectedSourceId}
           onSelectSource={(id) => {
-            setSelectedSourceId(id);
-            setFocusedChunkId(null);
+            handleSourceSelected(id);
           }}
           uploadAction={uploadAction}
         />
         {showParsed && (
           <ChunksPanel
-            selectedSource={selectedSourceId}
+            chunks={chunkLoad.chunks}
+            selectedSource={selectedSourceTitle}
             focusedChunkId={focusedChunkId}
+            isLoading={chunkLoad.isLoading}
             onClose={() => {
               setSelectedSourceId(null);
               setFocusedChunkId(null);
+              setChunkLoad({ sourceId: null, chunks: [], isLoading: false });
             }}
           />
         )}
