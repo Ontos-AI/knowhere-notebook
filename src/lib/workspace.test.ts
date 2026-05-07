@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 /**
- * Workspace upsert tests.
+ * Unit tests for `ensureWorkspace` with a mocked Drizzle client.
  *
- * We mock the Drizzle client rather than spinning up Postgres: the
- * invariants we care about at the unit level are purely about call
- * ordering and idempotency. Integration against Neon is covered by a
- * later Playwright pass once DATABASE_URL is provisioned.
+ * At the unit level we care about call ordering and idempotency. Full
+ * behavior against real Postgres — including soft-delete, cross-workspace
+ * scoping, and cascade — is covered by `workspace.integration.test.ts`,
+ * which runs only when `TEST_DATABASE_URL` is set.
  */
 
 type Row = { id: string; userId: string; namespace: string; createdAt: Date };

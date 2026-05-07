@@ -1,0 +1,306 @@
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { drizzle } from "drizzle-orm/postgres-js";
+import { and, eq, isNull } from "drizzle-orm";
+import postgres from "postgres";
+
+import * as schema from "./schema";
+import {
+  chatMessages,
+  chatThreads,
+  sources,
+  workspaces,
+} from "./schema";
+
+/**
+ * Integration tests for the soft-delete and workspace-scoping helpers.
+ *
+ * These run against a real Postgres — skipped entirely unless
+ * `TEST_DATABASE_URL` is set. Local dev gets that from the Docker
+ * container (`postgres://postgres:postgres@127.0.0.1:55432/
+ * knowhere_notebook_e2e`). CI leaves it unset so these tests are
+ * no-ops there.
+ *
+ * The file uses `vi.doMock("./db", ...)` indirectly via process.env
+ * so the real `workspace.ts` runs against the test DB.
+ */
+
+const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
+const describeIfDb = TEST_DATABASE_URL ? describe : describe.skip;
+
+describeIfDb("workspace helpers — integration", () => {
+  // Use a separate test client bound to the test DB. The production
+  // `db.ts` uses the live DATABASE_URL; here we want explicit control.
+  // We load `./workspace` after setting env so the module picks up the
+  // right client.
+
+  let testDb: ReturnType<typeof drizzle<typeof schema>>;
+  let testClient: ReturnType<typeof postgres>;
+  let workspaceHelpers: typeof import("./workspace");
+
+  beforeEach(async () => {
+    testClient = postgres(TEST_DATABASE_URL!, { prepare: false });
+    testDb = drizzle(testClient, { schema });
+
+    // Reset module cache and point the app `db` module at our test client.
+    const { vi } = await import("vitest");
+    vi.resetModules();
+    vi.doMock("./db", () => ({ db: testDb }));
+    workspaceHelpers = await import("./workspace");
+
+    // Clean slate on the tables these tests touch. Order respects FK.
+    await testDb.delete(chatMessages);
+    await testDb.delete(chatThreads);
+    await testDb.delete(sources);
+    await testDb.delete(workspaces);
+  });
+
+  afterEach(async () => {
+    await testClient.end();
+  });
+
+  it("findSourceInWorkspace returns null for wrong workspace", async () => {
+    const ws1 = await workspaceHelpers.ensureWorkspace("user_1");
+    await workspaceHelpers.ensureWorkspace("user_2");
+
+    const [srcRow] = await testDb
+      .insert(sources)
+      .values({
+        workspaceId: ws1.id,
+        title: "doc.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 1024,
+        status: "ready",
+      })
+      .returning();
+
+    const ws2 = (await testDb
+      .select()
+      .from(workspaces)
+      .where(eq(workspaces.userId, "user_2"))
+      .limit(1))[0]!;
+
+    const hit = await workspaceHelpers.findSourceInWorkspace(ws1.id, srcRow!.id);
+    expect(hit?.title).toBe("doc.pdf");
+
+    const miss = await workspaceHelpers.findSourceInWorkspace(ws2.id, srcRow!.id);
+    expect(miss).toBeNull();
+  });
+
+  it("findSourceInWorkspace hides soft-deleted rows", async () => {
+    const ws = await workspaceHelpers.ensureWorkspace("user_1");
+    const [srcRow] = await testDb
+      .insert(sources)
+      .values({
+        workspaceId: ws.id,
+        title: "deleted.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 1024,
+        status: "ready",
+        deletedAt: new Date(),
+      })
+      .returning();
+
+    const hit = await workspaceHelpers.findSourceInWorkspace(ws.id, srcRow!.id);
+    expect(hit).toBeNull();
+  });
+
+  it("softDeleteSource writes deleted_at only when scope matches", async () => {
+    const ws = await workspaceHelpers.ensureWorkspace("user_1");
+    const otherWs = await workspaceHelpers.ensureWorkspace("user_2");
+
+    const [srcRow] = await testDb
+      .insert(sources)
+      .values({
+        workspaceId: ws.id,
+        title: "doc.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 1024,
+        status: "ready",
+      })
+      .returning();
+
+    // Wrong workspace: no-op, returns false.
+    const wrongOk = await workspaceHelpers.softDeleteSource(
+      otherWs.id,
+      srcRow!.id,
+    );
+    expect(wrongOk).toBe(false);
+
+    const stillLive = await workspaceHelpers.findSourceInWorkspace(
+      ws.id,
+      srcRow!.id,
+    );
+    expect(stillLive?.deletedAt).toBeNull();
+
+    // Correct workspace: soft-delete succeeds.
+    const ok = await workspaceHelpers.softDeleteSource(ws.id, srcRow!.id);
+    expect(ok).toBe(true);
+
+    const nowHidden = await workspaceHelpers.findSourceInWorkspace(
+      ws.id,
+      srcRow!.id,
+    );
+    expect(nowHidden).toBeNull();
+
+    // Second soft-delete is a no-op (already deleted), returns false.
+    const again = await workspaceHelpers.softDeleteSource(ws.id, srcRow!.id);
+    expect(again).toBe(false);
+  });
+
+  it("appendMessageToThread rejects cross-workspace thread ids", async () => {
+    const ws = await workspaceHelpers.ensureWorkspace("user_1");
+    const otherWs = await workspaceHelpers.ensureWorkspace("user_2");
+
+    const [thread] = await testDb
+      .insert(chatThreads)
+      .values({ workspaceId: ws.id, title: "hello" })
+      .returning();
+
+    const ok = await workspaceHelpers.appendMessageToThread(ws.id, {
+      threadId: thread!.id,
+      role: "user",
+      content: "hi",
+    });
+    expect(ok?.content).toBe("hi");
+
+    const crossTenant = await workspaceHelpers.appendMessageToThread(
+      otherWs.id,
+      {
+        threadId: thread!.id,
+        role: "user",
+        content: "should fail",
+      },
+    );
+    expect(crossTenant).toBeNull();
+
+    const rows = await testDb
+      .select()
+      .from(chatMessages)
+      .where(eq(chatMessages.threadId, thread!.id));
+    expect(rows.length).toBe(1);
+    expect(rows[0]!.content).toBe("hi");
+  });
+
+  it("appendMessageToThread bumps thread.updated_at", async () => {
+    const ws = await workspaceHelpers.ensureWorkspace("user_1");
+    const [thread] = await testDb
+      .insert(chatThreads)
+      .values({ workspaceId: ws.id, title: "bump me" })
+      .returning();
+
+    const originalUpdated = thread!.updatedAt;
+    // Force a new monotonic timestamp since updated_at defaults to now()
+    await new Promise((r) => setTimeout(r, 10));
+
+    await workspaceHelpers.appendMessageToThread(ws.id, {
+      threadId: thread!.id,
+      role: "user",
+      content: "touch",
+    });
+
+    const [reloaded] = await testDb
+      .select()
+      .from(chatThreads)
+      .where(eq(chatThreads.id, thread!.id));
+    expect(reloaded!.updatedAt.getTime()).toBeGreaterThan(
+      originalUpdated.getTime(),
+    );
+  });
+
+  it("appendMessageToThread strips retrieval content from persisted citations", async () => {
+    const ws = await workspaceHelpers.ensureWorkspace("user_1");
+    const [thread] = await testDb
+      .insert(chatThreads)
+      .values({ workspaceId: ws.id, title: "citations" })
+      .returning();
+
+    const inserted = await workspaceHelpers.appendMessageToThread(ws.id, {
+      threadId: thread!.id,
+      role: "assistant",
+      content: "The answer is grounded.",
+      citations: [
+        {
+          content: "source chunk text must never be persisted",
+          chunkType: "text",
+          score: 0.91,
+          assetUrl: "https://assets.example/doc.pdf",
+          source: {
+            documentId: "doc_123",
+            sourceFileName: "doc.pdf",
+            sectionPath: "1. Introduction",
+          },
+        },
+      ],
+    });
+
+    expect(inserted).not.toBeNull();
+
+    const [message] = await testDb
+      .select()
+      .from(chatMessages)
+      .where(eq(chatMessages.id, inserted!.id));
+    const [citation] = message!.citations as Array<Record<string, unknown>>;
+    expect(citation).not.toHaveProperty("content");
+    expect(citation).toMatchObject({
+      chunkType: "text",
+      score: 0.91,
+      assetUrl: "https://assets.example/doc.pdf",
+      source: {
+        documentId: "doc_123",
+        sourceFileName: "doc.pdf",
+        sectionPath: "1. Introduction",
+      },
+    });
+  });
+
+  it("soft-deleted threads don't cascade delete their messages", async () => {
+    const ws = await workspaceHelpers.ensureWorkspace("user_1");
+    const [thread] = await testDb
+      .insert(chatThreads)
+      .values({ workspaceId: ws.id })
+      .returning();
+    await testDb
+      .insert(chatMessages)
+      .values({ threadId: thread!.id, role: "user", content: "kept" });
+
+    const ok = await workspaceHelpers.softDeleteChatThread(ws.id, thread!.id);
+    expect(ok).toBe(true);
+
+    const rows = await testDb
+      .select()
+      .from(chatMessages)
+      .where(eq(chatMessages.threadId, thread!.id));
+    expect(rows.length).toBe(1);
+    expect(rows[0]!.content).toBe("kept");
+  });
+
+  it("partial index: soft-deleted sources don't count against the sidebar list", async () => {
+    const ws = await workspaceHelpers.ensureWorkspace("user_1");
+    await testDb.insert(sources).values([
+      {
+        workspaceId: ws.id,
+        title: "live.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 1,
+        status: "ready",
+      },
+      {
+        workspaceId: ws.id,
+        title: "deleted.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 1,
+        status: "ready",
+        deletedAt: new Date(),
+      },
+    ]);
+
+    // Emulating the sidebar's hot read: workspace scoped, soft-delete
+    // hidden. The partial index covers this exact predicate.
+    const live = await testDb
+      .select()
+      .from(sources)
+      .where(and(eq(sources.workspaceId, ws.id), isNull(sources.deletedAt)));
+    expect(live.length).toBe(1);
+    expect(live[0]!.title).toBe("live.pdf");
+  });
+});

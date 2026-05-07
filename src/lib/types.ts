@@ -48,6 +48,13 @@ export type RetrievalResultView = {
   };
 };
 
+/**
+ * Persisted chat citation metadata. This deliberately excludes
+ * `RetrievalResultView.content` so Notebook never stores source chunk text in
+ * Postgres; full chunks stay upstream in Knowhere and are fetched on demand.
+ */
+export type CitationView = Omit<RetrievalResultView, "content">;
+
 export type SourceStatus = "uploading" | "parsing" | "ready" | "failed";
 
 /**

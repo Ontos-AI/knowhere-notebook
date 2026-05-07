@@ -1,7 +1,7 @@
 import "server-only";
 
-import { neon } from "@neondatabase/serverless";
-import { drizzle as drizzleNeon } from "drizzle-orm/neon-http";
+import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
+import { drizzle as drizzleNeon, type NeonHttpDatabase } from "drizzle-orm/neon-http";
 import { drizzle as drizzlePg } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 
@@ -23,6 +23,12 @@ import * as schema from "./schema";
  * The Drizzle schema is identical for both drivers, so the only real
  * difference is the wire protocol. Switching to AWS Aurora Postgres is a
  * `DATABASE_DRIVER=pg` + `DATABASE_URL` swap — no code change.
+ *
+ * Type strategy: we expose `db` as the Neon-HTTP Drizzle type (the prod
+ * driver). postgres-js implements the same Drizzle query builder API, so
+ * under the hood the two clients are interchangeable at runtime; we just
+ * cast the postgres-js branch at the boundary so call sites get consistent
+ * types regardless of which driver is active.
  */
 
 const url = process.env.DATABASE_URL;
@@ -35,17 +41,22 @@ if (!url) {
 
 const driver = (process.env.DATABASE_DRIVER ?? "neon").toLowerCase();
 
-function makeDb() {
+type Schema = typeof schema;
+export type Db = NeonHttpDatabase<Schema>;
+
+function makeDb(): Db {
   if (driver === "pg") {
-    return drizzlePg(postgres(url!, { prepare: false }), { schema });
+    return drizzlePg(postgres(url!, { prepare: false }), {
+      schema,
+    }) as unknown as Db;
   }
   if (driver === "neon") {
-    return drizzleNeon(neon(url!), { schema });
+    const client = neon(url!) as NeonQueryFunction<false, false>;
+    return drizzleNeon(client, { schema });
   }
   throw new Error(
     `DATABASE_DRIVER must be "neon" (default) or "pg"; got ${JSON.stringify(driver)}.`,
   );
 }
 
-export const db = makeDb();
-export type Db = typeof db;
+export const db: Db = makeDb();
