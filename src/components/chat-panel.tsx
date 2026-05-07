@@ -51,7 +51,7 @@ export function ChatPanel({
           Knowhere Assistant
         </h2>
         <p className="mt-0.5 text-xs text-muted-foreground">
-          Referencing{" "}
+          Using{" "}
           <span className="font-semibold text-foreground">
             {sourceCount} {sourceCount === 1 ? "Source" : "Sources"}
           </span>
@@ -128,7 +128,7 @@ function EmptyChat({ disabled }: { disabled: boolean }) {
       <p className="text-[13px] leading-relaxed text-muted-foreground">
         {disabled
           ? "Upload a document to start asking questions."
-          : "Ask anything about your sources. Answers are grounded in your content and cited."}
+          : "Ask anything about your sources. Answers include source links when Notebook finds support."}
       </p>
     </div>
   );
@@ -158,7 +158,7 @@ function MessageBubble({
         {message.citations && message.citations.length > 0 && (
           <div className="mt-3 border-t border-border pt-2.5">
             <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-              Citations
+              Sources used
             </p>
             <div className="flex flex-wrap gap-1.5">
               {message.citations.map((cite, i) => (

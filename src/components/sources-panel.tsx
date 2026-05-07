@@ -61,7 +61,7 @@ export function SourcesPanel({
       <ScrollArea className="flex-1">
         <div className="px-4 py-4">
           <h3 className="mb-3 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
-            Indexed Sources
+            Sources
           </h3>
 
           {sources.length === 0 ? (
@@ -133,10 +133,10 @@ function UploadDialog({
       </Button>
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
-          <DialogTitle>Add Document Source</DialogTitle>
+          <DialogTitle>Add source</DialogTitle>
           <DialogDescription>
-            Upload documents to your workspace to initiate parsing and indexing.
-            We support PDF, DOCX, TXT, MD, and PPTX up to 25MB.
+            Add a document to your notebook. Notebook accepts PDF, DOCX, TXT,
+            MD, and PPTX files up to 25 MB.
           </DialogDescription>
         </DialogHeader>
         <form action={formAction} className="grid gap-4">
@@ -152,7 +152,7 @@ function UploadDialog({
                     Uploading document…
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    The file is handed to Knowhere, then removed from Notebook.
+                    Notebook is preparing your document for questions.
                   </p>
                 </div>
               </div>
@@ -221,10 +221,10 @@ function EmptySourcesState() {
         <Database className="size-5" />
       </div>
       <p className="text-xs font-semibold text-foreground">
-        No indexed sources available.
+        No sources yet.
       </p>
       <p className="mt-1 max-w-[180px] text-[11px] text-muted-foreground">
-        Upload a document to initiate parsing and enable questions.
+        Upload a document to read its content sections and ask questions.
       </p>
     </div>
   );
@@ -248,9 +248,7 @@ function SourceRow({
   const iconBg = fileIconTint(source.title);
 
   return (
-    <button
-      type="button"
-      onClick={onSelect}
+    <div
       className={`flex w-full items-center gap-2.5 rounded-md border p-2 text-left transition-colors ${
         isSelected
           ? "border-border bg-muted/60 shadow-sm"
@@ -267,15 +265,21 @@ function SourceRow({
           onCheckedChange={(checked) =>
             onToggleIncluded?.(source.id, checked === true)
           }
-          aria-label={`Include ${source.title} in chat`}
+          aria-label={`Use ${source.title} in answers`}
         />
       </div>
-      <div
-        className={`flex size-8 shrink-0 items-center justify-center rounded ${iconBg.bg} ${iconBg.fg}`}
+      <button
+        type="button"
+        onClick={onSelect}
+        className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
+        aria-label={`Open ${source.title} content sections`}
       >
-        <FileText className="size-4" />
-      </div>
-      <div className="min-w-0 overflow-hidden">
+        <div
+          className={`flex size-8 shrink-0 items-center justify-center rounded ${iconBg.bg} ${iconBg.fg}`}
+        >
+          <FileText className="size-4" />
+        </div>
+        <div className="min-w-0 overflow-hidden">
         <p className="truncate text-sm font-medium text-foreground">
           {source.title}
         </p>
@@ -293,13 +297,14 @@ function SourceRow({
           {isReady
             ? `Processed · ${source.chunkCount ?? 0} sections`
             : source.status === "parsing"
-            ? "Processing"
+            ? "Preparing"
             : source.status === "uploading"
             ? "Uploading"
             : "Failed"}
         </p>
-      </div>
-    </button>
+        </div>
+      </button>
+    </div>
   );
 }
 
