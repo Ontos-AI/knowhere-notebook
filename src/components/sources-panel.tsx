@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useActionState, useEffect, useId, useRef, useState } from "react";
 import { Plus, Upload, FileText, Database } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -11,7 +11,6 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import type { SourceView } from "@/lib/types";
 import type { UploadSourceActionState } from "@/app/actions";
@@ -97,6 +96,7 @@ function UploadDialog({
   onSourceUploaded?: (source: SourceView) => void;
   uploadAction?: SourcesPanelProps["uploadAction"];
 }) {
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [state, formAction, isUploading] = useActionState(
     uploadAction ?? disabledUploadAction,
     { ok: true, message: null },
@@ -104,6 +104,7 @@ function UploadDialog({
   const inputRef = useRef<HTMLInputElement>(null);
   const lastUploadedSourceIdRef = useRef<string | null>(null);
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
+  const fileInputId = useId();
 
   useEffect(() => {
     if (state.ok) {
@@ -116,19 +117,20 @@ function UploadDialog({
     ) {
       lastUploadedSourceIdRef.current = state.source.id;
       onSourceUploaded?.(state.source);
+      setIsDialogOpen(false);
     }
   }, [state, onSourceUploaded]);
 
   return (
-    <Dialog>
-      <DialogTrigger
-        render={
-          <Button className="flex w-full items-center justify-center gap-2 shadow-sm" />
-        }
+    <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+      <Button
+        type="button"
+        onClick={() => setIsDialogOpen(true)}
+        className="flex w-full items-center justify-center gap-2 shadow-sm"
       >
         <Plus className="size-4" />
         Upload Document
-      </DialogTrigger>
+      </Button>
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
           <DialogTitle>Add Document Source</DialogTitle>
@@ -139,6 +141,7 @@ function UploadDialog({
         </DialogHeader>
         <form action={formAction} className="grid gap-4">
           <label
+            htmlFor={fileInputId}
             className="flex min-h-[200px] cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-border bg-muted/40 p-8 text-center transition-colors hover:border-primary/50 hover:bg-muted"
           >
             {isUploading ? (
@@ -172,6 +175,7 @@ function UploadDialog({
               </>
             )}
             <input
+              id={fileInputId}
               ref={inputRef}
               name="file"
               type="file"
