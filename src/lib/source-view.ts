@@ -1,5 +1,14 @@
+import { Schema } from "effect";
+
 import type { Source } from "./schema";
 import type { SourceView } from "./types";
+
+const SourceStatus = Schema.Literal(
+  "uploading",
+  "parsing",
+  "ready",
+  "failed",
+)
 
 export function toSourceView(
   source: Source,
@@ -15,13 +24,7 @@ export function toSourceView(
 }
 
 function toSourceStatus(status: string): SourceView["status"] {
-  if (
-    status === "uploading" ||
-    status === "parsing" ||
-    status === "ready" ||
-    status === "failed"
-  ) {
-    return status;
-  }
-  return "failed";
+  const result = Schema.decodeUnknownEither(SourceStatus)(status)
+  if (result._tag === "Right") return result.right
+  return "failed"
 }

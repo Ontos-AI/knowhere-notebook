@@ -1,11 +1,12 @@
-import "server-only";
+import "server-only"
 
-import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
-import { drizzle as drizzleNeon, type NeonHttpDatabase } from "drizzle-orm/neon-http";
-import { drizzle as drizzlePg } from "drizzle-orm/postgres-js";
-import postgres from "postgres";
+import { neon, type NeonQueryFunction } from "@neondatabase/serverless"
+import { drizzle as drizzleNeon, type NeonHttpDatabase } from "drizzle-orm/neon-http"
+import { drizzle as drizzlePg } from "drizzle-orm/postgres-js"
+import postgres from "postgres"
+import { Context, Effect, Layer } from "effect"
 
-import * as schema from "./schema";
+import * as schema from "./schema"
 
 /**
  * Server-side Drizzle client for Postgres.
@@ -19,44 +20,52 @@ import * as schema from "./schema";
  *     for a Docker Postgres / any non-Neon host in local dev or CI.
  *   - Default (`neon`) uses the Neon serverless HTTP driver. Required in
  *     Vercel prod where we target Neon via the Marketplace integration.
- *
- * The Drizzle schema is identical for both drivers, so the only real
- * difference is the wire protocol. Switching to AWS Aurora Postgres is a
- * `DATABASE_DRIVER=pg` + `DATABASE_URL` swap — no code change.
- *
- * Type strategy: we expose `db` as the Neon-HTTP Drizzle type (the prod
- * driver). postgres-js implements the same Drizzle query builder API, so
- * under the hood the two clients are interchangeable at runtime; we just
- * cast the postgres-js branch at the boundary so call sites get consistent
- * types regardless of which driver is active.
  */
 
-const url = process.env.DATABASE_URL;
-if (!url) {
-  throw new Error(
-    "DATABASE_URL is required. Set it in .env.local (local dev) or the " +
-      "Vercel project env (prod).",
-  );
-}
+type Schema = typeof schema
+export type Db = NeonHttpDatabase<Schema>
 
-const driver = (process.env.DATABASE_DRIVER ?? "neon").toLowerCase();
+/**
+ * Effect service tag for the Drizzle database client.
+ * Use `yield* DbClient` in Effect code; provide `dbLayer` at the boundary.
+ */
+export class DbClient extends Context.Tag("@knowhere/DbClient")<
+  DbClient,
+  Db
+>() {}
 
-type Schema = typeof schema;
-export type Db = NeonHttpDatabase<Schema>;
+/** Production database layer backed by DATABASE_URL. */
+export const dbLayer = Layer.sync(DbClient, () => makeDb())
+
+// ---- internals ---------------------------------------------------------
 
 function makeDb(): Db {
+  const url = process.env.DATABASE_URL
+  if (!url) {
+    throw new Error(
+      "DATABASE_URL is required. Set it in .env.local (local dev) or the " +
+        "Vercel project env (prod).",
+    )
+  }
+
+  const driver = (process.env.DATABASE_DRIVER ?? "neon").toLowerCase()
+
   if (driver === "pg") {
-    return drizzlePg(postgres(url!, { prepare: false }), {
+    return drizzlePg(postgres(url, { prepare: false }), {
       schema,
-    }) as unknown as Db;
+    }) as unknown as Db
   }
   if (driver === "neon") {
-    const client = neon(url!) as NeonQueryFunction<false, false>;
-    return drizzleNeon(client, { schema });
+    const client = neon(url) as NeonQueryFunction<false, false>
+    return drizzleNeon(client, { schema })
   }
   throw new Error(
     `DATABASE_DRIVER must be "neon" (default) or "pg"; got ${JSON.stringify(driver)}.`,
-  );
+  )
 }
 
-export const db: Db = makeDb();
+/**
+ * Legacy singleton for non-Effect callers.
+ * Prefer `yield* DbClient` in Effect code; provide `dbLayer` at the boundary.
+ */
+export const db: Db = makeDb()

@@ -2,10 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 
+import { Effect } from "effect";
+
 import { requireUser } from "@/lib/auth";
-import { getKnowhereClient } from "@/lib/knowhere";
+import { KnowhereClient, knowhereClientLayer } from "@/lib/knowhere";
 import { toSourceView } from "@/lib/source-view";
-import { localTempFiles } from "@/lib/temp-files";
 import { uploadSourceToKnowhere } from "@/lib/source-upload";
 import {
   createUploadingSource,
@@ -47,8 +48,9 @@ export async function uploadSourceAction(
           return source;
         },
       },
-      knowhere: getKnowhereClient(),
-      tempFiles: localTempFiles,
+      knowhere: await Effect.runPromise(
+        KnowhereClient.pipe(Effect.provide(knowhereClientLayer)),
+      ),
     });
     revalidatePath("/");
     return { ok: true, message: null, source: toSourceView(source) };

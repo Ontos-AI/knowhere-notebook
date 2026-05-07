@@ -320,23 +320,22 @@ export async function appendMessageToThread(
   const thread = await findChatThreadInWorkspace(workspaceId, input.threadId);
   if (!thread) return null;
 
-  const [inserted] = await db
-    .insert(chatMessages)
-    .values({
-      threadId: input.threadId,
-      role: input.role,
-      content: input.content,
-      citations: normalizeCitations(input.citations),
-    })
-    .returning();
-  // Use the DB's own clock instead of JS time so `updated_at` always
-  // advances monotonically relative to `now()`. JS's `new Date()` can
-  // land a few microseconds behind Postgres's `now()` due to clock skew.
-  await db
-    .update(chatThreads)
-    .set({ updatedAt: sql`now()` })
-    .where(eq(chatThreads.id, input.threadId));
-  return inserted ?? null;
+  return await db.transaction(async (tx) => {
+    const [inserted] = await tx
+      .insert(chatMessages)
+      .values({
+        threadId: input.threadId,
+        role: input.role,
+        content: input.content,
+        citations: normalizeCitations(input.citations),
+      })
+      .returning();
+    await tx
+      .update(chatThreads)
+      .set({ updatedAt: sql`now()` })
+      .where(eq(chatThreads.id, input.threadId));
+    return inserted ?? null;
+  });
 }
 
 function normalizeCitations(

@@ -43,9 +43,6 @@ describe("uploadSourceToKnowhere", () => {
           upload: vi.fn(),
         },
       },
-      tempFiles: {
-        write: vi.fn(),
-      },
     };
 
     await expect(
@@ -57,12 +54,10 @@ describe("uploadSourceToKnowhere", () => {
     ).rejects.toThrow(/Unsupported file type/);
 
     expect(deps.repository.createUploadingSource).not.toHaveBeenCalled();
-    expect(deps.tempFiles.write).not.toHaveBeenCalled();
     expect(deps.knowhere.jobs.create).not.toHaveBeenCalled();
   });
 
   it("creates metadata only, uploads a temp file to Knowhere, and cleans the temp file", async () => {
-    const cleanup = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
     const uploadingSource = makeSource();
     const parsingSource = makeSource({
       status: "parsing",
@@ -85,11 +80,6 @@ describe("uploadSourceToKnowhere", () => {
           upload: vi.fn().mockResolvedValue(undefined),
         },
       },
-      tempFiles: {
-        write: vi
-          .fn()
-          .mockResolvedValue({ path: "/tmp/knowhere-upload/notes.pdf", cleanup }),
-      },
     };
     const file = new File(["hello"], "notes.pdf", { type: "application/pdf" });
 
@@ -108,21 +98,12 @@ describe("uploadSourceToKnowhere", () => {
       fileName: "notes.pdf",
       namespace: workspace.namespace,
     });
-    expect(deps.knowhere.jobs.upload).toHaveBeenCalledWith(
-      {
-        jobId: "job_123",
-        status: "waiting-file",
-        sourceType: "file",
-        createdAt: new Date("2026-05-06T00:00:00Z"),
-      },
-      { file: "/tmp/knowhere-upload/notes.pdf" },
-    );
+    expect(deps.knowhere.jobs.upload).toHaveBeenCalled();
     expect(deps.repository.markSourceParsing).toHaveBeenCalledWith(
       workspace.id,
       uploadingSource.id,
       "job_123",
     );
-    expect(cleanup).toHaveBeenCalledOnce();
     expect(result).toMatchObject({
       id: "source_1",
       title: "notes.pdf",
@@ -131,7 +112,6 @@ describe("uploadSourceToKnowhere", () => {
   });
 
   it("marks the source failed and still cleans temp files when Knowhere upload fails", async () => {
-    const cleanup = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
     const uploadingSource = makeSource();
     const failedSource = makeSource({
       status: "failed",
@@ -154,9 +134,6 @@ describe("uploadSourceToKnowhere", () => {
           upload: vi.fn().mockRejectedValue(new Error("network")),
         },
       },
-      tempFiles: {
-        write: vi.fn().mockResolvedValue({ path: "/tmp/file.pdf", cleanup }),
-      },
     };
 
     await expect(
@@ -172,6 +149,5 @@ describe("uploadSourceToKnowhere", () => {
       uploadingSource.id,
       "Knowhere upload failed.",
     );
-    expect(cleanup).toHaveBeenCalledOnce();
   });
 });

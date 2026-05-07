@@ -44,13 +44,19 @@ async function loadReconcile({
     markSourceFailed,
     markSourceReady,
   }));
-  vi.doMock("./knowhere", () => ({
-    getKnowhereClient: () => ({
-      jobs: {
-        get: jobsGet,
-      },
-    }),
-  }));
+  vi.doMock("./knowhere", () => {
+    const { Context, Layer } = require("effect");
+    const tag = Context.GenericTag<unknown>("@knowhere/KnowhereClient");
+    return {
+      KnowhereClient: tag,
+      knowhereClientLayer: Layer.succeed(tag, {
+        jobs: { get: jobsGet },
+      }),
+      getKnowhereClient: () => ({
+        jobs: { get: jobsGet },
+      }),
+    };
+  });
   return await import("./source-reconcile");
 }
 

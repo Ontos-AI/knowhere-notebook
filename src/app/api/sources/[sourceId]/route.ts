@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { Effect, Schema } from "effect";
 
 import { requireUser } from "@/lib/auth";
-import { Effect } from "effect";
 import { KnowhereClient, knowhereClientLayer } from "@/lib/knowhere";
 import { ensureWorkspace, findSourceInWorkspace, softDeleteSource } from "@/lib/workspace";
 
@@ -10,6 +10,10 @@ type RouteContext = {
     sourceId: string;
   }>;
 };
+
+const ArchiveRequest = Schema.Struct({
+  archived: Schema.Literal(true),
+})
 
 export async function PATCH(
   request: NextRequest,
@@ -29,11 +33,7 @@ export async function PATCH(
     );
   }
 
-  if (
-    typeof body !== "object" ||
-    body === null ||
-    (body as Record<string, unknown>).archived !== true
-  ) {
+  if (Schema.decodeUnknownEither(ArchiveRequest)(body)._tag === "Left") {
     return NextResponse.json(
       { message: "Request body must include `archived: true`." },
       { status: 400 },

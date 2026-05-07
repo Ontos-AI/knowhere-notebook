@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { Context, Layer } from "effect";
+
 import type { Source } from "./schema";
 
 function makeSource(overrides: Partial<Source>): Source {
@@ -24,11 +26,14 @@ async function loadSourceCounts(
   listChunks: ReturnType<typeof vi.fn>,
 ): Promise<typeof import("./source-counts")> {
   vi.resetModules();
+  const tag = Context.GenericTag<unknown>("@knowhere/KnowhereClient");
   vi.doMock("./knowhere", () => ({
+    KnowhereClient: tag,
+    knowhereClientLayer: Layer.succeed(tag, {
+      documents: { listChunks },
+    }),
     getKnowhereClient: () => ({
-      documents: {
-        listChunks,
-      },
+      documents: { listChunks },
     }),
   }));
   return await import("./source-counts");
