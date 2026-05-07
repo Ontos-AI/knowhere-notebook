@@ -165,6 +165,25 @@ export function WorkspaceShell({
     );
   }
 
+  async function handleArchiveSource(sourceId: string) {
+    const response = await fetch(
+      `/api/sources/${encodeURIComponent(sourceId)}`,
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ archived: true }),
+      },
+    );
+    if (response.ok) {
+      setSources((current) =>
+        current.filter((source) => source.id !== sourceId),
+      );
+      setSelectedSourceId((current) =>
+        current === sourceId ? null : current,
+      );
+    }
+  }
+
   function handleSourceSelected(sourceId: string | null) {
     setSelectedSourceId(sourceId);
     setFocusedChunkId(null);
@@ -256,6 +275,7 @@ export function WorkspaceShell({
             handleSourceSelected(id);
           }}
           onToggleIncluded={handleToggleIncluded}
+          onArchiveSource={handleArchiveSource}
           uploadAction={uploadAction}
         />
         {showParsed && (

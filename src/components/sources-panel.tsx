@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useId, useRef, useState } from "react";
-import { Plus, Upload, FileText, Database } from "lucide-react";
+import { Plus, Upload, FileText, Database, Archive } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -21,6 +21,7 @@ export type SourcesPanelProps = {
   selectedSourceId?: string | null;
   onSelectSource?: (sourceId: string | null) => void;
   onToggleIncluded?: (sourceId: string, included: boolean) => void;
+  onArchiveSource?: (sourceId: string) => void;
   uploadAction?: (
     state: UploadSourceActionState,
     formData: FormData,
@@ -44,10 +45,23 @@ export function SourcesPanel({
   selectedSourceId = null,
   onSelectSource,
   onToggleIncluded,
+  onArchiveSource,
   uploadAction,
 }: Partial<SourcesPanelProps> = {}) {
+  const [confirmSourceId, setConfirmSourceId] = useState<string | null>(null);
+
   return (
     <aside className="z-10 flex w-[260px] shrink-0 flex-col border-r border-border bg-background lg:w-[320px]">
+      {confirmSourceId && (
+        <ConfirmArchiveDialog
+          source={sources.find((s) => s.id === confirmSourceId) ?? null}
+          onCancel={() => setConfirmSourceId(null)}
+          onConfirm={() => {
+            onArchiveSource?.(confirmSourceId);
+            setConfirmSourceId(null);
+          }}
+        />
+      )}
       <div className="border-b border-border p-4">
         {uploadAction ? (
           <UploadDialog
@@ -79,6 +93,7 @@ export function SourcesPanel({
                     )
                   }
                   onToggleIncluded={onToggleIncluded}
+                  onArchiveClick={setConfirmSourceId}
                 />
               ))}
             </div>
@@ -214,6 +229,39 @@ async function disabledUploadAction(): Promise<UploadSourceActionState> {
   };
 }
 
+function ConfirmArchiveDialog({
+  source,
+  onCancel,
+  onConfirm,
+}: {
+  source: SourceView | null;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <Dialog open={source !== null} onOpenChange={onCancel}>
+      <DialogContent className="sm:max-w-[400px]">
+        <DialogHeader>
+          <DialogTitle>Delete document</DialogTitle>
+          <DialogDescription>
+            {source
+              ? `Delete "${source.title}"? This removes the document from your notebook.`
+              : "Delete this document? This removes the document from your notebook."}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex justify-end gap-3">
+          <Button variant="outline" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button variant="destructive" onClick={onConfirm}>
+            Delete
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function EmptySourcesState() {
   return (
     <div className="flex flex-col items-center justify-center px-4 py-10 text-center">
@@ -235,11 +283,13 @@ function SourceRow({
   isSelected,
   onSelect,
   onToggleIncluded,
+  onArchiveClick,
 }: {
   source: SourceView;
   isSelected: boolean;
   onSelect: () => void;
   onToggleIncluded?: (sourceId: string, included: boolean) => void;
+  onArchiveClick?: (sourceId: string) => void;
 }) {
   const isReady = source.status === "ready";
   const isBusy = source.status === "uploading" || source.status === "parsing";
@@ -304,6 +354,19 @@ function SourceRow({
         </p>
         </div>
       </button>
+      {(isReady || isFailed) && onArchiveClick && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onArchiveClick(source.id);
+          }}
+          className="ml-auto shrink-0 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+          aria-label={`Delete ${source.title}`}
+        >
+          <Archive className="size-3.5" />
+        </button>
+      )}
     </div>
   );
 }
