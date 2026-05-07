@@ -9,13 +9,13 @@
  * Change CHAT_MODEL here (or via env) when we want to try a different model.
  */
 
-export const CHAT_MODEL = process.env.CHAT_MODEL ?? "deepseek/deepseek-v4-flash";
+export const CHAT_MODEL = process.env.CHAT_MODEL ?? "deepseek/deepseek-v4-flash"
 
 export function assertAIGatewayConfigured(): void {
   if (!process.env.AI_GATEWAY_API_KEY) {
     throw new Error(
       "AI_GATEWAY_API_KEY environment variable is required. " +
-        "Set it in your .env.local file."
-    );
+        "Set it in your .env.local file.",
+    )
   }
 }
