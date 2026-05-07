@@ -6,21 +6,14 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import type { RetrievalResultView } from "@/lib/types";
+import type { ChatCitationView, ChatMessageView } from "@/lib/types";
 
 const CHAT_COMPOSER_ID = "chat-composer";
-
-export type ChatMessageView = {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  citations?: RetrievalResultView[];
-};
 
 export type ChatPanelProps = {
   messages: ChatMessageView[];
   onSend?: (text: string) => void;
-  onCitationClick?: (citation: RetrievalResultView) => void;
+  onCitationClick?: (citation: ChatCitationView) => void;
   sourceCount?: number;
   isSending?: boolean;
   isDisabled?: boolean;
@@ -146,7 +139,7 @@ function MessageBubble({
   onCitationClick,
 }: {
   message: ChatMessageView;
-  onCitationClick?: (citation: RetrievalResultView) => void;
+  onCitationClick?: (citation: ChatCitationView) => void;
 }) {
   if (message.role === "user") {
     return (

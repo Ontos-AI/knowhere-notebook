@@ -5,13 +5,26 @@ import { TopNav } from "@/components/top-nav";
 import { SourcesPanel } from "@/components/sources-panel";
 import { ChunksPanel } from "@/components/chunks-panel";
 import { ChatPanel } from "@/components/chat-panel";
-import type { ParsedChunkView, SourceView } from "@/lib/types";
+import { resolveCitationChunk } from "@/lib/chunks";
+import type {
+  ChatCitationView,
+  ChatMessageView,
+  ParsedChunkView,
+  SourceView,
+} from "@/lib/types";
 import type { UploadSourceActionState } from "@/app/actions";
 
 type ChunkLoadState = {
   sourceId: string | null;
   chunks: ParsedChunkView[];
   isLoading: boolean;
+};
+
+type ChatState = {
+  threadId: string | null;
+  messages: ChatMessageView[];
+  isSending: boolean;
+  error: string | null;
 };
 
 export type WorkspaceShellProps = {
@@ -51,6 +64,12 @@ export function WorkspaceShell({
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
   const [focusedChunkId, setFocusedChunkId] = useState<string | null>(null);
   const [sources, setSources] = useState(initialSources);
+  const [chat, setChat] = useState<ChatState>({
+    threadId: null,
+    messages: [],
+    isSending: false,
+    error: null,
+  });
   const [chunkLoad, setChunkLoad] = useState<ChunkLoadState>({
     sourceId: null,
     chunks: [],
@@ -69,9 +88,10 @@ export function WorkspaceShell({
         if (!response.ok) return;
         const body = (await response.json()) as { sources?: SourceView[] };
         if (!Array.isArray(body.sources)) return;
+        const refreshedSources = body.sources;
 
-        setSources(body.sources);
-        const selectedSource = body.sources.find(
+        setSources((current) => mergeSourceQueryState(refreshedSources, current));
+        const selectedSource = refreshedSources.find(
           (source) => source.id === selectedSourceId,
         );
         if (
@@ -135,6 +155,16 @@ export function WorkspaceShell({
     ]);
   }
 
+  function handleToggleIncluded(sourceId: string, included: boolean) {
+    setSources((current) =>
+      current.map((source) =>
+        source.id === sourceId
+          ? { ...source, excludedFromQuery: !included }
+          : source,
+      ),
+    );
+  }
+
   function handleSourceSelected(sourceId: string | null) {
     setSelectedSourceId(sourceId);
     setFocusedChunkId(null);
@@ -147,6 +177,69 @@ export function WorkspaceShell({
 
     setChunkLoad({ sourceId, chunks: [], isLoading: true });
   }
+
+  async function handleChatSend(text: string) {
+    setChat((current) => ({ ...current, isSending: true, error: null }));
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: text,
+          threadId: chat.threadId ?? undefined,
+          excludedSourceIds: sources
+            .filter((source) => source.excludedFromQuery)
+            .map((source) => source.id),
+        }),
+      });
+      const body = (await response.json()) as {
+        threadId?: string;
+        messages?: ChatMessageView[];
+        message?: string;
+      };
+      if (!response.ok || !body.threadId || !Array.isArray(body.messages)) {
+        setChat((current) => ({
+          ...current,
+          isSending: false,
+          error: body.message ?? "The assistant could not answer right now.",
+        }));
+        return;
+      }
+
+      setChat((current) => ({
+        threadId: body.threadId ?? current.threadId,
+        messages: [...current.messages, ...body.messages!],
+        isSending: false,
+        error: null,
+      }));
+    } catch {
+      setChat((current) => ({
+        ...current,
+        isSending: false,
+        error: "The assistant could not answer right now.",
+      }));
+    }
+  }
+
+  async function handleCitationClick(citation: ChatCitationView) {
+    const source = sources.find(
+      (candidate) => candidate.documentId === citation.source.documentId,
+    );
+    if (!source) return;
+
+    setSelectedSourceId(source.id);
+    setFocusedChunkId(null);
+    setChunkLoad({ sourceId: source.id, chunks: [], isLoading: true });
+
+    const chunks = await fetchChunks(source.id);
+    const focusedChunk = resolveCitationChunk(citation, chunks);
+    setChunkLoad({ sourceId: source.id, chunks, isLoading: false });
+    setFocusedChunkId(focusedChunk?.chunkId ?? null);
+  }
+
+  const readySourceCount = sources.filter(
+    (source) => source.status === "ready",
+  ).length;
 
   return (
     <div className="flex h-screen w-full flex-col overflow-hidden bg-muted/40">
@@ -162,6 +255,7 @@ export function WorkspaceShell({
           onSelectSource={(id) => {
             handleSourceSelected(id);
           }}
+          onToggleIncluded={handleToggleIncluded}
           uploadAction={uploadAction}
         />
         {showParsed && (
@@ -179,19 +273,45 @@ export function WorkspaceShell({
         )}
         {showChat && (
           <ChatPanel
-            isDisabled
-            sourceCount={
-              sources.filter((source) => source.status === "ready").length
-            }
-            onCitationClick={(cite) => {
-              setFocusedChunkId(cite.source.documentId ?? null);
-              setSelectedSourceId(null);
-            }}
+            messages={chat.messages}
+            isDisabled={readySourceCount === 0}
+            isSending={chat.isSending}
+            sourceCount={readySourceCount}
+            onSend={handleChatSend}
+            onCitationClick={handleCitationClick}
           />
         )}
       </div>
+      {chat.error && (
+        <div className="fixed bottom-4 right-4 z-50 max-w-sm rounded-lg border border-destructive/30 bg-background px-4 py-3 text-sm text-destructive shadow-lg">
+          {chat.error}
+        </div>
+      )}
     </div>
   );
+}
+
+async function fetchChunks(sourceId: string): Promise<ParsedChunkView[]> {
+  const response = await fetch(
+    `/api/sources/${encodeURIComponent(sourceId)}/chunks`,
+    { cache: "no-store" },
+  );
+  if (!response.ok) return [];
+  const body = (await response.json()) as { chunks?: ParsedChunkView[] };
+  return Array.isArray(body.chunks) ? body.chunks : [];
+}
+
+function mergeSourceQueryState(
+  nextSources: readonly SourceView[],
+  currentSources: readonly SourceView[],
+): SourceView[] {
+  const currentById = new Map(
+    currentSources.map((source) => [source.id, source.excludedFromQuery]),
+  );
+  return nextSources.map((source) => ({
+    ...source,
+    excludedFromQuery: currentById.get(source.id) ?? source.excludedFromQuery,
+  }));
 }
 
 function initialsOf(user: WorkspaceShellProps["user"]): string {
