@@ -303,4 +303,82 @@ describeIfDb("workspace helpers — integration", () => {
     expect(live.length).toBe(1);
     expect(live[0]!.title).toBe("live.pdf");
   });
+
+  it("source repository creates and lists workspace-scoped source metadata", async () => {
+    const ws = await workspaceHelpers.ensureWorkspace("user_1");
+    const otherWs = await workspaceHelpers.ensureWorkspace("user_2");
+
+    const source = await workspaceHelpers.createUploadingSource(ws.id, {
+      title: "lecture.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 2048,
+    });
+    await workspaceHelpers.createUploadingSource(otherWs.id, {
+      title: "private.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 512,
+    });
+
+    expect(source).toMatchObject({
+      workspaceId: ws.id,
+      title: "lecture.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 2048,
+      status: "uploading",
+      knowhereJobId: null,
+      knowhereDocumentId: null,
+    });
+
+    const list = await workspaceHelpers.listSourcesForWorkspace(ws.id);
+    expect(list.map((row) => row.title)).toEqual(["lecture.pdf"]);
+  });
+
+  it("source repository marks parsing, ready, and failed states in workspace scope", async () => {
+    const ws = await workspaceHelpers.ensureWorkspace("user_1");
+    const otherWs = await workspaceHelpers.ensureWorkspace("user_2");
+    const source = await workspaceHelpers.createUploadingSource(ws.id, {
+      title: "lecture.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 2048,
+    });
+
+    const wrongParsing = await workspaceHelpers.markSourceParsing(
+      otherWs.id,
+      source.id,
+      "job_wrong",
+    );
+    expect(wrongParsing).toBeNull();
+
+    const parsing = await workspaceHelpers.markSourceParsing(
+      ws.id,
+      source.id,
+      "job_123",
+    );
+    expect(parsing).toMatchObject({
+      status: "parsing",
+      knowhereJobId: "job_123",
+      failureReason: null,
+    });
+
+    const ready = await workspaceHelpers.markSourceReady(
+      ws.id,
+      source.id,
+      "doc_123",
+    );
+    expect(ready).toMatchObject({
+      status: "ready",
+      knowhereDocumentId: "doc_123",
+      failureReason: null,
+    });
+
+    const failed = await workspaceHelpers.markSourceFailed(
+      ws.id,
+      source.id,
+      "Parsing failed.",
+    );
+    expect(failed).toMatchObject({
+      status: "failed",
+      failureReason: "Parsing failed.",
+    });
+  });
 });

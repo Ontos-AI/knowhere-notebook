@@ -6,6 +6,7 @@ import Knowhere from "@ontos-ai/knowhere-sdk";
  */
 export function getKnowhereClient(): Knowhere {
   const apiKey = process.env.KNOWHERE_API_KEY;
+  const baseURL = process.env.KNOWHERE_BASE_URL;
   if (!apiKey) {
     throw new Error(
       "KNOWHERE_API_KEY environment variable is required. " +
@@ -13,5 +14,5 @@ export function getKnowhereClient(): Knowhere {
     );
   }
 
-  return new Knowhere({ apiKey });
+  return new Knowhere({ apiKey, baseURL });
 }

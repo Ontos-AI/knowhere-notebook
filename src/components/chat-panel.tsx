@@ -8,6 +8,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import type { RetrievalResultView } from "@/lib/types";
 
+const CHAT_COMPOSER_ID = "chat-composer";
+
 export type ChatMessageView = {
   id: string;
   role: "user" | "assistant";
@@ -82,6 +84,8 @@ export function ChatPanel({
       <div className="shrink-0 border-t border-border bg-background p-4">
         <div className="relative rounded-xl shadow-sm">
           <Textarea
+            id={CHAT_COMPOSER_ID}
+            name={CHAT_COMPOSER_ID}
             className="h-[84px] w-full resize-none rounded-xl bg-muted/60 p-3.5 pr-12 text-sm transition-all placeholder:text-muted-foreground focus-visible:border-primary focus-visible:ring-primary/20"
             placeholder={
               isDisabled
