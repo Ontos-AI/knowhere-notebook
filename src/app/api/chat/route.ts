@@ -3,7 +3,8 @@ import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth";
 import { generateGroundedAnswer, parseChatRequestBody } from "@/lib/chat";
 import { handleChatTurn } from "@/lib/chat-service";
-import { getKnowhereClient } from "@/lib/knowhere";
+import { Effect } from "effect";
+import { KnowhereClient, knowhereClientLayer } from "@/lib/knowhere";
 import { ensureWorkspace, listSourcesForWorkspace } from "@/lib/workspace";
 import {
   appendMessageToThread,
@@ -20,7 +21,9 @@ export async function POST(request: Request): Promise<NextResponse> {
   const user = await requireUser();
   const workspace = await ensureWorkspace(user.id);
   const sources = await listSourcesForWorkspace(workspace.id);
-  const client = getKnowhereClient();
+  const client = await Effect.runPromise(
+    KnowhereClient.pipe(Effect.provide(knowhereClientLayer)),
+  );
   const result = await handleChatTurn({
     workspace,
     sources,

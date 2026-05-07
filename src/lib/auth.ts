@@ -1,8 +1,15 @@
-import "server-only";
+import "server-only"
 
-import { cookies, headers } from "next/headers";
-import { redirect } from "next/navigation";
-import { authURLs } from "./auth-urls";
+import { cookies, headers } from "next/headers"
+import { redirect } from "next/navigation"
+import { Context, Effect, Either, Layer, Schema, Schedule } from "effect"
+import {
+  FetchHttpClient,
+  HttpClient,
+  HttpClientRequest,
+  HttpClientResponse,
+} from "@effect/platform"
+import { authURLs } from "./auth-urls"
 
 /**
  * Auth helpers for Knowhere Notebook.
@@ -21,36 +28,97 @@ import { authURLs } from "./auth-urls";
  *     leak upstream errors to the browser.
  */
 
-export type AuthUser = {
-  id: string;
-  email?: string | null;
-  name?: string | null;
-};
+// ---- Schema ---------------------------------------------------------------
 
-/**
- * Cookie names Better Auth / the Dashboard may set. If any of these is
- * present we bother asking Dashboard. If none are present, we skip the
- * roundtrip and treat the request as anonymous.
- *
- * Extendable via env `SESSION_COOKIE_NAMES` (comma-separated) if Dashboard
- * changes its cookie naming.
- */
+const AuthUserFromORPC = Schema.Struct({
+  id: Schema.String.pipe(Schema.minLength(1)),
+  email: Schema.Union(Schema.String, Schema.Null).pipe(
+    Schema.optionalWith({ default: () => null }),
+  ),
+  name: Schema.Union(Schema.String, Schema.Null).pipe(
+    Schema.optionalWith({ default: () => null }),
+  ),
+})
+
+export type AuthUser = typeof AuthUserFromORPC.Type
+
+/** oRPC response envelope: `{ json: { user: {...} } }` */
+const oRPCEnvelope = Schema.Struct({
+  json: Schema.Struct({ user: AuthUserFromORPC }),
+})
+
+// ---- Cookie names ---------------------------------------------------------
+
 const DEFAULT_SESSION_COOKIE_NAMES = [
   "better-auth.session_token",
   "__Secure-better-auth.session_token",
-];
-const DASHBOARD_SESSION_TIMEOUT_MS = 3_000;
+] as const
 
 export function sessionCookieNames(): readonly string[] {
-  const override = process.env.SESSION_COOKIE_NAMES;
-  if (override && override.trim().length > 0) {
+  const override = process.env.SESSION_COOKIE_NAMES
+  if (override !== undefined && override.trim().length > 0) {
     return override
       .split(",")
       .map((s) => s.trim())
-      .filter(Boolean);
+      .filter(Boolean)
   }
-  return DEFAULT_SESSION_COOKIE_NAMES;
+  return DEFAULT_SESSION_COOKIE_NAMES
 }
+
+// ---- Auth Service ---------------------------------------------------------
+
+export const Auth = Context.GenericTag<
+  { readonly getCurrentUser: () => Effect.Effect<AuthUser | null> }
+>("@knowhere/Auth")
+
+// ---- Auth Layer (production) ----------------------------------------------
+
+const DASHBOARD_SESSION_TIMEOUT_MS = 3_000
+
+/** Production auth layer backed by Dashboard oRPC + fetch. */
+export const authLayer = Layer.effect(
+  Auth,
+  Effect.gen(function* () {
+    const http = (yield* HttpClient.HttpClient).pipe(
+      HttpClient.filterStatusOk,
+      HttpClient.retryTransient({
+        schedule: Schedule.exponential(100),
+        times: 2,
+      }),
+    )
+
+    const getCurrentUser = Effect.fn("Auth.getCurrentUser")(function* () {
+      const url = process.env.DASHBOARD_SESSION_URL
+      if (!url) {
+        return yield* Effect.die(
+          new Error(
+            "DASHBOARD_SESSION_URL is required. Set it to the Dashboard " +
+              "users.getCurrentUser oRPC endpoint (see .env.local.example).",
+          ),
+        )
+      }
+
+      const cookieHeader =
+        (yield* Effect.promise(() => headers())).get("cookie") ?? ""
+      if (cookieHeader.length === 0) return null
+
+      return yield* HttpClientRequest.post(url).pipe(
+        HttpClientRequest.setHeader("cookie", cookieHeader),
+        HttpClientRequest.setHeader("content-type", "application/json"),
+        HttpClientRequest.bodyText("{}"),
+        http.execute,
+        Effect.flatMap(HttpClientResponse.schemaBodyJson(oRPCEnvelope)),
+        Effect.map((body) => body.json.user),
+        Effect.timeout(DASHBOARD_SESSION_TIMEOUT_MS),
+        Effect.catchAll(() => Effect.succeed(null)),
+      )
+    })
+
+    return { getCurrentUser }
+  }),
+).pipe(Layer.provide(FetchHttpClient.layer))
+
+// ---- Public API (Promise-based, for Next.js compatibility) ----------------
 
 /**
  * Server-side session lookup. Returns the authenticated user, or `null`
@@ -61,55 +129,12 @@ export function sessionCookieNames(): readonly string[] {
  * multiple times in the same request.
  */
 export async function getCurrentUser(): Promise<AuthUser | null> {
-  const url = process.env.DASHBOARD_SESSION_URL;
-  if (!url) {
-    // Missing config is a deployment error, not a runtime one. Fail loudly
-    // in server code so we catch it in staging.
-    throw new Error(
-      "DASHBOARD_SESSION_URL is required. Set it to the Dashboard " +
-        "users.getCurrentUser oRPC endpoint (see .env.local.example).",
-    );
-  }
+  const program = Effect.gen(function* () {
+    const auth = yield* Auth
+    return yield* auth.getCurrentUser()
+  }).pipe(Effect.provide(authLayer))
 
-  const requestHeaders = await headers();
-  const cookieHeader = requestHeaders.get("cookie") ?? "";
-  if (cookieHeader.length === 0) return null;
-
-  let res: Response;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => {
-    controller.abort();
-  }, DASHBOARD_SESSION_TIMEOUT_MS);
-
-  try {
-    res = await fetch(url, {
-      method: "POST",
-      headers: {
-        cookie: cookieHeader,
-        "content-type": "application/json",
-      },
-      // oRPC expects a JSON body even when the procedure takes no input.
-      body: "{}",
-      cache: "no-store",
-      redirect: "manual",
-      signal: controller.signal,
-    });
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timeout);
-  }
-
-  if (!res.ok) return null;
-
-  let body: unknown;
-  try {
-    body = await res.json();
-  } catch {
-    return null;
-  }
-
-  return extractUser(body);
+  return Effect.runPromise(program)
 }
 
 /**
@@ -120,18 +145,18 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
  * Throws a Next.js redirect; callers never see the anonymous branch.
  */
 export async function requireUser(): Promise<AuthUser> {
-  const user = await getCurrentUser();
-  if (user) return user;
+  const user = await getCurrentUser()
+  if (user !== null) return user
 
-  const loginUrl = process.env.DASHBOARD_LOGIN_URL;
+  const loginUrl = process.env.DASHBOARD_LOGIN_URL
   if (!loginUrl) {
-    throw new Error("DASHBOARD_LOGIN_URL must be set.");
+    throw new Error("DASHBOARD_LOGIN_URL must be set.")
   }
 
   const notebookUrl =
     process.env.NOTEBOOK_PUBLIC_URL ??
-    authURLs.resolveNotebookPublicURLFromHeaders(await headers());
-  redirect(authURLs.buildDashboardLoginURL(loginUrl, notebookUrl));
+    authURLs.resolveNotebookPublicURLFromHeaders(await headers())
+  redirect(authURLs.buildDashboardLoginURL(loginUrl, notebookUrl))
 }
 
 /**
@@ -141,39 +166,23 @@ export async function requireUser(): Promise<AuthUser> {
  * `getCurrentUser` / `requireUser` before trusting identity.
  */
 export async function hasSessionCookie(): Promise<boolean> {
-  const jar = await cookies();
+  const jar = await cookies()
   for (const name of sessionCookieNames()) {
-    if (jar.get(name)) return true;
+    if (jar.get(name) !== undefined) return true
   }
-  return false;
+  return false
 }
-
-// ---- internals ---------------------------------------------------------
 
 /**
  * Parse the Dashboard oRPC response envelope `{ json: { user } }`.
- * Tolerant to minor shape drift — any non-object response becomes `null`.
+ * Tolerant to minor shape drift — any non-conforming response becomes `null`.
  */
 export function extractUser(body: unknown): AuthUser | null {
-  if (!isObject(body)) return null;
-  const json = (body as Record<string, unknown>).json;
-  if (!isObject(json)) return null;
-  const user = (json as Record<string, unknown>).user;
-  if (!isObject(user)) return null;
-
-  const id = (user as Record<string, unknown>).id;
-  if (typeof id !== "string" || id.length === 0) return null;
-
-  const email = (user as Record<string, unknown>).email;
-  const name = (user as Record<string, unknown>).name;
-
-  return {
-    id,
-    email: typeof email === "string" ? email : null,
-    name: typeof name === "string" ? name : null,
-  };
-}
-
-function isObject(v: unknown): v is object {
-  return v !== null && typeof v === "object";
+  return Either.getOrElse(
+    Either.map(
+      Schema.decodeUnknownEither(oRPCEnvelope)(body),
+      (envelope) => envelope.json.user,
+    ),
+    () => null,
+  )
 }

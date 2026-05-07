@@ -1,6 +1,7 @@
 import "server-only";
 
-import { getKnowhereClient } from "./knowhere";
+import { Effect } from "effect";
+import { KnowhereClient, knowhereClientLayer } from "./knowhere";
 import type { Source } from "./schema";
 
 export async function countChunksBySourceId(
@@ -11,7 +12,9 @@ export async function countChunksBySourceId(
   );
   if (readySources.length === 0) return new Map();
 
-  const client = getKnowhereClient();
+  const client = await Effect.runPromise(
+    KnowhereClient.pipe(Effect.provide(knowhereClientLayer)),
+  );
   const entries = await Promise.all(
     readySources.map(async (source) => {
       const documentId = source.knowhereDocumentId;

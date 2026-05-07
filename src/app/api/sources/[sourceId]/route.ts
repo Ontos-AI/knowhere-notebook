@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { requireUser } from "@/lib/auth";
-import { getKnowhereClient } from "@/lib/knowhere";
+import { Effect } from "effect";
+import { KnowhereClient, knowhereClientLayer } from "@/lib/knowhere";
 import { ensureWorkspace, findSourceInWorkspace, softDeleteSource } from "@/lib/workspace";
 
 type RouteContext = {
@@ -48,7 +49,9 @@ export async function PATCH(
   }
 
   if (source.knowhereDocumentId) {
-    const client = getKnowhereClient();
+    const client = await Effect.runPromise(
+      KnowhereClient.pipe(Effect.provide(knowhereClientLayer)),
+    );
     await client.documents.archive(source.knowhereDocumentId);
   }
 

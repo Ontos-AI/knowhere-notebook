@@ -2,7 +2,8 @@ import "server-only";
 
 import type { JobResult } from "@ontos-ai/knowhere-sdk";
 
-import { getKnowhereClient } from "./knowhere";
+import { Effect } from "effect";
+import { KnowhereClient, knowhereClientLayer } from "./knowhere";
 import type { Source, Workspace } from "./schema";
 import {
   listSourcesForWorkspace,
@@ -19,7 +20,9 @@ export async function reconcileSourcesForWorkspace(
   );
   if (parsing.length === 0) return rows;
 
-  const client = getKnowhereClient();
+  const client = await Effect.runPromise(
+    KnowhereClient.pipe(Effect.provide(knowhereClientLayer)),
+  );
   await Promise.all(
     parsing.map(async (source) => {
       const jobId = source.knowhereJobId;

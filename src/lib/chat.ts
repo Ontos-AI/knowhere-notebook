@@ -1,5 +1,6 @@
 import type { RetrievalQueryParams, RetrievalResult } from "@ontos-ai/knowhere-sdk";
 import { generateText } from "ai";
+import { Either, Schema } from "effect";
 
 import { assertAIGatewayConfigured, CHAT_MODEL } from "./ai";
 import type { Source } from "./schema";
@@ -103,38 +104,42 @@ export function buildGroundedPrompt(input: {
   ].join("\n");
 }
 
+const ChatRequestBody = Schema.Struct({
+  message: Schema.String,
+  threadId: Schema.optional(Schema.String),
+  excludedSourceIds: Schema.optional(Schema.Array(Schema.Unknown)),
+})
+
 export function parseChatRequestBody(body: unknown): ParseChatRequestResult {
-  if (!isObject(body)) {
-    return {
+  return Either.match(Schema.decodeUnknownEither(ChatRequestBody)(body), {
+    onLeft: () => ({
       ok: false,
       message: "Enter a question before sending.",
-      status: 400,
-    };
-  }
-
-  const message = body.message;
-  const question = typeof message === "string" ? message.trim() : "";
-  if (question.length === 0) {
-    return {
-      ok: false,
-      message: "Enter a question before sending.",
-      status: 400,
-    };
-  }
-
-  const threadId = typeof body.threadId === "string" && body.threadId.length > 0
-    ? body.threadId
-    : undefined;
-  const excludedSourceIds = Array.isArray(body.excludedSourceIds)
-    ? body.excludedSourceIds.filter(
-        (value): value is string => typeof value === "string" && value.length > 0,
-      )
-    : [];
-
-  return {
-    ok: true,
-    value: { question, threadId, excludedSourceIds },
-  };
+      status: 400 as const,
+    }),
+    onRight: (parsed) => {
+      const question = parsed.message.trim()
+      if (question.length === 0) {
+        return {
+          ok: false,
+          message: "Enter a question before sending.",
+          status: 400 as const,
+        }
+      }
+      const excludedSourceIds = (parsed.excludedSourceIds ?? [])
+        .filter((id): id is string => typeof id === "string" && id.trim().length > 0)
+      return {
+        ok: true,
+        value: {
+          question,
+          threadId: parsed.threadId !== undefined && parsed.threadId.length > 0
+            ? parsed.threadId
+            : undefined,
+          excludedSourceIds,
+        },
+      }
+    },
+  })
 }
 
 function excludeDocuments(
@@ -148,8 +153,4 @@ function excludeDocuments(
     .filter((documentId): documentId is string => Boolean(documentId));
 
   return documentIds.length > 0 ? { excludeDocumentIds: documentIds } : {};
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object";
 }

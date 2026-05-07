@@ -2,7 +2,8 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { requireUser } from "@/lib/auth";
 import { loadChunksForSource } from "@/lib/chunks";
-import { getKnowhereClient } from "@/lib/knowhere";
+import { Effect } from "effect";
+import { KnowhereClient, knowhereClientLayer } from "@/lib/knowhere";
 import { ensureWorkspace, findSourceInWorkspace } from "@/lib/workspace";
 
 type RouteContext = {
@@ -24,6 +25,9 @@ export async function GET(
     return NextResponse.json({ message: "Source not found." }, { status: 404 });
   }
 
-  const chunks = await loadChunksForSource(source, getKnowhereClient());
+  const client = await Effect.runPromise(
+    KnowhereClient.pipe(Effect.provide(knowhereClientLayer)),
+  );
+  const chunks = await loadChunksForSource(source, client);
   return NextResponse.json({ chunks });
 }
