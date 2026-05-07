@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import { Plus, Upload, FileText, Database } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -14,13 +14,18 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import type { SourceView } from "@/lib/types";
+import type { UploadSourceActionState } from "@/app/actions";
 
 export type SourcesPanelProps = {
   sources: SourceView[];
+  onSourceUploaded?: (source: SourceView) => void;
   selectedSourceId?: string | null;
   onSelectSource?: (sourceId: string | null) => void;
   onToggleIncluded?: (sourceId: string, included: boolean) => void;
-  onUpload?: (file: File) => void;
+  uploadAction?: (
+    state: UploadSourceActionState,
+    formData: FormData,
+  ) => Promise<UploadSourceActionState>;
 };
 
 /**
@@ -36,15 +41,23 @@ export type SourcesPanelProps = {
  */
 export function SourcesPanel({
   sources = [],
+  onSourceUploaded,
   selectedSourceId = null,
   onSelectSource,
   onToggleIncluded,
-  onUpload,
+  uploadAction,
 }: Partial<SourcesPanelProps> = {}) {
   return (
     <aside className="z-10 flex w-[260px] shrink-0 flex-col border-r border-border bg-background lg:w-[320px]">
       <div className="border-b border-border p-4">
-        <UploadDialog onUpload={onUpload} />
+        {uploadAction ? (
+          <UploadDialog
+            onSourceUploaded={onSourceUploaded}
+            uploadAction={uploadAction}
+          />
+        ) : (
+          <UploadDialog />
+        )}
       </div>
       <ScrollArea className="flex-1">
         <div className="px-4 py-4">
@@ -77,8 +90,34 @@ export function SourcesPanel({
   );
 }
 
-function UploadDialog({ onUpload }: { onUpload?: (file: File) => void }) {
-  const [isUploading, setIsUploading] = useState(false);
+function UploadDialog({
+  onSourceUploaded,
+  uploadAction,
+}: {
+  onSourceUploaded?: (source: SourceView) => void;
+  uploadAction?: SourcesPanelProps["uploadAction"];
+}) {
+  const [state, formAction, isUploading] = useActionState(
+    uploadAction ?? disabledUploadAction,
+    { ok: true, message: null },
+  );
+  const inputRef = useRef<HTMLInputElement>(null);
+  const lastUploadedSourceIdRef = useRef<string | null>(null);
+  const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (state.ok) {
+      if (inputRef.current) inputRef.current.value = "";
+    }
+    if (
+      state.ok &&
+      state.source &&
+      state.source.id !== lastUploadedSourceIdRef.current
+    ) {
+      lastUploadedSourceIdRef.current = state.source.id;
+      onSourceUploaded?.(state.source);
+    }
+  }, [state, onSourceUploaded]);
 
   return (
     <Dialog>
@@ -98,49 +137,77 @@ function UploadDialog({ onUpload }: { onUpload?: (file: File) => void }) {
             We support PDF, DOCX, TXT, MD, and PPTX up to 25MB.
           </DialogDescription>
         </DialogHeader>
-        <label
-          className="flex min-h-[200px] cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-border bg-muted/40 p-8 text-center transition-colors hover:border-primary/50 hover:bg-muted"
-        >
-          {isUploading ? (
-            <div className="flex flex-col items-center gap-4">
-              <div className="size-8 animate-spin rounded-full border-4 border-primary/20 border-t-primary" />
-              <div>
+        <form action={formAction} className="grid gap-4">
+          <label
+            className="flex min-h-[200px] cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-border bg-muted/40 p-8 text-center transition-colors hover:border-primary/50 hover:bg-muted"
+          >
+            {isUploading ? (
+              <div className="flex flex-col items-center gap-4">
+                <div className="size-8 animate-spin rounded-full border-4 border-primary/20 border-t-primary" />
+                <div>
+                  <p className="text-sm font-semibold text-foreground">
+                    Uploading document…
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    The file is handed to Knowhere, then removed from Notebook.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="mb-4 flex size-12 items-center justify-center rounded-full border border-border bg-background shadow-sm">
+                  <Upload className="size-6 text-primary" />
+                </div>
                 <p className="text-sm font-semibold text-foreground">
-                  Processing Document…
+                  Click to select or drag and drop a document
                 </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  This notification will clear when parsing completes.
+                <p className="mt-2 rounded-md border border-border bg-background px-2.5 py-1 text-[11px] font-medium text-muted-foreground shadow-sm">
+                  Max size: 25 MB
                 </p>
-              </div>
-            </div>
-          ) : (
-            <>
-              <div className="mb-4 flex size-12 items-center justify-center rounded-full border border-border bg-background shadow-sm">
-                <Upload className="size-6 text-primary" />
-              </div>
-              <p className="text-sm font-semibold text-foreground">
-                Click to select or drag and drop a document
-              </p>
-              <p className="mt-2 rounded-md border border-border bg-background px-2.5 py-1 text-[11px] font-medium text-muted-foreground shadow-sm">
-                Max size: 25 MB
-              </p>
-            </>
+                {selectedFileName && (
+                  <p className="mt-3 max-w-full truncate text-xs font-medium text-foreground">
+                    Selected: {selectedFileName}
+                  </p>
+                )}
+              </>
+            )}
+            <input
+              ref={inputRef}
+              name="file"
+              type="file"
+              className="hidden"
+              accept=".pdf,.doc,.docx,.txt,.md,.ppt,.pptx"
+              disabled={isUploading}
+              onChange={(e) => {
+                setSelectedFileName(e.target.files?.[0]?.name ?? null);
+              }}
+            />
+          </label>
+          {state.message && (
+            <p
+              className={`rounded-md border px-3 py-2 text-xs ${
+                state.ok
+                  ? "border-green-200 bg-green-50 text-green-700"
+                  : "border-destructive/30 bg-destructive/10 text-destructive"
+              }`}
+            >
+              {state.message}
+            </p>
           )}
-          <input
-            type="file"
-            className="hidden"
-            accept=".pdf,.doc,.docx,.txt,.md,.ppt,.pptx"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (!file) return;
-              setIsUploading(true);
-              onUpload?.(file);
-            }}
-          />
-        </label>
+          <Button type="submit" disabled={isUploading || !uploadAction}>
+            {isUploading ? "Uploading…" : "Start upload"}
+          </Button>
+        </form>
       </DialogContent>
     </Dialog>
   );
+}
+
+async function disabledUploadAction(): Promise<UploadSourceActionState> {
+  return {
+    ok: false,
+    message: "Upload is not available yet.",
+  };
 }
 
 function EmptySourcesState() {

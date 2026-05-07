@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 
 import { db } from "./db";
 import {
@@ -92,6 +92,77 @@ export async function findSourceInWorkspace(
   return row[0] ?? null;
 }
 
+export async function listSourcesForWorkspace(
+  workspaceId: string,
+): Promise<Source[]> {
+  return await db
+    .select()
+    .from(sources)
+    .where(and(eq(sources.workspaceId, workspaceId), isNull(sources.deletedAt)))
+    .orderBy(desc(sources.createdAt));
+}
+
+export async function createUploadingSource(
+  workspaceId: string,
+  input: {
+    title: string;
+    mimeType: string;
+    sizeBytes: number;
+  },
+): Promise<Source> {
+  const [source] = await db
+    .insert(sources)
+    .values({
+      workspaceId,
+      title: input.title,
+      mimeType: input.mimeType,
+      sizeBytes: input.sizeBytes,
+      status: "uploading",
+    })
+    .returning();
+
+  if (!source) {
+    throw new Error("createUploadingSource: insert did not return a row.");
+  }
+
+  return source;
+}
+
+export async function markSourceParsing(
+  workspaceId: string,
+  sourceId: string,
+  jobId: string,
+): Promise<Source | null> {
+  return await updateSourceInWorkspace(workspaceId, sourceId, {
+    status: "parsing",
+    knowhereJobId: jobId,
+    failureReason: null,
+  });
+}
+
+export async function markSourceReady(
+  workspaceId: string,
+  sourceId: string,
+  documentId: string,
+): Promise<Source | null> {
+  return await updateSourceInWorkspace(workspaceId, sourceId, {
+    status: "ready",
+    knowhereDocumentId: documentId,
+    failureReason: null,
+  });
+}
+
+export async function markSourceFailed(
+  workspaceId: string,
+  sourceId: string,
+  reason: string,
+): Promise<Source | null> {
+  return await updateSourceInWorkspace(workspaceId, sourceId, {
+    status: "failed",
+    failureReason: reason,
+  });
+}
+
 /**
  * Fetch a chat thread by id, scoped to the given workspace, excluding
  * soft-deleted rows. Same contract as `findSourceInWorkspace`.
@@ -139,6 +210,28 @@ export async function softDeleteSource(
     )
     .returning({ id: sources.id });
   return result.length > 0;
+}
+
+async function updateSourceInWorkspace(
+  workspaceId: string,
+  sourceId: string,
+  values: Partial<Pick<
+    Source,
+    "status" | "failureReason" | "knowhereJobId" | "knowhereDocumentId"
+  >>,
+): Promise<Source | null> {
+  const [source] = await db
+    .update(sources)
+    .set({ ...values, updatedAt: sql`now()` })
+    .where(
+      and(
+        eq(sources.id, sourceId),
+        eq(sources.workspaceId, workspaceId),
+        isNull(sources.deletedAt),
+      ),
+    )
+    .returning();
+  return source ?? null;
 }
 
 /**
