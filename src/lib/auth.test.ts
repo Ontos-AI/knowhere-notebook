@@ -180,6 +180,28 @@ describe("getCurrentUser", () => {
     await expect(getCurrentUser()).resolves.toBeNull();
   });
 
+  it("aborts a slow Dashboard session lookup and returns null", async () => {
+    vi.useFakeTimers();
+    globalThis.fetch = vi.fn<typeof fetch>().mockImplementation(
+      (_input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            reject(new DOMException("Aborted", "AbortError"));
+          });
+        }),
+    );
+
+    const { getCurrentUser } = await loadWithCookie("session=x");
+    const result = getCurrentUser();
+
+    await vi.advanceTimersByTimeAsync(3_000);
+
+    await expect(result).resolves.toBeNull();
+    const [, init] = vi.mocked(globalThis.fetch).mock.calls[0]!;
+    expect((init as RequestInit).signal?.aborted).toBe(true);
+    vi.useRealTimers();
+  });
+
   it("returns null when the response body is not JSON", async () => {
     globalThis.fetch = vi
       .fn<typeof fetch>()

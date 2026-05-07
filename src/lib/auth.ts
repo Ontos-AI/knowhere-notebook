@@ -2,6 +2,7 @@ import "server-only";
 
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { authURLs } from "./auth-urls";
 
 /**
  * Auth helpers for Knowhere Notebook.
@@ -38,6 +39,7 @@ const DEFAULT_SESSION_COOKIE_NAMES = [
   "better-auth.session_token",
   "__Secure-better-auth.session_token",
 ];
+const DASHBOARD_SESSION_TIMEOUT_MS = 3_000;
 
 export function sessionCookieNames(): readonly string[] {
   const override = process.env.SESSION_COOKIE_NAMES;
@@ -69,10 +71,16 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
     );
   }
 
-  const cookieHeader = (await headers()).get("cookie") ?? "";
+  const requestHeaders = await headers();
+  const cookieHeader = requestHeaders.get("cookie") ?? "";
   if (cookieHeader.length === 0) return null;
 
   let res: Response;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => {
+    controller.abort();
+  }, DASHBOARD_SESSION_TIMEOUT_MS);
+
   try {
     res = await fetch(url, {
       method: "POST",
@@ -84,9 +92,12 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
       body: "{}",
       cache: "no-store",
       redirect: "manual",
+      signal: controller.signal,
     });
   } catch {
     return null;
+  } finally {
+    clearTimeout(timeout);
   }
 
   if (!res.ok) return null;
@@ -113,16 +124,14 @@ export async function requireUser(): Promise<AuthUser> {
   if (user) return user;
 
   const loginUrl = process.env.DASHBOARD_LOGIN_URL;
-  const notebookUrl = process.env.NOTEBOOK_PUBLIC_URL;
-  if (!loginUrl || !notebookUrl) {
-    throw new Error(
-      "DASHBOARD_LOGIN_URL and NOTEBOOK_PUBLIC_URL must both be set.",
-    );
+  if (!loginUrl) {
+    throw new Error("DASHBOARD_LOGIN_URL must be set.");
   }
 
-  const url = new URL(loginUrl);
-  url.searchParams.set("callbackURL", notebookUrl);
-  redirect(url.toString());
+  const notebookUrl =
+    process.env.NOTEBOOK_PUBLIC_URL ??
+    authURLs.resolveNotebookPublicURLFromHeaders(await headers());
+  redirect(authURLs.buildDashboardLoginURL(loginUrl, notebookUrl));
 }
 
 /**

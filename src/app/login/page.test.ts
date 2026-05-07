@@ -1,13 +1,47 @@
 // @vitest-environment jsdom
-import React from "react";
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import LoginPage from "./page";
 
 describe("LoginPage", () => {
-  it("uses account language instead of implementation details", () => {
-    const { container } = render(React.createElement(LoginPage));
+  const originalDashboardLoginURL = process.env.DASHBOARD_LOGIN_URL;
+  const originalNotebookPublicURL = process.env.NOTEBOOK_PUBLIC_URL;
+
+  beforeEach(() => {
+    process.env.DASHBOARD_LOGIN_URL = "http://localhost:3000/login";
+    process.env.NOTEBOOK_PUBLIC_URL = "http://localhost:3001";
+  });
+
+  afterEach(() => {
+    cleanup();
+
+    if (originalDashboardLoginURL === undefined) {
+      delete process.env.DASHBOARD_LOGIN_URL;
+    } else {
+      process.env.DASHBOARD_LOGIN_URL = originalDashboardLoginURL;
+    }
+
+    if (originalNotebookPublicURL === undefined) {
+      delete process.env.NOTEBOOK_PUBLIC_URL;
+    } else {
+      process.env.NOTEBOOK_PUBLIC_URL = originalNotebookPublicURL;
+    }
+  });
+
+  it("links directly to Dashboard login with the Notebook callback URL", async () => {
+    render(await LoginPage());
+
+    const link = screen.getByRole("link", { name: "Sign in" });
+
+    expect(link.getAttribute("href")).toBe(
+      "http://localhost:3000/login?callbackURL=http%3A%2F%2Flocalhost%3A3001",
+    );
+    expect(screen.queryByRole("button", { name: "Sign in" })).toBeNull();
+  });
+
+  it("uses account language instead of implementation details", async () => {
+    const { container } = render(await LoginPage());
 
     expect(screen.getByRole("link", { name: "Sign in" })).toBeTruthy();
     expect(screen.getByText("Use your Knowhere account to continue.")).toBeTruthy();

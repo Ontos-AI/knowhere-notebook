@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { authURLs } from "./lib/auth-urls";
 
 /**
  * Edge-runtime proxy (renamed from middleware.ts in Next.js 16).
@@ -54,16 +55,17 @@ export function proxy(req: NextRequest): NextResponse {
   }
 
   const loginUrl = process.env.DASHBOARD_LOGIN_URL;
-  const notebookUrl = process.env.NOTEBOOK_PUBLIC_URL;
-  if (!loginUrl || !notebookUrl) {
+  if (!loginUrl) {
     // Misconfigured deploy. Don't silently let users in — send them to
     // the /login preview so the operator notices.
     return NextResponse.redirect(new URL("/login", req.url));
   }
 
-  const redirectTo = new URL(loginUrl);
-  redirectTo.searchParams.set("callbackURL", notebookUrl);
-  return NextResponse.redirect(redirectTo);
+  const notebookUrl =
+    process.env.NOTEBOOK_PUBLIC_URL ?? new URL(req.url).origin;
+  return NextResponse.redirect(
+    authURLs.buildDashboardLoginURL(loginUrl, notebookUrl),
+  );
 }
 
 export const config = {
