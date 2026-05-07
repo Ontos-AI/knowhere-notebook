@@ -9,6 +9,7 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:integration": "TEST_DATABASE_URL=${TEST_DATABASE_URL:-postgres://postgres:postgres@127.0.0.1:55432/knowhere_notebook_e2e} vitest run src/lib/*.integration.test.ts",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
     "db:migrate": "drizzle-kit migrate",
