@@ -5,10 +5,12 @@ import { describe, expect, it } from "vitest";
 
 import { ChatPanel } from "./chat-panel";
 
+const C = ChatPanel as React.FC<Record<string, unknown>>;
+
 describe("ChatPanel", () => {
   it("explains answers in plain source-based language", () => {
     const { container } = render(
-      React.createElement(ChatPanel, {
+      React.createElement(C, {
         sourceCount: 2,
       }),
     );
@@ -20,7 +22,7 @@ describe("ChatPanel", () => {
 
   it("labels assistant evidence as sources used", () => {
     render(
-      React.createElement(ChatPanel, {
+      React.createElement(C, {
         messages: [
           {
             id: "assistant_1",

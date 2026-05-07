@@ -1,3 +1,4 @@
+import { Context, Layer } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
 import type { Source, Workspace } from "./schema";
@@ -45,7 +46,6 @@ async function loadReconcile({
     markSourceReady,
   }));
   vi.doMock("./knowhere", () => {
-    const { Context, Layer } = require("effect");
     const tag = Context.GenericTag<unknown>("@knowhere/KnowhereClient");
     return {
       KnowhereClient: tag,

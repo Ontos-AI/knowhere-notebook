@@ -4,7 +4,7 @@ import { neon, type NeonQueryFunction } from "@neondatabase/serverless"
 import { drizzle as drizzleNeon, type NeonHttpDatabase } from "drizzle-orm/neon-http"
 import { drizzle as drizzlePg } from "drizzle-orm/postgres-js"
 import postgres from "postgres"
-import { Context, Effect, Layer } from "effect"
+import { Context, Layer } from "effect"
 
 import * as schema from "./schema"
 

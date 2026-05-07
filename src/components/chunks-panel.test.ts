@@ -5,10 +5,12 @@ import { describe, expect, it } from "vitest";
 
 import { ChunksPanel } from "./chunks-panel";
 
+const C = ChunksPanel as React.FC<Record<string, unknown>>;
+
 describe("ChunksPanel", () => {
   it("uses content-section language and hides internal chunk wording", () => {
     const { container } = render(
-      React.createElement(ChunksPanel, {
+      React.createElement(C, {
         chunks: [
           {
             chunkId: "chunk_1",

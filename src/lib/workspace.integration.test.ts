@@ -274,11 +274,12 @@ describeIfDb("workspace helpers — integration", () => {
     });
 
     const messages = await workspaceHelpers.listMessagesForThread(ws.id, first.id);
-    expect(messages.map((message) => message.role)).toEqual([
+    expect(messages).not.toBeNull();
+    expect(messages!.map((message) => message.role)).toEqual([
       "user",
       "assistant",
     ]);
-    expect(messages.map((message) => message.content)).toEqual([
+    expect(messages!.map((message) => message.content)).toEqual([
       "What changed?",
       "The answer.",
     ]);

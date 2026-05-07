@@ -6,11 +6,13 @@ import { describe, expect, it, vi } from "vitest";
 
 import { SourcesPanel } from "./sources-panel";
 
+const C = SourcesPanel as React.FC<Record<string, unknown>>;
+
 describe("SourcesPanel", () => {
   it("opens the upload dialog from the sidebar trigger", async () => {
     const user = userEvent.setup();
 
-    render(React.createElement(SourcesPanel, { sources: [] }));
+    render(React.createElement(C, { sources: [] }));
 
     await user.click(screen.getByRole("button", { name: "Upload Document" }));
 
@@ -23,14 +25,14 @@ describe("SourcesPanel", () => {
   it("uses plain product language for empty and upload states", async () => {
     const user = userEvent.setup();
 
-    const { container } = render(React.createElement(SourcesPanel, { sources: [] }));
+    const { container } = render(React.createElement(C, { sources: [] }));
 
     expect(screen.getByRole("heading", { name: "Sources" })).toBeTruthy();
     expect(screen.getAllByText("No sources yet.").length).toBeGreaterThan(0);
     expect(container.textContent).not.toMatch(/indexed|indexing|parsing/i);
 
     cleanup();
-    const opened = render(React.createElement(SourcesPanel, { sources: [] }));
+    const opened = render(React.createElement(C, { sources: [] }));
     await user.click(screen.getByRole("button", { name: "Upload Document" }));
 
     expect(screen.getByText(/Notebook accepts PDF, DOCX, TXT, MD, and PPTX/)).toBeTruthy();
@@ -43,7 +45,7 @@ describe("SourcesPanel", () => {
     const onToggleIncluded = vi.fn();
 
     render(
-      React.createElement(SourcesPanel, {
+      React.createElement(C, {
         sources: [
           {
             id: "source_1",
