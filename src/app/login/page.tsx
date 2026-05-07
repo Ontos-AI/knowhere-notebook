@@ -4,13 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
 /**
- * Login gate preview for the MVP shell.
- *
- * In N-001 this page becomes an "intercept" route that redirects to the
- * Dashboard login URL (`DASHBOARD_LOGIN_URL`) with a `callbackURL`
- * parameter pointing back at `/`. Today it's a visual preview only — the
- * button is a link to `/` so suguan and Pi can click through the
- * prototype flow.
+ * Login gate preview for the MVP shell. The real auth redirect is handled by
+ * server-side guards; this page keeps direct `/login` visits user-friendly.
  */
 export default function LoginPage() {
   return (
@@ -25,11 +20,11 @@ export default function LoginPage() {
           </h1>
           <Link href="/" className="w-full">
             <Button size="lg" className="w-full rounded-xl py-6">
-              Login
+              Sign in
             </Button>
           </Link>
           <p className="mt-4 text-xs text-muted-foreground">
-            Login is handled by Knowhere Dashboard.
+            Use your Knowhere account to continue.
           </p>
         </CardContent>
       </Card>

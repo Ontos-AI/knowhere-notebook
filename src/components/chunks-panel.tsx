@@ -26,7 +26,7 @@ export type ChunksPanelProps = {
  *   - citation mode — shows the retrieved chunks from the last chat turn,
  *     optionally scrolled to the clicked citation
  *
- * This is a pure view. Chunks arrive as props; fetching/selection logic is
+ * This is a pure view. Sections arrive as props; fetching/selection logic is
  * the page's responsibility.
  */
 export function ChunksPanel({
@@ -48,8 +48,8 @@ export function ChunksPanel({
   }, [focusedChunkId]);
 
   const headerTitle = focusedChunkId
-    ? "Retrieved Document Sections"
-    : "Parsed Document Sections";
+    ? "Referenced Content Sections"
+    : "Document Content Sections";
 
   const headerSubtitle = focusedChunkId ? (
     <>Showing relevant sections from the last answer.</>
@@ -61,7 +61,7 @@ export function ChunksPanel({
       </span>
     </>
   ) : (
-    "Select a source to see its parsed sections."
+    "Select a source to see its content sections."
   );
 
   return (
@@ -88,9 +88,9 @@ export function ChunksPanel({
       <ScrollArea className="flex-1">
         <div className="mx-auto flex w-full max-w-4xl flex-col items-center p-6">
           {isLoading ? (
-            <LoadingChunks />
+            <LoadingSections />
           ) : chunks.length === 0 ? (
-            <EmptyChunks />
+            <EmptySections />
           ) : (
             <div className="flex w-full flex-col gap-4">
               {chunks.map((chunk) => (
@@ -111,30 +111,30 @@ export function ChunksPanel({
   );
 }
 
-function EmptyChunks() {
+function EmptySections() {
   return (
     <div className="flex flex-col items-center gap-3 py-20 text-center">
       <div className="flex size-12 items-center justify-center rounded-full bg-muted">
         <Layers className="size-5 text-muted-foreground" />
       </div>
       <p className="text-sm font-medium text-foreground">
-        No content to show yet
+        No content sections to show yet
       </p>
       <p className="max-w-xs text-xs text-muted-foreground">
-        Upload and process a source, then pick it from the sidebar to see the
-        parsed sections.
+        Upload and process a source, then pick it from the sidebar to see its
+        content sections.
       </p>
     </div>
   );
 }
 
-function LoadingChunks() {
+function LoadingSections() {
   return (
     <div className="flex flex-col items-center gap-3 py-20 text-center">
       <div className="flex size-12 items-center justify-center rounded-full bg-muted">
         <Layers className="size-5 text-muted-foreground" />
       </div>
-      <p className="text-sm text-muted-foreground">Loading parsed sections…</p>
+      <p className="text-sm text-muted-foreground">Loading content sections…</p>
     </div>
   );
 }
