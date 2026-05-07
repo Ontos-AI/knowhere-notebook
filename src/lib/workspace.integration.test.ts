@@ -253,6 +253,53 @@ describeIfDb("workspace helpers — integration", () => {
     });
   });
 
+  it("ensures one default thread per workspace and lists its messages", async () => {
+    const ws = await workspaceHelpers.ensureWorkspace("user_1");
+
+    const first = await workspaceHelpers.ensureDefaultChatThread(ws.id);
+    const second = await workspaceHelpers.ensureDefaultChatThread(ws.id);
+
+    expect(second.id).toBe(first.id);
+    expect(second.workspaceId).toBe(ws.id);
+
+    await workspaceHelpers.appendMessageToThread(ws.id, {
+      threadId: first.id,
+      role: "user",
+      content: "What changed?",
+    });
+    await workspaceHelpers.appendMessageToThread(ws.id, {
+      threadId: first.id,
+      role: "assistant",
+      content: "The answer.",
+    });
+
+    const messages = await workspaceHelpers.listMessagesForThread(ws.id, first.id);
+    expect(messages.map((message) => message.role)).toEqual([
+      "user",
+      "assistant",
+    ]);
+    expect(messages.map((message) => message.content)).toEqual([
+      "What changed?",
+      "The answer.",
+    ]);
+  });
+
+  it("listMessagesForThread rejects cross-workspace thread ids", async () => {
+    const ws = await workspaceHelpers.ensureWorkspace("user_1");
+    const otherWs = await workspaceHelpers.ensureWorkspace("user_2");
+    const thread = await workspaceHelpers.ensureDefaultChatThread(ws.id);
+
+    await workspaceHelpers.appendMessageToThread(ws.id, {
+      threadId: thread.id,
+      role: "user",
+      content: "private",
+    });
+
+    await expect(
+      workspaceHelpers.listMessagesForThread(otherWs.id, thread.id),
+    ).resolves.toEqual(null);
+  });
+
   it("soft-deleted threads don't cascade delete their messages", async () => {
     const ws = await workspaceHelpers.ensureWorkspace("user_1");
     const [thread] = await testDb

@@ -2,7 +2,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DocumentChunk } from "@ontos-ai/knowhere-sdk";
 
 import type { Source } from "./schema";
-import { loadChunksForSource, toParsedChunkView } from "./chunks";
+import {
+  loadChunksForSource,
+  resolveCitationChunk,
+  toParsedChunkView,
+} from "./chunks";
+import type { ChatCitationView } from "./types";
 
 describe("toParsedChunkView", () => {
   it("maps Knowhere document chunks to the parsed-content view shape", () => {
@@ -26,6 +31,8 @@ describe("toParsedChunkView", () => {
 
     expect(toParsedChunkView(chunk, "notes.txt")).toEqual({
       chunkId: "document_chunk_1",
+      documentId: undefined,
+      sectionPath: "Introduction",
       type: "text",
       content: "Notebook should show parsed text from Knowhere only on demand.",
       summary: "Intro summary",
@@ -69,6 +76,8 @@ describe("loadChunksForSource", () => {
     expect(chunks).toEqual([
       {
         chunkId: "document_chunk_1",
+        documentId: "doc_123",
+        sectionPath: null,
         type: "text",
         content: "Source text from Knowhere",
         sourceTitle: "notes.txt",
@@ -90,6 +99,67 @@ describe("loadChunksForSource", () => {
   });
 });
 
+describe("resolveCitationChunk", () => {
+  it("matches a citation to the unique chunk with the same section path", () => {
+    const chunk = resolveCitationChunk(
+      makeRetrievalResultView({
+        content: "Different short excerpt",
+        source: {
+          documentId: "doc_123",
+          sourceFileName: "notes.txt",
+          sectionPath: "2. Method",
+        },
+      }),
+      [
+        makeParsedChunkView({ chunkId: "chunk_intro", sectionPath: "1. Intro" }),
+        makeParsedChunkView({ chunkId: "chunk_method", sectionPath: "2. Method" }),
+      ],
+    );
+
+    expect(chunk?.chunkId).toBe("chunk_method");
+  });
+
+  it("falls back to a normalized content substring when section path is missing", () => {
+    const chunk = resolveCitationChunk(
+      makeRetrievalResultView({
+        content: "needle sentence from the retrieval result",
+        source: {
+          documentId: "doc_123",
+          sourceFileName: "notes.txt",
+        },
+      }),
+      [
+        makeParsedChunkView({
+          chunkId: "chunk_hit",
+          content:
+            "Longer paragraph containing a needle sentence from the retrieval result.",
+        }),
+      ],
+    );
+
+    expect(chunk?.chunkId).toBe("chunk_hit");
+  });
+
+  it("returns null when the citation cannot be mapped to one chunk", () => {
+    const chunk = resolveCitationChunk(
+      makeRetrievalResultView({
+        content: "duplicated section",
+        source: {
+          documentId: "doc_123",
+          sourceFileName: "notes.txt",
+          sectionPath: "Repeated",
+        },
+      }),
+      [
+        makeParsedChunkView({ chunkId: "chunk_a", sectionPath: "Repeated" }),
+        makeParsedChunkView({ chunkId: "chunk_b", sectionPath: "Repeated" }),
+      ],
+    );
+
+    expect(chunk).toBeNull();
+  });
+});
+
 function makeDocumentChunk(
   overrides: Partial<DocumentChunk> = {},
 ): DocumentChunk {
@@ -105,6 +175,36 @@ function makeDocumentChunk(
     sortOrder: 1,
     metadata: {},
     assetUrl: null,
+    ...overrides,
+  };
+}
+
+function makeParsedChunkView(
+  overrides: Partial<ReturnType<typeof toParsedChunkView>> = {},
+): ReturnType<typeof toParsedChunkView> {
+  return {
+    chunkId: "document_chunk_1",
+    documentId: "doc_123",
+    sectionPath: "Intro",
+    type: "text",
+    content: "Chunk content",
+    sourceTitle: "notes.txt",
+    ...overrides,
+  };
+}
+
+function makeRetrievalResultView(
+  overrides: Partial<ChatCitationView> = {},
+): ChatCitationView {
+  return {
+    content: "Chunk content",
+    chunkType: "text",
+    score: 0.9,
+    source: {
+      documentId: "doc_123",
+      sourceFileName: "notes.txt",
+      sectionPath: "Intro",
+    },
     ...overrides,
   };
 }

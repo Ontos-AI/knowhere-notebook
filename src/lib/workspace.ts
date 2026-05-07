@@ -185,6 +185,46 @@ export async function findChatThreadInWorkspace(
   return row[0] ?? null;
 }
 
+export async function ensureDefaultChatThread(
+  workspaceId: string,
+): Promise<ChatThread> {
+  const existing = await db
+    .select()
+    .from(chatThreads)
+    .where(
+      and(
+        eq(chatThreads.workspaceId, workspaceId),
+        isNull(chatThreads.deletedAt),
+      ),
+    )
+    .orderBy(desc(chatThreads.updatedAt))
+    .limit(1);
+  if (existing[0]) return existing[0];
+
+  const [thread] = await db
+    .insert(chatThreads)
+    .values({ workspaceId })
+    .returning();
+  if (!thread) {
+    throw new Error("ensureDefaultChatThread: insert did not return a row.");
+  }
+  return thread;
+}
+
+export async function listMessagesForThread(
+  workspaceId: string,
+  threadId: string,
+): Promise<ChatMessage[] | null> {
+  const thread = await findChatThreadInWorkspace(workspaceId, threadId);
+  if (!thread) return null;
+
+  return await db
+    .select()
+    .from(chatMessages)
+    .where(eq(chatMessages.threadId, threadId))
+    .orderBy(chatMessages.createdAt);
+}
+
 /**
  * Soft-delete a source if (and only if) it belongs to the workspace and
  * is not already deleted. Returns `true` when a row was updated.

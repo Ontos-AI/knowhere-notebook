@@ -23,6 +23,10 @@ export type ChunkType = "text" | "image" | "table";
  */
 export type ParsedChunkView = {
   chunkId: string;
+  /** Knowhere document ID. Present when loaded through a Notebook source. */
+  documentId?: string;
+  /** Human-readable section path from Knowhere, used to focus citations. */
+  sectionPath?: string | null;
   type: ChunkType;
   content: string;
   summary?: string;
@@ -54,6 +58,22 @@ export type RetrievalResultView = {
  * Postgres; full chunks stay upstream in Knowhere and are fetched on demand.
  */
 export type CitationView = Omit<RetrievalResultView, "content">;
+
+/**
+ * UI chat citation. Fresh answers include retrieval `content` so the browser
+ * can focus the exact parsed section. Persisted history only has metadata, so
+ * `content` is optional here.
+ */
+export type ChatCitationView = CitationView & {
+  content?: string;
+};
+
+export type ChatMessageView = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  citations?: ChatCitationView[];
+};
 
 export type SourceStatus = "uploading" | "parsing" | "ready" | "failed";
 

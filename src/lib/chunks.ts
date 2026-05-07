@@ -1,7 +1,7 @@
 import type { DocumentChunk, DocumentChunkType } from "@ontos-ai/knowhere-sdk";
 
 import type { Source } from "./schema";
-import type { ChunkType, ParsedChunkView } from "./types";
+import type { ChatCitationView, ChunkType, ParsedChunkView } from "./types";
 
 export type ChunkKnowhereClient = {
   documents: {
@@ -27,15 +27,20 @@ export async function loadChunksForSource(
     pageSize: 100,
     includeAssetUrls: true,
   });
-  return response.chunks.map((chunk) => toParsedChunkView(chunk, source.title));
+  return response.chunks.map((chunk) =>
+    toParsedChunkView(chunk, source.title, source.knowhereDocumentId ?? undefined),
+  );
 }
 
 export function toParsedChunkView(
   chunk: DocumentChunk,
   sourceTitle: string,
+  documentId?: string,
 ): ParsedChunkView {
   return {
     chunkId: chunk.id,
+    documentId,
+    sectionPath: chunk.sectionPath,
     type: toChunkType(chunk.chunkType),
     content: chunk.content ?? "",
     summary: getStringMetadata(chunk.metadata, "summary"),
@@ -45,9 +50,57 @@ export function toParsedChunkView(
   };
 }
 
+export function resolveCitationChunk(
+  citation: ChatCitationView,
+  chunks: readonly ParsedChunkView[],
+): ParsedChunkView | null {
+  const documentChunks = chunks.filter(
+    (chunk) =>
+      !citation.source.documentId || chunk.documentId === citation.source.documentId,
+  );
+  const byPath = findUniqueBySectionPath(
+    documentChunks,
+    citation.source.sectionPath,
+  );
+  if (byPath) return byPath;
+
+  return findByContent(documentChunks, citation.content);
+}
+
 function toChunkType(chunkType: DocumentChunkType): ChunkType {
   if (chunkType === "image" || chunkType === "table") return chunkType;
   return "text";
+}
+
+function findUniqueBySectionPath(
+  chunks: readonly ParsedChunkView[],
+  sectionPath: string | undefined,
+): ParsedChunkView | null {
+  if (!sectionPath) return null;
+  const normalized = normalizeText(sectionPath);
+  const matches = chunks.filter(
+    (chunk) => normalizeText(chunk.sectionPath ?? "") === normalized,
+  );
+  return matches.length === 1 ? matches[0]! : null;
+}
+
+function findByContent(
+  chunks: readonly ParsedChunkView[],
+  content: string | undefined,
+): ParsedChunkView | null {
+  if (!content) return null;
+  const normalizedContent = normalizeText(content);
+  if (normalizedContent.length === 0) return null;
+
+  const excerpt = normalizedContent.slice(0, 160);
+  const matches = chunks.filter((chunk) =>
+    normalizeText(chunk.content).includes(excerpt),
+  );
+  return matches.length === 1 ? matches[0]! : null;
+}
+
+function normalizeText(value: string): string {
+  return value.replace(/\s+/g, " ").trim().toLowerCase();
 }
 
 function getStringMetadata(
