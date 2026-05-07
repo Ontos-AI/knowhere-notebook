@@ -207,6 +207,52 @@ describeIfDb("workspace helpers — integration", () => {
     );
   });
 
+  it("appendMessageToThread strips retrieval content from persisted citations", async () => {
+    const ws = await workspaceHelpers.ensureWorkspace("user_1");
+    const [thread] = await testDb
+      .insert(chatThreads)
+      .values({ workspaceId: ws.id, title: "citations" })
+      .returning();
+
+    const inserted = await workspaceHelpers.appendMessageToThread(ws.id, {
+      threadId: thread!.id,
+      role: "assistant",
+      content: "The answer is grounded.",
+      citations: [
+        {
+          content: "source chunk text must never be persisted",
+          chunkType: "text",
+          score: 0.91,
+          assetUrl: "https://assets.example/doc.pdf",
+          source: {
+            documentId: "doc_123",
+            sourceFileName: "doc.pdf",
+            sectionPath: "1. Introduction",
+          },
+        },
+      ],
+    });
+
+    expect(inserted).not.toBeNull();
+
+    const [message] = await testDb
+      .select()
+      .from(chatMessages)
+      .where(eq(chatMessages.id, inserted!.id));
+    const [citation] = message!.citations as Array<Record<string, unknown>>;
+    expect(citation).not.toHaveProperty("content");
+    expect(citation).toMatchObject({
+      chunkType: "text",
+      score: 0.91,
+      assetUrl: "https://assets.example/doc.pdf",
+      source: {
+        documentId: "doc_123",
+        sourceFileName: "doc.pdf",
+        sectionPath: "1. Introduction",
+      },
+    });
+  });
+
   it("soft-deleted threads don't cascade delete their messages", async () => {
     const ws = await workspaceHelpers.ensureWorkspace("user_1");
     const [thread] = await testDb

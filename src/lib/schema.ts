@@ -149,11 +149,10 @@ export type NewChatThread = typeof chatThreads.$inferInsert;
 /**
  * One row per user or assistant turn in a thread.
  *
- * `citations` is JSONB of the retrieval-result view shape
- * (see `src/lib/types.ts#RetrievalResultView[]`). Stored only on
- * assistant rows. Citations are a derived snapshot of what was used
- * to ground the answer at response time — NOT a stored copy of the
- * source chunks, per the persistence rule.
+ * `citations` is JSONB of citation metadata
+ * (see `src/lib/types.ts#CitationView[]`). Stored only on assistant
+ * rows. It intentionally excludes retrieval `content`, because that is
+ * source chunk text and must stay upstream in Knowhere.
  */
 export const chatMessages = pgTable(
   "chat_messages",

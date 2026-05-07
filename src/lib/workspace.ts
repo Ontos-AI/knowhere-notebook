@@ -13,6 +13,7 @@ import {
   type Source,
   type Workspace,
 } from "./schema";
+import type { CitationView, RetrievalResultView } from "./types";
 
 /**
  * Ensure a workspace exists for the given Dashboard user id.
@@ -180,7 +181,7 @@ export async function appendMessageToThread(
     threadId: string;
     role: "user" | "assistant";
     content: string;
-    citations?: unknown;
+    citations?: readonly (CitationView | RetrievalResultView)[] | null;
   },
 ): Promise<ChatMessage | null> {
   const thread = await findChatThreadInWorkspace(workspaceId, input.threadId);
@@ -192,7 +193,7 @@ export async function appendMessageToThread(
       threadId: input.threadId,
       role: input.role,
       content: input.content,
-      citations: (input.citations ?? null) as never,
+      citations: normalizeCitations(input.citations),
     })
     .returning();
   // Use the DB's own clock instead of JS time so `updated_at` always
@@ -203,6 +204,26 @@ export async function appendMessageToThread(
     .set({ updatedAt: sql`now()` })
     .where(eq(chatThreads.id, input.threadId));
   return inserted ?? null;
+}
+
+function normalizeCitations(
+  citations: readonly (CitationView | RetrievalResultView)[] | null | undefined,
+): CitationView[] | null {
+  if (!citations || citations.length === 0) return null;
+  return citations.map(toCitationView);
+}
+
+function toCitationView(citation: CitationView | RetrievalResultView): CitationView {
+  return {
+    chunkType: citation.chunkType,
+    score: citation.score,
+    assetUrl: citation.assetUrl,
+    source: {
+      documentId: citation.source.documentId,
+      sourceFileName: citation.source.sourceFileName,
+      sectionPath: citation.source.sectionPath,
+    },
+  };
 }
 
 /**
