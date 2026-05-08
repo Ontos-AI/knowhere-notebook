@@ -12,7 +12,17 @@ export type MobileTabBarProps = {
   onPanelChange: (panel: PanelId) => void;
   sourceCount: number;
   chunkCount: number;
-  hasNewMessages: boolean;
+  /**
+   * Lights a blue dot on the Chat tab.
+   *
+   * Named `hasMessages` rather than `hasUnread` deliberately: the MVP has
+   * no per-user read-state tracking and no real-time delivery, so a
+   * "new since you last looked" indicator is not feasible without
+   * persistent last-read timestamps. The dot keeps Chat discoverable
+   * after the first exchange — once messages exist, the tab signals that
+   * Chat is active, not that it has unseen content.
+   */
+  hasMessages: boolean;
 };
 
 /**
@@ -27,7 +37,7 @@ export function MobileTabBar({
   onPanelChange,
   sourceCount,
   chunkCount,
-  hasNewMessages,
+  hasMessages,
 }: MobileTabBarProps) {
   return (
     <nav
@@ -55,7 +65,7 @@ export function MobileTabBar({
         id="chat"
         icon={MessageCircle}
         label="Chat"
-        dot={hasNewMessages}
+        dot={hasMessages}
         isActive={activePanel === "chat"}
         onClick={() => onPanelChange("chat")}
       />

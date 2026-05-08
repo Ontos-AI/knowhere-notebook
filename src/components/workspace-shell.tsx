@@ -297,7 +297,7 @@ export function WorkspaceShell({
     (source) => source.status === "ready",
   ).length;
 
-  const hasNewMessages = chat.messages.length > 0;
+  const hasMessages = chat.messages.length > 0;
 
   return (
     <div className="flex h-screen w-full flex-col overflow-hidden bg-muted/40">
@@ -360,7 +360,7 @@ export function WorkspaceShell({
           onSourceUploaded={handleSourceUploaded}
           selectedSourceId={selectedSourceId}
           onSelectSource={(id) => {
-            setSelectedSourceId(id);
+            handleSourceSelected(id);
             if (id) setMobilePanel("content");
           }}
           onToggleIncluded={handleToggleIncluded}
@@ -393,7 +393,7 @@ export function WorkspaceShell({
         id="panel-chat"
         role="tabpanel"
         aria-labelledby="tab-chat"
-        className={`lg:hidden flex-1 overflow-hidden ${
+        className={`lg:hidden flex-1 overflow-hidden pb-14 ${
           mobilePanel === "chat" ? "flex flex-col" : "hidden"
         }`}
       >
@@ -415,7 +415,7 @@ export function WorkspaceShell({
         onPanelChange={setMobilePanel}
         sourceCount={sources.filter((s) => s.status === "ready").length}
         chunkCount={chunkLoad.chunks.length}
-        hasNewMessages={hasNewMessages}
+        hasMessages={hasMessages}
       />
 
       {chat.error && (
