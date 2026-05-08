@@ -239,19 +239,18 @@ export function WorkspaceShell({
       }
 
       setChat((current) => {
-        // Replace the optimistic user message with the server-saved one
-        // (same content, persistent id) so we don't duplicate it.
-        const withoutOptimistic = current.messages.filter(
-          (m) => m.id !== optimisticId,
-        );
-        // Only keep assistant-role messages from the server response
-        // to avoid duplicating the user turn.
-        const serverMessages = body.messages!.filter(
+        // Keep the optimistic user message in place (it's already
+        // visible to the user), and only append the assistant messages
+        // that the server generated. The optimistic id stays as the
+        // React key — no noticeable difference vs the server-assigned
+        // UUID for the user, since only the assistant response content
+        // is new.
+        const assistantMessages = body.messages!.filter(
           (m) => m.role === "assistant",
         );
         return {
           threadId: body.threadId ?? current.threadId,
-          messages: [...withoutOptimistic, ...serverMessages],
+          messages: [...current.messages, ...assistantMessages],
           isSending: false,
           error: null,
         };
