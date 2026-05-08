@@ -2,7 +2,7 @@ import { headers } from "next/headers"
 import { NextResponse } from "next/server";
 import { Either } from "effect";
 
-import { ensureApiKeyForWorkspace, isAuthError } from "@/lib/api-key-service";
+import { ensureApiKeyForWorkspace } from "@/lib/api-key-service";
 import { requireUser } from "@/lib/auth";
 import { generateGroundedAnswer, parseChatRequestBody } from "@/lib/chat";
 import { handleChatTurn } from "@/lib/chat-service";
