@@ -26,6 +26,8 @@ export type SourcesPanelProps = {
     state: UploadSourceActionState,
     formData: FormData,
   ) => Promise<UploadSourceActionState>;
+  /** When provided, the Upload button redirects to login instead of opening the dialog. */
+  onLoginClick?: () => void;
 };
 
 /**
@@ -47,6 +49,7 @@ export function SourcesPanel({
   onToggleIncluded,
   onArchiveSource,
   uploadAction,
+  onLoginClick,
 }: Partial<SourcesPanelProps> = {}) {
   const [confirmSourceId, setConfirmSourceId] = useState<string | null>(null);
 
@@ -63,7 +66,15 @@ export function SourcesPanel({
         />
       )}
       <div className="border-b border-border p-4">
-        {uploadAction ? (
+        {onLoginClick ? (
+          <Button
+            onClick={onLoginClick}
+            className="flex w-full items-center justify-center gap-2 shadow-sm"
+          >
+            <Plus className="size-4" />
+            Log in to upload
+          </Button>
+        ) : uploadAction ? (
           <UploadDialog
             onSourceUploaded={onSourceUploaded}
             uploadAction={uploadAction}
