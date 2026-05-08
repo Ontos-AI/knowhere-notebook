@@ -198,7 +198,20 @@ export function WorkspaceShell({
   }
 
   async function handleChatSend(text: string) {
-    setChat((current) => ({ ...current, isSending: true, error: null }));
+    // Optimistically append the user message so the UI responds
+    // immediately, before the /api/chat roundtrip completes.
+    const optimisticId = `pending-${Date.now()}`;
+    const optimisticUser: ChatMessageView = {
+      id: optimisticId,
+      role: "user",
+      content: text,
+    };
+    setChat((current) => ({
+      ...current,
+      isSending: true,
+      error: null,
+      messages: [...current.messages, optimisticUser],
+    }));
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
@@ -225,12 +238,24 @@ export function WorkspaceShell({
         return;
       }
 
-      setChat((current) => ({
-        threadId: body.threadId ?? current.threadId,
-        messages: [...current.messages, ...body.messages!],
-        isSending: false,
-        error: null,
-      }));
+      setChat((current) => {
+        // Replace the optimistic user message with the server-saved one
+        // (same content, persistent id) so we don't duplicate it.
+        const withoutOptimistic = current.messages.filter(
+          (m) => m.id !== optimisticId,
+        );
+        // Only keep assistant-role messages from the server response
+        // to avoid duplicating the user turn.
+        const serverMessages = body.messages!.filter(
+          (m) => m.role === "assistant",
+        );
+        return {
+          threadId: body.threadId ?? current.threadId,
+          messages: [...withoutOptimistic, ...serverMessages],
+          isSending: false,
+          error: null,
+        };
+      });
     } catch {
       setChat((current) => ({
         ...current,
