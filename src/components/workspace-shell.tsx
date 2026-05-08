@@ -233,6 +233,9 @@ export function WorkspaceShell({
         setChat((current) => ({
           ...current,
           isSending: false,
+          messages: current.messages.filter(
+            (m) => m.id !== optimisticId,
+          ),
           error: body.message ?? "The assistant could not answer right now.",
         }));
         return;
@@ -259,6 +262,9 @@ export function WorkspaceShell({
       setChat((current) => ({
         ...current,
         isSending: false,
+        messages: current.messages.filter(
+          (m) => m.id !== optimisticId,
+        ),
         error: "The assistant could not answer right now.",
       }));
     }
