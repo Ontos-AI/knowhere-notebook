@@ -26,17 +26,21 @@ export const knowhereClientLayer = Layer.sync(KnowhereClient, () => {
 })
 
 /**
- * Legacy convenience wrapper for non-Effect callers.
- * Prefer `yield* KnowhereClient` in Effect code.
+ * Create a Knowhere client. When `apiKey` is provided it is used directly;
+ * otherwise falls back to the `KNOWHERE_API_KEY` environment variable.
+ *
+ * Prefer passing a per-user API key from `ensureApiKeyForWorkspace` in
+ * request-handling code. The env-var fallback exists for local dev and
+ * for tests that don't exercise the full auth flow.
  */
-export function getKnowhereClient(): Knowhere {
-  const apiKey = process.env.KNOWHERE_API_KEY
+export function getKnowhereClient(apiKey?: string): Knowhere {
+  const key = apiKey ?? process.env.KNOWHERE_API_KEY
   const baseURL = process.env.KNOWHERE_BASE_URL
-  if (!apiKey) {
+  if (!key) {
     throw new Error(
-      "KNOWHERE_API_KEY environment variable is required. " +
+      "KNOWHERE_API_KEY environment variable or per-user API key is required. " +
         "Set it in your .env.local file.",
     )
   }
-  return new Knowhere({ apiKey, baseURL })
+  return new Knowhere({ apiKey: key, baseURL })
 }

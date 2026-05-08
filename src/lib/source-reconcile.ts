@@ -1,9 +1,8 @@
 import "server-only";
 
+import type Knowhere from "@ontos-ai/knowhere-sdk";
 import type { JobResult } from "@ontos-ai/knowhere-sdk";
 
-import { Effect } from "effect";
-import { KnowhereClient, knowhereClientLayer } from "./knowhere";
 import type { Source, Workspace } from "./schema";
 import {
   listSourcesForWorkspace,
@@ -13,6 +12,7 @@ import {
 
 export async function reconcileSourcesForWorkspace(
   workspace: Workspace,
+  client: Knowhere,
 ): Promise<Source[]> {
   const rows = await listSourcesForWorkspace(workspace.id);
   const parsing = rows.filter(
@@ -20,9 +20,6 @@ export async function reconcileSourcesForWorkspace(
   );
   if (parsing.length === 0) return rows;
 
-  const client = await Effect.runPromise(
-    KnowhereClient.pipe(Effect.provide(knowhereClientLayer)),
-  );
   await Promise.all(
     parsing.map(async (source) => {
       const jobId = source.knowhereJobId;

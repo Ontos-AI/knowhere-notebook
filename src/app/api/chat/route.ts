@@ -1,10 +1,12 @@
+import { headers } from "next/headers"
 import { NextResponse } from "next/server";
-import { Effect, Either } from "effect";
+import { Either } from "effect";
 
+import { ensureApiKeyForWorkspace, isAuthError, markApiKeyFailed } from "@/lib/api-key-service";
 import { requireUser } from "@/lib/auth";
 import { generateGroundedAnswer, parseChatRequestBody } from "@/lib/chat";
 import { handleChatTurn } from "@/lib/chat-service";
-import { KnowhereClient, knowhereClientLayer } from "@/lib/knowhere";
+import { getKnowhereClient } from "@/lib/knowhere";
 import { ensureWorkspace, listSourcesForWorkspace } from "@/lib/workspace";
 import {
   appendMessageToThread,
@@ -21,29 +23,40 @@ export async function POST(request: Request): Promise<NextResponse> {
   const user = await requireUser()
   const workspace = await ensureWorkspace(user.id)
   const sources = await listSourcesForWorkspace(workspace.id)
-  const client = await Effect.runPromise(
-    KnowhereClient.pipe(Effect.provide(knowhereClientLayer)),
-  )
-  const result = await handleChatTurn({
-    workspace,
-    sources,
-    question: body.value.question,
-    threadId: body.value.threadId,
-    excludedSourceIds: body.value.excludedSourceIds,
-    retrieval: client.retrieval,
-    generateAnswer: generateGroundedAnswer,
-    repository: {
-      ensureDefaultChatThread,
-      findChatThreadInWorkspace,
-      appendMessageToThread,
-    },
-  })
+  const cookieHeader = (await headers()).get("cookie") ?? ""
+  const apiKey = await ensureApiKeyForWorkspace(workspace.id, cookieHeader)
+  const client = getKnowhereClient(apiKey)
 
-  return Either.match(result, {
-    onLeft: (error) =>
-      NextResponse.json({ message: error.message }, { status: error.status }),
-    onRight: (value) => NextResponse.json(value),
-  })
+  try {
+    const result = await handleChatTurn({
+      workspace,
+      sources,
+      question: body.value.question,
+      threadId: body.value.threadId,
+      excludedSourceIds: body.value.excludedSourceIds,
+      retrieval: client.retrieval,
+      generateAnswer: generateGroundedAnswer,
+      repository: {
+        ensureDefaultChatThread,
+        findChatThreadInWorkspace,
+        appendMessageToThread,
+      },
+    })
+
+    return Either.match(result, {
+      onLeft: (error) =>
+        NextResponse.json({ message: error.message }, { status: error.status }),
+      onRight: (value) => NextResponse.json(value),
+    })
+  } catch (error) {
+    if (isAuthError(error)) {
+      await markApiKeyFailed(workspace.id)
+    }
+    return NextResponse.json(
+      { message: "Your API key needs to be recreated. Please refresh the page." },
+      { status: 401 },
+    )
+  }
 }
 
 async function readJson(request: Request): Promise<unknown> {

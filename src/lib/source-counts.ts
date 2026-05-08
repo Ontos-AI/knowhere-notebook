@@ -1,20 +1,18 @@
 import "server-only";
 
-import { Effect } from "effect";
-import { KnowhereClient, knowhereClientLayer } from "./knowhere";
+import type Knowhere from "@ontos-ai/knowhere-sdk";
+
 import type { Source } from "./schema";
 
 export async function countChunksBySourceId(
   sources: readonly Source[],
+  client: Knowhere,
 ): Promise<Map<string, number>> {
   const readySources = sources.filter(
     (source) => source.status === "ready" && source.knowhereDocumentId,
   );
   if (readySources.length === 0) return new Map();
 
-  const client = await Effect.runPromise(
-    KnowhereClient.pipe(Effect.provide(knowhereClientLayer)),
-  );
   const entries = await Promise.all(
     readySources.map(async (source) => {
       const documentId = source.knowhereDocumentId;
@@ -42,8 +40,9 @@ export async function countChunksBySourceId(
 
 export async function sourceViewOptionsBySourceId(
   sources: readonly Source[],
+  client: Knowhere,
 ): Promise<Map<string, { chunkCount?: number }>> {
-  const counts = await countChunksBySourceId(sources);
+  const counts = await countChunksBySourceId(sources, client);
   return new Map(
     sources.map((source) => [
       source.id,

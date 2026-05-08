@@ -1,8 +1,10 @@
+import { headers } from "next/headers"
 import { NextResponse, type NextRequest } from "next/server";
-import { Effect, Schema } from "effect";
+import { Schema } from "effect";
 
+import { ensureApiKeyForWorkspace } from "@/lib/api-key-service";
 import { requireUser } from "@/lib/auth";
-import { KnowhereClient, knowhereClientLayer } from "@/lib/knowhere";
+import { getKnowhereClient } from "@/lib/knowhere";
 import { ensureWorkspace, findSourceInWorkspace, softDeleteSource } from "@/lib/workspace";
 
 type RouteContext = {
@@ -49,9 +51,9 @@ export async function PATCH(
   }
 
   if (source.knowhereDocumentId) {
-    const client = await Effect.runPromise(
-      KnowhereClient.pipe(Effect.provide(knowhereClientLayer)),
-    );
+    const cookieHeader = (await headers()).get("cookie") ?? ""
+    const apiKey = await ensureApiKeyForWorkspace(workspace.id, cookieHeader)
+    const client = getKnowhereClient(apiKey)
     await client.documents.archive(source.knowhereDocumentId);
   }
 

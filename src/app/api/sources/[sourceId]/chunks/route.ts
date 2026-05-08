@@ -1,9 +1,10 @@
+import { headers } from "next/headers"
 import { NextResponse, type NextRequest } from "next/server";
 
+import { ensureApiKeyForWorkspace } from "@/lib/api-key-service";
 import { requireUser } from "@/lib/auth";
 import { loadChunksForSource } from "@/lib/chunks";
-import { Effect } from "effect";
-import { KnowhereClient, knowhereClientLayer } from "@/lib/knowhere";
+import { getKnowhereClient } from "@/lib/knowhere";
 import { ensureWorkspace, findSourceInWorkspace } from "@/lib/workspace";
 
 type RouteContext = {
@@ -25,9 +26,9 @@ export async function GET(
     return NextResponse.json({ message: "Source not found." }, { status: 404 });
   }
 
-  const client = await Effect.runPromise(
-    KnowhereClient.pipe(Effect.provide(knowhereClientLayer)),
-  );
+  const cookieHeader = (await headers()).get("cookie") ?? ""
+  const apiKey = await ensureApiKeyForWorkspace(workspace.id, cookieHeader)
+  const client = getKnowhereClient(apiKey)
   const chunks = await loadChunksForSource(source, client);
   return NextResponse.json({ chunks });
 }

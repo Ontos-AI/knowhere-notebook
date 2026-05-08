@@ -176,3 +176,39 @@ export const chatMessages = pgTable(
 
 export type ChatMessage = typeof chatMessages.$inferSelect;
 export type NewChatMessage = typeof chatMessages.$inferInsert;
+
+/**
+ * One API key per workspace. Created automatically on first login by
+ * forwarding the Dashboard session cookie to Knowhere's key creation
+ * endpoint. The secret is stored so subsequent SDK calls use per-user
+ * credentials instead of a shared environment variable.
+ *
+ * Status lifecycle: active -> failed (auth error detected)
+ * Recreation creates a new row and the old one is soft-replaced.
+ */
+export const apiKeys = pgTable(
+  "api_keys",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .unique()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    knowhereKeyId: text("knowhere_key_id"),
+    apiKey: text("api_key").notNull(),
+    name: text("name").notNull(),
+    status: text("status").notNull().default("active"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("api_keys_workspace_status_idx").on(t.workspaceId, t.status),
+  ],
+);
+
+export type ApiKey = typeof apiKeys.$inferSelect;
+export type NewApiKey = typeof apiKeys.$inferInsert;

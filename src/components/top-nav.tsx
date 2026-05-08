@@ -1,5 +1,6 @@
 import { BookOpen } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
+import { ApiKeySettings } from "@/components/api-key-settings";
 
 export type TopNavProps = {
   userInitials?: string;
@@ -32,25 +33,28 @@ export function TopNav({
           {workspaceLabel}
         </span>
       </div>
-      {userInitials && (
-        <div className="flex items-center gap-3">
-          <div className="text-right">
-            {userName && (
-              <p className="text-xs font-semibold text-foreground">
-                {userName}
-              </p>
-            )}
-            {userTierLabel && (
-              <p className="text-[10px] text-muted-foreground">
-                {userTierLabel}
-              </p>
-            )}
+      <div className="flex items-center gap-3">
+        <ApiKeySettings />
+        {userInitials && (
+          <div className="flex items-center gap-3">
+            <div className="text-right">
+              {userName && (
+                <p className="text-xs font-semibold text-foreground">
+                  {userName}
+                </p>
+              )}
+              {userTierLabel && (
+                <p className="text-[10px] text-muted-foreground">
+                  {userTierLabel}
+                </p>
+              )}
+            </div>
+            <div className="flex size-8 items-center justify-center rounded-full bg-muted text-xs font-bold text-muted-foreground">
+              {userInitials}
+            </div>
           </div>
-          <div className="flex size-8 items-center justify-center rounded-full bg-muted text-xs font-bold text-muted-foreground">
-            {userInitials}
-          </div>
-        </div>
-      )}
+        )}
+      </div>
     </header>
   );
 }

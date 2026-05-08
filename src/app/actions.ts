@@ -1,11 +1,11 @@
 "use server";
 
+import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 
-import { Effect } from "effect";
-
+import { ensureApiKeyForWorkspace } from "@/lib/api-key-service";
 import { requireUser } from "@/lib/auth";
-import { KnowhereClient, knowhereClientLayer } from "@/lib/knowhere";
+import { getKnowhereClient } from "@/lib/knowhere";
 import { toSourceView } from "@/lib/source-view";
 import { uploadSourceToKnowhere } from "@/lib/source-upload";
 import {
@@ -34,6 +34,8 @@ export async function uploadSourceAction(
   }
 
   try {
+    const cookieHeader = (await headers()).get("cookie") ?? ""
+    const apiKey = await ensureApiKeyForWorkspace(workspace.id, cookieHeader)
     const source = await uploadSourceToKnowhere(workspace, file, {
       repository: {
         createUploadingSource,
@@ -48,9 +50,7 @@ export async function uploadSourceAction(
           return source;
         },
       },
-      knowhere: await Effect.runPromise(
-        KnowhereClient.pipe(Effect.provide(knowhereClientLayer)),
-      ),
+      knowhere: getKnowhereClient(apiKey),
     });
     revalidatePath("/");
     return { ok: true, message: null, source: toSourceView(source) };
