@@ -6,57 +6,76 @@ import { Schema } from "effect"
 import { db } from "./db"
 import { apiKeys, type ApiKey } from "./schema"
 
-const KnowhereKeyResponse = Schema.Struct({
-  id: Schema.String,
-  key: Schema.String,
+/**
+ * Shape of the Dashboard provisioning response (oRPC envelope).
+ * `{ json: { id: string; key: string; name: string } }`
+ */
+const NotebookProvisionResponse = Schema.Struct({
+  json: Schema.Struct({
+    id: Schema.String,
+    key: Schema.String,
+    name: Schema.String,
+  }),
 })
-const KNOWHERE_CREATE_URL = "/v1/auth/create"
 
 /**
- * Create an API key on the Knowhere side by forwarding the Dashboard
- * session cookie. Returns the parsed key id and secret.
+ * Request a per-user Knowhere API key from Dashboard's provisioning
+ * endpoint. Notebook never calls Knowhere `/v1/auth/create` directly —
+ * Dashboard owns JWT signing and Knowhere knows to trust that JWT.
+ *
+ * Returns the Knowhere key id and secret for local DB storage.
  */
-async function createApiKeyViaKnowhere(
+export async function fetchNotebookApiKeyFromDashboard(
   cookieHeader: string,
 ): Promise<{ knowhereKeyId: string; apiKey: string }> {
-  const baseURL = process.env.KNOWHERE_BASE_URL
-  if (!baseURL) {
-    throw new Error("KNOWHERE_BASE_URL must be set to create an API key.")
+  const url = process.env.DASHBOARD_NOTEBOOK_API_KEY_URL
+  if (!url) {
+    throw new Error(
+      "DASHBOARD_NOTEBOOK_API_KEY_URL must be set. " +
+        "It should point to Dashboard's provisionNotebookApiKey oRPC endpoint " +
+        "(see .env.local.example).",
+    )
   }
 
-  const response = await fetch(`${baseURL}${KNOWHERE_CREATE_URL}`, {
+  const response = await fetch(url, {
     method: "POST",
     headers: {
       "content-type": "application/json",
       cookie: cookieHeader,
     },
-    body: JSON.stringify({ name: "Notebook" }),
+    body: "{}",
   })
 
   if (!response.ok) {
     const text = await response.text().catch(() => "")
     throw new Error(
-      `Knowhere API key creation failed (${response.status}): ${text}`,
+      `Dashboard Notebook API key provisioning failed (${response.status}): ${text}`,
     )
   }
 
   const body: unknown = await response.json()
-  const parsed = Schema.decodeUnknownEither(KnowhereKeyResponse)(body)
+  const parsed = Schema.decodeUnknownEither(NotebookProvisionResponse)(body)
 
   if (parsed._tag === "Left") {
     throw new Error(
-      `Unexpected Knowhere API key response: ${JSON.stringify(body)}`,
+      `Unexpected Dashboard provisioning response: ${JSON.stringify(body)}`,
     )
   }
 
-  return { knowhereKeyId: parsed.right.id, apiKey: parsed.right.key }
+  return {
+    knowhereKeyId: parsed.right.json.id,
+    apiKey: parsed.right.json.key,
+  }
 }
 
 /**
- * Idempotent: returns the active API key for the workspace, creating one
- * via Knowhere if none exists or the existing one is failed. The cookie
- * header must be the raw Cookie string from the incoming request
- * (Dashboard session cookie).
+ * Idempotent: returns the active API key for the workspace, requesting
+ * one from Dashboard's provisioning endpoint if none exists or the
+ * existing one is failed. The cookie header must be the raw Cookie
+ * string from the incoming request (Dashboard session cookie).
+ *
+ * Notebook never calls Knowhere `/v1/auth/create` — Dashboard owns JWT
+ * signing and the Knowhere key-creation path.
  */
 export async function ensureApiKeyForWorkspace(
   workspaceId: string,
@@ -65,7 +84,7 @@ export async function ensureApiKeyForWorkspace(
   const existing = await getActiveApiKeyForWorkspace(workspaceId)
   if (existing) return existing.apiKey
 
-  const created = await createApiKeyViaKnowhere(cookieHeader)
+  const created = await fetchNotebookApiKeyFromDashboard(cookieHeader)
 
   await db
     .insert(apiKeys)
