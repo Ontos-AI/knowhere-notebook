@@ -48,6 +48,12 @@ export type WorkspaceShellProps = {
   demoSource?: SourceView;
   /** Demo chunks shown to unauthenticated users. */
   demoChunks?: ParsedChunkView[];
+  /**
+   * Pre-built login URL with callbackURL. Passed from the server
+   * component — do not read process.env in the client shell for auth
+   * redirects because DASHBOARD_LOGIN_URL is not NEXT_PUBLIC_.
+   */
+  loginUrl?: string;
 };
 
 /**
@@ -65,6 +71,7 @@ export function WorkspaceShell({
   isGuest = false,
   demoSource,
   demoChunks,
+  loginUrl,
 }: WorkspaceShellProps) {
   const guestSources = demoSource ? [demoSource] : [];
   const guestChunks = demoChunks ?? [];
@@ -86,9 +93,7 @@ export function WorkspaceShell({
   });
 
   function redirectToLogin() {
-    const loginUrl = process.env.NEXT_PUBLIC_DASHBOARD_LOGIN_URL ?? "/login";
-    const returnTo = encodeURIComponent(window.location.href);
-    window.location.href = `${loginUrl}?callbackURL=${returnTo}`;
+    window.location.href = loginUrl ?? "/login";
   }
 
   useEffect(() => {
@@ -344,7 +349,7 @@ export function WorkspaceShell({
         {showChat && (
           <ChatPanel
             messages={chat.messages}
-            isDisabled={readySourceCount === 0}
+            isDisabled={isGuest || readySourceCount === 0}
             isSending={chat.isSending}
             sourceCount={readySourceCount}
             onSend={handleChatSend}

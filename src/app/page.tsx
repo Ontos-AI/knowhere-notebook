@@ -26,11 +26,13 @@ export default async function Home() {
   const user = await getCurrentUser()
 
   if (!user) {
+    const loginUrl = `${process.env.DASHBOARD_LOGIN_URL ?? "/login"}?callbackURL=${encodeURIComponent(process.env.NOTEBOOK_PUBLIC_URL ?? "http://localhost:3001")}`
     return (
       <WorkspaceShell
         isGuest
         demoSource={DEMO_SOURCE}
         demoChunks={DEMO_CHUNKS}
+        loginUrl={loginUrl}
       />
     )
   }
