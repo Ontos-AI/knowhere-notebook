@@ -63,32 +63,13 @@ export async function fetchKnowhereJwt(
 
 /**
  * Fetch a per-request Knowhere JWT from Dashboard, forwarding the
- * incoming session cookie. No persistent API key is created or stored.
+ * incoming session cookie.
  */
 export async function ensureApiKeyForWorkspace(
   _workspaceId: string,
   cookieHeader: string,
 ): Promise<string> {
   return fetchKnowhereJwt(cookieHeader)
-}
-
-/**
- * No-op preserved for backward compat. JWT tokens are per-request and
- * not stored — there is no key row to mark as failed. When the JWT
- * expires the next request fetches a fresh one from Dashboard.
- */
-export async function markApiKeyFailed(_workspaceId: string): Promise<void> {
-  // no-op: JWT tokens are ephemeral
-}
-
-/**
- * Return "active" for backward compat. JWT tokens are fetched fresh
- * per request and not stored in a local key table.
- */
-export async function getApiKeyStatus(
-  _workspaceId: string,
-): Promise<"active" | "failed" | "missing"> {
-  return "active"
 }
 
 /**

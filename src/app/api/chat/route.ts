@@ -2,7 +2,7 @@ import { headers } from "next/headers"
 import { NextResponse } from "next/server";
 import { Either } from "effect";
 
-import { ensureApiKeyForWorkspace, isAuthError, markApiKeyFailed } from "@/lib/api-key-service";
+import { ensureApiKeyForWorkspace, isAuthError } from "@/lib/api-key-service";
 import { requireUser } from "@/lib/auth";
 import { generateGroundedAnswer, parseChatRequestBody } from "@/lib/chat";
 import { handleChatTurn } from "@/lib/chat-service";
@@ -49,11 +49,8 @@ export async function POST(request: Request): Promise<NextResponse> {
       onRight: (value) => NextResponse.json(value),
     })
   } catch (error) {
-    if (isAuthError(error)) {
-      await markApiKeyFailed(workspace.id)
-    }
     return NextResponse.json(
-      { message: "Your API key needs to be recreated. Please refresh the page." },
+      { message: "Your session may have expired. Please refresh the page." },
       { status: 401 },
     )
   }

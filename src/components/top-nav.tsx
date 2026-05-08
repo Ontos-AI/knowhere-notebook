@@ -1,6 +1,5 @@
 import { BookOpen } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
-import { ApiKeySettings } from "@/components/api-key-settings";
 
 export type TopNavProps = {
   userInitials?: string;
@@ -38,7 +37,6 @@ export function TopNav({
         </span>
       </div>
       <div className="flex shrink-0 items-center gap-2 lg:gap-3">
-        <ApiKeySettings />
         {userInitials && (
           <>
             <div className="hidden text-right lg:block">
