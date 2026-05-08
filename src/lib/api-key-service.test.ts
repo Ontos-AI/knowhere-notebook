@@ -6,7 +6,7 @@ vi.mock("./db", () => ({
   dbLayer: {},
 }))
 
-import { fetchNotebookApiKeyFromDashboard, isAuthError } from "./api-key-service"
+import { fetchKnowhereJwt, isAuthError } from "./api-key-service"
 
 describe("isAuthError", () => {
   it("detects 401 status on a Response object", () => {
@@ -52,38 +52,36 @@ describe("isAuthError", () => {
   })
 })
 
-describe("fetchNotebookApiKeyFromDashboard", () => {
+describe("fetchKnowhereJwt", () => {
   const originalFetch = globalThis.fetch
-  const originalUrl = process.env.DASHBOARD_NOTEBOOK_API_KEY_URL
+  const originalUrl = process.env.DASHBOARD_KNOWHERE_TOKEN_URL
 
   afterEach(() => {
     globalThis.fetch = originalFetch
     if (originalUrl === undefined)
-      delete process.env.DASHBOARD_NOTEBOOK_API_KEY_URL
-    else process.env.DASHBOARD_NOTEBOOK_API_KEY_URL = originalUrl
+      delete process.env.DASHBOARD_KNOWHERE_TOKEN_URL
+    else process.env.DASHBOARD_KNOWHERE_TOKEN_URL = originalUrl
   })
 
-  it("POSTs to the provisioning URL with the incoming cookie and an empty JSON body", async () => {
-    process.env.DASHBOARD_NOTEBOOK_API_KEY_URL =
-      "https://dashboard.example/api/orpc/users/provisionNotebookApiKey"
+  it("POSTs to the JWT endpoint with the incoming cookie and empty JSON body", async () => {
+    process.env.DASHBOARD_KNOWHERE_TOKEN_URL =
+      "https://dashboard.example/api/orpc/users/issueServiceJwt"
     const fetchSpy = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(
         JSON.stringify({
-          json: { id: "key_abc", key: "sk_secret", name: "Knowhere Notebook" },
+          json: { token: "eyJhbGciOiJIUzI1NiJ9.eyJpZCI6InVzZXIifQ.abc", expiresInSeconds: 900 },
         }),
         { status: 200, headers: { "content-type": "application/json" } },
       ),
     )
     globalThis.fetch = fetchSpy
 
-    const result = await fetchNotebookApiKeyFromDashboard(
-      "session=xyz; other=val",
-    )
+    const token = await fetchKnowhereJwt("session=xyz; other=val")
 
-    expect(result).toEqual({ knowhereKeyId: "key_abc", apiKey: "sk_secret" })
+    expect(token).toBe("eyJhbGciOiJIUzI1NiJ9.eyJpZCI6InVzZXIifQ.abc")
     expect(fetchSpy).toHaveBeenCalledOnce()
     const [url, init] = fetchSpy.mock.calls[0]!
-    expect(url).toBe(process.env.DASHBOARD_NOTEBOOK_API_KEY_URL)
+    expect(url).toBe(process.env.DASHBOARD_KNOWHERE_TOKEN_URL)
     expect((init as RequestInit)?.method).toBe("POST")
     expect((init as RequestInit)?.body).toBe("{}")
     expect((init as RequestInit)?.headers).toMatchObject({
@@ -92,25 +90,25 @@ describe("fetchNotebookApiKeyFromDashboard", () => {
     })
   })
 
-  it("throws when DASHBOARD_NOTEBOOK_API_KEY_URL is not set", async () => {
-    delete process.env.DASHBOARD_NOTEBOOK_API_KEY_URL
+  it("throws when DASHBOARD_KNOWHERE_TOKEN_URL is not set", async () => {
+    delete process.env.DASHBOARD_KNOWHERE_TOKEN_URL
     await expect(
-      fetchNotebookApiKeyFromDashboard("session=x"),
-    ).rejects.toThrow(/DASHBOARD_NOTEBOOK_API_KEY_URL/)
+      fetchKnowhereJwt("session=x"),
+    ).rejects.toThrow(/DASHBOARD_KNOWHERE_TOKEN_URL/)
   })
 
   it("throws on non-2xx from Dashboard", async () => {
-    process.env.DASHBOARD_NOTEBOOK_API_KEY_URL = "https://dashboard.example/api/orpc/users/provisionNotebookApiKey"
+    process.env.DASHBOARD_KNOWHERE_TOKEN_URL = "https://dashboard.example/api/orpc/users/issueServiceJwt"
     globalThis.fetch = vi
       .fn<typeof fetch>()
       .mockResolvedValue(new Response("oops", { status: 503 }))
     await expect(
-      fetchNotebookApiKeyFromDashboard("session=x"),
+      fetchKnowhereJwt("session=x"),
     ).rejects.toThrow(/503/)
   })
 
   it("throws on malformed response body", async () => {
-    process.env.DASHBOARD_NOTEBOOK_API_KEY_URL = "https://dashboard.example/api/orpc/users/provisionNotebookApiKey"
+    process.env.DASHBOARD_KNOWHERE_TOKEN_URL = "https://dashboard.example/api/orpc/users/issueServiceJwt"
     globalThis.fetch = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(JSON.stringify({ json: null }), {
         status: 200,
@@ -118,7 +116,20 @@ describe("fetchNotebookApiKeyFromDashboard", () => {
       }),
     )
     await expect(
-      fetchNotebookApiKeyFromDashboard("session=x"),
+      fetchKnowhereJwt("session=x"),
+    ).rejects.toThrow(/Unexpected/)
+  })
+
+  it("throws if the token string is empty", async () => {
+    process.env.DASHBOARD_KNOWHERE_TOKEN_URL = "https://dashboard.example/api/orpc/users/issueServiceJwt"
+    globalThis.fetch = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({ json: { token: "", expiresInSeconds: 900 } }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    )
+    await expect(
+      fetchKnowhereJwt("session=x"),
     ).rejects.toThrow(/Unexpected/)
   })
 })
