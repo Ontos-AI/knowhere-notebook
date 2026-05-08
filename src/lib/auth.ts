@@ -44,7 +44,7 @@ export type AuthUser = typeof AuthUserFromORPC.Type
 
 /** oRPC response envelope: `{ json: { user: {...} } }` */
 const oRPCEnvelope = Schema.Struct({
-  json: Schema.Struct({ user: AuthUserFromORPC }),
+  json: Schema.Struct({ user: Schema.Union(AuthUserFromORPC, Schema.Null).pipe(Schema.optionalWith({ default: () => null })) }),
 })
 
 // ---- Cookie names ---------------------------------------------------------
@@ -129,12 +129,42 @@ export const authLayer = Layer.effect(
  * multiple times in the same request.
  */
 export async function getCurrentUser(): Promise<AuthUser | null> {
-  const program = Effect.gen(function* () {
-    const auth = yield* Auth
-    return yield* auth.getCurrentUser()
-  }).pipe(Effect.provide(authLayer))
+  const url = process.env.DASHBOARD_SESSION_URL
+  if (!url) {
+    throw new Error(
+      "DASHBOARD_SESSION_URL is required. Set it to the Dashboard " +
+        "users.getCurrentUser oRPC endpoint (see .env.local.example).",
+    )
+  }
 
-  return Effect.runPromise(program)
+  const cookieHeader = (await headers()).get("cookie") ?? ""
+  if (cookieHeader.length === 0) return null
+
+  let res: Response
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: {
+        cookie: cookieHeader,
+        "content-type": "application/json",
+      },
+      body: "{}",
+      signal: AbortSignal.timeout(3_000),
+    })
+  } catch {
+    return null
+  }
+
+  if (!res.ok) return null
+
+  let body: unknown
+  try {
+    body = await res.json()
+  } catch {
+    return null
+  }
+
+  return extractUser(body)
 }
 
 /**
