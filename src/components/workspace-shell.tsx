@@ -5,6 +5,7 @@ import { TopNav } from "@/components/top-nav";
 import { SourcesPanel } from "@/components/sources-panel";
 import { ChunksPanel } from "@/components/chunks-panel";
 import { ChatPanel } from "@/components/chat-panel";
+import { MobileTabBar } from "@/components/mobile-tab-bar";
 import { resolveCitationChunk } from "@/lib/chunks";
 import type {
   ChatCitationView,
@@ -13,6 +14,11 @@ import type {
   SourceView,
 } from "@/lib/types";
 import type { UploadSourceActionState } from "@/app/actions";
+
+/**
+ * Which panel the mobile bottom-tab bar shows.
+ */
+export type PanelId = "sources" | "content" | "chat";
 
 type ChunkLoadState = {
   sourceId: string | null;
@@ -80,6 +86,7 @@ export function WorkspaceShell({
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
   const [focusedChunkId, setFocusedChunkId] = useState<string | null>(null);
   const [sources, setSources] = useState(initialSrcs);
+  const [mobilePanel, setMobilePanel] = useState<PanelId>("chat");
   const [chat, setChat] = useState<ChatState>({
     threadId: null,
     messages: [],
@@ -310,13 +317,17 @@ export function WorkspaceShell({
     (source) => source.status === "ready",
   ).length;
 
+  const hasMessages = chat.messages.length > 0;
+
   return (
     <div className="flex h-screen w-full flex-col overflow-hidden bg-muted/40">
       <TopNav
         userInitials={user ? initialsOf(user) : undefined}
         userName={user ? (user.name ?? user.email ?? undefined) : undefined}
       />
-      <div className="relative flex flex-1 overflow-hidden">
+
+      {/* Desktop: three-panel side-by-side layout */}
+      <div className="relative hidden flex-1 overflow-hidden lg:flex">
         <SourcesPanel
           sources={sources}
           onSourceUploaded={isGuest ? undefined : handleSourceUploaded}
@@ -363,8 +374,83 @@ export function WorkspaceShell({
           />
         )}
       </div>
+
+      {/* Mobile: single-panel with bottom tab bar.
+          pb-14 gives each panel a gutter so the fixed tab bar (h-14)
+          doesn't cover content at the end of the scroll. */}
+      <div
+        id="panel-sources"
+        role="tabpanel"
+        aria-labelledby="tab-sources"
+        className={`lg:hidden flex-1 overflow-hidden pb-14 ${
+          mobilePanel === "sources" ? "flex flex-col" : "hidden"
+        }`}
+      >
+        <SourcesPanel
+          sources={sources}
+          onSourceUploaded={handleSourceUploaded}
+          selectedSourceId={selectedSourceId}
+          onSelectSource={(id) => {
+            handleSourceSelected(id);
+            if (id) setMobilePanel("content");
+          }}
+          onToggleIncluded={handleToggleIncluded}
+          onArchiveSource={handleArchiveSource}
+          uploadAction={uploadAction}
+        />
+      </div>
+      <div
+        id="panel-content"
+        role="tabpanel"
+        aria-labelledby="tab-content"
+        className={`lg:hidden flex-1 overflow-hidden pb-14 ${
+          mobilePanel === "content" ? "flex flex-col" : "hidden"
+        }`}
+      >
+        <ChunksPanel
+          chunks={chunkLoad.chunks}
+          selectedSource={selectedSourceTitle}
+          focusedChunkId={focusedChunkId}
+          isLoading={chunkLoad.isLoading}
+          onClose={() => {
+            setSelectedSourceId(null);
+            setFocusedChunkId(null);
+            setChunkLoad({ sourceId: null, chunks: [], isLoading: false });
+            setMobilePanel("sources");
+          }}
+        />
+      </div>
+      <div
+        id="panel-chat"
+        role="tabpanel"
+        aria-labelledby="tab-chat"
+        className={`lg:hidden flex-1 overflow-hidden pb-14 ${
+          mobilePanel === "chat" ? "flex flex-col" : "hidden"
+        }`}
+      >
+        <ChatPanel
+          messages={chat.messages}
+          isDisabled={readySourceCount === 0}
+          isSending={chat.isSending}
+          sourceCount={readySourceCount}
+          onSend={handleChatSend}
+          onCitationClick={(citation) => {
+            setMobilePanel("content");
+            handleCitationClick(citation);
+          }}
+        />
+      </div>
+
+      <MobileTabBar
+        activePanel={mobilePanel}
+        onPanelChange={setMobilePanel}
+        sourceCount={sources.filter((s) => s.status === "ready").length}
+        chunkCount={chunkLoad.chunks.length}
+        hasMessages={hasMessages}
+      />
+
       {chat.error && (
-        <div className="fixed bottom-4 right-4 z-50 max-w-sm rounded-lg border border-destructive/30 bg-background px-4 py-3 text-sm text-destructive shadow-lg">
+        <div className="fixed bottom-18 right-4 z-50 max-w-sm rounded-lg border border-destructive/30 bg-background px-4 py-3 text-sm text-destructive shadow-lg lg:bottom-4">
           {chat.error}
         </div>
       )}
