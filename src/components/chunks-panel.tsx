@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { ImageIcon, Layers, Table2, X } from "lucide-react";
+import DOMPurify from "dompurify";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -286,16 +287,33 @@ function TableChunkCard({
 }) {
   const hasHtml = chunk.content.trim().startsWith("<");
 
+  // Sanitize table HTML from uploaded documents. The parsed content
+  // originates from user-controlled files and must be treated as
+  // untrusted — `dangerouslySetInnerHTML` without sanitization is XSS.
+  const safeHtml = useMemo(
+    () =>
+      hasHtml
+        ? DOMPurify.sanitize(chunk.content, {
+            ALLOWED_TAGS: [
+              "table", "thead", "tbody", "tfoot", "tr", "th", "td",
+              "caption", "colgroup", "col",
+            ],
+            ALLOWED_ATTR: ["colspan", "rowspan", "scope", "align"],
+          })
+        : null,
+    [chunk.content, hasHtml],
+  );
+
   return (
     <Card
       className={`cursor-default shadow-sm transition-colors ${focusCardClasses(isFocused)}`}
     >
       <CardContent className="p-5">
         <ChunkHeader chunk={chunk} />
-        {hasHtml ? (
+        {safeHtml ? (
           <div
             className="prose prose-sm max-w-none overflow-x-auto text-sm leading-relaxed [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-border [&_td]:px-2 [&_td]:py-1 [&_th]:border [&_th]:border-border [&_th]:px-2 [&_th]:py-1 [&_th]:bg-muted"
-            dangerouslySetInnerHTML={{ __html: chunk.content }}
+            dangerouslySetInnerHTML={{ __html: safeHtml }}
           />
         ) : (
           <div className="flex flex-col items-center gap-3 rounded-lg border border-border bg-muted/40 py-8 text-center">
