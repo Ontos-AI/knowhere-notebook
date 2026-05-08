@@ -28,24 +28,26 @@ type ChatState = {
 };
 
 export type WorkspaceShellProps = {
-  user: {
+  user?: {
     id: string;
     name: string | null;
     email: string | null;
   };
-  /**
-   * Workspace metadata. Unused in this PR's shell — PR-C wires it into
-   * the upload action, chunks fetch, and chat route.
-   */
-  workspace: {
+  workspace?: {
     id: string;
     namespace: string;
   };
-  sources: SourceView[];
-  uploadAction: (
+  sources?: SourceView[];
+  uploadAction?: (
     state: UploadSourceActionState,
     formData: FormData,
   ) => Promise<UploadSourceActionState>;
+  /** When true, the shell renders a read-only demo view for guests. */
+  isGuest?: boolean;
+  /** Demo source shown to unauthenticated users. */
+  demoSource?: SourceView;
+  /** Demo chunks shown to unauthenticated users. */
+  demoChunks?: ParsedChunkView[];
 };
 
 /**
@@ -60,10 +62,17 @@ export function WorkspaceShell({
   user,
   sources: initialSources,
   uploadAction,
+  isGuest = false,
+  demoSource,
+  demoChunks,
 }: WorkspaceShellProps) {
+  const guestSources = demoSource ? [demoSource] : [];
+  const guestChunks = demoChunks ?? [];
+  const initialSrcs = isGuest ? guestSources : (initialSources ?? []);
+
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
   const [focusedChunkId, setFocusedChunkId] = useState<string | null>(null);
-  const [sources, setSources] = useState(initialSources);
+  const [sources, setSources] = useState(initialSrcs);
   const [chat, setChat] = useState<ChatState>({
     threadId: null,
     messages: [],
@@ -72,9 +81,15 @@ export function WorkspaceShell({
   });
   const [chunkLoad, setChunkLoad] = useState<ChunkLoadState>({
     sourceId: null,
-    chunks: [],
+    chunks: isGuest ? guestChunks : [],
     isLoading: false,
   });
+
+  function redirectToLogin() {
+    const loginUrl = process.env.NEXT_PUBLIC_DASHBOARD_LOGIN_URL ?? "/login";
+    const returnTo = encodeURIComponent(window.location.href);
+    window.location.href = `${loginUrl}?callbackURL=${returnTo}`;
+  }
 
   useEffect(() => {
     const hasPendingSources = sources.some(
@@ -293,20 +308,25 @@ export function WorkspaceShell({
   return (
     <div className="flex h-screen w-full flex-col overflow-hidden bg-muted/40">
       <TopNav
-        userInitials={initialsOf(user)}
-        userName={user.name ?? user.email ?? undefined}
+        userInitials={user ? initialsOf(user) : undefined}
+        userName={user ? (user.name ?? user.email ?? undefined) : undefined}
       />
       <div className="relative flex flex-1 overflow-hidden">
         <SourcesPanel
           sources={sources}
-          onSourceUploaded={handleSourceUploaded}
+          onSourceUploaded={isGuest ? undefined : handleSourceUploaded}
           selectedSourceId={selectedSourceId}
           onSelectSource={(id) => {
+            if (isGuest) {
+              setSelectedSourceId(id);
+              return;
+            }
             handleSourceSelected(id);
           }}
-          onToggleIncluded={handleToggleIncluded}
-          onArchiveSource={handleArchiveSource}
-          uploadAction={uploadAction}
+          onToggleIncluded={isGuest ? undefined : handleToggleIncluded}
+          onArchiveSource={isGuest ? undefined : handleArchiveSource}
+          uploadAction={isGuest ? undefined : uploadAction}
+          onLoginClick={isGuest ? redirectToLogin : undefined}
         />
         {showParsed && (
           <ChunksPanel
@@ -365,6 +385,7 @@ function mergeSourceQueryState(
 }
 
 function initialsOf(user: WorkspaceShellProps["user"]): string {
+  if (!user) return "?";
   const source = user.name ?? user.email ?? user.id;
   const parts = source.split(/[\s@._-]+/).filter(Boolean);
   if (parts.length === 0) return "?";

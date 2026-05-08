@@ -1,32 +1,46 @@
 import { headers } from "next/headers"
 
-import { ensureApiKeyForWorkspace } from "@/lib/api-key-service";
-import { requireUser } from "@/lib/auth";
-import { getKnowhereClient } from "@/lib/knowhere";
-import { sourceViewOptionsBySourceId } from "@/lib/source-counts";
-import { toSourceView } from "@/lib/source-view";
-import { ensureWorkspace, listSourcesForWorkspace } from "@/lib/workspace";
-import { uploadSourceAction } from "./actions";
-import { WorkspaceShell } from "@/components/workspace-shell";
+import { ensureApiKeyForWorkspace } from "@/lib/api-key-service"
+import { getCurrentUser } from "@/lib/auth"
+import { DEMO_CHUNKS, DEMO_SOURCE } from "@/lib/demo-data"
+import { getKnowhereClient } from "@/lib/knowhere"
+import { sourceViewOptionsBySourceId } from "@/lib/source-counts"
+import { toSourceView } from "@/lib/source-view"
+import { ensureWorkspace, listSourcesForWorkspace } from "@/lib/workspace"
+import { uploadSourceAction } from "./actions"
+import { WorkspaceShell } from "@/components/workspace-shell"
 
 export const dynamic = "force-dynamic"
 
 /**
  * Main workspace page. Server component.
  *
- * On every request: verify the session with Dashboard, ensure the user's
- * workspace row exists, auto-create a Knowhere API key if none exists,
- * and pass identity + workspace metadata down to the client shell.
- * Anonymous requests are redirected to Dashboard login inside `requireUser`.
+ * Two modes:
+ *   - Guest (no Dashboard session): shows a static demo document with
+ *     parsed chunks so first-time visitors can explore the product before
+ *     logging in. Upload and chat are gated behind Dashboard login.
+ *   - Authenticated: the existing workspace flow — verify session,
+ *     ensure workspace + API key, load real sources.
  */
 export default async function Home() {
-  const user = await requireUser();
-  const workspace = await ensureWorkspace(user.id);
+  const user = await getCurrentUser()
+
+  if (!user) {
+    return (
+      <WorkspaceShell
+        isGuest
+        demoSource={DEMO_SOURCE}
+        demoChunks={DEMO_CHUNKS}
+      />
+    )
+  }
+
+  const workspace = await ensureWorkspace(user.id)
   const cookieHeader = (await headers()).get("cookie") ?? ""
   const apiKey = await ensureApiKeyForWorkspace(workspace.id, cookieHeader)
   const client = getKnowhereClient(apiKey)
-  const sources = await listSourcesForWorkspace(workspace.id);
-  const sourceOptions = await sourceViewOptionsBySourceId(sources, client);
+  const sources = await listSourcesForWorkspace(workspace.id)
+  const sourceOptions = await sourceViewOptionsBySourceId(sources, client)
 
   return (
     <WorkspaceShell
@@ -44,5 +58,5 @@ export default async function Home() {
       )}
       uploadAction={uploadSourceAction}
     />
-  );
+  )
 }

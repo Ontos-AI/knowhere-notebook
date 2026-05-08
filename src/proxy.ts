@@ -36,6 +36,7 @@ function sessionCookieNames(): readonly string[] {
  * when no cookie is present.
  */
 const PUBLIC_PATHS: readonly string[] = [
+  "/",
   "/login",
   "/favicon.ico",
   "/api/internal/health",
