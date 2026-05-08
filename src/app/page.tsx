@@ -1,6 +1,7 @@
 import { headers } from "next/headers"
 
 import { ensureApiKeyForWorkspace } from "@/lib/api-key-service"
+import { authURLs } from "@/lib/auth-urls"
 import { getCurrentUser } from "@/lib/auth"
 import { DEMO_CHUNKS, DEMO_SOURCE } from "@/lib/demo-data"
 import { getKnowhereClient } from "@/lib/knowhere"
@@ -26,7 +27,15 @@ export default async function Home() {
   const user = await getCurrentUser()
 
   if (!user) {
-    const loginUrl = `${process.env.DASHBOARD_LOGIN_URL ?? "/login"}?callbackURL=${encodeURIComponent(process.env.NOTEBOOK_PUBLIC_URL ?? "http://localhost:3001")}`
+    const dashboardLoginURL =
+      process.env.DASHBOARD_LOGIN_URL ?? "http://localhost:3000/login"
+    const notebookPublicURL =
+      process.env.NOTEBOOK_PUBLIC_URL ??
+      authURLs.resolveNotebookPublicURLFromHeaders(await headers())
+    const loginUrl = authURLs.buildDashboardLoginURL(
+      dashboardLoginURL,
+      notebookPublicURL,
+    )
     return (
       <WorkspaceShell
         isGuest
