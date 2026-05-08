@@ -13,7 +13,15 @@ function ScrollArea({
   return (
     <ScrollAreaPrimitive.Root
       data-slot="scroll-area"
-      className={cn("relative", className)}
+      className={cn(
+        "relative overflow-hidden",
+        // In a flex layout, allow the scroll root to shrink below its
+        // content height so the viewport constrains the actual scroll
+        // bounds. Without this, flex-1 children of a ScrollArea can
+        // grow forever and the parent page scrolls instead.
+        "min-h-0",
+        className,
+      )}
       {...props}
     >
       <ScrollAreaPrimitive.Viewport

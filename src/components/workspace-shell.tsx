@@ -198,7 +198,20 @@ export function WorkspaceShell({
   }
 
   async function handleChatSend(text: string) {
-    setChat((current) => ({ ...current, isSending: true, error: null }));
+    // Optimistically append the user message so the UI responds
+    // immediately, before the /api/chat roundtrip completes.
+    const optimisticId = `pending-${Date.now()}`;
+    const optimisticUser: ChatMessageView = {
+      id: optimisticId,
+      role: "user",
+      content: text,
+    };
+    setChat((current) => ({
+      ...current,
+      isSending: true,
+      error: null,
+      messages: [...current.messages, optimisticUser],
+    }));
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
@@ -220,21 +233,38 @@ export function WorkspaceShell({
         setChat((current) => ({
           ...current,
           isSending: false,
+          messages: current.messages.filter(
+            (m) => m.id !== optimisticId,
+          ),
           error: body.message ?? "The assistant could not answer right now.",
         }));
         return;
       }
 
-      setChat((current) => ({
-        threadId: body.threadId ?? current.threadId,
-        messages: [...current.messages, ...body.messages!],
-        isSending: false,
-        error: null,
-      }));
+      setChat((current) => {
+        // Keep the optimistic user message in place (it's already
+        // visible to the user), and only append the assistant messages
+        // that the server generated. The optimistic id stays as the
+        // React key — no noticeable difference vs the server-assigned
+        // UUID for the user, since only the assistant response content
+        // is new.
+        const assistantMessages = body.messages!.filter(
+          (m) => m.role === "assistant",
+        );
+        return {
+          threadId: body.threadId ?? current.threadId,
+          messages: [...current.messages, ...assistantMessages],
+          isSending: false,
+          error: null,
+        };
+      });
     } catch {
       setChat((current) => ({
         ...current,
         isSending: false,
+        messages: current.messages.filter(
+          (m) => m.id !== optimisticId,
+        ),
         error: "The assistant could not answer right now.",
       }));
     }
