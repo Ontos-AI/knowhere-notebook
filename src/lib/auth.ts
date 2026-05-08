@@ -44,7 +44,7 @@ export type AuthUser = typeof AuthUserFromORPC.Type
 
 /** oRPC response envelope: `{ json: { user: {...} } }` */
 const oRPCEnvelope = Schema.Struct({
-  json: Schema.Struct({ user: AuthUserFromORPC }),
+  json: Schema.Struct({ user: Schema.Union(AuthUserFromORPC, Schema.Null).pipe(Schema.optionalWith({ default: () => null })) }),
 })
 
 // ---- Cookie names ---------------------------------------------------------
