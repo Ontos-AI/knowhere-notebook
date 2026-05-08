@@ -51,7 +51,7 @@ export function SourcesPanel({
   const [confirmSourceId, setConfirmSourceId] = useState<string | null>(null);
 
   return (
-    <aside className="z-10 flex w-[260px] shrink-0 flex-col border-r border-border bg-background lg:w-[320px]">
+    <aside className="z-10 flex w-full shrink-0 flex-col border-r border-border bg-background lg:w-[260px] xl:w-[320px]">
       {confirmSourceId && (
         <ConfirmArchiveDialog
           source={sources.find((s) => s.id === confirmSourceId) ?? null}
