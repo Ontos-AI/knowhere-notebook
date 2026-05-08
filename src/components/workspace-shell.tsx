@@ -324,6 +324,12 @@ export function WorkspaceShell({
           onSelectSource={(id) => {
             if (isGuest) {
               setSelectedSourceId(id);
+              setFocusedChunkId(null);
+              setChunkLoad({
+                sourceId: id,
+                chunks: id ? guestChunks : [],
+                isLoading: false,
+              });
               return;
             }
             handleSourceSelected(id);
