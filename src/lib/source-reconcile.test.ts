@@ -31,16 +31,27 @@ async function loadReconcile({
   listSourcesForWorkspace,
   markSourceFailed = vi.fn(),
   markSourceReady = vi.fn(),
+  saveSourceParseResult = vi.fn(),
+  storeParsedResultAssets = vi.fn().mockResolvedValue({
+    resultBlobUrl: "https://blob.example/result.zip",
+    assetUrlsByFilePath: {},
+  }),
 }: {
   listSourcesForWorkspace: ReturnType<typeof vi.fn>
   markSourceFailed?: ReturnType<typeof vi.fn>
   markSourceReady?: ReturnType<typeof vi.fn>
+  saveSourceParseResult?: ReturnType<typeof vi.fn>
+  storeParsedResultAssets?: ReturnType<typeof vi.fn>
 }): Promise<typeof import("./source-reconcile")> {
   vi.resetModules()
   vi.doMock("./workspace", () => ({
     listSourcesForWorkspace,
     markSourceFailed,
     markSourceReady,
+    saveSourceParseResult,
+  }))
+  vi.doMock("./parsed-result-assets", () => ({
+    storeParsedResultAssets,
   }))
   return await import("./source-reconcile")
 }
@@ -80,6 +91,73 @@ describe("reconcileSourcesForWorkspace", () => {
       "doc_1",
     )
     expect(result).toEqual([ready])
+  })
+
+  it("stores parsed result assets before marking a completed source ready", async () => {
+    const parsing = makeSource({ id: "source_1", knowhereJobId: "job_1" })
+    const ready = makeSource({
+      id: "source_1",
+      status: "ready",
+      knowhereDocumentId: "doc_1",
+    })
+    const job = {
+      status: "done",
+      documentId: "doc_1",
+      isDone: true,
+    }
+    const calls: string[] = []
+    const listSourcesForWorkspace = vi
+      .fn()
+      .mockResolvedValueOnce([parsing])
+      .mockResolvedValueOnce([ready])
+    const markSourceReady = vi.fn(async () => {
+      calls.push("ready")
+    })
+    const storeParsedResultAssets = vi.fn(async () => {
+      calls.push("store")
+      return {
+        resultBlobUrl: "https://blob.example/result.zip",
+        assetUrlsByFilePath: {
+          "images/image-1.jpg": "https://blob.example/image-1.jpg",
+        },
+      }
+    })
+    const saveSourceParseResult = vi.fn(async () => {
+      calls.push("save")
+    })
+    const { reconcileSourcesForWorkspace } = await loadReconcile({
+      listSourcesForWorkspace,
+      markSourceReady,
+    })
+
+    const mockClient = {
+      jobs: {
+        get: vi.fn().mockResolvedValue(job),
+      },
+    } as unknown as import("@ontos-ai/knowhere-sdk").default
+
+    await reconcileSourcesForWorkspace(workspace, mockClient, {
+      storeParsedResultAssets,
+      saveSourceParseResult,
+    })
+
+    expect(storeParsedResultAssets).toHaveBeenCalledWith({
+      workspaceId: workspace.id,
+      sourceId: "source_1",
+      job,
+      client: mockClient,
+    })
+    expect(saveSourceParseResult).toHaveBeenCalledWith(
+      workspace.id,
+      "source_1",
+      {
+        resultBlobUrl: "https://blob.example/result.zip",
+        assetUrlsByFilePath: {
+          "images/image-1.jpg": "https://blob.example/image-1.jpg",
+        },
+      },
+    )
+    expect(calls).toEqual(["store", "save", "ready"])
   })
 
   it("marks failed parsing jobs failed with a user-safe reason", async () => {

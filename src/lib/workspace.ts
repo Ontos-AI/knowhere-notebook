@@ -7,12 +7,10 @@ import { DbClient, dbLayer } from "./db"
 import {
   chatMessages,
   chatThreads,
+  sourceParseResults,
   sources,
   workspaces,
-  type ChatMessage,
-  type ChatThread,
   type Source,
-  type Workspace,
 } from "./schema"
 import type { CitationView, RetrievalResultView } from "./types"
 
@@ -163,6 +161,61 @@ export const markSourceFailedEffect = (
   updateSourceInWorkspaceEffect(workspaceId, sourceId, {
     status: "failed",
     failureReason: reason,
+  })
+
+export const saveSourceParseResultEffect = (
+  workspaceId: string,
+  sourceId: string,
+  input: {
+    resultBlobUrl: string
+    assetUrlsByFilePath: Readonly<Record<string, string>>
+  },
+) =>
+  Effect.gen(function* () {
+    const db = yield* DbClient
+    const source = yield* findSourceInWorkspaceEffect(workspaceId, sourceId)
+    if (!source) return null
+
+    const [result] = yield* Effect.promise(() =>
+      db
+        .insert(sourceParseResults)
+        .values({
+          sourceId,
+          resultBlobUrl: input.resultBlobUrl,
+          assetUrls: input.assetUrlsByFilePath,
+        })
+        .onConflictDoUpdate({
+          target: sourceParseResults.sourceId,
+          set: {
+            resultBlobUrl: input.resultBlobUrl,
+            assetUrls: input.assetUrlsByFilePath,
+            updatedAt: sql`now()`,
+          },
+        })
+        .returning(),
+    )
+
+    return result ?? null
+  })
+
+export const getSourceParseAssetUrlsEffect = (
+  workspaceId: string,
+  sourceId: string,
+) =>
+  Effect.gen(function* () {
+    const db = yield* DbClient
+    const source = yield* findSourceInWorkspaceEffect(workspaceId, sourceId)
+    if (!source) return {}
+
+    const row = yield* Effect.promise(() =>
+      db
+        .select({ assetUrls: sourceParseResults.assetUrls })
+        .from(sourceParseResults)
+        .where(eq(sourceParseResults.sourceId, sourceId))
+        .limit(1),
+    )
+
+    return row[0]?.assetUrls ?? {}
   })
 
 export const findChatThreadInWorkspaceEffect = (
@@ -388,6 +441,26 @@ export const markSourceFailed = (
   reason: string,
 ) =>
   dbRuntime().runPromise(markSourceFailedEffect(workspaceId, sourceId, reason))
+
+export const saveSourceParseResult = (
+  workspaceId: string,
+  sourceId: string,
+  input: {
+    resultBlobUrl: string
+    assetUrlsByFilePath: Readonly<Record<string, string>>
+  },
+) =>
+  dbRuntime().runPromise(
+    saveSourceParseResultEffect(workspaceId, sourceId, input),
+  )
+
+export const getSourceParseAssetUrls = (
+  workspaceId: string,
+  sourceId: string,
+) =>
+  dbRuntime().runPromise(
+    getSourceParseAssetUrlsEffect(workspaceId, sourceId),
+  )
 
 export const findChatThreadInWorkspace = (
   workspaceId: string,

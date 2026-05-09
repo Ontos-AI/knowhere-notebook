@@ -1,12 +1,19 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { ImageIcon, Layers, Table2 } from "lucide-react";
 import DOMPurify from "dompurify";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import type { ParsedChunkView } from "@/lib/types";
+import type { ParsedChunkConnection, ParsedChunkView } from "@/lib/types";
 
 export type ChunksPanelProps = {
   chunks: ParsedChunkView[];
@@ -21,16 +28,33 @@ export function ChunksPanel({
   focusedChunkId = null,
   isLoading = false,
 }: Partial<ChunksPanelProps> = {}) {
-  const focusedRef = useRef<HTMLDivElement>(null);
+  const chunkRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const [localFocusedChunkId, setLocalFocusedChunkId] = useState<string | null>(
+    null,
+  );
+  const activeFocusedChunkId = focusedChunkId ?? localFocusedChunkId;
+
+  function setChunkRef(chunkId: string, element: HTMLDivElement | null): void {
+    if (element) {
+      chunkRefs.current.set(chunkId, element);
+      return;
+    }
+    chunkRefs.current.delete(chunkId);
+  }
+
+  const scrollToChunk = useCallback((chunkId: string): void => {
+    const element = chunkRefs.current.get(chunkId);
+    if (!element) return;
+    setLocalFocusedChunkId(chunkId);
+    element.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+  }, []);
 
   useEffect(() => {
-    if (focusedChunkId && focusedRef.current) {
-      focusedRef.current.scrollIntoView({
-        behavior: "smooth",
-        block: "center",
-      });
-    }
-  }, [focusedChunkId]);
+    if (focusedChunkId) scrollToChunk(focusedChunkId);
+  }, [focusedChunkId, scrollToChunk]);
 
   const headerTitle = focusedChunkId
     ? "Referenced Chunks"
@@ -78,10 +102,9 @@ export function ChunksPanel({
                 <ChunkCard
                   key={chunk.chunkId}
                   chunk={chunk}
-                  isFocused={chunk.chunkId === focusedChunkId}
-                  focusRef={
-                    chunk.chunkId === focusedChunkId ? focusedRef : undefined
-                  }
+                  isFocused={chunk.chunkId === activeFocusedChunkId}
+                  setChunkRef={setChunkRef}
+                  onReferenceClick={scrollToChunk}
                 />
               ))}
             </div>
@@ -123,29 +146,39 @@ function LoadingChunks() {
 function ChunkCard({
   chunk,
   isFocused,
-  focusRef,
+  setChunkRef,
+  onReferenceClick,
 }: {
   chunk: ParsedChunkView;
   isFocused: boolean;
-  focusRef?: React.RefObject<HTMLDivElement | null>;
+  setChunkRef: (chunkId: string, element: HTMLDivElement | null) => void;
+  onReferenceClick: (chunkId: string) => void;
 }) {
+  const ref = (element: HTMLDivElement | null) => {
+    setChunkRef(chunk.chunkId, element);
+  };
+
   if (chunk.type === "image") {
     return (
-      <div ref={focusRef}>
+      <div ref={ref}>
         <ImageChunkCard chunk={chunk} isFocused={isFocused} />
       </div>
     );
   }
   if (chunk.type === "table") {
     return (
-      <div ref={focusRef}>
+      <div ref={ref}>
         <TableChunkCard chunk={chunk} isFocused={isFocused} />
       </div>
     );
   }
   return (
-    <div ref={focusRef}>
-      <TextChunkCard chunk={chunk} isFocused={isFocused} />
+    <div ref={ref}>
+      <TextChunkCard
+        chunk={chunk}
+        isFocused={isFocused}
+        onReferenceClick={onReferenceClick}
+      />
     </div>
   );
 }
@@ -197,9 +230,11 @@ function focusCardClasses(isFocused: boolean): string {
 function TextChunkCard({
   chunk,
   isFocused,
+  onReferenceClick,
 }: {
   chunk: ParsedChunkView;
   isFocused: boolean;
+  onReferenceClick: (chunkId: string) => void;
 }) {
   return (
     <Card
@@ -208,7 +243,7 @@ function TextChunkCard({
       <CardContent className="p-4 sm:p-5">
         <ChunkHeader chunk={chunk} />
         <pre className="whitespace-pre-wrap break-words font-sans text-[13px] leading-relaxed text-foreground sm:text-sm">
-          {chunk.content}
+          {renderTextChunkContent(chunk, onReferenceClick)}
         </pre>
         <ChunkKeywords keywords={chunk.keywords} />
       </CardContent>
@@ -229,21 +264,145 @@ function ImageChunkCard({
     >
       <CardContent className="p-4 sm:p-5">
         <ChunkHeader chunk={chunk} />
-        <div className="flex flex-col items-center gap-3 rounded-lg border border-border bg-muted/40 py-8 text-center">
-          <ImageIcon className="size-8 text-muted-foreground" />
-          <div>
-            <p className="text-sm font-medium text-foreground">
-              Image chunk
-            </p>
-            <p className="mt-1 max-w-xs text-xs text-muted-foreground">
-              {chunk.summary ?? "Image content is not available in this view."}
-            </p>
+        {chunk.assetUrl ? (
+          <figure className="overflow-hidden rounded-lg border border-border bg-muted/30">
+            {/* eslint-disable-next-line @next/next/no-img-element -- Parsed artifact dimensions are not known before render. */}
+            <img
+              src={chunk.assetUrl}
+              alt={chunk.summary ?? "Image chunk"}
+              className="max-h-[520px] w-full object-contain"
+            />
+          </figure>
+        ) : (
+          <div className="flex flex-col items-center gap-3 rounded-lg border border-border bg-muted/40 py-8 text-center">
+            <ImageIcon className="size-8 text-muted-foreground" />
+            <div>
+              <p className="text-sm font-medium text-foreground">
+                Image chunk
+              </p>
+              <p className="mt-1 max-w-xs text-xs text-muted-foreground">
+                {chunk.summary ?? "Image content is not available in this view."}
+              </p>
+            </div>
           </div>
-        </div>
+        )}
         <ChunkKeywords keywords={chunk.keywords} />
       </CardContent>
     </Card>
   );
+}
+
+function renderTextChunkContent(
+  chunk: ParsedChunkView,
+  onReferenceClick: (chunkId: string) => void,
+): ReactNode {
+  const references = getRenderableReferences(chunk);
+  if (references.length === 0) return chunk.content;
+
+  const nodes: ReactNode[] = [];
+  let cursor = 0;
+
+  references.forEach((reference, index) => {
+    if (reference.start > cursor) {
+      nodes.push(chunk.content.slice(cursor, reference.start));
+    }
+    nodes.push(
+      <ChunkReferenceButton
+        key={`${reference.connection.ref ?? "ref"}-${index}`}
+        connection={reference.connection}
+        onReferenceClick={onReferenceClick}
+      />,
+    );
+    cursor = reference.end;
+  });
+
+  if (cursor < chunk.content.length) {
+    nodes.push(chunk.content.slice(cursor));
+  }
+
+  return nodes;
+}
+
+type RenderableReference = {
+  start: number;
+  end: number;
+  connection: ParsedChunkConnection;
+};
+
+function getRenderableReferences(
+  chunk: ParsedChunkView,
+): RenderableReference[] {
+  if (!chunk.connections || chunk.connections.length === 0) return [];
+
+  const references = chunk.connections.flatMap(
+    (connection): RenderableReference[] => {
+      const range = getReferenceRange(chunk.content, connection);
+      return range ? [{ ...range, connection }] : [];
+    },
+  );
+
+  const sorted = references.sort((a, b) => a.start - b.start);
+  const nonOverlapping: RenderableReference[] = [];
+  let previousEnd = -1;
+
+  sorted.forEach((reference) => {
+    if (reference.start < previousEnd) return;
+    nonOverlapping.push(reference);
+    previousEnd = reference.end;
+  });
+
+  return nonOverlapping;
+}
+
+function getReferenceRange(
+  content: string,
+  connection: ParsedChunkConnection,
+): { start: number; end: number } | null {
+  const positioned = connection.position;
+  if (
+    positioned &&
+    positioned.start >= 0 &&
+    positioned.end > positioned.start &&
+    positioned.end <= content.length
+  ) {
+    return positioned;
+  }
+
+  if (!connection.ref) return null;
+  const start = content.indexOf(connection.ref);
+  if (start < 0) return null;
+  return { start, end: start + connection.ref.length };
+}
+
+function ChunkReferenceButton({
+  connection,
+  onReferenceClick,
+}: {
+  connection: ParsedChunkConnection;
+  onReferenceClick: (chunkId: string) => void;
+}) {
+  const isResolved = typeof connection.targetChunkId === "string";
+  const label = getReferenceLabel(connection);
+
+  return (
+    <button
+      type="button"
+      disabled={!isResolved}
+      aria-disabled={!isResolved}
+      className="mx-0.5 inline-flex max-w-full items-center rounded border border-primary/25 bg-primary/10 px-1.5 py-0.5 text-[12px] font-medium leading-5 text-primary hover:bg-primary/15 disabled:cursor-not-allowed disabled:border-border disabled:bg-muted disabled:text-muted-foreground"
+      onClick={() => {
+        if (connection.targetChunkId) onReferenceClick(connection.targetChunkId);
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
+function getReferenceLabel(connection: ParsedChunkConnection): string {
+  const ref = connection.ref?.trim();
+  if (!ref) return connection.targetParserChunkId;
+  return ref.replace(/^\[/, "").replace(/\]$/, "");
 }
 
 function TableChunkCard({

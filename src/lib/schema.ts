@@ -114,6 +114,39 @@ export type Source = typeof sources.$inferSelect;
 export type NewSource = typeof sources.$inferInsert;
 
 /**
+ * Notebook-owned parse-result artifact index for one source.
+ *
+ * Knowhere's chunk list currently may omit media asset URLs, while parsed chunk
+ * metadata still points to ZIP-relative files like `images/image-1.jpg`.
+ * This table stores the Notebook Blob copy of the result ZIP plus a
+ * file-path-to-public-URL map for those extracted parsed artifacts.
+ */
+export const sourceParseResults = pgTable(
+  "source_parse_results",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sourceId: uuid("source_id")
+      .notNull()
+      .references(() => sources.id, { onDelete: "cascade" })
+      .unique(),
+    resultBlobUrl: text("result_blob_url").notNull(),
+    assetUrls: jsonb("asset_urls")
+      .$type<Readonly<Record<string, string>>>()
+      .notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("source_parse_results_source_id_idx").on(t.sourceId)],
+);
+
+export type SourceParseResult = typeof sourceParseResults.$inferSelect;
+export type NewSourceParseResult = typeof sourceParseResults.$inferInsert;
+
+/**
  * A chat thread is a conversation within a workspace. Title is optional
  * for the MVP — we don't auto-title yet.
  */

@@ -7,7 +7,11 @@ import { getCurrentUser } from "@/lib/auth"
 import { loadChunksForSource } from "@/lib/chunks"
 import { demoData } from "@/lib/demo-data"
 import { makeKnowhereClient } from "@/lib/knowhere"
-import { ensureWorkspace, findSourceInWorkspace } from "@/lib/workspace"
+import {
+  ensureWorkspace,
+  findSourceInWorkspace,
+  getSourceParseAssetUrls,
+} from "@/lib/workspace"
 
 type RouteContext = {
   params: Promise<{
@@ -43,8 +47,12 @@ export async function GET(
   const cookieHeader = (await headers()).get("cookie") ?? ""
   const apiKey = await ensureApiKeyForWorkspace(workspace.id, cookieHeader)
   const client = makeKnowhereClient(apiKey)
+  const assetUrlsByFilePath = await getSourceParseAssetUrls(
+    workspace.id,
+    source.id,
+  )
   const chunks = await Effect.runPromise(
-    loadChunksForSource(source, client),
+    loadChunksForSource(source, client, { assetUrlsByFilePath }),
   )
   return NextResponse.json({ chunks });
 }

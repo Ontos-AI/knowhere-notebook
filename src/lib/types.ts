@@ -18,20 +18,38 @@
 
 export type ChunkType = "text" | "image" | "table";
 
+export type ParsedChunkConnection = {
+  targetParserChunkId: string;
+  targetChunkId?: string;
+  relation: "embeds" | "related" | string;
+  ref?: string;
+  position?: {
+    start: number;
+    end: number;
+  };
+};
+
 /**
  * Parsed Content panel row — mirrors the SDK document-chunk shape.
  */
 export type ParsedChunkView = {
   chunkId: string;
+  /** Parser-provided chunk_id. Connection metadata targets this id. */
+  parserChunkId?: string;
   /** Knowhere document ID. Present when loaded through a Notebook source. */
   documentId?: string;
   /** Human-readable section path from Knowhere, used to focus citations. */
   sectionPath?: string | null;
   type: ChunkType;
   content: string;
+  /** ZIP-relative parsed artifact path, e.g. images/image-1.jpg. */
+  filePath?: string;
+  /** Public Blob URL for parsed media/table artifacts when Notebook stored it. */
+  assetUrl?: string;
   summary?: string;
   keywords?: string[];
   pageNums?: number[];
+  connections?: ParsedChunkConnection[];
   /** Display-only attribution. */
   sourceTitle: string;
 };

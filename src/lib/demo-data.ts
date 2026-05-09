@@ -3,7 +3,12 @@ import "server-only";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { ChunkType, ParsedChunkView, SourceView } from "./types";
+import type {
+  ChunkType,
+  ParsedChunkConnection,
+  ParsedChunkView,
+  SourceView,
+} from "./types";
 
 type DemoSourceDefinition = {
   readonly id: string;
@@ -70,7 +75,9 @@ async function loadChunksForSource(
   const body = await readFile(filePath, "utf8");
   const rawChunks = parseRawChunks(JSON.parse(body) as unknown);
 
-  return rawChunks.map((chunk) => toParsedChunkView(source, chunk));
+  return resolveDemoConnectionTargets(
+    rawChunks.map((chunk) => toParsedChunkView(source, chunk)),
+  );
 }
 
 function parseRawChunks(value: unknown): readonly RawDemoChunk[] {
@@ -95,18 +102,52 @@ function toParsedChunkView(
   chunk: RawDemoChunk,
 ): ParsedChunkView {
   const metadata = chunk.metadata ?? {};
+  const filePath =
+    getStringMetadata(metadata, "file_path") ?? getString(chunk.path);
+  const assetUrl =
+    filePath && (chunk.type === "image" || chunk.type === "table")
+      ? `/demo-sources/${source.assetDirectory}/${filePath}`
+      : undefined;
 
   return {
     chunkId: `${source.id}:${chunk.chunk_id}`,
+    parserChunkId: chunk.chunk_id,
     documentId: source.documentId,
     sectionPath: getString(chunk.path) ?? null,
     type: toChunkType(chunk.type),
     content: getString(chunk.content) ?? "",
+    filePath,
+    assetUrl,
     summary: getStringMetadata(metadata, "summary"),
     keywords: getStringArrayMetadata(metadata, "keywords"),
     pageNums: getNumberArrayMetadata(metadata, "page_nums"),
+    connections: getChunkConnections(metadata),
     sourceTitle: source.title,
   };
+}
+
+function resolveDemoConnectionTargets(
+  chunks: ParsedChunkView[],
+): ParsedChunkView[] {
+  const chunkIdsByParserChunkId = new Map(
+    chunks
+      .filter((chunk) => chunk.parserChunkId)
+      .map((chunk) => [chunk.parserChunkId!, chunk.chunkId]),
+  );
+
+  return chunks.map((chunk) => {
+    if (!chunk.connections || chunk.connections.length === 0) return chunk;
+
+    return {
+      ...chunk,
+      connections: chunk.connections.map((connection) => ({
+        ...connection,
+        targetChunkId:
+          chunkIdsByParserChunkId.get(connection.targetParserChunkId) ??
+          connection.targetChunkId,
+      })),
+    };
+  });
 }
 
 function toChunkType(value: string): ChunkType {
@@ -151,6 +192,47 @@ function getNumberArrayMetadata(
     (item): item is number => typeof item === "number" && Number.isFinite(item),
   );
   return numbers.length > 0 ? numbers : undefined;
+}
+
+function getChunkConnections(
+  metadata: Readonly<Record<string, unknown>>,
+): ParsedChunkConnection[] | undefined {
+  const value = metadata["connect_to"] ?? metadata["connectTo"];
+  if (!Array.isArray(value)) return undefined;
+
+  const connections = value.flatMap((item): ParsedChunkConnection[] => {
+    if (!isRecord(item)) return [];
+    const targetParserChunkId = getString(item["target"]);
+    if (!targetParserChunkId) return [];
+
+    return [
+      {
+        targetParserChunkId,
+        relation: getString(item["relation"]) ?? "related",
+        ref: getString(item["ref"]),
+        position: getConnectionPosition(item["position"]),
+      },
+    ];
+  });
+
+  return connections.length > 0 ? connections : undefined;
+}
+
+function getConnectionPosition(
+  value: unknown,
+): ParsedChunkConnection["position"] | undefined {
+  if (!isRecord(value)) return undefined;
+  const start = value["start"];
+  const end = value["end"];
+  if (
+    typeof start !== "number" ||
+    typeof end !== "number" ||
+    !Number.isFinite(start) ||
+    !Number.isFinite(end)
+  ) {
+    return undefined;
+  }
+  return { start, end };
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
