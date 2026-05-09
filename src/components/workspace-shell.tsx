@@ -320,7 +320,7 @@ export function WorkspaceShell({
   const hasMessages = chat.messages.length > 0;
 
   return (
-    <div className="flex h-screen w-full flex-col overflow-hidden bg-muted/40">
+    <div className="flex h-screen w-full flex-col overflow-hidden bg-[#fafafa]">
       <TopNav
         userInitials={user ? initialsOf(user) : undefined}
         userName={user ? (user.name ?? user.email ?? undefined) : undefined}

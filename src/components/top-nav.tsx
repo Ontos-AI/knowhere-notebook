@@ -1,4 +1,4 @@
-import { BookOpen } from "lucide-react";
+import { NotebookLogoMark } from "@/components/notebook-logo-mark";
 import { Separator } from "@/components/ui/separator";
 
 export type TopNavProps = {
@@ -20,19 +20,17 @@ export function TopNav({
   workspaceLabel = "Personal Workspace",
 }: TopNavProps = {}) {
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-background px-4 lg:px-6">
-      <div className="flex min-w-0 items-center gap-3 lg:gap-4">
-        <div className="flex size-8 shrink-0 items-center justify-center rounded bg-primary">
-          <BookOpen className="size-5 text-primary-foreground" />
-        </div>
-        <h1 className="truncate text-lg font-bold tracking-tight text-foreground underline decoration-primary decoration-2 underline-offset-4">
+    <header className="sticky top-0 z-40 flex h-16 items-center justify-between border-b border-[#d4d4d8] bg-[#fafafa] px-4 shadow-[0_8px_24px_-20px_rgba(15,23,42,0.35)] backdrop-blur-sm lg:px-6">
+      <div className="flex min-w-0 items-center gap-3">
+        <NotebookLogoMark width={22} />
+        <h1 className="truncate text-[18px] font-bold leading-7 text-[#09090b]">
           Knowhere Notebook
         </h1>
         <Separator
           orientation="vertical"
           className="mx-1 hidden h-4 lg:block"
         />
-        <span className="hidden text-sm font-medium text-muted-foreground lg:block">
+        <span className="hidden text-sm font-medium text-[#09090b] lg:block">
           {workspaceLabel}
         </span>
       </div>
@@ -41,17 +39,17 @@ export function TopNav({
           <>
             <div className="hidden text-right lg:block">
               {userName && (
-                <p className="text-xs font-semibold text-foreground">
+                <p className="text-xs font-semibold text-[#09090b]">
                   {userName}
                 </p>
               )}
               {userTierLabel && (
-                <p className="text-[10px] text-muted-foreground">
+                <p className="text-[10px] text-[#71717b]">
                   {userTierLabel}
                 </p>
               )}
             </div>
-            <div className="flex size-8 items-center justify-center rounded-full bg-muted text-xs font-bold text-muted-foreground">
+            <div className="flex size-8 items-center justify-center rounded-full bg-[#f4f4f5] text-xs font-bold text-[#09090b]">
               {userInitials}
             </div>
           </>
