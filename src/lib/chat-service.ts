@@ -1,5 +1,5 @@
 import type { RetrievalResult } from "@ontos-ai/knowhere-sdk"
-import { Either } from "effect"
+import { Effect, Either } from "effect"
 
 import {
   answerQuestionWithRetrieval,
@@ -47,7 +47,7 @@ export type ChatTurnValue = {
   messages: [ChatMessageView, ChatMessageView]
 }
 
-export async function handleChatTurn(input: {
+type ChatTurnInput = {
   workspace: Workspace
   sources: readonly Source[]
   question: string
@@ -56,64 +56,84 @@ export async function handleChatTurn(input: {
   retrieval: RetrievalClient
   generateAnswer: GenerateAnswer
   repository: ChatRepository
-}): Promise<Either.Either<ChatTurnValue, ChatTurnError>> {
-  const readySources = input.sources.filter(
-    (source) => source.status === "ready" && source.knowhereDocumentId,
-  )
-  if (readySources.length === 0) {
-    return Either.left(noReadySources)
-  }
+}
 
-  const thread = input.threadId
-    ? await input.repository.findChatThreadInWorkspace(
-        input.workspace.id,
-        input.threadId,
-      )
-    : await input.repository.ensureDefaultChatThread(input.workspace.id)
-  if (!thread) {
-    return Either.left(threadNotFound)
-  }
+/** Wrap a Promise as an Effect, treating rejections as defects. */
+const tryPromiseOrDie = <A>(f: () => Promise<A>) =>
+  Effect.tryPromise(f).pipe(Effect.catchAllCause(Effect.die))
 
-  const userMessage = await input.repository.appendMessageToThread(
-    input.workspace.id,
-    {
+export const handleChatTurnEffect = (input: ChatTurnInput) =>
+  Effect.gen(function* () {
+    const readySources = input.sources.filter(
+      (source) => source.status === "ready" && source.knowhereDocumentId,
+    )
+    if (readySources.length === 0) {
+      return yield* Effect.fail(noReadySources)
+    }
+
+    const thread = input.threadId
+      ? yield* tryPromiseOrDie(() =>
+          input.repository.findChatThreadInWorkspace(
+            input.workspace.id,
+            input.threadId!,
+          ),
+        )
+      : yield* tryPromiseOrDie(() =>
+          input.repository.ensureDefaultChatThread(input.workspace.id),
+        )
+    if (!thread) {
+      return yield* Effect.fail(threadNotFound)
+    }
+
+    const userMessage = yield* tryPromiseOrDie(() =>
+      input.repository.appendMessageToThread(input.workspace.id, {
+        threadId: thread.id,
+        role: "user",
+        content: input.question,
+      }),
+    )
+    if (!userMessage) {
+      return yield* Effect.fail(threadNotFound)
+    }
+
+    const answer = yield* answerQuestionWithRetrieval({
+      question: input.question,
+      namespace: input.workspace.namespace,
+      sources: readySources,
+      excludedSourceIds: input.excludedSourceIds,
+      retrieval: input.retrieval,
+      generateAnswer: input.generateAnswer,
+    }).pipe(Effect.catchAllCause(Effect.die))
+
+    const assistantMessage = yield* tryPromiseOrDie(() =>
+      input.repository.appendMessageToThread(input.workspace.id, {
+        threadId: thread.id,
+        role: "assistant",
+        content: answer.answer,
+        citations: answer.citations,
+      }),
+    )
+    if (!assistantMessage) {
+      return yield* Effect.fail(threadNotFound)
+    }
+
+    return {
       threadId: thread.id,
-      role: "user",
-      content: input.question,
-    },
-  )
-  if (!userMessage) {
-    return Either.left(threadNotFound)
-  }
-
-  const answer = await answerQuestionWithRetrieval({
-    question: input.question,
-    namespace: input.workspace.namespace,
-    sources: readySources,
-    excludedSourceIds: input.excludedSourceIds,
-    retrieval: input.retrieval,
-    generateAnswer: input.generateAnswer,
+      messages: [
+        toChatMessageView(userMessage),
+        toChatMessageView(assistantMessage, answer.citations),
+      ] as [ChatMessageView, ChatMessageView],
+    }
   })
-  const assistantMessage = await input.repository.appendMessageToThread(
-    input.workspace.id,
-    {
-      threadId: thread.id,
-      role: "assistant",
-      content: answer.answer,
-      citations: answer.citations,
-    },
-  )
-  if (!assistantMessage) {
-    return Either.left(threadNotFound)
-  }
 
-  return Either.right({
-    threadId: thread.id,
-    messages: [
-      toChatMessageView(userMessage),
-      toChatMessageView(assistantMessage, answer.citations),
-    ],
-  })
+/**
+ * Public API: returns Either for Next.js boundary callers that pattern-match
+ * on the result. Internally uses Effect for structured error handling.
+ */
+export async function handleChatTurn(
+  input: ChatTurnInput,
+): Promise<Either.Either<ChatTurnValue, ChatTurnError>> {
+  return Effect.runPromise(Effect.either(handleChatTurnEffect(input)))
 }
 
 function toChatMessageView(

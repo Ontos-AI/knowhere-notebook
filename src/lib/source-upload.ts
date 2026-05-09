@@ -39,13 +39,6 @@ export type UploadKnowhereClient = {
   }
 }
 
-export type TempFileStore = {
-  write(file: File): Promise<{
-    path: string
-    cleanup(): Promise<void>
-  }>
-}
-
 export type UploadSourceDependencies = {
   repository: UploadSourceRepository
   knowhere: UploadKnowhereClient
@@ -57,34 +50,38 @@ export type UploadSourceDependencies = {
  * Uses `Effect.scoped` + `TempFile.withFile` so the temp file is guaranteed
  * to be cleaned up even if the upload fails mid-flight.
  */
-export async function uploadSourceToKnowhere(
+export const uploadSourceToKnowhereEffect = (
   workspace: Workspace,
   file: File,
   deps: UploadSourceDependencies,
-): Promise<Source> {
-  const validation = validateUploadFile(file)
-  if (!validation.ok) throw new Error(validation.message)
+) =>
+  Effect.gen(function* () {
+    const validation = validateUploadFile(file)
+    if (!validation.ok) {
+      return yield* Effect.die(new Error(validation.message))
+    }
 
-  const source = await deps.repository.createUploadingSource(workspace.id, {
-    title: validation.title,
-    mimeType: validation.mimeType,
-    sizeBytes: file.size,
-  })
+    const source = yield* Effect.promise(() =>
+      deps.repository.createUploadingSource(workspace.id, {
+        title: validation.title,
+        mimeType: validation.mimeType,
+        sizeBytes: file.size,
+      }),
+    )
 
-  return Effect.runPromise(
-    Effect.scoped(
+    return yield* Effect.scoped(
       Effect.gen(function* () {
         const temp = yield* TempFile
         const { path } = yield* temp.withFile(file)
 
-        const job = yield* Effect.promise(() =>
+        const job = yield* Effect.tryPromise(() =>
           deps.knowhere.jobs.create({
             sourceType: "file",
             fileName: validation.title,
             namespace: workspace.namespace,
           }),
         )
-        yield* Effect.promise(() =>
+        yield* Effect.tryPromise(() =>
           deps.knowhere.jobs.upload(job, { file: path }),
         )
 
@@ -96,14 +93,31 @@ export async function uploadSourceToKnowhere(
           ),
         )
       }),
-    ).pipe(Effect.provide(tempFileLayer)),
-  ).catch(async (err) => {
-    const message = "Knowhere upload failed."
-    await deps.repository.markSourceFailed(
-      workspace.id,
-      source.id,
-      message,
+    ).pipe(
+      Effect.provide(tempFileLayer),
+      Effect.catchAll((err) =>
+        Effect.gen(function* () {
+          const message = "Knowhere upload failed."
+          yield* Effect.promise(() =>
+            deps.repository.markSourceFailed(
+              workspace.id,
+              source.id,
+              message,
+            ),
+          )
+          return yield* Effect.die(new Error(message, { cause: err }))
+        }),
+      ),
     )
-    throw new Error(message, { cause: err })
   })
+
+/**
+ * Async wrapper for Next.js boundary.
+ */
+export async function uploadSourceToKnowhere(
+  workspace: Workspace,
+  file: File,
+  deps: UploadSourceDependencies,
+): Promise<Source> {
+  return Effect.runPromise(uploadSourceToKnowhereEffect(workspace, file, deps))
 }

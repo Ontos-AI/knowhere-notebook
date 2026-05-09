@@ -1,6 +1,6 @@
 import "server-only"
 
-import { Schema } from "effect"
+import { Effect, Schema } from "effect"
 
 /**
  * Shape of the Dashboard JWT issuance response (oRPC envelope).
@@ -21,44 +21,62 @@ const JwtResponse = Schema.Struct({
  * Notebook never calls Knowhere `/v1/auth/create`. Dashboard owns JWT
  * signing; Knowhere validates the JWT via Dashboard JWKS.
  */
+export const fetchKnowhereJwtEffect = (cookieHeader: string) =>
+  Effect.gen(function* () {
+    const origin = process.env.DASHBOARD_ORIGIN
+    if (!origin) {
+      return yield* Effect.die(
+        new Error(
+          "DASHBOARD_ORIGIN must be set. " +
+            "It should point to the Dashboard origin (see .env.local.example).",
+        ),
+      )
+    }
+
+    const url = `${origin}/api/orpc/users/issueServiceJwt`
+    const response = yield* Effect.tryPromise(() =>
+      fetch(url, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          cookie: cookieHeader,
+        },
+        body: "{}",
+      }),
+    )
+
+    if (!response.ok) {
+      const text = yield* Effect.tryPromise(() =>
+        response.text().catch(() => ""),
+      )
+      return yield* Effect.die(
+        new Error(
+          `Dashboard JWT issuance failed (${response.status}): ${text}`,
+        ),
+      )
+    }
+
+    const body: unknown = yield* Effect.tryPromise(() => response.json())
+    const parsed = Schema.decodeUnknownEither(JwtResponse)(body)
+
+    if (parsed._tag === "Left") {
+      return yield* Effect.die(
+        new Error(
+          `Unexpected Dashboard JWT response: ${JSON.stringify(body)}`,
+        ),
+      )
+    }
+
+    return parsed.right.json.token
+  })
+
+/**
+ * Async wrapper for Next.js boundary callers.
+ */
 export async function fetchKnowhereJwt(
   cookieHeader: string,
 ): Promise<string> {
-  const origin = process.env.DASHBOARD_ORIGIN
-  if (!origin) {
-    throw new Error(
-      "DASHBOARD_ORIGIN must be set. " +
-        "It should point to the Dashboard origin (see .env.local.example).",
-    )
-  }
-
-  const url = `${origin}/api/orpc/users/issueServiceJwt`
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      cookie: cookieHeader,
-    },
-    body: "{}",
-  })
-
-  if (!response.ok) {
-    const text = await response.text().catch(() => "")
-    throw new Error(
-      `Dashboard JWT issuance failed (${response.status}): ${text}`,
-    )
-  }
-
-  const body: unknown = await response.json()
-  const parsed = Schema.decodeUnknownEither(JwtResponse)(body)
-
-  if (parsed._tag === "Left") {
-    throw new Error(
-      `Unexpected Dashboard JWT response: ${JSON.stringify(body)}`,
-    )
-  }
-
-  return parsed.right.json.token
+  return Effect.runPromise(fetchKnowhereJwtEffect(cookieHeader))
 }
 
 /**

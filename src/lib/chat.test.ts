@@ -1,14 +1,15 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import type { RetrievalResult } from "@ontos-ai/knowhere-sdk";
-import { generateText } from "ai";
+import { afterEach, describe, expect, it, vi } from "vitest"
+import type { RetrievalResult } from "@ontos-ai/knowhere-sdk"
+import { Effect } from "effect"
+import { generateText } from "ai"
 
 import {
   answerQuestionWithRetrieval,
   buildGroundedPrompt,
   generateGroundedAnswer,
   parseChatRequestBody,
-} from "./chat";
-import type { Source } from "./schema";
+} from "./chat"
+import type { Source } from "./schema"
 
 vi.mock("ai", () => ({
   generateText: vi.fn(),
@@ -28,17 +29,19 @@ describe("answerQuestionWithRetrieval", () => {
     };
     const generateAnswer = vi.fn().mockResolvedValue("The answer is grounded.");
 
-    const answer = await answerQuestionWithRetrieval({
-      question: "What does the document say?",
-      namespace: "notebook-workspace",
-      sources: [
-        makeSource({ knowhereDocumentId: "doc_included" }),
-        makeSource({ id: "source_2", knowhereDocumentId: "doc_excluded" }),
-      ],
-      excludedSourceIds: ["source_2"],
-      retrieval,
-      generateAnswer,
-    });
+    const answer = await Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "What does the document say?",
+        namespace: "notebook-workspace",
+        sources: [
+          makeSource({ knowhereDocumentId: "doc_included" }),
+          makeSource({ id: "source_2", knowhereDocumentId: "doc_excluded" }),
+        ],
+        excludedSourceIds: ["source_2"],
+        retrieval,
+        generateAnswer,
+      }),
+    );
 
     expect(retrieval.query).toHaveBeenCalledWith({
       namespace: "notebook-workspace",
@@ -62,14 +65,16 @@ describe("answerQuestionWithRetrieval", () => {
     };
     const generateAnswer = vi.fn();
 
-    const answer = await answerQuestionWithRetrieval({
-      question: "Missing fact?",
-      namespace: "notebook-workspace",
-      sources: [makeSource()],
-      excludedSourceIds: [],
-      retrieval,
-      generateAnswer,
-    });
+    const answer = await Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "Missing fact?",
+        namespace: "notebook-workspace",
+        sources: [makeSource()],
+        excludedSourceIds: [],
+        retrieval,
+        generateAnswer,
+      }),
+    );
 
     expect(generateAnswer).not.toHaveBeenCalled();
     expect(answer).toEqual({

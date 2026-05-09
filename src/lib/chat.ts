@@ -1,96 +1,118 @@
-import type { RetrievalQueryParams, RetrievalResult } from "@ontos-ai/knowhere-sdk";
-import { generateText } from "ai";
-import { Either, Schema } from "effect";
+import type { RetrievalQueryParams, RetrievalResult } from "@ontos-ai/knowhere-sdk"
+import { generateText } from "ai"
+import { Effect, Either, Schema } from "effect"
 
-import { assertAIGatewayConfigured, CHAT_MODEL } from "./ai";
-import type { Source } from "./schema";
+import { CHAT_MODEL } from "./ai"
+import type { Source } from "./schema"
 
-const DEFAULT_TOP_K = 8;
-const NO_RESULTS_ANSWER = "I couldn't find that in your sources.";
+const DEFAULT_TOP_K = 8
+const NO_RESULTS_ANSWER = "I couldn't find that in your sources."
 
 export type RetrievalClient = {
-  query(params: RetrievalQueryParams): Promise<{ results: RetrievalResult[] }>;
-};
+  query(params: RetrievalQueryParams): Promise<{ results: RetrievalResult[] }>
+}
 
 export type GenerateAnswer = (input: {
-  question: string;
-  results: readonly RetrievalResult[];
-}) => Promise<string>;
+  question: string
+  results: readonly RetrievalResult[]
+}) => Promise<string>
 
 export type AnswerQuestionInput = {
-  question: string;
-  namespace: string;
-  sources: readonly Source[];
-  excludedSourceIds: readonly string[];
-  retrieval: RetrievalClient;
-  generateAnswer: GenerateAnswer;
-};
+  question: string
+  namespace: string
+  sources: readonly Source[]
+  excludedSourceIds: readonly string[]
+  retrieval: RetrievalClient
+  generateAnswer: GenerateAnswer
+}
 
 export type AnswerQuestionResult = {
-  answer: string;
-  citations: RetrievalResult[];
-};
+  answer: string
+  citations: RetrievalResult[]
+}
 
 export type ParsedChatRequest = {
-  question: string;
-  threadId?: string;
-  excludedSourceIds: string[];
-};
+  question: string
+  threadId?: string
+  excludedSourceIds: string[]
+}
 
 export type ParseChatRequestResult =
   | { ok: true; value: ParsedChatRequest }
-  | { ok: false; message: string; status: 400 };
+  | { ok: false; message: string; status: 400 }
 
-export async function answerQuestionWithRetrieval(
-  input: AnswerQuestionInput,
-): Promise<AnswerQuestionResult> {
-  const query = input.question.trim();
-  const response = await input.retrieval.query({
-    namespace: input.namespace,
-    query,
-    topK: DEFAULT_TOP_K,
-    ...excludeDocuments(input.sources, input.excludedSourceIds),
-  });
+export const answerQuestionWithRetrieval = (input: AnswerQuestionInput) =>
+  Effect.gen(function* () {
+    const query = input.question.trim()
+    const response = yield* Effect.tryPromise(() =>
+      input.retrieval.query({
+        namespace: input.namespace,
+        query,
+        topK: DEFAULT_TOP_K,
+        ...excludeDocuments(input.sources, input.excludedSourceIds),
+      }),
+    )
 
-  if (response.results.length === 0) {
-    return { answer: NO_RESULTS_ANSWER, citations: [] };
-  }
+    if (response.results.length === 0) {
+      return { answer: NO_RESULTS_ANSWER, citations: [] as RetrievalResult[] }
+    }
 
-  const answer = await input.generateAnswer({
-    question: query,
-    results: response.results,
-  });
-  return { answer, citations: response.results };
-}
+    const answer = yield* Effect.tryPromise(() =>
+      input.generateAnswer({
+        question: query,
+        results: response.results,
+      }),
+    )
+    return { answer, citations: response.results }
+  })
 
+export const generateGroundedAnswerEffect = (input: {
+  question: string
+  results: readonly RetrievalResult[]
+}) =>
+  Effect.gen(function* () {
+    if (!process.env.AI_GATEWAY_API_KEY) {
+      return yield* Effect.die(
+        new Error(
+          "AI_GATEWAY_API_KEY environment variable is required. " +
+            "Set it in your .env.local file.",
+        ),
+      )
+    }
+
+    const response = yield* Effect.tryPromise(() =>
+      generateText({
+        model: CHAT_MODEL,
+        prompt: buildGroundedPrompt(input),
+      }),
+    )
+    return response.text.trim()
+  })
+
+/** Async wrapper matching the GenerateAnswer signature. */
 export async function generateGroundedAnswer(input: {
-  question: string;
-  results: readonly RetrievalResult[];
+  question: string
+  results: readonly RetrievalResult[]
 }): Promise<string> {
-  assertAIGatewayConfigured();
-  const response = await generateText({
-    model: CHAT_MODEL,
-    prompt: buildGroundedPrompt(input),
-  });
-  return response.text.trim();
+  return Effect.runPromise(generateGroundedAnswerEffect(input))
 }
 
 export function buildGroundedPrompt(input: {
-  question: string;
-  results: readonly RetrievalResult[];
+  question: string
+  results: readonly RetrievalResult[]
 }): string {
   const sources = input.results
     .map((result, index) => {
-      const sourceName = result.source.sourceFileName ?? "Unknown source";
+      const sourceName = result.source.sourceFileName ?? "Unknown source"
       const section = result.source.sectionPath
         ? ` (${result.source.sectionPath})`
-        : "";
+        : ""
       return [
         `[${index + 1}] ${sourceName}${section}`,
         result.content,
-      ].join("\n");
+      ].join("\n")
     })
-    .join("\n\n");
+    .join("\n\n")
 
   return [
     "Answer the user's question using only the source excerpts below.",
@@ -101,7 +123,7 @@ export function buildGroundedPrompt(input: {
     "",
     "Source excerpts:",
     sources,
-  ].join("\n");
+  ].join("\n")
 }
 
 const ChatRequestBody = Schema.Struct({
@@ -146,11 +168,11 @@ function excludeDocuments(
   sources: readonly Source[],
   excludedSourceIds: readonly string[],
 ): Pick<RetrievalQueryParams, "excludeDocumentIds"> {
-  const excluded = new Set(excludedSourceIds);
+  const excluded = new Set(excludedSourceIds)
   const documentIds = sources
     .filter((source) => excluded.has(source.id))
     .map((source) => source.knowhereDocumentId)
-    .filter((documentId): documentId is string => Boolean(documentId));
+    .filter((documentId): documentId is string => Boolean(documentId))
 
-  return documentIds.length > 0 ? { excludeDocumentIds: documentIds } : {};
+  return documentIds.length > 0 ? { excludeDocumentIds: documentIds } : {}
 }
