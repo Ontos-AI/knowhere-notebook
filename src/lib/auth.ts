@@ -7,12 +7,12 @@ import {
   FetchHttpClient,
   HttpClient,
   HttpClientRequest,
-  HttpClientResponse,
 } from "@effect/platform"
 import { authURLs } from "./auth-urls"
 import { sessionCookieNames } from "./session-cookie-names"
 import { logger } from "./logger"
-import { cons } from "effect/List"
+import { setEmptyJsonBody } from "./dashboard-orpc-request"
+import { formatUnknownForLog } from "./format-log-value"
 
 export { sessionCookieNames }
 
@@ -74,8 +74,7 @@ export const getCurrentUserEffect = Effect.gen(function* () {
   const url = `${origin}/api/orpc/users/getCurrentUser`
   const body = yield* HttpClientRequest.post(url).pipe(
     HttpClientRequest.setHeader("cookie", cookieHeader),
-    HttpClientRequest.setHeader("content-type", "application/json"),
-    HttpClientRequest.bodyText("{}"),
+    setEmptyJsonBody,
     http.execute,
     Effect.flatMap((response) =>
       Effect.gen(function* () {
@@ -103,7 +102,7 @@ export const getCurrentUserEffect = Effect.gen(function* () {
         if (Either.isLeft(result)) {
           logger.warn(
             "dashboard: POST /api/orpc/users/getCurrentUser -> schema mismatch",
-            { status, body: String(parsed.right).slice(0, 1000) },
+            { status, body: formatUnknownForLog(parsed.right).slice(0, 1000) },
           )
           return null
         }

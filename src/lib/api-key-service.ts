@@ -5,9 +5,10 @@ import {
   FetchHttpClient,
   HttpClient,
   HttpClientRequest,
-  HttpClientResponse,
 } from "@effect/platform"
 import { logger } from "./logger"
+import { setEmptyJsonBody } from "./dashboard-orpc-request"
+import { formatUnknownForLog } from "./format-log-value"
 
 /**
  * Shape of the Dashboard JWT issuance response (oRPC envelope).
@@ -43,9 +44,8 @@ export const fetchKnowhereJwtEffect = (cookieHeader: string) =>
     const http = yield* HttpClient.HttpClient
     const url = `${origin}/api/orpc/users/issueServiceJwt`
     const body = yield* HttpClientRequest.post(url).pipe(
-      HttpClientRequest.setHeader("content-type", "application/json"),
       HttpClientRequest.setHeader("cookie", cookieHeader),
-      HttpClientRequest.bodyText("{}"),
+      setEmptyJsonBody,
       http.execute,
       Effect.flatMap((response) =>
         Effect.gen(function* () {
@@ -73,7 +73,7 @@ export const fetchKnowhereJwtEffect = (cookieHeader: string) =>
           if (Either.isLeft(result)) {
             return yield* Effect.die(
               new Error(
-                `Dashboard JWT issuance: schema mismatch (status=${status}) body=${String(parsed.right).slice(0, 1000)}`,
+                `Dashboard JWT issuance: schema mismatch (status=${status}) body=${formatUnknownForLog(parsed.right).slice(0, 1000)}`,
               ),
             )
           }
