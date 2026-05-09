@@ -93,6 +93,13 @@ export type ChatMessageView = {
   citations?: ChatCitationView[];
 };
 
+export type ChatThreadView = {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type SourceStatus = "uploading" | "parsing" | "ready" | "failed";
 
 /**

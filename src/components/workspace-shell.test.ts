@@ -195,6 +195,123 @@ describe("WorkspaceShell", () => {
     });
     expect(countFetches(fetch, "/api/sources/source_1/chunks")).toBe(1);
   });
+
+  it("renders the most recent recovered chat on workspace load", () => {
+    render(
+      React.createElement(C, {
+        sources: [
+          {
+            id: "source_1",
+            title: "doc.pdf",
+            status: "ready",
+            documentId: "doc_1",
+          },
+        ],
+        chatThreads: [
+          {
+            id: "thread_1",
+            title: "Recovered chat",
+            createdAt: "2026-05-06T00:00:00.000Z",
+            updatedAt: "2026-05-06T00:00:00.000Z",
+          },
+        ],
+        activeChatThreadId: "thread_1",
+        chatMessages: [
+          {
+            id: "message_1",
+            role: "user",
+            content: "What did we ask before?",
+          },
+          {
+            id: "message_2",
+            role: "assistant",
+            content: "This is the recovered answer.",
+          },
+        ],
+      }),
+    );
+
+    const desktopChatPanel = within(screen.getByTestId("desktop-chat-panel"));
+
+    expect(desktopChatPanel.getByText("What did we ask before?")).toBeTruthy();
+    expect(desktopChatPanel.getByText("This is the recovered answer.")).toBeTruthy();
+  });
+
+  it("loads an old chat when selected from history", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
+      const path = getRequestPath(input);
+
+      if (path === "/api/chat/threads/thread_2") {
+        return Response.json({
+          thread: {
+            id: "thread_2",
+            title: "Older chat",
+            createdAt: "2026-05-06T00:00:00.000Z",
+            updatedAt: "2026-05-06T00:00:00.000Z",
+          },
+          messages: [
+            {
+              id: "message_old",
+              role: "assistant",
+              content: "Recovered from history.",
+            },
+          ],
+        });
+      }
+
+      return Response.json({ message: "Unexpected request" }, { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetch);
+    const user = userEvent.setup();
+
+    render(
+      React.createElement(C, {
+        sources: [
+          {
+            id: "source_1",
+            title: "doc.pdf",
+            status: "ready",
+            documentId: "doc_1",
+          },
+        ],
+        chatThreads: [
+          {
+            id: "thread_1",
+            title: "Current chat",
+            createdAt: "2026-05-07T00:00:00.000Z",
+            updatedAt: "2026-05-07T00:00:00.000Z",
+          },
+          {
+            id: "thread_2",
+            title: "Older chat",
+            createdAt: "2026-05-06T00:00:00.000Z",
+            updatedAt: "2026-05-06T00:00:00.000Z",
+          },
+        ],
+        activeChatThreadId: "thread_1",
+        chatMessages: [
+          {
+            id: "message_current",
+            role: "assistant",
+            content: "Current answer.",
+          },
+        ],
+      }),
+    );
+
+    const desktopChatPanel = within(screen.getByTestId("desktop-chat-panel"));
+
+    await user.click(
+      desktopChatPanel.getByRole("button", { name: "Open chat history" }),
+    );
+    await user.click(
+      await screen.findByRole("button", { name: "Open Older chat chat" }),
+    );
+
+    await desktopChatPanel.findByText("Recovered from history.");
+    expect(desktopChatPanel.queryByText("Current answer.")).toBeNull();
+    expect(countFetches(fetch, "/api/chat/threads/thread_2")).toBe(1);
+  });
 });
 
 function getRequestPath(input: RequestInfo | URL): string {

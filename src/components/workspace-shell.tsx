@@ -13,10 +13,12 @@ import { SourcesPanel } from "@/components/sources-panel"
 import { ChunksPanel } from "@/components/chunks-panel"
 import { ChatPanel } from "@/components/chat-panel"
 import { MobileTabBar } from "@/components/mobile-tab-bar"
+import { deriveChatThreadTitle } from "@/lib/chat-title"
 import { resolveCitationChunk } from "@/lib/chunks"
 import type {
   ChatCitationView,
   ChatMessageView,
+  ChatThreadView,
   ParsedChunkView,
   SourceView,
 } from "@/lib/types"
@@ -82,6 +84,7 @@ type ChatState = {
   threadId: string | null
   messages: ChatMessageView[]
   isSending: boolean
+  isLoading: boolean
   error: string | null
 }
 
@@ -96,6 +99,9 @@ export type WorkspaceShellProps = {
     namespace: string
   }
   sources?: SourceView[]
+  chatThreads?: ChatThreadView[]
+  activeChatThreadId?: string | null
+  chatMessages?: ChatMessageView[]
   uploadAction?: (
     state: UploadSourceActionState,
     formData: FormData,
@@ -107,6 +113,9 @@ export type WorkspaceShellProps = {
 export function WorkspaceShell({
   user,
   sources: initialSources,
+  chatThreads: initialChatThreads,
+  activeChatThreadId,
+  chatMessages: initialChatMessages,
   uploadAction,
   isGuest = false,
   loginUrl,
@@ -121,13 +130,15 @@ export function WorkspaceShell({
   )
   const [focusedChunkId, setFocusedChunkId] = useState<string | null>(null)
   const [sources, setSources] = useState(initialSrcs)
+  const [chatThreads, setChatThreads] = useState(initialChatThreads ?? [])
   const [mobilePanel, setMobilePanel] = useState<PanelId>(
     isGuest ? "content" : "chat",
   )
   const [chat, setChat] = useState<ChatState>({
-    threadId: null,
-    messages: [],
+    threadId: activeChatThreadId ?? null,
+    messages: initialChatMessages ?? [],
     isSending: false,
+    isLoading: false,
     error: null,
   })
   const [chunkLoad, setChunkLoad] = useState<ChunkLoadState>({
@@ -307,6 +318,121 @@ export function WorkspaceShell({
     }
   }
 
+  async function handleCreateChatThread() {
+    try {
+      const body = await postJson<{
+        thread?: ChatThreadView
+        messages?: ChatMessageView[]
+        message?: string
+      }>("/api/chat/threads", {})
+
+      if (!body.thread || !Array.isArray(body.messages)) {
+        setChat((current) => ({
+          ...current,
+          error: body.message ?? "The chat could not be created right now.",
+        }))
+        return
+      }
+
+      setChatThreads((current) => [
+        body.thread!,
+        ...current.filter((thread) => thread.id !== body.thread!.id),
+      ])
+      setChat({
+        threadId: body.thread.id,
+        messages: body.messages,
+        isSending: false,
+        isLoading: false,
+        error: null,
+      })
+    } catch {
+      setChat((current) => ({
+        ...current,
+        error: "The chat could not be created right now.",
+      }))
+    }
+  }
+
+  async function handleSelectChatThread(threadId: string) {
+    if (threadId === chat.threadId) return
+
+    setChat((current) => ({
+      ...current,
+      threadId,
+      isLoading: true,
+      error: null,
+    }))
+
+    try {
+      const body = await getJson<{
+        thread?: ChatThreadView
+        messages?: ChatMessageView[]
+        message?: string
+      }>(`/api/chat/threads/${encodeURIComponent(threadId)}`)
+
+      if (!body.thread || !Array.isArray(body.messages)) {
+        setChat((current) => ({
+          ...current,
+          isLoading: false,
+          error: body.message ?? "The chat could not be loaded right now.",
+        }))
+        return
+      }
+
+      setChatThreads((current) =>
+        current.map((thread) =>
+          thread.id === body.thread!.id ? body.thread! : thread,
+        ),
+      )
+      setChat({
+        threadId: body.thread.id,
+        messages: body.messages,
+        isSending: false,
+        isLoading: false,
+        error: null,
+      })
+    } catch {
+      setChat((current) => ({
+        ...current,
+        isLoading: false,
+        error: "The chat could not be loaded right now.",
+      }))
+    }
+  }
+
+  async function handleArchiveChatThread(threadId: string) {
+    try {
+      await patchJson(`/api/chat/threads/${encodeURIComponent(threadId)}`, {
+        archived: true,
+      })
+      const remainingThreads = chatThreads.filter(
+        (thread) => thread.id !== threadId,
+      )
+      setChatThreads(remainingThreads)
+
+      if (chat.threadId !== threadId) return
+
+      const nextThread = remainingThreads[0] ?? null
+      if (!nextThread) {
+        setChat({
+          threadId: null,
+          messages: [],
+          isSending: false,
+          isLoading: false,
+          error: null,
+        })
+        return
+      }
+
+      await handleSelectChatThread(nextThread.id)
+    } catch {
+      setChat((current) => ({
+        ...current,
+        error: "The chat could not be deleted right now.",
+      }))
+    }
+  }
+
   function handleSourceSelected(sourceId: string | null) {
     setSelectedSourceId(sourceId)
     setFocusedChunkId(null)
@@ -356,6 +482,9 @@ export function WorkspaceShell({
         return
       }
 
+      setChatThreads((current) =>
+        upsertThreadAfterSend(current, body.threadId!, text),
+      )
       setChat((current) => {
         const assistantMessages = body.messages!.filter(
           (m) => m.role === "assistant",
@@ -364,6 +493,7 @@ export function WorkspaceShell({
           threadId: body.threadId ?? current.threadId,
           messages: [...current.messages, ...assistantMessages],
           isSending: false,
+          isLoading: false,
           error: null,
         }
       })
@@ -371,6 +501,7 @@ export function WorkspaceShell({
       setChat((current) => ({
         ...current,
         isSending: false,
+        isLoading: false,
         messages: current.messages.filter((m) => m.id !== optimisticId),
         error: "The assistant could not answer right now.",
       }))
@@ -486,10 +617,16 @@ export function WorkspaceShell({
           >
             <ChatPanel
               messages={chat.messages}
+              threads={chatThreads}
+              activeThreadId={chat.threadId}
               isDisabled={isGuest || readySourceCount === 0}
               isSending={chat.isSending}
+              isHistoryLoading={chat.isLoading}
               sourceCount={readySourceCount}
               onSend={handleChatSend}
+              onNewChat={isGuest ? undefined : handleCreateChatThread}
+              onThreadSelect={isGuest ? undefined : handleSelectChatThread}
+              onThreadArchive={isGuest ? undefined : handleArchiveChatThread}
               onCitationClick={handleCitationClick}
             />
           </div>
@@ -544,10 +681,16 @@ export function WorkspaceShell({
       >
         <ChatPanel
           messages={chat.messages}
+          threads={chatThreads}
+          activeThreadId={chat.threadId}
           isDisabled={isGuest || readySourceCount === 0}
           isSending={chat.isSending}
+          isHistoryLoading={chat.isLoading}
           sourceCount={readySourceCount}
           onSend={handleChatSend}
+          onNewChat={isGuest ? undefined : handleCreateChatThread}
+          onThreadSelect={isGuest ? undefined : handleSelectChatThread}
+          onThreadArchive={isGuest ? undefined : handleArchiveChatThread}
           onCitationClick={(citation) => {
             setMobilePanel("content")
             handleCitationClick(citation)
@@ -594,6 +737,35 @@ function mergeSourceQueryState(
     ...source,
     excludedFromQuery: currentById.get(source.id) ?? source.excludedFromQuery,
   }))
+}
+
+function upsertThreadAfterSend(
+  threads: readonly ChatThreadView[],
+  threadId: string,
+  firstUserMessage: string,
+): ChatThreadView[] {
+  const now = new Date().toISOString()
+  const existingThread = threads.find((thread) => thread.id === threadId)
+  const thread: ChatThreadView = existingThread
+    ? {
+        ...existingThread,
+        title:
+          existingThread.title === "New chat"
+            ? deriveChatThreadTitle(firstUserMessage)
+            : existingThread.title,
+        updatedAt: now,
+      }
+    : {
+        id: threadId,
+        title: deriveChatThreadTitle(firstUserMessage),
+        createdAt: now,
+        updatedAt: now,
+      }
+
+  return [
+    thread,
+    ...threads.filter((candidate) => candidate.id !== threadId),
+  ]
 }
 
 function initialsOf(user: WorkspaceShellProps["user"]): string {

@@ -1,13 +1,22 @@
 // @vitest-environment jsdom
 import React from "react";
 import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ChatPanel } from "./chat-panel";
 
 const C = ChatPanel as React.FC<Record<string, unknown>>;
 
 describe("ChatPanel", () => {
+  beforeEach(() => {
+    globalThis.ResizeObserver = class ResizeObserver {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    };
+  });
+
   afterEach(() => {
     cleanup();
   });
@@ -89,5 +98,45 @@ describe("ChatPanel", () => {
       screen.getByText("averylongunbrokenanswerthatshouldwrapinsideasmallviewport")
         .className,
     ).toContain("break-words");
+  });
+
+  it("lets users create a fresh chat and recover an old thread", async () => {
+    const onNewChat = vi.fn();
+    const onThreadSelect = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      React.createElement(C, {
+        threads: [
+          {
+            id: "thread_2",
+            title: "Revenue question",
+            createdAt: "2026-05-06T00:00:00.000Z",
+            updatedAt: "2026-05-07T00:00:00.000Z",
+          },
+          {
+            id: "thread_1",
+            title: "Margin question",
+            createdAt: "2026-05-06T00:00:00.000Z",
+            updatedAt: "2026-05-06T00:00:00.000Z",
+          },
+        ],
+        activeThreadId: "thread_2",
+        onNewChat,
+        onThreadSelect,
+      }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "New chat" }));
+    expect(onNewChat).toHaveBeenCalledOnce();
+
+    await user.click(screen.getByRole("button", { name: "Open chat history" }));
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Open Margin question chat",
+      }),
+    );
+
+    expect(onThreadSelect).toHaveBeenCalledWith("thread_1");
   });
 });

@@ -12,6 +12,7 @@ import {
   workspaces,
   type Source,
 } from "./schema"
+import { deriveChatThreadTitle } from "./chat-title"
 import type { CitationView, RetrievalResultView } from "./types"
 
 let _dbRuntime: ManagedRuntime.ManagedRuntime<DbClient, never> | null = null
@@ -19,6 +20,8 @@ function dbRuntime(): ManagedRuntime.ManagedRuntime<DbClient, never> {
   if (!_dbRuntime) _dbRuntime = ManagedRuntime.make(dbLayer)
   return _dbRuntime
 }
+
+const chatThreadListLimit = 50
 
 // ---- Effect functions (canonical) -----------------------------------------
 
@@ -240,6 +243,38 @@ export const findChatThreadInWorkspaceEffect = (
     return row[0] ?? null
   })
 
+export const listChatThreadsForWorkspaceEffect = (workspaceId: string) =>
+  Effect.gen(function* () {
+    const db = yield* DbClient
+    return yield* Effect.promise(() =>
+      db
+        .select()
+        .from(chatThreads)
+        .where(
+          and(
+            eq(chatThreads.workspaceId, workspaceId),
+            isNull(chatThreads.deletedAt),
+          ),
+        )
+        .orderBy(desc(chatThreads.updatedAt))
+        .limit(chatThreadListLimit),
+    )
+  })
+
+export const createChatThreadEffect = (workspaceId: string) =>
+  Effect.gen(function* () {
+    const db = yield* DbClient
+    const [thread] = yield* Effect.promise(() =>
+      db.insert(chatThreads).values({ workspaceId }).returning(),
+    )
+    if (!thread) {
+      return yield* Effect.die(
+        new Error("createChatThread: insert did not return a row."),
+      )
+    }
+    return thread
+  })
+
 export const ensureDefaultChatThreadEffect = (workspaceId: string) =>
   Effect.gen(function* () {
     const db = yield* DbClient
@@ -389,7 +424,12 @@ export const appendMessageToThreadEffect = (
           .returning()
         await tx
           .update(chatThreads)
-          .set({ updatedAt: sql`now()` })
+          .set({
+            updatedAt: sql`now()`,
+            ...(input.role === "user" && !thread.title
+              ? { title: deriveChatThreadTitle(input.content) }
+              : {}),
+          })
           .where(eq(chatThreads.id, input.threadId))
         return inserted ?? null
       }),
@@ -469,6 +509,12 @@ export const findChatThreadInWorkspace = (
   dbRuntime().runPromise(
     findChatThreadInWorkspaceEffect(workspaceId, threadId),
   )
+
+export const listChatThreadsForWorkspace = (workspaceId: string) =>
+  dbRuntime().runPromise(listChatThreadsForWorkspaceEffect(workspaceId))
+
+export const createChatThread = (workspaceId: string) =>
+  dbRuntime().runPromise(createChatThreadEffect(workspaceId))
 
 export const ensureDefaultChatThread = (workspaceId: string) =>
   dbRuntime().runPromise(ensureDefaultChatThreadEffect(workspaceId))

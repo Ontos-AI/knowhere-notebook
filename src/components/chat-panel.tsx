@@ -1,34 +1,76 @@
 "use client";
 
 import { useState } from "react";
-import { Send, MessageCircle } from "lucide-react";
+import { History, MessageCircle, Plus, Send, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import type { ChatCitationView, ChatMessageView } from "@/lib/types";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import type {
+  ChatCitationView,
+  ChatMessageView,
+  ChatThreadView,
+} from "@/lib/types";
 
 const CHAT_COMPOSER_ID = "chat-composer";
 
 export type ChatPanelProps = {
   messages: ChatMessageView[];
+  threads: ChatThreadView[];
+  activeThreadId?: string | null;
   onSend?: (text: string) => void;
+  onNewChat?: () => void;
+  onThreadSelect?: (threadId: string) => void;
+  onThreadArchive?: (threadId: string) => void;
   onCitationClick?: (citation: ChatCitationView) => void;
   sourceCount?: number;
   isSending?: boolean;
+  isHistoryLoading?: boolean;
   isDisabled?: boolean;
 };
 
 export function ChatPanel({
   messages = [],
+  threads = [],
+  activeThreadId = null,
   onSend,
+  onNewChat,
+  onThreadSelect,
+  onThreadArchive,
   onCitationClick,
   sourceCount = 0,
   isSending = false,
+  isHistoryLoading = false,
   isDisabled = false,
 }: Partial<ChatPanelProps> = {}) {
   const [input, setInput] = useState("");
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [confirmThreadId, setConfirmThreadId] = useState<string | null>(null);
   const canSend = !isDisabled && !isSending && input.trim().length > 0;
+  const confirmThread = threads.find((thread) => thread.id === confirmThreadId);
 
   function handleSend() {
     if (!canSend) return;
@@ -36,22 +78,111 @@ export function ChatPanel({
     setInput("");
   }
 
+  function handleNewChat() {
+    onNewChat?.();
+    setIsHistoryOpen(false);
+  }
+
   return (
     <section
       data-testid="chat-panel"
       className="relative z-0 flex h-full w-full max-w-full min-w-0 flex-col overflow-hidden border-border/70 bg-muted/40 lg:border-l"
     >
+      <AlertDialog
+        open={confirmThreadId !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfirmThreadId(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete chat</AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmThread
+                ? `Delete "${confirmThread.title}"? You can start a new chat any time.`
+                : "Delete this chat? You can start a new chat any time."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (confirmThreadId) {
+                  onThreadArchive?.(confirmThreadId);
+                  setConfirmThreadId(null);
+                }
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <header className="shrink-0 border-b border-border/70 bg-background px-4 py-3 sm:px-6 sm:py-4">
-        <h2 className="text-sm font-bold text-foreground">
-          Knowhere Assistant
-        </h2>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          Using{" "}
-          <span className="font-semibold text-foreground">
-            {sourceCount} {sourceCount === 1 ? "Source" : "Sources"}
-          </span>
-        </p>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="truncate text-sm font-bold text-foreground">
+              Knowhere Assistant
+            </h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Using{" "}
+              <span className="font-semibold text-foreground">
+                {sourceCount} {sourceCount === 1 ? "Source" : "Sources"}
+              </span>
+            </p>
+          </div>
+          {(onNewChat || onThreadSelect) && (
+            <TooltipProvider>
+              <div className="flex shrink-0 items-center gap-1.5">
+                {onThreadSelect && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        aria-label="Open chat history"
+                        onClick={() => setIsHistoryOpen(true)}
+                      >
+                        <History className="size-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Chat history</TooltipContent>
+                  </Tooltip>
+                )}
+                {onNewChat && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        aria-label="New chat"
+                        onClick={handleNewChat}
+                      >
+                        <Plus className="size-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>New chat</TooltipContent>
+                  </Tooltip>
+                )}
+              </div>
+            </TooltipProvider>
+          )}
+        </div>
       </header>
+
+      <ChatHistorySheet
+        threads={threads}
+        activeThreadId={activeThreadId}
+        isOpen={isHistoryOpen}
+        isLoading={isHistoryLoading}
+        onOpenChange={setIsHistoryOpen}
+        onNewChat={onNewChat ? handleNewChat : undefined}
+        onThreadSelect={onThreadSelect}
+        onThreadArchive={onThreadArchive ? setConfirmThreadId : undefined}
+      />
 
       <ScrollArea
         data-testid="chat-scroll"
@@ -115,6 +246,155 @@ export function ChatPanel({
       </div>
     </section>
   );
+}
+
+function ChatHistorySheet({
+  threads,
+  activeThreadId,
+  isOpen,
+  isLoading,
+  onOpenChange,
+  onNewChat,
+  onThreadSelect,
+  onThreadArchive,
+}: {
+  threads: ChatThreadView[];
+  activeThreadId: string | null;
+  isOpen: boolean;
+  isLoading: boolean;
+  onOpenChange: (open: boolean) => void;
+  onNewChat?: () => void;
+  onThreadSelect?: (threadId: string) => void;
+  onThreadArchive?: (threadId: string) => void;
+}) {
+  return (
+    <Sheet open={isOpen} onOpenChange={onOpenChange}>
+      <SheetContent
+        side="right"
+        className="flex w-[min(92vw,360px)] flex-col overflow-hidden p-0"
+      >
+        <SheetHeader className="shrink-0 border-b border-border/70 px-5 py-4 text-left">
+          <div className="flex items-center justify-between gap-3 pr-8">
+            <SheetTitle className="text-base">Chat history</SheetTitle>
+            <SheetDescription className="sr-only">
+              Recover an old chat or start a fresh chat.
+            </SheetDescription>
+            {onNewChat && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                onClick={onNewChat}
+              >
+                <Plus className="size-4" />
+                New chat
+              </Button>
+            )}
+          </div>
+        </SheetHeader>
+        <ScrollArea className="min-h-0 flex-1">
+          <div className="flex flex-col gap-1.5 p-4">
+            {threads.length === 0 ? (
+              <EmptyChatHistory />
+            ) : (
+              threads.map((thread) => (
+                <ChatThreadRow
+                  key={thread.id}
+                  thread={thread}
+                  isActive={thread.id === activeThreadId}
+                  isLoading={isLoading}
+                  onSelect={() => {
+                    onThreadSelect?.(thread.id);
+                    onOpenChange(false);
+                  }}
+                  onArchive={
+                    onThreadArchive
+                      ? () => onThreadArchive(thread.id)
+                      : undefined
+                  }
+                />
+              ))
+            )}
+          </div>
+        </ScrollArea>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+function ChatThreadRow({
+  thread,
+  isActive,
+  isLoading,
+  onSelect,
+  onArchive,
+}: {
+  thread: ChatThreadView;
+  isActive: boolean;
+  isLoading: boolean;
+  onSelect: () => void;
+  onArchive?: () => void;
+}) {
+  return (
+    <div
+      className={`flex items-center gap-2 rounded-2xl border p-2 transition-colors ${
+        isActive
+          ? "border-border/70 bg-muted/60 shadow-xs"
+          : "border-transparent hover:bg-muted/40"
+      }`}
+    >
+      <button
+        type="button"
+        className="min-w-0 flex-1 text-left"
+        disabled={isLoading}
+        onClick={onSelect}
+        aria-label={`Open ${thread.title} chat`}
+      >
+        <p className="truncate text-sm font-semibold text-foreground">
+          {thread.title}
+        </p>
+        <p className="mt-0.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+          {formatThreadDate(thread.updatedAt)}
+        </p>
+      </button>
+      {onArchive && (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onArchive();
+          }}
+          className="shrink-0 rounded-lg p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+          aria-label={`Delete ${thread.title} chat`}
+        >
+          <Trash2 className="size-3.5" />
+        </button>
+      )}
+    </div>
+  );
+}
+
+function EmptyChatHistory() {
+  return (
+    <div className="flex flex-col items-center justify-center px-4 py-10 text-center">
+      <div className="mb-3 flex size-10 items-center justify-center rounded-full bg-muted text-muted-foreground">
+        <MessageCircle className="size-5" />
+      </div>
+      <p className="text-xs font-semibold text-foreground">
+        No chats yet.
+      </p>
+    </div>
+  );
+}
+
+function formatThreadDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Updated recently";
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
 }
 
 function EmptyChat({ disabled }: { disabled: boolean }) {

@@ -4,11 +4,17 @@ import { Effect } from "effect"
 import { ensureApiKeyForWorkspace } from "@/lib/api-key-service"
 import { authURLs } from "@/lib/auth-urls"
 import { getCurrentUser } from "@/lib/auth"
+import { toChatMessageView, toChatThreadView } from "@/lib/chat-view"
 import { demoData } from "@/lib/demo-data"
 import { makeKnowhereClient } from "@/lib/knowhere"
 import { sourceViewOptionsBySourceId } from "@/lib/source-counts"
 import { toSourceView } from "@/lib/source-view"
-import { ensureWorkspace, listSourcesForWorkspace } from "@/lib/workspace"
+import {
+  ensureWorkspace,
+  listChatThreadsForWorkspace,
+  listMessagesForThread,
+  listSourcesForWorkspace,
+} from "@/lib/workspace"
 import { uploadSourceAction } from "./actions"
 import { WorkspaceShell } from "@/components/workspace-shell"
 
@@ -52,6 +58,11 @@ export default async function Home() {
   const apiKey = await ensureApiKeyForWorkspace(workspace.id, cookieHeader)
   const client = makeKnowhereClient(apiKey)
   const sources = await listSourcesForWorkspace(workspace.id)
+  const chatThreads = await listChatThreadsForWorkspace(workspace.id)
+  const activeChatThread = chatThreads[0] ?? null
+  const chatMessages = activeChatThread
+    ? await listMessagesForThread(workspace.id, activeChatThread.id)
+    : []
   const sourceOptions = await Effect.runPromise(
     sourceViewOptionsBySourceId(sources, client),
   )
@@ -69,6 +80,11 @@ export default async function Home() {
       }}
       sources={sources.map((source) =>
         toSourceView(source, sourceOptions.get(source.id)),
+      )}
+      chatThreads={chatThreads.map(toChatThreadView)}
+      activeChatThreadId={activeChatThread?.id ?? null}
+      chatMessages={(chatMessages ?? []).map((message) =>
+        toChatMessageView(message),
       )}
       uploadAction={uploadSourceAction}
     />

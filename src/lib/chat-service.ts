@@ -6,8 +6,9 @@ import {
   type GenerateAnswer,
   type RetrievalClient,
 } from "./chat"
+import { toChatMessageView } from "./chat-view"
 import type { ChatMessage, ChatThread, Source, Workspace } from "./schema"
-import type { ChatCitationView, ChatMessageView } from "./types"
+import type { ChatMessageView } from "./types"
 
 export type ChatRepository = {
   ensureDefaultChatThread(workspaceId: string): Promise<ChatThread>
@@ -134,30 +135,4 @@ export async function handleChatTurn(
   input: ChatTurnInput,
 ): Promise<Either.Either<ChatTurnValue, ChatTurnError>> {
   return Effect.runPromise(Effect.either(handleChatTurnEffect(input)))
-}
-
-function toChatMessageView(
-  message: ChatMessage,
-  citations: RetrievalResult[] = [],
-): ChatMessageView {
-  return {
-    id: message.id,
-    role: message.role === "assistant" ? "assistant" : "user",
-    content: message.content,
-    citations: citations.length > 0 ? citations.map(toRetrievalResultView) : undefined,
-  }
-}
-
-function toRetrievalResultView(result: RetrievalResult): ChatCitationView {
-  return {
-    content: result.content,
-    chunkType: result.chunkType,
-    score: result.score,
-    assetUrl: result.assetUrl,
-    source: {
-      documentId: result.source.documentId,
-      sourceFileName: result.source.sourceFileName,
-      sectionPath: result.source.sectionPath,
-    },
-  }
 }
