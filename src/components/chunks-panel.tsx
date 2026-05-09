@@ -1,41 +1,25 @@
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
-import { ImageIcon, Layers, Table2, X } from "lucide-react";
+import { ImageIcon, Layers, Table2 } from "lucide-react";
 import DOMPurify from "dompurify";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import type { ParsedChunkView } from "@/lib/types";
 
 export type ChunksPanelProps = {
   chunks: ParsedChunkView[];
-  /** When set, only chunks from this source are shown. */
   selectedSource?: string | null;
-  /** When set, scrolls/highlights the matching chunk (by chunkId). */
   focusedChunkId?: string | null;
   isLoading?: boolean;
-  onClose?: () => void;
 };
 
-/**
- * Center panel: parsed content sections.
- *
- * Two modes, controlled by the parent:
- *   - source mode — shows all chunks for the selected source
- *   - citation mode — shows the retrieved chunks from the last chat turn,
- *     optionally scrolled to the clicked citation
- *
- * This is a pure view. Sections arrive as props; fetching/selection logic is
- * the page's responsibility.
- */
 export function ChunksPanel({
   chunks = [],
   selectedSource = null,
   focusedChunkId = null,
   isLoading = false,
-  onClose,
 }: Partial<ChunksPanelProps> = {}) {
   const focusedRef = useRef<HTMLDivElement>(null);
 
@@ -66,24 +50,14 @@ export function ChunksPanel({
   );
 
   return (
-    <main className="z-0 flex flex-[3] flex-col overflow-hidden border-r border-border bg-background">
-      <header className="flex shrink-0 items-center justify-between border-b border-border px-6 py-4">
+    <main className="z-0 flex flex-1 flex-col overflow-hidden bg-background">
+      <header className="flex shrink-0 items-center justify-between border-b border-border/70 px-6 py-4">
         <div className="min-w-0">
           <h2 className="text-sm font-bold text-foreground">{headerTitle}</h2>
           <p className="mt-0.5 truncate text-xs text-muted-foreground">
             {headerSubtitle}
           </p>
         </div>
-        {onClose && (
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={onClose}
-            aria-label="Close parsed content"
-          >
-            <X />
-          </Button>
-        )}
       </header>
 
       <ScrollArea className="flex-1">
@@ -140,12 +114,6 @@ function LoadingSections() {
   );
 }
 
-/**
- * Renders a single parsed chunk card. Text chunks get pre-formatted
- * render with controlled line breaking. Images get a summary + URL
- * placeholder (no asset URL available in the MVP). Tables get the
- * HTML content rendered or a placeholder if HTML is empty.
- */
 function ChunkCard({
   chunk,
   isFocused,
@@ -214,12 +182,6 @@ function ChunkKeywords({
   );
 }
 
-/**
- * Focused chunk highlight: ring + subtle background tint so the
- * user can clearly see which section a citation points to.
- * Previously `ring-primary/20` which was near-invisible on light
- * backgrounds.
- */
 function focusCardClasses(isFocused: boolean): string {
   return isFocused
     ? "border-primary bg-primary/5 ring-2 ring-primary/40 shadow-md"
@@ -235,7 +197,7 @@ function TextChunkCard({
 }) {
   return (
     <Card
-      className={`cursor-default shadow-sm transition-colors ${focusCardClasses(isFocused)}`}
+      className={`cursor-default shadow-xs transition-colors ${focusCardClasses(isFocused)}`}
     >
       <CardContent className="p-5">
         <ChunkHeader chunk={chunk} />
@@ -257,7 +219,7 @@ function ImageChunkCard({
 }) {
   return (
     <Card
-      className={`cursor-default shadow-sm transition-colors ${focusCardClasses(isFocused)}`}
+      className={`cursor-default shadow-xs transition-colors ${focusCardClasses(isFocused)}`}
     >
       <CardContent className="p-5">
         <ChunkHeader chunk={chunk} />
@@ -287,9 +249,6 @@ function TableChunkCard({
 }) {
   const hasHtml = chunk.content.trim().startsWith("<");
 
-  // Sanitize table HTML from uploaded documents. The parsed content
-  // originates from user-controlled files and must be treated as
-  // untrusted — `dangerouslySetInnerHTML` without sanitization is XSS.
   const safeHtml = useMemo(
     () =>
       hasHtml
@@ -306,7 +265,7 @@ function TableChunkCard({
 
   return (
     <Card
-      className={`cursor-default shadow-sm transition-colors ${focusCardClasses(isFocused)}`}
+      className={`cursor-default shadow-xs transition-colors ${focusCardClasses(isFocused)}`}
     >
       <CardContent className="p-5">
         <ChunkHeader chunk={chunk} />

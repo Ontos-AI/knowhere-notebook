@@ -19,14 +19,6 @@ export type ChatPanelProps = {
   isDisabled?: boolean;
 };
 
-/**
- * Right panel: chat with the assistant, grounded in the workspace sources.
- *
- * The panel is a pure view. The parent owns thread state, streaming, and
- * persistence (see /api/chat route). `onSend` is fired on user submit;
- * `onCitationClick` is forwarded to the parent so it can focus the Parsed
- * Content panel on the clicked section.
- */
 export function ChatPanel({
   messages = [],
   onSend,
@@ -45,8 +37,8 @@ export function ChatPanel({
   }
 
   return (
-    <section className="relative z-0 flex flex-[2] flex-col overflow-hidden border-l border-border bg-muted/40">
-      <header className="shrink-0 border-b border-border bg-background px-6 py-4">
+    <section className="relative z-0 flex w-[380px] shrink-0 flex-col overflow-hidden border-l border-border/70 bg-muted/40 xl:w-[420px]">
+      <header className="shrink-0 border-b border-border/70 bg-background px-6 py-4">
         <h2 className="text-sm font-bold text-foreground">
           Knowhere Assistant
         </h2>
@@ -74,12 +66,12 @@ export function ChatPanel({
         )}
       </ScrollArea>
 
-      <div className="shrink-0 border-t border-border bg-background p-4">
-        <div className="relative rounded-xl shadow-sm">
+      <div className="shrink-0 border-t border-border/70 bg-background p-4">
+        <div className="relative rounded-2xl shadow-sm">
           <Textarea
             id={CHAT_COMPOSER_ID}
             name={CHAT_COMPOSER_ID}
-            className="h-[84px] w-full resize-none rounded-xl bg-muted/60 p-3.5 pr-12 text-sm transition-all placeholder:text-muted-foreground focus-visible:border-primary focus-visible:ring-primary/20"
+            className="h-[84px] w-full resize-none rounded-2xl border-slate-300 bg-muted/60 p-3.5 pr-12 text-sm transition-all placeholder:text-muted-foreground hover:border-slate-400 focus-visible:border-primary focus-visible:ring-0"
             placeholder={
               isDisabled
                 ? "Upload a document to start asking questions."
@@ -97,13 +89,13 @@ export function ChatPanel({
           />
           <Button
             variant="default"
-            size="icon-sm"
+            size="icon"
             className="absolute bottom-2 right-2"
             disabled={!canSend}
             onClick={handleSend}
             aria-label="Send message"
           >
-            <Send />
+            <Send className="size-4" />
           </Button>
         </div>
         <div className="mt-3 flex items-center justify-end">
@@ -119,7 +111,7 @@ export function ChatPanel({
 function EmptyChat({ disabled }: { disabled: boolean }) {
   return (
     <div className="m-auto mt-24 flex h-full max-w-sm flex-col items-center justify-center px-4 pb-10 text-center">
-      <div className="mb-4 flex size-14 items-center justify-center rounded-2xl border border-border bg-background text-primary/50 shadow-sm">
+      <div className="mb-4 flex size-14 items-center justify-center rounded-2xl border border-border/70 bg-background text-primary/50 shadow-xs">
         <MessageCircle className="size-7" />
       </div>
       <h3 className="mb-1.5 text-sm font-bold text-foreground">
@@ -144,7 +136,7 @@ function MessageBubble({
   if (message.role === "user") {
     return (
       <div className="flex flex-col items-end">
-        <div className="max-w-[85%] rounded-2xl rounded-tr-sm bg-muted px-4 py-3 text-sm text-foreground shadow-sm">
+        <div className="max-w-[85%] rounded-2xl rounded-tr-sm bg-muted px-4 py-3 text-sm text-foreground shadow-xs">
           {message.content}
         </div>
       </div>
@@ -153,10 +145,10 @@ function MessageBubble({
 
   return (
     <div className="flex flex-col items-start">
-      <div className="max-w-[90%] rounded-2xl rounded-tl-sm border border-border bg-background px-4 py-3 text-sm leading-relaxed text-foreground shadow-sm">
+      <div className="max-w-[90%] rounded-2xl rounded-tl-sm border border-border/70 bg-card px-4 py-3 text-sm leading-relaxed text-foreground shadow-xs">
         <p className="whitespace-pre-wrap">{message.content}</p>
         {message.citations && message.citations.length > 0 && (
-          <div className="mt-3 border-t border-border pt-2.5">
+          <div className="mt-3 border-t border-border/70 pt-2.5">
             <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
               Sources used
             </p>
@@ -166,7 +158,7 @@ function MessageBubble({
                   key={`${cite.source.documentId ?? ""}-${i}`}
                   variant="outline"
                   onClick={() => onCitationClick?.(cite)}
-                  className="cursor-pointer rounded border-border bg-muted px-2 py-0 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted/70"
+                  className="cursor-pointer rounded-full bg-muted px-2 py-0 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted/70"
                 >
                   {cite.source.sourceFileName ?? "Section"}
                   {cite.source.sectionPath ? ` · ${cite.source.sectionPath}` : ""}

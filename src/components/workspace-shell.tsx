@@ -53,9 +53,6 @@ const patchJson = <T,>(url: string, body: unknown) =>
     ).pipe(Effect.provide(FetchHttpClient.layer)) as Effect.Effect<T>,
   )
 
-/**
- * Which panel the mobile bottom-tab bar shows.
- */
 export type PanelId = "sources" | "content" | "chat"
 
 type ChunkLoadState = {
@@ -86,17 +83,9 @@ export type WorkspaceShellProps = {
     state: UploadSourceActionState,
     formData: FormData,
   ) => Promise<UploadSourceActionState>
-  /** When true, the shell renders a read-only demo view for guests. */
   isGuest?: boolean
-  /** Demo source shown to unauthenticated users. */
   demoSource?: SourceView
-  /** Demo chunks shown to unauthenticated users. */
   demoChunks?: ParsedChunkView[]
-  /**
-   * Pre-built login URL with callbackURL. Passed from the server
-   * component — do not read process.env in the client shell for auth
-   * redirects because DASHBOARD_ORIGIN is not NEXT_PUBLIC_.
-   */
   loginUrl?: string
 }
 
@@ -205,8 +194,6 @@ export function WorkspaceShell({
     }
   }, [chunkLoad.isLoading, chunkLoad.sourceId])
 
-  const showParsed = selectedSourceId !== null || focusedChunkId !== null
-  const showChat = selectedSourceId === null || focusedChunkId !== null
   const selectedSourceTitle =
     sources.find((source) => source.id === selectedSourceId)?.title ?? null
 
@@ -336,13 +323,13 @@ export function WorkspaceShell({
   const hasMessages = chat.messages.length > 0
 
   return (
-    <div className="flex h-screen w-full flex-col overflow-hidden bg-[#fafafa]">
+    <div className="flex h-screen w-full flex-col overflow-hidden bg-background">
       <TopNav
         userInitials={user ? initialsOf(user) : undefined}
         userName={user ? (user.name ?? user.email ?? undefined) : undefined}
       />
 
-      {/* Desktop: three-panel side-by-side layout */}
+      {/* Desktop: three-panel side-by-side layout — always all three visible */}
       <div className="relative hidden flex-1 overflow-hidden lg:flex">
         <SourcesPanel
           sources={sources}
@@ -366,29 +353,20 @@ export function WorkspaceShell({
           uploadAction={isGuest ? undefined : uploadAction}
           onLoginClick={isGuest ? redirectToLogin : undefined}
         />
-        {showParsed && (
-          <ChunksPanel
-            chunks={chunkLoad.chunks}
-            selectedSource={selectedSourceTitle}
-            focusedChunkId={focusedChunkId}
-            isLoading={chunkLoad.isLoading}
-            onClose={() => {
-              setSelectedSourceId(null)
-              setFocusedChunkId(null)
-              setChunkLoad({ sourceId: null, chunks: [], isLoading: false })
-            }}
-          />
-        )}
-        {showChat && (
-          <ChatPanel
-            messages={chat.messages}
-            isDisabled={isGuest || readySourceCount === 0}
-            isSending={chat.isSending}
-            sourceCount={readySourceCount}
-            onSend={handleChatSend}
-            onCitationClick={handleCitationClick}
-          />
-        )}
+        <ChunksPanel
+          chunks={chunkLoad.chunks}
+          selectedSource={selectedSourceTitle}
+          focusedChunkId={focusedChunkId}
+          isLoading={chunkLoad.isLoading}
+        />
+        <ChatPanel
+          messages={chat.messages}
+          isDisabled={isGuest || readySourceCount === 0}
+          isSending={chat.isSending}
+          sourceCount={readySourceCount}
+          onSend={handleChatSend}
+          onCitationClick={handleCitationClick}
+        />
       </div>
 
       {/* Mobile: single-panel with bottom tab bar. */}
@@ -426,12 +404,6 @@ export function WorkspaceShell({
           selectedSource={selectedSourceTitle}
           focusedChunkId={focusedChunkId}
           isLoading={chunkLoad.isLoading}
-          onClose={() => {
-            setSelectedSourceId(null)
-            setFocusedChunkId(null)
-            setChunkLoad({ sourceId: null, chunks: [], isLoading: false })
-            setMobilePanel("sources")
-          }}
         />
       </div>
       <div

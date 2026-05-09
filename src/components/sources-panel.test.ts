@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -40,7 +40,6 @@ describe("SourcesPanel", () => {
   });
 
   it("separates source opening from query include toggles", async () => {
-    const user = userEvent.setup();
     const onSelectSource = vi.fn();
     const onToggleIncluded = vi.fn();
 
@@ -59,12 +58,13 @@ describe("SourcesPanel", () => {
       }),
     );
 
-    await user.click(screen.getByRole("checkbox", { name: "Use lecture.pdf in answers" }));
+    const checkbox = screen.getByRole("checkbox", { name: "Use lecture.pdf in answers" });
+    fireEvent.click(checkbox);
 
     expect(onToggleIncluded).toHaveBeenCalledWith("source_1", false);
     expect(onSelectSource).not.toHaveBeenCalled();
 
-    await user.click(
+    fireEvent.click(
       screen.getByRole("button", { name: "Open lecture.pdf content sections" }),
     );
 

@@ -12,26 +12,9 @@ export type MobileTabBarProps = {
   onPanelChange: (panel: PanelId) => void;
   sourceCount: number;
   chunkCount: number;
-  /**
-   * Lights a blue dot on the Chat tab.
-   *
-   * Named `hasMessages` rather than `hasUnread` deliberately: the MVP has
-   * no per-user read-state tracking and no real-time delivery, so a
-   * "new since you last looked" indicator is not feasible without
-   * persistent last-read timestamps. The dot keeps Chat discoverable
-   * after the first exchange — once messages exist, the tab signals that
-   * Chat is active, not that it has unseen content.
-   */
   hasMessages: boolean;
 };
 
-/**
- * Fixed bottom tab bar for phone screens. Only three slots:
- * Sources, Content Sections, and Chat.
- *
- * The `lg:hidden` keeps it invisible on desktop where the three-panel
- * side-by-side layout takes over.
- */
 export function MobileTabBar({
   activePanel,
   onPanelChange,
@@ -41,7 +24,7 @@ export function MobileTabBar({
 }: MobileTabBarProps) {
   return (
     <nav
-      className="fixed inset-x-0 bottom-0 z-50 flex h-14 shrink-0 items-center justify-around border-t border-border bg-background lg:hidden"
+      className="fixed inset-x-0 bottom-0 z-50 flex h-14 shrink-0 items-center justify-around border-t border-border/70 bg-background/95 backdrop-blur-sm lg:hidden"
       aria-label="Panel navigation"
       role="tablist"
     >

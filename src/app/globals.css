@@ -48,16 +48,6 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-/*
- * Knowhere brand design system — mirrors the Dashboard.
- *
- * Colors use HSL tuples (the Dashboard convention). The primary accent
- * is Dashboard blue (#2563eb ≈ hsl(221.2 83.2% 53.3%)), while the logo
- * mark retains its purple (#7b20ea) via inline SVG fill.
- */
-
-/* ---- colour scheme ----------------------------------------------------- */
-
 :root {
   color-scheme: light;
   --radius: 0.5rem;
@@ -67,27 +57,19 @@
   color-scheme: dark;
 }
 
-/* ---- base -------------------------------------------------------------- */
-
 @layer base {
   * {
-    @apply border-border outline-ring/50;
-  }
-  body {
-    @apply bg-background text-foreground antialiased;
+    @apply border-border;
   }
   html {
-    @apply font-sans;
+    overflow-x: clip;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    overflow-x: clip;
   }
 }
 
-/*
- * Tailwind v4 @theme inline passes bare HSL tuples through as-is (e.g.
- * "221.2 83.2% 53.3%"), which is not a valid CSS <color>.  Wrapping every
- * colour value in hsl() keeps the generated utilities valid while
- * preserving the shadcn convention of storing channel-only tuples for
- * downstream composition.
- */
 @layer base {
   :root {
     --background: hsl(210 40% 98%);
@@ -175,5 +157,199 @@
     --sidebar-accent-foreground: hsl(210 40% 98%);
     --sidebar-border: hsl(215 19% 35%);
     --sidebar-ring: hsl(217.2 91.2% 59.8%);
+  }
+}
+
+@layer utilities {
+  .hero-scrollbar-dark {
+    scrollbar-width: auto;
+    scrollbar-color: #52525b var(--hero-scrollbar-track, #18181b);
+  }
+
+  .hero-scrollbar-dark::-webkit-scrollbar-track {
+    background: var(--hero-scrollbar-track, #18181b);
+    border-radius: 0;
+  }
+
+  .hero-scrollbar-dark::-webkit-scrollbar-corner {
+    background: var(--hero-scrollbar-track, #18181b);
+  }
+
+  .hero-scrollbar-dark::-webkit-scrollbar-thumb {
+    background: #52525b !important;
+    border: none;
+    border-radius: 0;
+    transition: background-color 160ms ease;
+  }
+
+  .hero-scrollbar-dark::-webkit-scrollbar-thumb:hover {
+    background: #71717a !important;
+  }
+
+  .font-geist-sans-var {
+    font-family:
+      "Geist", "Inter", "Segoe UI", "Helvetica Neue", Arial, system-ui, -apple-system,
+      BlinkMacSystemFont, sans-serif;
+  }
+
+  .font-anuphan-var {
+    font-family:
+      "Anuphan", "Avenir Next", "Segoe UI", "Helvetica Neue", Arial, system-ui, sans-serif;
+  }
+
+  /* Glassmorphism */
+  .glass {
+    background: rgba(10, 10, 10, 0.6);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(0, 255, 255, 0.2);
+  }
+
+  /* Neon glow effects */
+  .neon-cyan {
+    text-shadow:
+      0 0 10px rgba(38, 185, 237, 0.7),
+      0 0 20px rgba(38, 185, 237, 0.5),
+      0 0 30px rgba(38, 185, 237, 0.3);
+  }
+
+  .neon-magenta {
+    text-shadow:
+      0 0 10px rgba(153, 102, 255, 0.7),
+      0 0 20px rgba(153, 102, 255, 0.5),
+      0 0 30px rgba(153, 102, 255, 0.3);
+  }
+
+  .neon-green {
+    text-shadow:
+      0 0 10px rgba(32, 217, 166, 0.7),
+      0 0 20px rgba(32, 217, 166, 0.5),
+      0 0 30px rgba(32, 217, 166, 0.3);
+  }
+
+  .glow-cyan {
+    box-shadow:
+      0 0 15px rgba(38, 185, 237, 0.3),
+      0 0 30px rgba(38, 185, 237, 0.15),
+      inset 0 0 15px rgba(38, 185, 237, 0.05);
+  }
+
+  .glow-magenta {
+    box-shadow:
+      0 0 15px rgba(153, 102, 255, 0.3),
+      0 0 30px rgba(153, 102, 255, 0.15),
+      inset 0 0 15px rgba(153, 102, 255, 0.05);
+  }
+
+  .glow-green {
+    box-shadow:
+      0 0 15px rgba(32, 217, 166, 0.3),
+      0 0 30px rgba(32, 217, 166, 0.15),
+      inset 0 0 15px rgba(32, 217, 166, 0.05);
+  }
+
+  .scanlines {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .scanlines::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      rgba(38, 185, 237, 0.02) 0px,
+      rgba(38, 185, 237, 0.02) 1px,
+      transparent 1px,
+      transparent 2px
+    );
+    pointer-events: none;
+    z-index: 10;
+    animation: scanline-move 8s linear infinite;
+  }
+
+  @keyframes scanline-move {
+    0% { transform: translateY(0); }
+    100% { transform: translateY(100%); }
+  }
+
+  .tech-grid {
+    background-image:
+      linear-gradient(rgba(38, 185, 237, 0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(38, 185, 237, 0.03) 1px, transparent 1px);
+    background-size: 50px 50px;
+  }
+
+  .cyber-gradient {
+    background: linear-gradient(
+      135deg,
+      rgba(38, 185, 237, 0.08) 0%,
+      rgba(153, 102, 255, 0.08) 50%,
+      rgba(32, 217, 166, 0.08) 100%
+    );
+  }
+
+  .text-gradient {
+    @apply bg-clip-text text-transparent bg-gradient-to-r;
+  }
+
+  .inset-shadow-2xs {
+    box-shadow: inset 0 1px 0 0 rgb(0 0 0 / 0.05);
+  }
+
+  .inset-shadow-xs {
+    box-shadow: inset 0 1px 1px 0 rgb(0 0 0 / 0.05);
+  }
+
+  .inset-shadow-sm {
+    box-shadow: inset 0 2px 4px 0 rgb(0 0 0 / 0.05);
+  }
+
+  .smooth-scroll {
+    scroll-behavior: smooth;
+  }
+
+  .hide-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .terminal-text {
+    font-family: var(--font-mono);
+    font-variant-ligatures: none;
+    letter-spacing: -0.02em;
+  }
+
+  @keyframes holographic {
+    0%, 100% { filter: hue-rotate(0deg); }
+    50% { filter: hue-rotate(20deg); }
+  }
+
+  .holographic {
+    animation: holographic 3s ease-in-out infinite;
+  }
+
+  @keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+
+  .animate-shimmer {
+    animation: shimmer 2s ease-in-out infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms;
+      animation-iteration-count: 1;
+      transition-duration: 0.01ms;
+      scroll-behavior: auto;
+    }
   }
 }

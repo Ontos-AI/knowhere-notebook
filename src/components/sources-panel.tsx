@@ -1,10 +1,20 @@
 "use client";
 
 import { useActionState, useEffect, useId, useRef, useState } from "react";
-import { Plus, Upload, FileText, Database, Archive } from "lucide-react";
+import { Plus, Upload, FileText, Database, Archive, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Dialog,
   DialogContent,
@@ -30,17 +40,6 @@ export type SourcesPanelProps = {
   onLoginClick?: () => void;
 };
 
-/**
- * Left sidebar: the catalog of uploaded sources.
- *
- * Each row:
- *  - checkbox → drives excludeDocumentIds on the next query
- *  - file-type badge (color per extension)
- *  - filename + status line ("Processed · 42 sections", "Processing · 85%", etc.)
- *
- * Clicking a row selects/deselects it. Selection drives the middle Parsed
- * Content panel (see page.tsx).
- */
 export function SourcesPanel({
   sources = [],
   onSourceUploaded,
@@ -52,24 +51,48 @@ export function SourcesPanel({
   onLoginClick,
 }: Partial<SourcesPanelProps> = {}) {
   const [confirmSourceId, setConfirmSourceId] = useState<string | null>(null);
+  const confirmSource = sources.find((s) => s.id === confirmSourceId) ?? null;
 
   return (
-    <aside className="z-10 flex w-full shrink-0 flex-col border-r border-border bg-background lg:w-[260px] xl:w-[320px]">
-      {confirmSourceId && (
-        <ConfirmArchiveDialog
-          source={sources.find((s) => s.id === confirmSourceId) ?? null}
-          onCancel={() => setConfirmSourceId(null)}
-          onConfirm={() => {
-            onArchiveSource?.(confirmSourceId);
-            setConfirmSourceId(null);
-          }}
-        />
-      )}
-      <div className="border-b border-border p-4">
+    <aside className="z-10 flex w-full shrink-0 flex-col border-r border-border/70 bg-background lg:w-[260px] xl:w-[320px]">
+      <AlertDialog
+        open={confirmSourceId !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfirmSourceId(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete document</AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmSource
+                ? `Delete "${confirmSource.title}"? This removes the document from your notebook.`
+                : "Delete this document? This removes the document from your notebook."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (confirmSourceId) {
+                  onArchiveSource?.(confirmSourceId);
+                  setConfirmSourceId(null);
+                }
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <div className="border-b border-border/70 p-4">
         {onLoginClick ? (
           <Button
             onClick={onLoginClick}
-            className="flex w-full items-center justify-center gap-2 shadow-sm"
+            variant="outline"
+            size="sm"
+            className="flex w-full items-center justify-center gap-2 shadow-xs"
           >
             <Plus className="size-4" />
             Log in to upload
@@ -152,7 +175,9 @@ function UploadDialog({
       <Button
         type="button"
         onClick={() => setIsDialogOpen(true)}
-        className="flex w-full items-center justify-center gap-2 shadow-sm"
+        variant="outline"
+        size="sm"
+        className="flex w-full items-center justify-center gap-2 shadow-xs"
       >
         <Plus className="size-4" />
         Upload Document
@@ -168,7 +193,7 @@ function UploadDialog({
         <form action={formAction} className="grid gap-4">
           <label
             htmlFor={fileInputId}
-            className="flex min-h-[200px] cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-border bg-muted/40 p-8 text-center transition-colors hover:border-primary/50 hover:bg-muted"
+            className="flex min-h-[200px] cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-border bg-muted/40 p-8 text-center transition-colors hover:border-primary/50 hover:bg-muted"
           >
             {isUploading ? (
               <div className="flex flex-col items-center gap-4">
@@ -224,7 +249,7 @@ function UploadDialog({
               {state.message}
             </p>
           )}
-          <Button type="submit" disabled={isUploading || !uploadAction}>
+          <Button type="submit" disabled={isUploading || !uploadAction} size="sm">
             {isUploading ? "Uploading…" : "Start upload"}
           </Button>
         </form>
@@ -238,39 +263,6 @@ async function disabledUploadAction(): Promise<UploadSourceActionState> {
     ok: false,
     message: "Upload is not available yet.",
   };
-}
-
-function ConfirmArchiveDialog({
-  source,
-  onCancel,
-  onConfirm,
-}: {
-  source: SourceView | null;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  return (
-    <Dialog open={source !== null} onOpenChange={onCancel}>
-      <DialogContent className="sm:max-w-[400px]">
-        <DialogHeader>
-          <DialogTitle>Delete document</DialogTitle>
-          <DialogDescription>
-            {source
-              ? `Delete "${source.title}"? This removes the document from your notebook.`
-              : "Delete this document? This removes the document from your notebook."}
-          </DialogDescription>
-        </DialogHeader>
-        <div className="flex justify-end gap-3">
-          <Button variant="outline" onClick={onCancel}>
-            Cancel
-          </Button>
-          <Button variant="destructive" onClick={onConfirm}>
-            Delete
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
 }
 
 function EmptySourcesState() {
@@ -310,9 +302,9 @@ function SourceRow({
 
   return (
     <div
-      className={`flex w-full items-center gap-2.5 rounded-md border p-2 text-left transition-colors ${
+      className={`flex w-full items-center gap-2.5 rounded-2xl border p-2 text-left transition-colors ${
         isSelected
-          ? "border-border bg-muted/60 shadow-sm"
+          ? "border-border/70 bg-muted/60 shadow-xs"
           : "border-transparent hover:bg-muted/40"
       } ${!isReady ? "opacity-90" : ""}`}
     >
@@ -336,7 +328,7 @@ function SourceRow({
         aria-label={`Open ${source.title} content sections`}
       >
         <div
-          className={`flex size-8 shrink-0 items-center justify-center rounded ${iconBg.bg} ${iconBg.fg}`}
+          className={`flex size-8 shrink-0 items-center justify-center rounded-lg ${iconBg.bg} ${iconBg.fg}`}
         >
           <FileText className="size-4" />
         </div>
@@ -372,7 +364,7 @@ function SourceRow({
             e.stopPropagation();
             onArchiveClick(source.id);
           }}
-          className="ml-auto shrink-0 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+          className="ml-auto shrink-0 rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
           aria-label={`Delete ${source.title}`}
         >
           <Archive className="size-3.5" />
@@ -382,10 +374,6 @@ function SourceRow({
   );
 }
 
-/**
- * Small per-filetype color hint so the sidebar reads at a glance.
- * No semantic meaning — pure cosmetics.
- */
 function fileIconTint(title: string): { bg: string; fg: string } {
   const ext = title.split(".").pop()?.toLowerCase();
   switch (ext) {
