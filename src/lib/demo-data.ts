@@ -106,7 +106,7 @@ function toParsedChunkView(
     getStringMetadata(metadata, "file_path") ?? getString(chunk.path);
   const assetUrl =
     filePath && (chunk.type === "image" || chunk.type === "table")
-      ? `/demo-sources/${source.assetDirectory}/${filePath}`
+      ? buildDemoAssetURL(source.assetDirectory, filePath)
       : undefined;
 
   return {
@@ -124,6 +124,15 @@ function toParsedChunkView(
     connections: getChunkConnections(metadata),
     sourceTitle: source.title,
   };
+}
+
+function buildDemoAssetURL(assetDirectory: string, filePath: string): string {
+  const encodedPath = filePath
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+
+  return `/demo-sources/${encodeURIComponent(assetDirectory)}/${encodedPath}`;
 }
 
 function resolveDemoConnectionTargets(

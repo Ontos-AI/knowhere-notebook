@@ -69,6 +69,21 @@ describe("demoData", () => {
     expect(epsteinChunks?.[1]?.keywords).toContain("PBI");
   });
 
+  it("encodes static asset urls so reserved filename characters stay in the path", async () => {
+    const demoModule: DemoDataModule = await import("./demo-data");
+    const tslaChunks = await demoModule.demoData!.loadChunksForSource(
+      "demo-tsla-q4-2025",
+    );
+
+    const productImageChunk = tslaChunks?.find(
+      (chunk) => chunk.filePath === "images/image-5-# Product .jpg",
+    );
+
+    expect(productImageChunk?.assetUrl).toBe(
+      "/demo-sources/tsla-q4-2025/images/image-5-%23%20Product%20.jpg",
+    );
+  });
+
   it("returns null for unknown guest source ids", async () => {
     const demoModule: DemoDataModule = await import("./demo-data");
 
