@@ -402,7 +402,41 @@ function ChunkReferenceButton({
 function getReferenceLabel(connection: ParsedChunkConnection): string {
   const ref = connection.ref?.trim();
   if (!ref) return connection.targetParserChunkId;
-  return ref.replace(/^\[/, "").replace(/\]$/, "");
+  return formatReferenceLabel(ref);
+}
+
+function formatReferenceLabel(ref: string): string {
+  const cleanedReference = ref.replace(/^\[/, "").replace(/\]$/, "").trim();
+  const pathWithoutQuery = cleanedReference.split(/[?#]/, 1)[0] ?? cleanedReference;
+  const fileName = pathWithoutQuery.split(/[\\/]/).filter(Boolean).at(-1);
+  const baseName = fileName ?? pathWithoutQuery;
+  const withoutExtension = baseName.replace(
+    /\.(?:csv|gif|htm|html|jpeg|jpg|md|pdf|png|svg|txt|webp)$/i,
+    "",
+  );
+
+  const readableName = withoutExtension
+    .replace(/_/g, " ")
+    .replace(/-/g, getReadableDashReplacement)
+    .replace(/^(image|table)\s+(\d+)/i, (_, type: string, index: string) =>
+      `${capitalize(type)} ${index}`,
+    );
+
+  return capitalize(readableName.replace(/\s+/g, " ").trim());
+}
+
+function getReadableDashReplacement(
+  _match: string,
+  index: number,
+  value: string,
+): string {
+  const previous = value.at(index - 1) ?? "";
+  const next = value.at(index + 1) ?? "";
+  return /\d/.test(previous) && /\d/.test(next) ? "-" : " ";
+}
+
+function capitalize(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 function TableChunkCard({

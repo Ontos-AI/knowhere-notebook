@@ -56,6 +56,9 @@ describe("SourcesPanel", () => {
     expect(dialog.className).toContain("max-h-[calc(100dvh-2rem)]");
     expect(dialog.className).toContain("overflow-hidden");
     expect(confirmButton.parentElement?.className).toContain("shrink-0");
+    expect(confirmButton.className).toContain("bg-[#8E51FF]");
+    expect(confirmButton.className).toContain("border-b-[4px]");
+    expect(confirmButton.className).toContain("font-mono-readable");
   });
 
   it("uses plain product language for empty and upload states", async () => {

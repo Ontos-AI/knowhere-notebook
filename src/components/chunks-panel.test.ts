@@ -100,12 +100,45 @@ describe("ChunksPanel", () => {
       "https://blob.example/images/image-1.jpg",
     );
 
-    await user.click(screen.getByRole("button", { name: "images/image-1.jpg" }));
+    await user.click(screen.getByRole("button", { name: "Image 1" }));
     expect(scrollIntoView).toHaveBeenCalled();
     expect(
       screen
-        .getByRole("button", { name: "tables/missing.html" })
+        .getByRole("button", { name: "Missing" })
         .getAttribute("aria-disabled"),
     ).toBe("true");
+  });
+
+  it("formats generated artifact references for display", () => {
+    render(
+      React.createElement(C, {
+        chunks: [
+          {
+            chunkId: "text_1",
+            type: "text",
+            content:
+              "The summary references [tables/table-5 Financial Metrics 2022-26.html].",
+            sourceTitle: "annual-report.pdf",
+            connections: [
+              {
+                targetParserChunkId: "parser_table_5",
+                targetChunkId: "table_5",
+                relation: "embeds",
+                ref: "[tables/table-5 Financial Metrics 2022-26.html]",
+              },
+            ],
+          },
+        ],
+        selectedSource: "annual-report.pdf",
+      }),
+    );
+
+    expect(
+      screen.getByRole("button", {
+        name: "Table 5 Financial Metrics 2022-26",
+      }),
+    ).toBeTruthy();
+    expect(screen.queryByText(/tables\/table-5/)).toBeNull();
+    expect(screen.queryByText(/\.html/)).toBeNull();
   });
 });

@@ -261,7 +261,7 @@ function UploadDialog({
               size="sm"
               className="w-full sm:w-auto"
             >
-            {isUploading ? "Uploading…" : "Confirm"}
+              {isUploading ? "Uploading…" : "Confirm"}
             </Button>
           </DialogFooter>
         </form>
