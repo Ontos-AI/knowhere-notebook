@@ -11,13 +11,11 @@ vi.mock("@ontos-ai/knowhere-sdk", () => ({
 }));
 
 describe("makeKnowhereClient", () => {
-  const originalApiKey = process.env.KNOWHERE_API_KEY;
   const originalBaseURL = process.env.KNOWHERE_BASE_URL;
 
   afterEach(() => {
     vi.resetModules();
     constructorSpy.mockReset();
-    restoreEnv("KNOWHERE_API_KEY", originalApiKey);
     restoreEnv("KNOWHERE_BASE_URL", originalBaseURL);
   });
 
