@@ -1,6 +1,7 @@
 "use client"
 
 import { startTransition, useEffect, useState } from "react"
+import type { PointerEvent as ReactPointerEvent } from "react"
 import { Effect } from "effect"
 import {
   FetchHttpClient,
@@ -54,6 +55,22 @@ const patchJson = <T,>(url: string, body: unknown) =>
   )
 
 export type PanelId = "sources" | "content" | "chat"
+
+export const DESKTOP_PANEL_GUTTER_WIDTH = 8
+export const DESKTOP_PANEL_MIN_WIDTHS = {
+  sources: 260,
+  chunks: 600,
+  chat: 360,
+} as const
+
+const DESKTOP_PANEL_DEFAULT_WIDTHS = {
+  sources: 320,
+  chunks: 720,
+  chat: 420,
+} as const
+
+type DesktopPanelKey = keyof typeof DESKTOP_PANEL_MIN_WIDTHS
+type DesktopPanelWidths = Record<DesktopPanelKey, number>
 
 type ChunkLoadState = {
   sourceId: string | null
@@ -118,9 +135,40 @@ export function WorkspaceShell({
     chunks: [],
     isLoading: initialSelectedSourceId !== null,
   })
+  const [desktopPanelWidths, setDesktopPanelWidths] =
+    useState<DesktopPanelWidths>({ ...DESKTOP_PANEL_DEFAULT_WIDTHS })
+
+  const minimumDesktopPanelWidth =
+    DESKTOP_PANEL_MIN_WIDTHS.sources +
+    DESKTOP_PANEL_MIN_WIDTHS.chunks +
+    DESKTOP_PANEL_MIN_WIDTHS.chat +
+    DESKTOP_PANEL_GUTTER_WIDTH * 2
 
   function redirectToLogin() {
     window.location.href = loginUrl ?? "/login"
+  }
+
+  function handleDesktopPanelResize(
+    leftPanel: DesktopPanelKey,
+    rightPanel: DesktopPanelKey,
+    deltaX: number,
+  ): void {
+    setDesktopPanelWidths((current) => {
+      const totalWidth = current[leftPanel] + current[rightPanel]
+      const leftMinimumWidth = DESKTOP_PANEL_MIN_WIDTHS[leftPanel]
+      const rightMinimumWidth = DESKTOP_PANEL_MIN_WIDTHS[rightPanel]
+      const leftWidth = clamp(
+        current[leftPanel] + deltaX,
+        leftMinimumWidth,
+        totalWidth - rightMinimumWidth,
+      )
+
+      return {
+        ...current,
+        [leftPanel]: leftWidth,
+        [rightPanel]: totalWidth - leftWidth,
+      }
+    })
   }
 
   useEffect(() => {
@@ -330,32 +378,83 @@ export function WorkspaceShell({
         userName={user ? (user.name ?? user.email ?? undefined) : undefined}
       />
 
-      {/* Desktop: three-panel side-by-side layout — always all three visible */}
-      <div className="relative hidden flex-1 overflow-hidden lg:flex">
-        <SourcesPanel
-          sources={sources}
-          onSourceUploaded={isGuest ? undefined : handleSourceUploaded}
-          selectedSourceId={selectedSourceId}
-          onSelectSource={handleSourceSelected}
-          onToggleIncluded={isGuest ? undefined : handleToggleIncluded}
-          onArchiveSource={isGuest ? undefined : handleArchiveSource}
-          uploadAction={isGuest ? undefined : uploadAction}
-          onLoginClick={isGuest ? redirectToLogin : undefined}
-        />
-        <ChunksPanel
-          chunks={chunkLoad.chunks}
-          selectedSource={selectedSourceTitle}
-          focusedChunkId={focusedChunkId}
-          isLoading={chunkLoad.isLoading}
-        />
-        <ChatPanel
-          messages={chat.messages}
-          isDisabled={isGuest || readySourceCount === 0}
-          isSending={chat.isSending}
-          sourceCount={readySourceCount}
-          onSend={handleChatSend}
-          onCitationClick={handleCitationClick}
-        />
+      {/* Desktop: resizable three-panel strip with horizontal overflow at minimum widths. */}
+      <div
+        data-testid="desktop-panel-layout"
+        className="relative hidden flex-1 overflow-x-auto overflow-y-hidden lg:block"
+      >
+        <div
+          data-testid="desktop-resizable-panels"
+          className="flex h-full"
+          style={{
+            minWidth: `${minimumDesktopPanelWidth}px`,
+            width: "100%",
+          }}
+        >
+          <div
+            data-testid="desktop-sources-panel"
+            className="h-full shrink-0"
+            style={{
+              minWidth: `${DESKTOP_PANEL_MIN_WIDTHS.sources}px`,
+              width: `${desktopPanelWidths.sources}px`,
+            }}
+          >
+            <SourcesPanel
+              sources={sources}
+              onSourceUploaded={isGuest ? undefined : handleSourceUploaded}
+              selectedSourceId={selectedSourceId}
+              onSelectSource={handleSourceSelected}
+              onToggleIncluded={isGuest ? undefined : handleToggleIncluded}
+              onArchiveSource={isGuest ? undefined : handleArchiveSource}
+              uploadAction={isGuest ? undefined : uploadAction}
+              onLoginClick={isGuest ? redirectToLogin : undefined}
+            />
+          </div>
+          <DesktopResizeHandle
+            label="Resize sources and parsed chunks"
+            onResize={(deltaX) =>
+              handleDesktopPanelResize("sources", "chunks", deltaX)
+            }
+          />
+          <div
+            data-testid="desktop-chunks-panel"
+            className="h-full min-w-0 shrink-0 grow"
+            style={{
+              minWidth: `${DESKTOP_PANEL_MIN_WIDTHS.chunks}px`,
+              width: `${desktopPanelWidths.chunks}px`,
+            }}
+          >
+            <ChunksPanel
+              chunks={chunkLoad.chunks}
+              selectedSource={selectedSourceTitle}
+              focusedChunkId={focusedChunkId}
+              isLoading={chunkLoad.isLoading}
+            />
+          </div>
+          <DesktopResizeHandle
+            label="Resize parsed chunks and chat"
+            onResize={(deltaX) =>
+              handleDesktopPanelResize("chunks", "chat", deltaX)
+            }
+          />
+          <div
+            data-testid="desktop-chat-panel"
+            className="h-full shrink-0"
+            style={{
+              minWidth: `${DESKTOP_PANEL_MIN_WIDTHS.chat}px`,
+              width: `${desktopPanelWidths.chat}px`,
+            }}
+          >
+            <ChatPanel
+              messages={chat.messages}
+              isDisabled={isGuest || readySourceCount === 0}
+              isSending={chat.isSending}
+              sourceCount={readySourceCount}
+              onSend={handleChatSend}
+              onCitationClick={handleCitationClick}
+            />
+          </div>
+        </div>
       </div>
 
       {/* Mobile: single-panel with bottom tab bar. */}
@@ -465,4 +564,51 @@ function initialsOf(user: WorkspaceShellProps["user"]): string {
   if (parts.length === 0) return "?"
   if (parts.length === 1) return parts[0][0]!.toUpperCase()
   return (parts[0][0]! + parts[1][0]!).toUpperCase()
+}
+
+function DesktopResizeHandle({
+  label,
+  onResize,
+}: {
+  label: string
+  onResize: (deltaX: number) => void
+}) {
+  function handlePointerDown(
+    event: ReactPointerEvent<HTMLButtonElement>,
+  ): void {
+    event.preventDefault()
+    let lastClientX = event.clientX
+
+    function handlePointerMove(moveEvent: PointerEvent): void {
+      const deltaX = moveEvent.clientX - lastClientX
+      lastClientX = moveEvent.clientX
+      onResize(deltaX)
+    }
+
+    function handlePointerUp(): void {
+      window.removeEventListener("pointermove", handlePointerMove)
+      window.removeEventListener("pointerup", handlePointerUp)
+    }
+
+    window.addEventListener("pointermove", handlePointerMove)
+    window.addEventListener("pointerup", handlePointerUp)
+  }
+
+  return (
+    <button
+      type="button"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={label}
+      className="group flex h-full shrink-0 cursor-col-resize items-center justify-center border-x border-transparent bg-border/40 transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+      style={{ width: `${DESKTOP_PANEL_GUTTER_WIDTH}px` }}
+      onPointerDown={handlePointerDown}
+    >
+      <span className="h-10 w-0.5 rounded-full bg-muted-foreground/35 group-hover:bg-primary/60" />
+    </button>
+  )
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max)
 }

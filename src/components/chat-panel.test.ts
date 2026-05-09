@@ -1,13 +1,17 @@
 // @vitest-environment jsdom
 import React from "react";
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { ChatPanel } from "./chat-panel";
 
 const C = ChatPanel as React.FC<Record<string, unknown>>;
 
 describe("ChatPanel", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
   it("explains answers in plain source-based language", () => {
     const { container } = render(
       React.createElement(C, {
@@ -46,5 +50,44 @@ describe("ChatPanel", () => {
 
     expect(screen.getByText("Sources used")).toBeTruthy();
     expect(screen.queryByText("Citations")).toBeNull();
+  });
+
+  it("uses fluid mobile widths and wraps long chat content", () => {
+    render(
+      React.createElement(C, {
+        messages: [
+          {
+            id: "user_1",
+            role: "user",
+            content: "averylongunbrokenquestionthatshouldnotforceafixedmobilewidth",
+          },
+          {
+            id: "assistant_1",
+            role: "assistant",
+            content: "averylongunbrokenanswerthatshouldwrapinsideasmallviewport",
+            citations: [
+              {
+                chunkType: "text",
+                score: 0.9,
+                source: {
+                  documentId: "doc_1",
+                  sourceFileName: "very-long-source-name-that-should-wrap.pdf",
+                  sectionPath: "very/long/section/path/that/should/wrap",
+                },
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(screen.getByTestId("chat-panel").className).toContain("max-w-full");
+    expect(screen.getByTestId("chat-panel").className).not.toContain("shrink-0");
+    expect(screen.getByTestId("chat-scroll").className).toContain("p-3");
+    expect(screen.getByTestId("chat-composer").className).toContain("p-3");
+    expect(
+      screen.getByText("averylongunbrokenanswerthatshouldwrapinsideasmallviewport")
+        .className,
+    ).toContain("break-words");
   });
 });

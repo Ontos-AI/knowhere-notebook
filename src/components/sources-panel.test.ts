@@ -2,15 +2,31 @@
 import React from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SourcesPanel } from "./sources-panel";
 
 const C = SourcesPanel as React.FC<Record<string, unknown>>;
+const originalResizeObserver = globalThis.ResizeObserver;
 
 describe("SourcesPanel", () => {
+  beforeEach(() => {
+    Object.defineProperty(globalThis, "ResizeObserver", {
+      configurable: true,
+      value: class ResizeObserver {
+        observe(): void { }
+        unobserve(): void { }
+        disconnect(): void { }
+      },
+    });
+  });
+
   afterEach(() => {
     cleanup();
+    Object.defineProperty(globalThis, "ResizeObserver", {
+      configurable: true,
+      value: originalResizeObserver,
+    });
   });
 
   it("opens the upload dialog from the sidebar trigger", async () => {
@@ -24,6 +40,7 @@ describe("SourcesPanel", () => {
     expect(
       screen.getByText(/Click to select or drag and drop a document/),
     ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Confirm" })).toBeTruthy();
   });
 
   it("uses plain product language for empty and upload states", async () => {
@@ -102,5 +119,30 @@ describe("SourcesPanel", () => {
     expect(
       screen.queryByRole("button", { name: "Delete lecture.pdf" }),
     ).toBeNull();
+  });
+
+  it("confirms source deletion for source rows that are still processing", async () => {
+    const user = userEvent.setup();
+    const onArchiveSource = vi.fn();
+
+    render(
+      React.createElement(C, {
+        sources: [
+          {
+            id: "source_1",
+            title: "lecture.pdf",
+            status: "parsing",
+            chunkCount: 0,
+          },
+        ],
+        onArchiveSource,
+      }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Delete lecture.pdf" }));
+    expect(screen.getByRole("heading", { name: "Delete document" })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    expect(onArchiveSource).toHaveBeenCalledWith("source_1");
   });
 });

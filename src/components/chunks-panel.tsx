@@ -50,24 +50,30 @@ export function ChunksPanel({
   );
 
   return (
-    <main className="z-0 flex flex-1 flex-col overflow-hidden bg-background">
-      <header className="flex shrink-0 items-center justify-between border-b border-border/70 px-6 py-4">
+    <main
+      data-testid="chunks-panel"
+      className="z-0 flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-background"
+    >
+      <header className="flex shrink-0 items-start justify-between border-b border-border/70 px-4 py-3 sm:px-6 sm:py-4">
         <div className="min-w-0">
           <h2 className="text-sm font-bold text-foreground">{headerTitle}</h2>
-          <p className="mt-0.5 truncate text-xs text-muted-foreground">
+          <p className="mt-1 text-xs leading-5 text-muted-foreground sm:truncate">
             {headerSubtitle}
           </p>
         </div>
       </header>
 
       <ScrollArea className="flex-1">
-        <div className="mx-auto flex w-full max-w-4xl flex-col items-center p-6">
+        <div
+          data-testid="chunks-scroll-content"
+          className="mx-auto flex w-full max-w-4xl flex-col items-center p-3 sm:p-6"
+        >
           {isLoading ? (
             <LoadingChunks />
           ) : chunks.length === 0 ? (
             <EmptyChunks />
           ) : (
-            <div className="flex w-full flex-col gap-4">
+            <div className="flex w-full flex-col gap-3 sm:gap-4">
               {chunks.map((chunk) => (
                 <ChunkCard
                   key={chunk.chunkId}
@@ -88,7 +94,7 @@ export function ChunksPanel({
 
 function EmptyChunks() {
   return (
-    <div className="flex flex-col items-center gap-3 py-20 text-center">
+    <div className="flex flex-col items-center gap-3 px-4 py-14 text-center sm:py-20">
       <div className="flex size-12 items-center justify-center rounded-full bg-muted">
         <Layers className="size-5 text-muted-foreground" />
       </div>
@@ -105,7 +111,7 @@ function EmptyChunks() {
 
 function LoadingChunks() {
   return (
-    <div className="flex flex-col items-center gap-3 py-20 text-center">
+    <div className="flex flex-col items-center gap-3 px-4 py-14 text-center sm:py-20">
       <div className="flex size-12 items-center justify-center rounded-full bg-muted">
         <Layers className="size-5 text-muted-foreground" />
       </div>
@@ -146,10 +152,10 @@ function ChunkCard({
 
 function ChunkHeader({ chunk }: { chunk: ParsedChunkView }) {
   return (
-    <div className="mb-3 flex items-start justify-between">
+    <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
       <Badge
         variant="secondary"
-        className="rounded-full border-blue-100 bg-blue-50 px-2.5 py-1 text-[10px] uppercase tracking-tight text-blue-700 hover:bg-blue-50"
+        className="max-w-full whitespace-normal rounded-full border-blue-100 bg-blue-50 px-2.5 py-1 text-left text-[10px] uppercase tracking-tight text-blue-700 hover:bg-blue-50"
       >
         {chunk.sourceTitle}
         {chunk.summary ? ` · ${chunk.summary}` : ""}
@@ -199,9 +205,9 @@ function TextChunkCard({
     <Card
       className={`cursor-default shadow-xs transition-colors ${focusCardClasses(isFocused)}`}
     >
-      <CardContent className="p-5">
+      <CardContent className="p-4 sm:p-5">
         <ChunkHeader chunk={chunk} />
-        <pre className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground font-sans">
+        <pre className="whitespace-pre-wrap break-words font-sans text-[13px] leading-relaxed text-foreground sm:text-sm">
           {chunk.content}
         </pre>
         <ChunkKeywords keywords={chunk.keywords} />
@@ -221,7 +227,7 @@ function ImageChunkCard({
     <Card
       className={`cursor-default shadow-xs transition-colors ${focusCardClasses(isFocused)}`}
     >
-      <CardContent className="p-5">
+      <CardContent className="p-4 sm:p-5">
         <ChunkHeader chunk={chunk} />
         <div className="flex flex-col items-center gap-3 rounded-lg border border-border bg-muted/40 py-8 text-center">
           <ImageIcon className="size-8 text-muted-foreground" />
@@ -267,7 +273,7 @@ function TableChunkCard({
     <Card
       className={`cursor-default shadow-xs transition-colors ${focusCardClasses(isFocused)}`}
     >
-      <CardContent className="p-5">
+      <CardContent className="p-4 sm:p-5">
         <ChunkHeader chunk={chunk} />
         {safeHtml ? (
           <div

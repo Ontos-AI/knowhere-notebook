@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useId, useRef, useState } from "react";
-import { Plus, Upload, FileText, Database, Archive, X } from "lucide-react";
+import { Plus, Upload, FileText, Database, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -54,7 +54,7 @@ export function SourcesPanel({
   const confirmSource = sources.find((s) => s.id === confirmSourceId) ?? null;
 
   return (
-    <aside className="z-10 flex w-full shrink-0 flex-col border-r border-border/70 bg-background lg:w-[260px] xl:w-[320px]">
+    <aside className="z-10 flex h-full w-full shrink-0 flex-col border-r border-border/70 bg-background">
       <AlertDialog
         open={confirmSourceId !== null}
         onOpenChange={(open) => {
@@ -252,7 +252,7 @@ function UploadDialog({
             </p>
           )}
           <Button type="submit" disabled={isUploading || !uploadAction} size="sm">
-            {isUploading ? "Uploading…" : "Start upload"}
+            {isUploading ? "Uploading…" : "Confirm"}
           </Button>
         </form>
       </DialogContent>
@@ -359,17 +359,17 @@ function SourceRow({
         </p>
         </div>
       </button>
-      {(isReady || isFailed) && onArchiveClick && (
+      {onArchiveClick && (
         <button
           type="button"
           onClick={(e) => {
             e.stopPropagation();
             onArchiveClick(source.id);
           }}
-          className="ml-auto shrink-0 rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+          className="ml-auto shrink-0 rounded-lg p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
           aria-label={`Delete ${source.title}`}
         >
-          <Archive className="size-3.5" />
+          <Trash2 className="size-3.5" />
         </button>
       )}
     </div>
