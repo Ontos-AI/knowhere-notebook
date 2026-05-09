@@ -1,55 +1,115 @@
 "use client";
 
-import { useState } from "react";
-import { Plus, Upload, FileText, Database } from "lucide-react";
+import { useActionState, useEffect, useId, useRef, useState } from "react";
+import { Plus, Upload, FileText, Database, Archive, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import type { SourceView } from "@/lib/types";
+import type { UploadSourceActionState } from "@/app/actions";
 
 export type SourcesPanelProps = {
   sources: SourceView[];
+  onSourceUploaded?: (source: SourceView) => void;
   selectedSourceId?: string | null;
   onSelectSource?: (sourceId: string | null) => void;
   onToggleIncluded?: (sourceId: string, included: boolean) => void;
-  onUpload?: (file: File) => void;
+  onArchiveSource?: (sourceId: string) => void;
+  uploadAction?: (
+    state: UploadSourceActionState,
+    formData: FormData,
+  ) => Promise<UploadSourceActionState>;
+  /** When provided, the Upload button redirects to login instead of opening the dialog. */
+  onLoginClick?: () => void;
 };
 
-/**
- * Left sidebar: the catalog of uploaded sources.
- *
- * Each row:
- *  - checkbox → drives excludeDocumentIds on the next query
- *  - file-type badge (color per extension)
- *  - filename + status line ("Processed · 42 sections", "Processing · 85%", etc.)
- *
- * Clicking a row selects/deselects it. Selection drives the middle Parsed
- * Content panel (see page.tsx).
- */
 export function SourcesPanel({
   sources = [],
+  onSourceUploaded,
   selectedSourceId = null,
   onSelectSource,
   onToggleIncluded,
-  onUpload,
+  onArchiveSource,
+  uploadAction,
+  onLoginClick,
 }: Partial<SourcesPanelProps> = {}) {
+  const [confirmSourceId, setConfirmSourceId] = useState<string | null>(null);
+  const confirmSource = sources.find((s) => s.id === confirmSourceId) ?? null;
+
   return (
-    <aside className="z-10 flex w-[260px] shrink-0 flex-col border-r border-border bg-background lg:w-[320px]">
-      <div className="border-b border-border p-4">
-        <UploadDialog onUpload={onUpload} />
+    <aside className="z-10 flex w-full shrink-0 flex-col border-r border-border/70 bg-background lg:w-[260px] xl:w-[320px]">
+      <AlertDialog
+        open={confirmSourceId !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfirmSourceId(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete document</AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmSource
+                ? `Delete "${confirmSource.title}"? This removes the document from your notebook.`
+                : "Delete this document? This removes the document from your notebook."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (confirmSourceId) {
+                  onArchiveSource?.(confirmSourceId);
+                  setConfirmSourceId(null);
+                }
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <div className="border-b border-border/70 p-4">
+        {onLoginClick ? (
+          <Button
+            onClick={onLoginClick}
+            variant="outline"
+            size="sm"
+            className="flex w-full items-center justify-center gap-2 shadow-xs"
+          >
+            <Plus className="size-4" />
+            Log in to upload
+          </Button>
+        ) : uploadAction ? (
+          <UploadDialog
+            onSourceUploaded={onSourceUploaded}
+            uploadAction={uploadAction}
+          />
+        ) : (
+          <UploadDialog />
+        )}
       </div>
       <ScrollArea className="flex-1">
         <div className="px-4 py-4">
           <h3 className="mb-3 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
-            Indexed Sources
+            Sources
           </h3>
 
           {sources.length === 0 ? (
@@ -67,6 +127,7 @@ export function SourcesPanel({
                     )
                   }
                   onToggleIncluded={onToggleIncluded}
+                  onArchiveClick={setConfirmSourceId}
                 />
               ))}
             </div>
@@ -77,70 +138,131 @@ export function SourcesPanel({
   );
 }
 
-function UploadDialog({ onUpload }: { onUpload?: (file: File) => void }) {
-  const [isUploading, setIsUploading] = useState(false);
+function UploadDialog({
+  onSourceUploaded,
+  uploadAction,
+}: {
+  onSourceUploaded?: (source: SourceView) => void;
+  uploadAction?: SourcesPanelProps["uploadAction"];
+}) {
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [state, formAction, isUploading] = useActionState(
+    uploadAction ?? disabledUploadAction,
+    { ok: true, message: null },
+  );
+  const inputRef = useRef<HTMLInputElement>(null);
+  const lastUploadedSourceIdRef = useRef<string | null>(null);
+  const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
+  const fileInputId = useId();
+
+  useEffect(() => {
+    if (state.ok) {
+      if (inputRef.current) inputRef.current.value = "";
+    }
+    if (
+      state.ok &&
+      state.source &&
+      state.source.id !== lastUploadedSourceIdRef.current
+    ) {
+      lastUploadedSourceIdRef.current = state.source.id;
+      onSourceUploaded?.(state.source);
+      setIsDialogOpen(false);
+    }
+  }, [state, onSourceUploaded]);
 
   return (
-    <Dialog>
-      <DialogTrigger
-        render={
-          <Button className="flex w-full items-center justify-center gap-2 shadow-sm" />
-        }
+    <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+      <Button
+        type="button"
+        onClick={() => setIsDialogOpen(true)}
+        variant="outline"
+        size="sm"
+        className="flex w-full items-center justify-center gap-2 shadow-xs"
       >
         <Plus className="size-4" />
         Upload Document
-      </DialogTrigger>
+      </Button>
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
-          <DialogTitle>Add Document Source</DialogTitle>
+          <DialogTitle>Add source</DialogTitle>
           <DialogDescription>
-            Upload documents to your workspace to initiate parsing and indexing.
-            We support PDF, DOCX, TXT, MD, and PPTX up to 25MB.
+            Add a document to your notebook. Notebook accepts PDF, DOCX, TXT,
+            MD, and PPTX files up to 25 MB.
           </DialogDescription>
         </DialogHeader>
-        <label
-          className="flex min-h-[200px] cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-border bg-muted/40 p-8 text-center transition-colors hover:border-primary/50 hover:bg-muted"
-        >
-          {isUploading ? (
-            <div className="flex flex-col items-center gap-4">
-              <div className="size-8 animate-spin rounded-full border-4 border-primary/20 border-t-primary" />
-              <div>
+        <form action={formAction} className="grid gap-4">
+          <label
+            htmlFor={fileInputId}
+            className="flex min-h-[200px] cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-border bg-muted/40 p-8 text-center transition-colors hover:border-primary/50 hover:bg-muted"
+          >
+            {isUploading ? (
+              <div className="flex flex-col items-center gap-4">
+                <div className="size-8 animate-spin rounded-full border-4 border-primary/20 border-t-primary" />
+                <div>
+                  <p className="text-sm font-semibold text-foreground">
+                    Uploading document…
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Notebook is preparing your document for questions.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="mb-4 flex size-12 items-center justify-center rounded-full border border-border bg-background shadow-sm">
+                  <Upload className="size-6 text-primary" />
+                </div>
                 <p className="text-sm font-semibold text-foreground">
-                  Processing Document…
+                  Click to select or drag and drop a document
                 </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  This notification will clear when parsing completes.
+                <p className="mt-2 rounded-md border border-border bg-background px-2.5 py-1 text-[11px] font-medium text-muted-foreground shadow-sm">
+                  Max size: 25 MB
                 </p>
-              </div>
-            </div>
-          ) : (
-            <>
-              <div className="mb-4 flex size-12 items-center justify-center rounded-full border border-border bg-background shadow-sm">
-                <Upload className="size-6 text-primary" />
-              </div>
-              <p className="text-sm font-semibold text-foreground">
-                Click to select or drag and drop a document
-              </p>
-              <p className="mt-2 rounded-md border border-border bg-background px-2.5 py-1 text-[11px] font-medium text-muted-foreground shadow-sm">
-                Max size: 25 MB
-              </p>
-            </>
+                {selectedFileName && (
+                  <p className="mt-3 max-w-full truncate text-xs font-medium text-foreground">
+                    Selected: {selectedFileName}
+                  </p>
+                )}
+              </>
+            )}
+            <input
+              id={fileInputId}
+              ref={inputRef}
+              name="file"
+              type="file"
+              className="hidden"
+              accept=".pdf,.doc,.docx,.txt,.md,.ppt,.pptx"
+              disabled={isUploading}
+              onChange={(e) => {
+                setSelectedFileName(e.target.files?.[0]?.name ?? null);
+              }}
+            />
+          </label>
+          {state.message && (
+            <p
+              className={`rounded-md border px-3 py-2 text-xs ${
+                state.ok
+                  ? "border-green-200 bg-green-50 text-green-700"
+                  : "border-destructive/30 bg-destructive/10 text-destructive"
+              }`}
+            >
+              {state.message}
+            </p>
           )}
-          <input
-            type="file"
-            className="hidden"
-            accept=".pdf,.doc,.docx,.txt,.md,.ppt,.pptx"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (!file) return;
-              setIsUploading(true);
-              onUpload?.(file);
-            }}
-          />
-        </label>
+          <Button type="submit" disabled={isUploading || !uploadAction} size="sm">
+            {isUploading ? "Uploading…" : "Start upload"}
+          </Button>
+        </form>
       </DialogContent>
     </Dialog>
   );
+}
+
+async function disabledUploadAction(): Promise<UploadSourceActionState> {
+  return {
+    ok: false,
+    message: "Upload is not available yet.",
+  };
 }
 
 function EmptySourcesState() {
@@ -150,10 +272,10 @@ function EmptySourcesState() {
         <Database className="size-5" />
       </div>
       <p className="text-xs font-semibold text-foreground">
-        No indexed sources available.
+        No sources yet.
       </p>
       <p className="mt-1 max-w-[180px] text-[11px] text-muted-foreground">
-        Upload a document to initiate parsing and enable questions.
+        Upload a document to read its content sections and ask questions.
       </p>
     </div>
   );
@@ -164,11 +286,13 @@ function SourceRow({
   isSelected,
   onSelect,
   onToggleIncluded,
+  onArchiveClick,
 }: {
   source: SourceView;
   isSelected: boolean;
   onSelect: () => void;
   onToggleIncluded?: (sourceId: string, included: boolean) => void;
+  onArchiveClick?: (sourceId: string) => void;
 }) {
   const isReady = source.status === "ready";
   const isBusy = source.status === "uploading" || source.status === "parsing";
@@ -177,12 +301,10 @@ function SourceRow({
   const iconBg = fileIconTint(source.title);
 
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className={`flex w-full items-center gap-2.5 rounded-md border p-2 text-left transition-colors ${
+    <div
+      className={`flex w-full items-center gap-2.5 rounded-2xl border p-2 text-left transition-colors ${
         isSelected
-          ? "border-border bg-muted/60 shadow-sm"
+          ? "border-border/70 bg-muted/60 shadow-xs"
           : "border-transparent hover:bg-muted/40"
       } ${!isReady ? "opacity-90" : ""}`}
     >
@@ -196,15 +318,21 @@ function SourceRow({
           onCheckedChange={(checked) =>
             onToggleIncluded?.(source.id, checked === true)
           }
-          aria-label={`Include ${source.title} in chat`}
+          aria-label={`Use ${source.title} in answers`}
         />
       </div>
-      <div
-        className={`flex size-8 shrink-0 items-center justify-center rounded ${iconBg.bg} ${iconBg.fg}`}
+      <button
+        type="button"
+        onClick={onSelect}
+        className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
+        aria-label={`Open ${source.title} content sections`}
       >
-        <FileText className="size-4" />
-      </div>
-      <div className="min-w-0 overflow-hidden">
+        <div
+          className={`flex size-8 shrink-0 items-center justify-center rounded-lg ${iconBg.bg} ${iconBg.fg}`}
+        >
+          <FileText className="size-4" />
+        </div>
+        <div className="min-w-0 overflow-hidden">
         <p className="truncate text-sm font-medium text-foreground">
           {source.title}
         </p>
@@ -222,20 +350,30 @@ function SourceRow({
           {isReady
             ? `Processed · ${source.chunkCount ?? 0} sections`
             : source.status === "parsing"
-            ? "Processing"
+            ? "Preparing"
             : source.status === "uploading"
             ? "Uploading"
             : "Failed"}
         </p>
-      </div>
-    </button>
+        </div>
+      </button>
+      {(isReady || isFailed) && onArchiveClick && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onArchiveClick(source.id);
+          }}
+          className="ml-auto shrink-0 rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+          aria-label={`Delete ${source.title}`}
+        >
+          <Archive className="size-3.5" />
+        </button>
+      )}
+    </div>
   );
 }
 
-/**
- * Small per-filetype color hint so the sidebar reads at a glance.
- * No semantic meaning — pure cosmetics.
- */
 function fileIconTint(title: string): { bg: string; fg: string } {
   const ext = title.split(".").pop()?.toLowerCase();
   switch (ext) {

@@ -1,0 +1,43 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const constructorSpy = vi.fn();
+
+vi.mock("@ontos-ai/knowhere-sdk", () => ({
+  default: class FakeKnowhere {
+    constructor(options: unknown) {
+      constructorSpy(options);
+    }
+  },
+}));
+
+describe("makeKnowhereClient", () => {
+  const originalBaseURL = process.env.KNOWHERE_BASE_URL;
+
+  afterEach(() => {
+    vi.resetModules();
+    constructorSpy.mockReset();
+    restoreEnv("KNOWHERE_BASE_URL", originalBaseURL);
+  });
+
+  it("passes configured API base URL into the Knowhere SDK", async () => {
+    process.env.KNOWHERE_BASE_URL = "https://api-staging.knowhereto.ai";
+
+    const { makeKnowhereClient } = await import("./knowhere");
+
+    makeKnowhereClient("sk_test");
+
+    expect(constructorSpy).toHaveBeenCalledWith({
+      apiKey: "sk_test",
+      baseURL: "https://api-staging.knowhereto.ai",
+    });
+  });
+});
+
+function restoreEnv(key: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[key];
+    return;
+  }
+
+  process.env[key] = value;
+}

@@ -1,4 +1,4 @@
-import { BookOpen } from "lucide-react";
+import { NotebookLogoMark } from "@/components/notebook-logo-mark";
 import { Separator } from "@/components/ui/separator";
 
 export type TopNavProps = {
@@ -8,10 +8,6 @@ export type TopNavProps = {
   workspaceLabel?: string;
 };
 
-/**
- * Top navigation bar. Identity affordance on the right is a static placeholder
- * for the MVP shell — will be wired to the Dashboard session lookup in N-001.
- */
 export function TopNav({
   userInitials,
   userName,
@@ -19,38 +15,41 @@ export function TopNav({
   workspaceLabel = "Personal Workspace",
 }: TopNavProps = {}) {
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-background px-6">
-      <div className="flex items-center gap-4">
-        <div className="flex size-8 items-center justify-center rounded bg-primary">
-          <BookOpen className="size-5 text-primary-foreground" />
-        </div>
-        <h1 className="text-lg font-bold tracking-tight text-foreground underline decoration-primary decoration-2 underline-offset-4">
+    <header className="sticky top-0 z-40 flex h-16 items-center justify-between border-b border-border/70 bg-background/95 px-4 shadow-[0_8px_24px_-20px_rgba(15,23,42,0.35)] backdrop-blur-sm lg:px-6">
+      <div className="flex min-w-0 items-center gap-3">
+        <NotebookLogoMark width={22} />
+        <h1 className="truncate text-[18px] font-bold leading-7 text-foreground">
           Knowhere Notebook
         </h1>
-        <Separator orientation="vertical" className="mx-1 h-4" />
-        <span className="text-sm font-medium text-muted-foreground">
+        <Separator
+          orientation="vertical"
+          className="mx-1 hidden h-4 lg:block"
+        />
+        <span className="hidden text-sm font-medium text-foreground lg:block">
           {workspaceLabel}
         </span>
       </div>
-      {userInitials && (
-        <div className="flex items-center gap-3">
-          <div className="text-right">
-            {userName && (
-              <p className="text-xs font-semibold text-foreground">
-                {userName}
-              </p>
-            )}
-            {userTierLabel && (
-              <p className="text-[10px] text-muted-foreground">
-                {userTierLabel}
-              </p>
-            )}
-          </div>
-          <div className="flex size-8 items-center justify-center rounded-full bg-muted text-xs font-bold text-muted-foreground">
-            {userInitials}
-          </div>
-        </div>
-      )}
+      <div className="flex shrink-0 items-center gap-2 lg:gap-3">
+        {userInitials && (
+          <>
+            <div className="hidden text-right lg:block">
+              {userName && (
+                <p className="text-xs font-semibold text-foreground">
+                  {userName}
+                </p>
+              )}
+              {userTierLabel && (
+                <p className="text-[10px] text-muted-foreground">
+                  {userTierLabel}
+                </p>
+              )}
+            </div>
+            <div className="flex size-8 items-center justify-center rounded-full bg-muted text-xs font-bold text-foreground">
+              {userInitials}
+            </div>
+          </>
+        )}
+      </div>
     </header>
   );
 }

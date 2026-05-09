@@ -10,7 +10,6 @@ Upload documents, explore parsed content, and ask questions about your knowledge
    ```
 
 2. Fill in your API keys in `.env.local`:
-   - `KNOWHERE_API_KEY` — your Knowhere API key for document parsing and retrieval
    - `AI_GATEWAY_API_KEY` — your Vercel AI Gateway key for chat (optional `CHAT_MODEL` override)
 
 3. Install dependencies and run:
