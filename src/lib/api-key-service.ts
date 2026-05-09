@@ -1,6 +1,12 @@
 import "server-only"
 
 import { Effect, Schema } from "effect"
+import {
+  FetchHttpClient,
+  HttpClient,
+  HttpClientRequest,
+  HttpClientResponse,
+} from "@effect/platform"
 
 /**
  * Shape of the Dashboard JWT issuance response (oRPC envelope).
@@ -33,41 +39,24 @@ export const fetchKnowhereJwtEffect = (cookieHeader: string) =>
       )
     }
 
+    const http = yield* HttpClient.HttpClient
     const url = `${origin}/api/orpc/users/issueServiceJwt`
-    const response = yield* Effect.tryPromise(() =>
-      fetch(url, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          cookie: cookieHeader,
-        },
-        body: "{}",
-      }),
+    const body = yield* HttpClientRequest.post(url).pipe(
+      HttpClientRequest.setHeader("content-type", "application/json"),
+      HttpClientRequest.setHeader("cookie", cookieHeader),
+      HttpClientRequest.bodyText("{}"),
+      http.execute,
+      Effect.flatMap(HttpClientResponse.schemaBodyJson(JwtResponse)),
+      Effect.catchAll((err) =>
+        Effect.die(
+          new Error(
+            `Dashboard JWT issuance failed: ${JSON.stringify(err)}`,
+          ),
+        ),
+      ),
     )
 
-    if (!response.ok) {
-      const text = yield* Effect.tryPromise(() =>
-        response.text().catch(() => ""),
-      )
-      return yield* Effect.die(
-        new Error(
-          `Dashboard JWT issuance failed (${response.status}): ${text}`,
-        ),
-      )
-    }
-
-    const body: unknown = yield* Effect.tryPromise(() => response.json())
-    const parsed = Schema.decodeUnknownEither(JwtResponse)(body)
-
-    if (parsed._tag === "Left") {
-      return yield* Effect.die(
-        new Error(
-          `Unexpected Dashboard JWT response: ${JSON.stringify(body)}`,
-        ),
-      )
-    }
-
-    return parsed.right.json.token
+    return body.json.token
   })
 
 /**
@@ -76,7 +65,11 @@ export const fetchKnowhereJwtEffect = (cookieHeader: string) =>
 export async function fetchKnowhereJwt(
   cookieHeader: string,
 ): Promise<string> {
-  return Effect.runPromise(fetchKnowhereJwtEffect(cookieHeader))
+  return Effect.runPromise(
+    fetchKnowhereJwtEffect(cookieHeader).pipe(
+      Effect.provide(FetchHttpClient.layer),
+    ),
+  )
 }
 
 /**

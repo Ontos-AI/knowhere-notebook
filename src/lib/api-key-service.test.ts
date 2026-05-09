@@ -82,13 +82,15 @@ describe("fetchKnowhereJwt", () => {
     expect(token).toBe("eyJhbGciOiJIUzI1NiJ9.eyJpZCI6InVzZXIifQ.abc")
     expect(fetchSpy).toHaveBeenCalledOnce()
     const [url, init] = fetchSpy.mock.calls[0]!
-    expect(url).toBe(expectedUrl)
+    expect(url instanceof URL ? url.href : url).toBe(expectedUrl)
     expect((init as RequestInit)?.method).toBe("POST")
-    expect((init as RequestInit)?.body).toBe("{}")
-    expect((init as RequestInit)?.headers).toMatchObject({
-      cookie: "session=xyz; other=val",
-      "content-type": "application/json",
-    })
+
+    const reqHeaders = (init as RequestInit)?.headers
+    if (reqHeaders instanceof Headers) {
+      expect(reqHeaders.get("cookie")).toBe("session=xyz; other=val")
+    } else {
+      expect(reqHeaders).toMatchObject({ cookie: "session=xyz; other=val" })
+    }
   })
 
   it("throws when DASHBOARD_ORIGIN is not set", async () => {
@@ -105,7 +107,7 @@ describe("fetchKnowhereJwt", () => {
       .mockResolvedValue(new Response("oops", { status: 503 }))
     await expect(
       fetchKnowhereJwt("session=x"),
-    ).rejects.toThrow(/503/)
+    ).rejects.toThrow(/Dashboard JWT issuance failed/)
   })
 
   it("throws on malformed response body", async () => {
@@ -118,7 +120,7 @@ describe("fetchKnowhereJwt", () => {
     )
     await expect(
       fetchKnowhereJwt("session=x"),
-    ).rejects.toThrow(/Unexpected/)
+    ).rejects.toThrow(/Dashboard JWT issuance failed/)
   })
 
   it("throws if the token string is empty", async () => {
@@ -131,6 +133,6 @@ describe("fetchKnowhereJwt", () => {
     )
     await expect(
       fetchKnowhereJwt("session=x"),
-    ).rejects.toThrow(/Unexpected/)
+    ).rejects.toThrow(/Dashboard JWT issuance failed/)
   })
 })

@@ -2,7 +2,13 @@ import "server-only"
 
 import { cookies, headers } from "next/headers"
 import { redirect } from "next/navigation"
-import { Context, Effect, Either, Layer, Schema } from "effect"
+import { Context, Effect, Either, Layer, Schedule, Schema } from "effect"
+import {
+  FetchHttpClient,
+  HttpClient,
+  HttpClientRequest,
+  HttpClientResponse,
+} from "@effect/platform"
 import { authURLs } from "./auth-urls"
 import { sessionCookieNames } from "./session-cookie-names"
 
@@ -44,58 +50,67 @@ const oRPCEnvelope = Schema.Struct({
   json: Schema.Struct({ user: Schema.Union(AuthUserFromORPC, Schema.Null).pipe(Schema.optionalWith({ default: () => null })) }),
 })
 
+const DASHBOARD_SESSION_TIMEOUT_MS = 3_000
+
+// ---- Effect implementation ------------------------------------------------
+
+export const getCurrentUserEffect = Effect.gen(function* () {
+  const origin = process.env.DASHBOARD_ORIGIN
+  if (!origin) {
+    return yield* Effect.die(
+      new Error(
+        "DASHBOARD_ORIGIN is required. Set it to the Dashboard origin " +
+          "(see .env.local.example).",
+      ),
+    )
+  }
+
+  const cookieHeader = (yield* Effect.promise(() => headers())).get("cookie") ?? ""
+  if (cookieHeader.length === 0) return null
+
+  const http = yield* HttpClient.HttpClient
+  const url = `${origin}/api/orpc/users/getCurrentUser`
+  const body = yield* HttpClientRequest.post(url).pipe(
+    HttpClientRequest.setHeader("cookie", cookieHeader),
+    HttpClientRequest.setHeader("content-type", "application/json"),
+    HttpClientRequest.bodyText("{}"),
+    http.execute,
+    Effect.flatMap(HttpClientResponse.schemaBodyJson(oRPCEnvelope)),
+    Effect.map((body) => body.json.user),
+    Effect.timeout(DASHBOARD_SESSION_TIMEOUT_MS),
+    Effect.catchAll(() => Effect.succeed(null)),
+  )
+
+  return body
+})
+
 // ---- Auth Service ---------------------------------------------------------
 
 export const Auth = Context.GenericTag<
   { readonly getCurrentUser: () => Effect.Effect<AuthUser | null> }
 >("@knowhere/Auth")
 
-// ---- Auth Layer (production) ----------------------------------------------
-
-export const authLayer = Layer.succeed(Auth, {
-  getCurrentUser: () => Effect.promise(() => getCurrentUser()),
-})
+export const authLayer = Layer.effect(
+  Auth,
+  Effect.gen(function* () {
+    const http = (yield* HttpClient.HttpClient).pipe(
+      HttpClient.filterStatusOk,
+      HttpClient.retryTransient({
+        schedule: Schedule.exponential(100),
+        times: 2,
+      }),
+    )
+    const getCurrentUser = () => getCurrentUserEffect.pipe(Effect.provideService(HttpClient.HttpClient, http))
+    return { getCurrentUser }
+  }),
+).pipe(Layer.provide(FetchHttpClient.layer))
 
 // ---- Public API (Promise-based, for Next.js compatibility) ----------------
 
 export async function getCurrentUser(): Promise<AuthUser | null> {
-  const origin = process.env.DASHBOARD_ORIGIN
-  if (!origin) {
-    throw new Error(
-      "DASHBOARD_ORIGIN is required. Set it to the Dashboard origin " +
-        "(see .env.local.example).",
-    )
-  }
-
-  const cookieHeader = (await headers()).get("cookie") ?? ""
-  if (cookieHeader.length === 0) return null
-
-  const url = `${origin}/api/orpc/users/getCurrentUser`
-  let res: Response
-  try {
-    res = await fetch(url, {
-      method: "POST",
-      headers: {
-        cookie: cookieHeader,
-        "content-type": "application/json",
-      },
-      body: "{}",
-      signal: AbortSignal.timeout(3_000),
-    })
-  } catch {
-    return null
-  }
-
-  if (!res.ok) return null
-
-  let body: unknown
-  try {
-    body = await res.json()
-  } catch {
-    return null
-  }
-
-  return extractUser(body)
+  return Effect.runPromise(
+    getCurrentUserEffect.pipe(Effect.provide(FetchHttpClient.layer)),
+  )
 }
 
 /**
