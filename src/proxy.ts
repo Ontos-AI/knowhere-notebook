@@ -28,16 +28,24 @@ const PUBLIC_PATHS: readonly string[] = [
 ]
 
 const STATIC_EXTENSIONS = /\.(?:svg|png|jpe?g|gif|webp|ico|woff2?|ttf|eot|css|js|map|txt|xml|webmanifest|json|pdf)$/i
+const GUEST_SOURCE_CHUNKS_PATH = /^\/api\/sources\/[^/]+\/chunks$/u
 
-function isPublicPath(pathname: string): boolean {
+function isPublicPath(req: NextRequest): boolean {
+  const pathname = req.nextUrl.pathname
+  if (isGuestSourceReadPath(req.method, pathname)) return true
   if (pathname.startsWith("/_next")) return true
   if (pathname.startsWith("/api/internal/")) return true
   if (STATIC_EXTENSIONS.test(pathname)) return true
   return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"))
 }
 
+function isGuestSourceReadPath(method: string, pathname: string): boolean {
+  if (method !== "GET") return false
+  return pathname === "/api/sources" || GUEST_SOURCE_CHUNKS_PATH.test(pathname)
+}
+
 export function proxy(req: NextRequest): NextResponse {
-  if (isPublicPath(req.nextUrl.pathname)) return NextResponse.next()
+  if (isPublicPath(req)) return NextResponse.next()
 
   for (const name of sessionCookieNames()) {
     if (req.cookies.get(name)) return NextResponse.next()

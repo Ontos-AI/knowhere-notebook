@@ -1,58 +1,254 @@
-import type { ParsedChunkView, SourceView } from "./types";
+import "server-only";
 
-/**
- * Static demo document that unauthenticated users see on first visit.
- * One source with a handful of content sections — enough to show the
- * product shape without needing auth or a real parse.
- */
-export const DEMO_SOURCE: SourceView = {
-  id: "demo-source-1",
-  title: "Welcome to Knowhere Notebook",
-  status: "ready",
-  chunkCount: 3,
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+
+import type {
+  ChunkType,
+  ParsedChunkConnection,
+  ParsedChunkView,
+  SourceView,
+} from "./types";
+
+type DemoSourceDefinition = {
+  readonly id: string;
+  readonly documentId: string;
+  readonly title: string;
+  readonly assetDirectory: string;
+  readonly chunkCount: number;
 };
 
-export const DEMO_CHUNKS: ParsedChunkView[] = [
+type RawDemoChunk = {
+  readonly chunk_id: string;
+  readonly type: string;
+  readonly content?: unknown;
+  readonly path?: unknown;
+  readonly metadata?: Readonly<Record<string, unknown>>;
+};
+
+const demoSourceDefinitions: readonly DemoSourceDefinition[] = [
   {
-    chunkId: "demo-chunk-1",
-    documentId: "demo-doc-1",
-    sectionPath: "Introduction",
-    type: "text",
-    content:
-      "Knowhere Notebook is your personal workspace for exploring documents with AI.\n\n" +
-      "Upload a document and Notebook will parse it into content sections. " +
-      "You can then ask questions about your document and get answers grounded " +
-      "directly in the source material.",
-    summary: "Introduction",
-    keywords: ["notebook", "ai", "documents"],
-    sourceTitle: "Welcome to Knowhere Notebook",
+    id: "demo-tsla-q4-2025",
+    documentId: "demo-doc-tsla-q4-2025",
+    title: "TSLA-Q4-2025-Update.pdf",
+    assetDirectory: "tsla-q4-2025",
+    chunkCount: 71,
   },
   {
-    chunkId: "demo-chunk-2",
-    documentId: "demo-doc-1",
-    sectionPath: "How it works",
-    type: "text",
-    content:
-      "1. Upload a PDF, DOCX, Markdown, or text file.\n" +
-      "2. Notebook sends your document to Knowhere for parsing.\n" +
-      "3. Browse the parsed content sections.\n" +
-      "4. Ask questions — Notebook searches your document and generates answers with citations.",
-    summary: "How it works",
-    keywords: ["parsing", "retrieval", "citations"],
-    sourceTitle: "Welcome to Knowhere Notebook",
+    id: "demo-epstein-flight-logs",
+    documentId: "demo-doc-epstein-flight-logs",
+    title: "EPSTEIN FLIGHT LOGS UNREDACTED.pdf",
+    assetDirectory: "epstein-flight-logs",
+    chunkCount: 117,
   },
-  {
-    chunkId: "demo-chunk-3",
-    documentId: "demo-doc-1",
-    sectionPath: "Getting started",
-    type: "text",
-    content:
-      "To get started, sign in with your Knowhere account.\n\n" +
-      "Click the \"Log in to start\" button or use the upload and chat controls — " +
-      "Notebook will guide you to the Knowhere Dashboard login page.\n\n" +
-      "After signing in you can upload your own documents and ask questions.",
-    summary: "Getting started",
-    keywords: ["login", "getting started"],
-    sourceTitle: "Welcome to Knowhere Notebook",
-  },
-];
+] as const;
+
+const demoAssetsDirectoryPath = path.join(
+  process.cwd(),
+  "public",
+  "demo-sources",
+);
+
+function listSources(): SourceView[] {
+  return demoSourceDefinitions.map((source) => ({
+    id: source.id,
+    title: source.title,
+    status: "ready",
+    documentId: source.documentId,
+    chunkCount: source.chunkCount,
+  }));
+}
+
+async function loadChunksForSource(
+  sourceId: string,
+): Promise<ParsedChunkView[] | null> {
+  const source = demoSourceDefinitions.find(
+    (candidate) => candidate.id === sourceId,
+  );
+  if (!source) return null;
+
+  const filePath = path.join(
+    demoAssetsDirectoryPath,
+    source.assetDirectory,
+    "chunks.json",
+  );
+  const body = await readFile(filePath, "utf8");
+  const rawChunks = parseRawChunks(JSON.parse(body) as unknown);
+
+  return resolveDemoConnectionTargets(
+    rawChunks.map((chunk) => toParsedChunkView(source, chunk)),
+  );
+}
+
+function parseRawChunks(value: unknown): readonly RawDemoChunk[] {
+  if (!isRecord(value)) return [];
+
+  const chunks = value["chunks"];
+  if (!Array.isArray(chunks)) return [];
+
+  return chunks.filter(isRawDemoChunk);
+}
+
+function isRawDemoChunk(value: unknown): value is RawDemoChunk {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value["chunk_id"] === "string" &&
+    typeof value["type"] === "string"
+  );
+}
+
+function toParsedChunkView(
+  source: DemoSourceDefinition,
+  chunk: RawDemoChunk,
+): ParsedChunkView {
+  const metadata = chunk.metadata ?? {};
+  const filePath =
+    getStringMetadata(metadata, "file_path") ?? getString(chunk.path);
+  const assetUrl =
+    filePath && (chunk.type === "image" || chunk.type === "table")
+      ? buildDemoAssetURL(source.assetDirectory, filePath)
+      : undefined;
+
+  return {
+    chunkId: `${source.id}:${chunk.chunk_id}`,
+    parserChunkId: chunk.chunk_id,
+    documentId: source.documentId,
+    sectionPath: getString(chunk.path) ?? null,
+    type: toChunkType(chunk.type),
+    content: getString(chunk.content) ?? "",
+    filePath,
+    assetUrl,
+    summary: getStringMetadata(metadata, "summary"),
+    keywords: getStringArrayMetadata(metadata, "keywords"),
+    pageNums: getNumberArrayMetadata(metadata, "page_nums"),
+    connections: getChunkConnections(metadata),
+    sourceTitle: source.title,
+  };
+}
+
+function buildDemoAssetURL(assetDirectory: string, filePath: string): string {
+  const encodedPath = filePath
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+
+  return `/demo-sources/${encodeURIComponent(assetDirectory)}/${encodedPath}`;
+}
+
+function resolveDemoConnectionTargets(
+  chunks: ParsedChunkView[],
+): ParsedChunkView[] {
+  const chunkIdsByParserChunkId = new Map(
+    chunks
+      .filter((chunk) => chunk.parserChunkId)
+      .map((chunk) => [chunk.parserChunkId!, chunk.chunkId]),
+  );
+
+  return chunks.map((chunk) => {
+    if (!chunk.connections || chunk.connections.length === 0) return chunk;
+
+    return {
+      ...chunk,
+      connections: chunk.connections.map((connection) => ({
+        ...connection,
+        targetChunkId:
+          chunkIdsByParserChunkId.get(connection.targetParserChunkId) ??
+          connection.targetChunkId,
+      })),
+    };
+  });
+}
+
+function toChunkType(value: string): ChunkType {
+  if (value === "image" || value === "table") return value;
+  return "text";
+}
+
+function getStringMetadata(
+  metadata: Readonly<Record<string, unknown>>,
+  key: string,
+): string | undefined {
+  return getString(metadata[key]);
+}
+
+function getString(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function getStringArrayMetadata(
+  metadata: Readonly<Record<string, unknown>>,
+  key: string,
+): string[] | undefined {
+  const value = metadata[key];
+  if (!Array.isArray(value)) return undefined;
+
+  const strings = value.filter(
+    (item): item is string => typeof item === "string" && item.length > 0,
+  );
+  return strings.length > 0 ? strings : undefined;
+}
+
+function getNumberArrayMetadata(
+  metadata: Readonly<Record<string, unknown>>,
+  key: string,
+): number[] | undefined {
+  const value = metadata[key];
+  if (!Array.isArray(value)) return undefined;
+
+  const numbers = value.filter(
+    (item): item is number => typeof item === "number" && Number.isFinite(item),
+  );
+  return numbers.length > 0 ? numbers : undefined;
+}
+
+function getChunkConnections(
+  metadata: Readonly<Record<string, unknown>>,
+): ParsedChunkConnection[] | undefined {
+  const value = metadata["connect_to"] ?? metadata["connectTo"];
+  if (!Array.isArray(value)) return undefined;
+
+  const connections = value.flatMap((item): ParsedChunkConnection[] => {
+    if (!isRecord(item)) return [];
+    const targetParserChunkId = getString(item["target"]);
+    if (!targetParserChunkId) return [];
+
+    return [
+      {
+        targetParserChunkId,
+        relation: getString(item["relation"]) ?? "related",
+        ref: getString(item["ref"]),
+        position: getConnectionPosition(item["position"]),
+      },
+    ];
+  });
+
+  return connections.length > 0 ? connections : undefined;
+}
+
+function getConnectionPosition(
+  value: unknown,
+): ParsedChunkConnection["position"] | undefined {
+  if (!isRecord(value)) return undefined;
+  const start = value["start"];
+  const end = value["end"];
+  if (
+    typeof start !== "number" ||
+    typeof end !== "number" ||
+    !Number.isFinite(start) ||
+    !Number.isFinite(end)
+  ) {
+    return undefined;
+  }
+  return { start, end };
+}
+
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === "object" && value !== null;
+}
+
+export const demoData = {
+  listSources,
+  loadChunksForSource,
+} as const;

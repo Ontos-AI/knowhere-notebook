@@ -1,17 +1,25 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { ImageIcon, Layers, Table2 } from "lucide-react";
 import DOMPurify from "dompurify";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import type { ParsedChunkView } from "@/lib/types";
+import type { ParsedChunkConnection, ParsedChunkView } from "@/lib/types";
 
 export type ChunksPanelProps = {
   chunks: ParsedChunkView[];
   selectedSource?: string | null;
   focusedChunkId?: string | null;
+  focusedChunkRequestId?: number;
   isLoading?: boolean;
 };
 
@@ -19,63 +27,86 @@ export function ChunksPanel({
   chunks = [],
   selectedSource = null,
   focusedChunkId = null,
+  focusedChunkRequestId = 0,
   isLoading = false,
 }: Partial<ChunksPanelProps> = {}) {
-  const focusedRef = useRef<HTMLDivElement>(null);
+  const chunkRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const [localFocusedChunkId, setLocalFocusedChunkId] = useState<string | null>(
+    null,
+  );
+  const activeFocusedChunkId = focusedChunkId ?? localFocusedChunkId;
+
+  function setChunkRef(chunkId: string, element: HTMLDivElement | null): void {
+    if (element) {
+      chunkRefs.current.set(chunkId, element);
+      return;
+    }
+    chunkRefs.current.delete(chunkId);
+  }
+
+  const scrollToChunk = useCallback((chunkId: string): void => {
+    const element = chunkRefs.current.get(chunkId);
+    if (!element) return;
+    setLocalFocusedChunkId(chunkId);
+    element.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+  }, []);
 
   useEffect(() => {
-    if (focusedChunkId && focusedRef.current) {
-      focusedRef.current.scrollIntoView({
-        behavior: "smooth",
-        block: "center",
-      });
-    }
-  }, [focusedChunkId]);
+    if (focusedChunkId) scrollToChunk(focusedChunkId);
+  }, [focusedChunkId, focusedChunkRequestId, scrollToChunk]);
 
   const headerTitle = focusedChunkId
-    ? "Referenced Content Sections"
-    : "Document Content Sections";
+    ? "Referenced Chunks"
+    : "Parsed Chunks";
 
   const headerSubtitle = focusedChunkId ? (
-    <>Showing relevant sections from the last answer.</>
+    <>Showing relevant chunks from the last answer.</>
   ) : selectedSource ? (
     <>
-      Showing all sections from{" "}
+      Showing all parsed chunks from{" "}
       <span className="font-semibold italic text-foreground">
         {selectedSource}
       </span>
     </>
   ) : (
-    "Select a source to see its content sections."
+    "Select a source to see its parsed chunks."
   );
 
   return (
-    <main className="z-0 flex flex-1 flex-col overflow-hidden bg-background">
-      <header className="flex shrink-0 items-center justify-between border-b border-border/70 px-6 py-4">
+    <main
+      data-testid="chunks-panel"
+      className="z-0 flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-background"
+    >
+      <header className="flex shrink-0 items-start justify-between border-b border-border/70 px-4 py-3 sm:px-6 sm:py-4">
         <div className="min-w-0">
           <h2 className="text-sm font-bold text-foreground">{headerTitle}</h2>
-          <p className="mt-0.5 truncate text-xs text-muted-foreground">
+          <p className="mt-1 text-xs leading-5 text-muted-foreground sm:truncate">
             {headerSubtitle}
           </p>
         </div>
       </header>
 
       <ScrollArea className="flex-1">
-        <div className="mx-auto flex w-full max-w-4xl flex-col items-center p-6">
+        <div
+          data-testid="chunks-scroll-content"
+          className="mx-auto flex w-full min-w-0 max-w-4xl flex-col items-center p-3 sm:p-6"
+        >
           {isLoading ? (
-            <LoadingSections />
+            <LoadingChunks />
           ) : chunks.length === 0 ? (
-            <EmptySections />
+            <EmptyChunks />
           ) : (
-            <div className="flex w-full flex-col gap-4">
+            <div className="flex w-full flex-col gap-3 sm:gap-4">
               {chunks.map((chunk) => (
                 <ChunkCard
                   key={chunk.chunkId}
                   chunk={chunk}
-                  isFocused={chunk.chunkId === focusedChunkId}
-                  focusRef={
-                    chunk.chunkId === focusedChunkId ? focusedRef : undefined
-                  }
+                  isFocused={chunk.chunkId === activeFocusedChunkId}
+                  setChunkRef={setChunkRef}
+                  onReferenceClick={scrollToChunk}
                 />
               ))}
             </div>
@@ -86,30 +117,30 @@ export function ChunksPanel({
   );
 }
 
-function EmptySections() {
+function EmptyChunks() {
   return (
-    <div className="flex flex-col items-center gap-3 py-20 text-center">
+    <div className="flex flex-col items-center gap-3 px-4 py-14 text-center sm:py-20">
       <div className="flex size-12 items-center justify-center rounded-full bg-muted">
         <Layers className="size-5 text-muted-foreground" />
       </div>
       <p className="text-sm font-medium text-foreground">
-        No content sections to show yet
+        No parsed chunks to show yet
       </p>
       <p className="max-w-xs text-xs text-muted-foreground">
         Upload and process a source, then pick it from the sidebar to see its
-        content sections.
+        parsed chunks.
       </p>
     </div>
   );
 }
 
-function LoadingSections() {
+function LoadingChunks() {
   return (
-    <div className="flex flex-col items-center gap-3 py-20 text-center">
+    <div className="flex flex-col items-center gap-3 px-4 py-14 text-center sm:py-20">
       <div className="flex size-12 items-center justify-center rounded-full bg-muted">
         <Layers className="size-5 text-muted-foreground" />
       </div>
-      <p className="text-sm text-muted-foreground">Loading content sections…</p>
+      <p className="text-sm text-muted-foreground">Loading parsed chunks…</p>
     </div>
   );
 }
@@ -117,39 +148,61 @@ function LoadingSections() {
 function ChunkCard({
   chunk,
   isFocused,
-  focusRef,
+  setChunkRef,
+  onReferenceClick,
 }: {
   chunk: ParsedChunkView;
   isFocused: boolean;
-  focusRef?: React.RefObject<HTMLDivElement | null>;
+  setChunkRef: (chunkId: string, element: HTMLDivElement | null) => void;
+  onReferenceClick: (chunkId: string) => void;
 }) {
+  const ref = (element: HTMLDivElement | null) => {
+    setChunkRef(chunk.chunkId, element);
+  };
+
   if (chunk.type === "image") {
     return (
-      <div ref={focusRef}>
+      <div
+        ref={ref}
+        data-testid={`chunk-card-shell-${chunk.chunkId}`}
+        className="w-full min-w-0"
+      >
         <ImageChunkCard chunk={chunk} isFocused={isFocused} />
       </div>
     );
   }
   if (chunk.type === "table") {
     return (
-      <div ref={focusRef}>
+      <div
+        ref={ref}
+        data-testid={`chunk-card-shell-${chunk.chunkId}`}
+        className="w-full min-w-0"
+      >
         <TableChunkCard chunk={chunk} isFocused={isFocused} />
       </div>
     );
   }
   return (
-    <div ref={focusRef}>
-      <TextChunkCard chunk={chunk} isFocused={isFocused} />
+    <div
+      ref={ref}
+      data-testid={`chunk-card-shell-${chunk.chunkId}`}
+      className="w-full min-w-0"
+    >
+      <TextChunkCard
+        chunk={chunk}
+        isFocused={isFocused}
+        onReferenceClick={onReferenceClick}
+      />
     </div>
   );
 }
 
 function ChunkHeader({ chunk }: { chunk: ParsedChunkView }) {
   return (
-    <div className="mb-3 flex items-start justify-between">
+    <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
       <Badge
         variant="secondary"
-        className="rounded-full border-blue-100 bg-blue-50 px-2.5 py-1 text-[10px] uppercase tracking-tight text-blue-700 hover:bg-blue-50"
+        className="max-w-full whitespace-normal rounded-full border-blue-100 bg-blue-50 px-2.5 py-1 text-left text-[10px] uppercase tracking-tight text-blue-700 hover:bg-blue-50"
       >
         {chunk.sourceTitle}
         {chunk.summary ? ` · ${chunk.summary}` : ""}
@@ -191,18 +244,20 @@ function focusCardClasses(isFocused: boolean): string {
 function TextChunkCard({
   chunk,
   isFocused,
+  onReferenceClick,
 }: {
   chunk: ParsedChunkView;
   isFocused: boolean;
+  onReferenceClick: (chunkId: string) => void;
 }) {
   return (
     <Card
-      className={`cursor-default shadow-xs transition-colors ${focusCardClasses(isFocused)}`}
+      className={`w-full min-w-0 overflow-hidden cursor-default shadow-xs transition-colors ${focusCardClasses(isFocused)}`}
     >
-      <CardContent className="p-5">
+      <CardContent className="p-4 sm:p-5">
         <ChunkHeader chunk={chunk} />
-        <pre className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground font-sans">
-          {chunk.content}
+        <pre className="whitespace-pre-wrap break-words font-sans text-[13px] leading-relaxed text-foreground sm:text-sm">
+          {renderTextChunkContent(chunk, onReferenceClick)}
         </pre>
         <ChunkKeywords keywords={chunk.keywords} />
       </CardContent>
@@ -219,25 +274,183 @@ function ImageChunkCard({
 }) {
   return (
     <Card
-      className={`cursor-default shadow-xs transition-colors ${focusCardClasses(isFocused)}`}
+      className={`w-full min-w-0 overflow-hidden cursor-default shadow-xs transition-colors ${focusCardClasses(isFocused)}`}
     >
-      <CardContent className="p-5">
+      <CardContent className="p-4 sm:p-5">
         <ChunkHeader chunk={chunk} />
-        <div className="flex flex-col items-center gap-3 rounded-lg border border-border bg-muted/40 py-8 text-center">
-          <ImageIcon className="size-8 text-muted-foreground" />
-          <div>
-            <p className="text-sm font-medium text-foreground">
-              Image section
-            </p>
-            <p className="mt-1 max-w-xs text-xs text-muted-foreground">
-              {chunk.summary ?? "Image content is not available in this view."}
-            </p>
+        {chunk.assetUrl ? (
+          <figure className="overflow-hidden rounded-lg border border-border bg-muted/30">
+            {/* eslint-disable-next-line @next/next/no-img-element -- Parsed artifact dimensions are not known before render. */}
+            <img
+              src={chunk.assetUrl}
+              alt={chunk.summary ?? "Image chunk"}
+              className="max-h-[520px] w-full object-contain"
+            />
+          </figure>
+        ) : (
+          <div className="flex flex-col items-center gap-3 rounded-lg border border-border bg-muted/40 py-8 text-center">
+            <ImageIcon className="size-8 text-muted-foreground" />
+            <div>
+              <p className="text-sm font-medium text-foreground">
+                Image chunk
+              </p>
+              <p className="mt-1 max-w-xs text-xs text-muted-foreground">
+                {chunk.summary ?? "Image content is not available in this view."}
+              </p>
+            </div>
           </div>
-        </div>
+        )}
         <ChunkKeywords keywords={chunk.keywords} />
       </CardContent>
     </Card>
   );
+}
+
+function renderTextChunkContent(
+  chunk: ParsedChunkView,
+  onReferenceClick: (chunkId: string) => void,
+): ReactNode {
+  const references = getRenderableReferences(chunk);
+  if (references.length === 0) return chunk.content;
+
+  const nodes: ReactNode[] = [];
+  let cursor = 0;
+
+  references.forEach((reference, index) => {
+    if (reference.start > cursor) {
+      nodes.push(chunk.content.slice(cursor, reference.start));
+    }
+    nodes.push(
+      <ChunkReferenceButton
+        key={`${reference.connection.ref ?? "ref"}-${index}`}
+        connection={reference.connection}
+        onReferenceClick={onReferenceClick}
+      />,
+    );
+    cursor = reference.end;
+  });
+
+  if (cursor < chunk.content.length) {
+    nodes.push(chunk.content.slice(cursor));
+  }
+
+  return nodes;
+}
+
+type RenderableReference = {
+  start: number;
+  end: number;
+  connection: ParsedChunkConnection;
+};
+
+function getRenderableReferences(
+  chunk: ParsedChunkView,
+): RenderableReference[] {
+  if (!chunk.connections || chunk.connections.length === 0) return [];
+
+  const references = chunk.connections.flatMap(
+    (connection): RenderableReference[] => {
+      const range = getReferenceRange(chunk.content, connection);
+      return range ? [{ ...range, connection }] : [];
+    },
+  );
+
+  const sorted = references.sort((a, b) => a.start - b.start);
+  const nonOverlapping: RenderableReference[] = [];
+  let previousEnd = -1;
+
+  sorted.forEach((reference) => {
+    if (reference.start < previousEnd) return;
+    nonOverlapping.push(reference);
+    previousEnd = reference.end;
+  });
+
+  return nonOverlapping;
+}
+
+function getReferenceRange(
+  content: string,
+  connection: ParsedChunkConnection,
+): { start: number; end: number } | null {
+  const positioned = connection.position;
+  if (
+    positioned &&
+    positioned.start >= 0 &&
+    positioned.end > positioned.start &&
+    positioned.end <= content.length
+  ) {
+    return positioned;
+  }
+
+  if (!connection.ref) return null;
+  const start = content.indexOf(connection.ref);
+  if (start < 0) return null;
+  return { start, end: start + connection.ref.length };
+}
+
+function ChunkReferenceButton({
+  connection,
+  onReferenceClick,
+}: {
+  connection: ParsedChunkConnection;
+  onReferenceClick: (chunkId: string) => void;
+}) {
+  const isResolved = typeof connection.targetChunkId === "string";
+  const label = getReferenceLabel(connection);
+
+  return (
+    <button
+      type="button"
+      disabled={!isResolved}
+      aria-disabled={!isResolved}
+      className="mx-0.5 inline-flex max-w-full items-center rounded border border-primary/25 bg-primary/10 px-1.5 py-0.5 text-[12px] font-medium leading-5 text-primary hover:bg-primary/15 disabled:cursor-not-allowed disabled:border-border disabled:bg-muted disabled:text-muted-foreground"
+      onClick={() => {
+        if (connection.targetChunkId) onReferenceClick(connection.targetChunkId);
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
+function getReferenceLabel(connection: ParsedChunkConnection): string {
+  const ref = connection.ref?.trim();
+  if (!ref) return connection.targetParserChunkId;
+  return formatReferenceLabel(ref);
+}
+
+function formatReferenceLabel(ref: string): string {
+  const cleanedReference = ref.replace(/^\[/, "").replace(/\]$/, "").trim();
+  const pathWithoutQuery = cleanedReference.split(/[?#]/, 1)[0] ?? cleanedReference;
+  const fileName = pathWithoutQuery.split(/[\\/]/).filter(Boolean).at(-1);
+  const baseName = fileName ?? pathWithoutQuery;
+  const withoutExtension = baseName.replace(
+    /\.(?:csv|gif|htm|html|jpeg|jpg|md|pdf|png|svg|txt|webp)$/i,
+    "",
+  );
+
+  const readableName = withoutExtension
+    .replace(/_/g, " ")
+    .replace(/-/g, getReadableDashReplacement)
+    .replace(/^(image|table)\s+(\d+)/i, (_, type: string, index: string) =>
+      `${capitalize(type)} ${index}`,
+    );
+
+  return capitalize(readableName.replace(/\s+/g, " ").trim());
+}
+
+function getReadableDashReplacement(
+  _match: string,
+  index: number,
+  value: string,
+): string {
+  const previous = value.at(index - 1) ?? "";
+  const next = value.at(index + 1) ?? "";
+  return /\d/.test(previous) && /\d/.test(next) ? "-" : " ";
+}
+
+function capitalize(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 function TableChunkCard({
@@ -265,13 +478,14 @@ function TableChunkCard({
 
   return (
     <Card
-      className={`cursor-default shadow-xs transition-colors ${focusCardClasses(isFocused)}`}
+      className={`w-full min-w-0 overflow-hidden cursor-default shadow-xs transition-colors ${focusCardClasses(isFocused)}`}
     >
-      <CardContent className="p-5">
+      <CardContent className="p-4 sm:p-5">
         <ChunkHeader chunk={chunk} />
         {safeHtml ? (
           <div
-            className="prose prose-sm max-w-none overflow-x-auto text-sm leading-relaxed [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-border [&_td]:px-2 [&_td]:py-1 [&_th]:border [&_th]:border-border [&_th]:px-2 [&_th]:py-1 [&_th]:bg-muted"
+            data-testid={`chunk-table-content-${chunk.chunkId}`}
+            className="prose prose-sm max-w-full overflow-x-auto text-sm leading-relaxed [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-border [&_td]:px-2 [&_td]:py-1 [&_th]:border [&_th]:border-border [&_th]:bg-muted [&_th]:px-2 [&_th]:py-1"
             dangerouslySetInnerHTML={{ __html: safeHtml }}
           />
         ) : (
@@ -279,7 +493,7 @@ function TableChunkCard({
             <Table2 className="size-8 text-muted-foreground" />
             <div>
               <p className="text-sm font-medium text-foreground">
-                Table section
+                Table chunk
               </p>
               <p className="mt-1 max-w-xs text-xs text-muted-foreground">
                 {chunk.summary ?? "Table content is not available in this view."}

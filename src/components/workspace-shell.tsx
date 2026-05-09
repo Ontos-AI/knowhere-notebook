@@ -1,7 +1,11 @@
 "use client"
 
-import { startTransition, useEffect, useState } from "react"
+import { useMemo, useRef, useState } from "react"
+import type { PointerEvent as ReactPointerEvent } from "react"
 import { Effect } from "effect"
+import useSWR, { SWRConfig, unstable_serialize, useSWRConfig } from "swr"
+import type { Cache } from "swr"
+import useSWRMutation from "swr/mutation"
 import {
   FetchHttpClient,
   HttpClient,
@@ -12,14 +16,15 @@ import { SourcesPanel } from "@/components/sources-panel"
 import { ChunksPanel } from "@/components/chunks-panel"
 import { ChatPanel } from "@/components/chat-panel"
 import { MobileTabBar } from "@/components/mobile-tab-bar"
+import { deriveChatThreadTitle } from "@/lib/chat-title"
 import { resolveCitationChunk } from "@/lib/chunks"
 import type {
   ChatCitationView,
   ChatMessageView,
+  ChatThreadView,
   ParsedChunkView,
   SourceView,
 } from "@/lib/types"
-import type { UploadSourceActionState } from "@/app/actions"
 
 const getJson = <T,>(url: string) =>
   Effect.runPromise(
@@ -55,18 +60,64 @@ const patchJson = <T,>(url: string, body: unknown) =>
 
 export type PanelId = "sources" | "content" | "chat"
 
-type ChunkLoadState = {
-  sourceId: string | null
-  chunks: ParsedChunkView[]
-  isLoading: boolean
+export const DESKTOP_PANEL_GUTTER_WIDTH = 8
+export const DESKTOP_PANEL_MIN_WIDTHS = {
+  sources: 260,
+  chunks: 600,
+  chat: 360,
+} as const
+
+const DESKTOP_PANEL_DEFAULT_WIDTHS = {
+  sources: 320,
+  chunks: 720,
+  chat: 420,
+} as const
+
+const sourcesSWRKey = "/api/sources"
+const chatThreadsSWRKey = "/api/chat/threads"
+const chatSWRKey = "/api/chat"
+const archiveSourceSWRKey = "archive-source"
+const archiveChatThreadSWRKey = "archive-chat-thread"
+
+type DesktopPanelKey = keyof typeof DESKTOP_PANEL_MIN_WIDTHS
+type DesktopPanelWidths = Record<DesktopPanelKey, number>
+
+type FocusedChunkState = {
+  chunkId: string | null
+  requestId: number
 }
 
 type ChatState = {
   threadId: string | null
   messages: ChatMessageView[]
   isSending: boolean
+  isLoading: boolean
   error: string | null
 }
+
+type SourcesResponse = {
+  sources?: SourceView[]
+  message?: string
+}
+
+type ChatThreadResponse = {
+  thread?: ChatThreadView
+  messages?: ChatMessageView[]
+  message?: string
+}
+
+type ChatThreadDetailResponse = ChatThreadResponse & {
+  requestedThreadId: string
+}
+
+type ChatMessageRequest = {
+  message: string
+  threadId?: string
+  excludedSourceIds: string[]
+}
+
+type SourceChunksKey = readonly ["source-chunks", string]
+type ChatThreadKey = readonly ["chat-thread", string]
 
 export type WorkspaceShellProps = {
   user?: {
@@ -79,172 +130,389 @@ export type WorkspaceShellProps = {
     namespace: string
   }
   sources?: SourceView[]
-  uploadAction?: (
-    state: UploadSourceActionState,
-    formData: FormData,
-  ) => Promise<UploadSourceActionState>
+  chatThreads?: ChatThreadView[]
+  activeChatThreadId?: string | null
+  chatMessages?: ChatMessageView[]
   isGuest?: boolean
-  demoSource?: SourceView
-  demoChunks?: ParsedChunkView[]
   loginUrl?: string
 }
 
-export function WorkspaceShell({
+export function WorkspaceShell(props: WorkspaceShellProps) {
+  const cacheProvider = useMemo(() => () => new Map(), [])
+
+  return (
+    <SWRConfig
+      value={{
+        provider: cacheProvider,
+        revalidateOnFocus: false,
+        revalidateOnReconnect: false,
+      }}
+    >
+      <WorkspaceShellContent {...props} />
+    </SWRConfig>
+  )
+}
+
+function WorkspaceShellContent({
   user,
   sources: initialSources,
-  uploadAction,
+  chatThreads: initialChatThreads,
+  activeChatThreadId,
+  chatMessages: initialChatMessages,
   isGuest = false,
-  demoSource,
-  demoChunks,
   loginUrl,
 }: WorkspaceShellProps) {
-  const guestSources = demoSource ? [demoSource] : []
-  const guestChunks = demoChunks ?? []
-  const initialSrcs = isGuest ? guestSources : (initialSources ?? [])
+  const initialSrcs = initialSources ?? []
+  const initialSelectedSourceId = isGuest
+    ? (initialSrcs.find((source) => source.status === "ready")?.id ?? null)
+    : null
 
-  const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null)
-  const [focusedChunkId, setFocusedChunkId] = useState<string | null>(null)
-  const [sources, setSources] = useState(initialSrcs)
-  const [mobilePanel, setMobilePanel] = useState<PanelId>("chat")
+  const [selectedSourceId, setSelectedSourceId] = useState<string | null>(
+    initialSelectedSourceId,
+  )
+  const [focusedChunk, setFocusedChunk] = useState<FocusedChunkState>({
+    chunkId: null,
+    requestId: 0,
+  })
+  const [sourceExclusionById, setSourceExclusionById] = useState<
+    Record<string, boolean>
+  >({})
+  const [archivingSourceIds, setArchivingSourceIds] = useState<string[]>([])
+  const [loadingThreadId, setLoadingThreadId] = useState<string | null>(null)
+  const [archivingThreadIds, setArchivingThreadIds] = useState<string[]>([])
+  const [pendingCitationId, setPendingCitationId] = useState<string | null>(
+    null,
+  )
+  const [mobilePanel, setMobilePanel] = useState<PanelId>(
+    isGuest ? "content" : "chat",
+  )
   const [chat, setChat] = useState<ChatState>({
-    threadId: null,
-    messages: [],
+    threadId: activeChatThreadId ?? null,
+    messages: initialChatMessages ?? [],
     isSending: false,
+    isLoading: false,
     error: null,
   })
-  const [chunkLoad, setChunkLoad] = useState<ChunkLoadState>({
-    sourceId: null,
-    chunks: isGuest ? guestChunks : [],
-    isLoading: false,
-  })
+  const optimisticMessageSequence = useRef(0)
+  const { cache, mutate: mutateSWR } = useSWRConfig()
+  const { data: serverSources, mutate: mutateSources } = useSWR(
+    sourcesSWRKey,
+    fetchSources,
+    {
+      fallbackData: initialSrcs,
+      revalidateIfStale: false,
+      revalidateOnMount: false,
+      refreshInterval: (currentSources) =>
+        hasPendingSources(currentSources ?? []) ? 3000 : 0,
+    },
+  )
+  const sources = applySourceQueryState(
+    serverSources ?? initialSrcs,
+    sourceExclusionById,
+  )
+  const { data: serverChatThreads, mutate: mutateChatThreads } = useSWR(
+    isGuest ? null : chatThreadsSWRKey,
+    fetchChatThreads,
+    {
+      fallbackData: initialChatThreads ?? [],
+      revalidateIfStale: false,
+      revalidateOnMount: false,
+    },
+  )
+  const chatThreads = serverChatThreads ?? initialChatThreads ?? []
+  const selectedSource = sources.find((source) => source.id === selectedSourceId)
+  const selectedChunkSourceId =
+    selectedSource && selectedSource.status === "ready"
+      ? selectedSource.id
+      : null
+  const selectedChunksKey = selectedChunkSourceId
+    ? getSourceChunksKey(selectedChunkSourceId)
+    : null
+  const { data: selectedChunksData, isLoading: isChunksLoading } = useSWR(
+    selectedChunksKey,
+    fetchChunksByKey,
+    {
+      revalidateIfStale: false,
+      keepPreviousData: false,
+    },
+  )
+  const selectedChunks = selectedSourceId ? (selectedChunksData ?? []) : []
+  const isSelectedChunksLoading =
+    selectedChunkSourceId !== null && !selectedChunksData && isChunksLoading
+  const initialChatThreadData = useMemo(
+    () =>
+      getInitialChatThreadData(
+        activeChatThreadId ?? null,
+        initialChatThreads ?? [],
+        initialChatMessages ?? [],
+      ),
+    [activeChatThreadId, initialChatMessages, initialChatThreads],
+  )
+  const activeChatThreadKey = chat.threadId
+    ? getChatThreadKey(chat.threadId)
+    : null
+  useSWR(
+    activeChatThreadKey,
+    fetchChatThreadByKey,
+    {
+      fallbackData:
+        chat.threadId === activeChatThreadId
+          ? initialChatThreadData
+          : undefined,
+      revalidateIfStale: false,
+      revalidateOnMount: false,
+      onSuccess: handleChatThreadLoaded,
+      onError: handleChatThreadLoadFailed,
+    },
+  )
+  const { trigger: createChatThread, isMutating: isCreatingThread } =
+    useSWRMutation(chatThreadsSWRKey, postChatThread)
+  const { trigger: sendChatMessage } = useSWRMutation(
+    chatSWRKey,
+    postChatMessage,
+  )
+  const { trigger: archiveSource } = useSWRMutation(
+    archiveSourceSWRKey,
+    patchArchiveSource,
+  )
+  const { trigger: archiveChatThread } = useSWRMutation(
+    archiveChatThreadSWRKey,
+    patchArchiveChatThread,
+  )
+  const [desktopPanelWidths, setDesktopPanelWidths] =
+    useState<DesktopPanelWidths>({ ...DESKTOP_PANEL_DEFAULT_WIDTHS })
+
+  const minimumDesktopPanelWidth =
+    DESKTOP_PANEL_MIN_WIDTHS.sources +
+    DESKTOP_PANEL_MIN_WIDTHS.chunks +
+    DESKTOP_PANEL_MIN_WIDTHS.chat +
+    DESKTOP_PANEL_GUTTER_WIDTH * 2
 
   function redirectToLogin() {
     window.location.href = loginUrl ?? "/login"
   }
 
-  useEffect(() => {
-    const hasPendingSources = sources.some(
-      (source) => source.status === "uploading" || source.status === "parsing",
-    )
-    if (!hasPendingSources) return
+  function requestChunkFocus(chunkId: string | null): void {
+    setFocusedChunk((current) => ({
+      chunkId,
+      requestId: current.requestId + 1,
+    }))
+  }
 
-    const interval = window.setInterval(() => {
-      startTransition(async () => {
-        try {
-          const body = await getJson<{ sources?: SourceView[] }>(
-            "/api/sources",
-          )
-          if (!Array.isArray(body.sources)) return
-          const refreshedSources = body.sources
+  function handleDesktopPanelResize(
+    leftPanel: DesktopPanelKey,
+    rightPanel: DesktopPanelKey,
+    deltaX: number,
+  ): void {
+    setDesktopPanelWidths((current) => {
+      const totalWidth = current[leftPanel] + current[rightPanel]
+      const leftMinimumWidth = DESKTOP_PANEL_MIN_WIDTHS[leftPanel]
+      const rightMinimumWidth = DESKTOP_PANEL_MIN_WIDTHS[rightPanel]
+      const leftWidth = clamp(
+        current[leftPanel] + deltaX,
+        leftMinimumWidth,
+        totalWidth - rightMinimumWidth,
+      )
 
-          setSources((current) =>
-            mergeSourceQueryState(refreshedSources, current),
-          )
-          const selectedSource = refreshedSources.find(
-            (source) => source.id === selectedSourceId,
-          )
-          if (
-            selectedSource &&
-            selectedSource.status === "ready" &&
-            chunkLoad.sourceId !== selectedSource.id
-          ) {
-            setChunkLoad({
-              sourceId: selectedSource.id,
-              chunks: [],
-              isLoading: true,
-            })
-          }
-        } catch {
-          // Poll interval — silently ignore transient errors.
-        }
-      })
-    }, 3000)
-
-    return () => window.clearInterval(interval)
-  }, [chunkLoad.sourceId, selectedSourceId, sources])
-
-  useEffect(() => {
-    if (!chunkLoad.isLoading || !chunkLoad.sourceId) return
-
-    let isCurrent = true
-    startTransition(async () => {
-      try {
-        const body = await getJson<{ chunks?: ParsedChunkView[] }>(
-          `/api/sources/${encodeURIComponent(chunkLoad.sourceId!)}/chunks`,
-        )
-        if (!isCurrent) return
-        setChunkLoad({
-          sourceId: chunkLoad.sourceId,
-          chunks: Array.isArray(body.chunks) ? body.chunks : [],
-          isLoading: false,
-        })
-      } finally {
-        if (isCurrent) {
-          setChunkLoad((current) =>
-            current.sourceId === chunkLoad.sourceId
-              ? { ...current, isLoading: false }
-              : current,
-          )
-        }
+      return {
+        ...current,
+        [leftPanel]: leftWidth,
+        [rightPanel]: totalWidth - leftWidth,
       }
     })
-
-    return () => {
-      isCurrent = false
-    }
-  }, [chunkLoad.isLoading, chunkLoad.sourceId])
+  }
 
   const selectedSourceTitle =
     sources.find((source) => source.id === selectedSourceId)?.title ?? null
 
-  function handleSourceUploaded(source: SourceView) {
-    setSources((current) => [
-      source,
-      ...current.filter((candidate) => candidate.id !== source.id),
-    ])
-  }
+  function handleChatThreadLoaded(body: ChatThreadDetailResponse): void {
+    const requestedThreadId = body.requestedThreadId
 
-  function handleToggleIncluded(sourceId: string, included: boolean) {
-    setSources((current) =>
-      current.map((source) =>
-        source.id === sourceId
-          ? { ...source, excludedFromQuery: !included }
-          : source,
-      ),
+    if (!body.thread || !Array.isArray(body.messages)) {
+      setChat((current) =>
+        current.threadId === requestedThreadId
+          ? {
+              ...current,
+              isLoading: false,
+              error: body.message ?? "The chat could not be loaded right now.",
+            }
+          : current,
+      )
+      setLoadingThreadId((current) =>
+        current === requestedThreadId ? null : current,
+      )
+      return
+    }
+
+    setChat((current) =>
+      current.threadId === requestedThreadId
+        ? {
+            ...current,
+            messages: body.messages!,
+            isLoading: false,
+            error: null,
+          }
+        : current,
+    )
+    setLoadingThreadId((current) =>
+      current === requestedThreadId ? null : current,
     )
   }
 
+  function handleChatThreadLoadFailed(): void {
+    setChat((current) => ({
+      ...current,
+      isLoading: false,
+      error: "The chat could not be loaded right now.",
+    }))
+    setLoadingThreadId(null)
+  }
+
+  function handleSourceUploaded(source: SourceView) {
+    void mutateSources((current = []) => upsertSource(current, source), {
+      revalidate: false,
+    })
+    void mutateSources()
+  }
+
+  function handleToggleIncluded(sourceId: string, included: boolean) {
+    setSourceExclusionById((current) => ({
+      ...current,
+      [sourceId]: !included,
+    }))
+  }
+
   async function handleArchiveSource(sourceId: string) {
+    setArchivingSourceIds((current) => addPendingId(current, sourceId))
     try {
-      await patchJson(`/api/sources/${encodeURIComponent(sourceId)}`, {
-        archived: true,
-      })
-      setSources((current) =>
-        current.filter((source) => source.id !== sourceId),
+      await archiveSource(sourceId)
+      void mutateSources(
+        (current = []) =>
+          current.filter((source) => source.id !== sourceId),
+        { revalidate: false },
       )
       setSelectedSourceId((current) =>
         current === sourceId ? null : current,
       )
+      setSourceExclusionById((current) => removeRecordKey(current, sourceId))
     } catch {
       // Silently ignore — the source stays in the list.
+    } finally {
+      setArchivingSourceIds((current) => removePendingId(current, sourceId))
+    }
+  }
+
+  async function handleCreateChatThread() {
+    if (isCreatingThread) return
+
+    try {
+      const body = await createChatThread()
+
+      if (!body.thread || !Array.isArray(body.messages)) {
+        setChat((current) => ({
+          ...current,
+          error: body.message ?? "The chat could not be created right now.",
+        }))
+        return
+      }
+
+      void mutateChatThreads(
+        (current = []) => upsertThread(current, body.thread!),
+        { revalidate: false },
+      )
+      void mutateSWR(
+        getChatThreadKey(body.thread.id),
+        { ...body, requestedThreadId: body.thread.id },
+        { revalidate: false },
+      )
+      setChat({
+        threadId: body.thread.id,
+        messages: body.messages,
+        isSending: false,
+        isLoading: false,
+        error: null,
+      })
+    } catch {
+      setChat((current) => ({
+        ...current,
+        error: "The chat could not be created right now.",
+      }))
+    }
+  }
+
+  function handleSelectChatThread(threadId: string) {
+    if (threadId === chat.threadId) return
+
+    const cachedThreadData =
+      getCachedChatThreadData(cache, threadId) ??
+      (threadId === activeChatThreadId ? initialChatThreadData : null)
+
+    if (hasLoadedChatThreadData(cachedThreadData)) {
+      void mutateSWR(getChatThreadKey(threadId), cachedThreadData, {
+        revalidate: false,
+      })
+      setLoadingThreadId(null)
+      setChat({
+        threadId,
+        messages: cachedThreadData.messages,
+        isSending: false,
+        isLoading: false,
+        error: null,
+      })
+      return
+    }
+
+    setLoadingThreadId(threadId)
+    setChat((current) => ({
+      ...current,
+      threadId,
+      isLoading: true,
+      error: null,
+    }))
+  }
+
+  async function handleArchiveChatThread(threadId: string) {
+    setArchivingThreadIds((current) => addPendingId(current, threadId))
+    try {
+      await archiveChatThread(threadId)
+      const remainingThreads = chatThreads.filter(
+        (thread) => thread.id !== threadId,
+      )
+      void mutateChatThreads(remainingThreads, { revalidate: false })
+
+      if (chat.threadId !== threadId) return
+
+      const nextThread = remainingThreads[0] ?? null
+      if (!nextThread) {
+        setChat({
+          threadId: null,
+          messages: [],
+          isSending: false,
+          isLoading: false,
+          error: null,
+        })
+        return
+      }
+
+      handleSelectChatThread(nextThread.id)
+    } catch {
+      setChat((current) => ({
+        ...current,
+        error: "The chat could not be deleted right now.",
+      }))
+    } finally {
+      setArchivingThreadIds((current) => removePendingId(current, threadId))
     }
   }
 
   function handleSourceSelected(sourceId: string | null) {
     setSelectedSourceId(sourceId)
-    setFocusedChunkId(null)
-    setChunkLoad({ sourceId: null, chunks: [], isLoading: false })
-
-    if (!sourceId) return
-
-    const source = sources.find((candidate) => candidate.id === sourceId)
-    if (!source || source.status !== "ready") return
-
-    setChunkLoad({ sourceId, chunks: [], isLoading: true })
+    requestChunkFocus(null)
   }
 
   async function handleChatSend(text: string) {
-    const optimisticId = `pending-${Date.now()}`
+    optimisticMessageSequence.current += 1
+    const optimisticId = `pending-${optimisticMessageSequence.current}`
     const optimisticUser: ChatMessageView = {
       id: optimisticId,
       role: "user",
@@ -257,11 +525,7 @@ export function WorkspaceShell({
       messages: [...current.messages, optimisticUser],
     }))
     try {
-      const body = await postJson<{
-        threadId?: string
-        messages?: ChatMessageView[]
-        message?: string
-      }>("/api/chat", {
+      const body = await sendChatMessage({
         message: text,
         threadId: chat.threadId ?? undefined,
         excludedSourceIds: sources
@@ -279,6 +543,10 @@ export function WorkspaceShell({
         return
       }
 
+      void mutateChatThreads(
+        (current = []) => upsertThreadAfterSend(current, body.threadId!, text),
+        { revalidate: false },
+      )
       setChat((current) => {
         const assistantMessages = body.messages!.filter(
           (m) => m.role === "assistant",
@@ -287,33 +555,70 @@ export function WorkspaceShell({
           threadId: body.threadId ?? current.threadId,
           messages: [...current.messages, ...assistantMessages],
           isSending: false,
+          isLoading: false,
           error: null,
         }
       })
+      const nextThread = upsertThreadAfterSend(
+        chatThreads,
+        body.threadId,
+        text,
+      )[0]
+      if (nextThread) {
+        void mutateSWR(
+          getChatThreadKey(body.threadId),
+          {
+            requestedThreadId: body.threadId,
+            thread: nextThread,
+            messages: body.messages,
+          },
+          { revalidate: false },
+        )
+      }
     } catch {
       setChat((current) => ({
         ...current,
         isSending: false,
+        isLoading: false,
         messages: current.messages.filter((m) => m.id !== optimisticId),
         error: "The assistant could not answer right now.",
       }))
     }
   }
 
-  async function handleCitationClick(citation: ChatCitationView) {
-    const source = sources.find(
-      (candidate) => candidate.documentId === citation.source.documentId,
-    )
-    if (!source) return
+  async function handleCitationClick(
+    citation: ChatCitationView,
+    citationId: string,
+  ) {
+    setPendingCitationId(citationId)
 
-    setSelectedSourceId(source.id)
-    setFocusedChunkId(null)
-    setChunkLoad({ sourceId: source.id, chunks: [], isLoading: true })
+    try {
+      const source = sources.find(
+        (candidate) => candidate.documentId === citation.source.documentId,
+      )
+      if (!source) return
 
-    const chunks = await fetchChunks(source.id)
-    const focusedChunk = resolveCitationChunk(citation, chunks)
-    setChunkLoad({ sourceId: source.id, chunks, isLoading: false })
-    setFocusedChunkId(focusedChunk?.chunkId ?? null)
+      if (selectedChunkSourceId === source.id && selectedChunksData) {
+        const focusedChunk = resolveCitationChunk(citation, selectedChunks)
+        requestChunkFocus(focusedChunk?.chunkId ?? null)
+        return
+      }
+
+      requestChunkFocus(null)
+      const chunks =
+        (await mutateSWR(
+          getSourceChunksKey(source.id),
+          fetchChunks(source.id),
+          { populateCache: true, revalidate: false },
+        )) ?? []
+      const focusedChunk = resolveCitationChunk(citation, chunks)
+      setSelectedSourceId(source.id)
+      requestChunkFocus(focusedChunk?.chunkId ?? null)
+    } finally {
+      setPendingCitationId((current) =>
+        current === citationId ? null : current,
+      )
+    }
   }
 
   const readySourceCount = sources.filter(
@@ -329,44 +634,94 @@ export function WorkspaceShell({
         userName={user ? (user.name ?? user.email ?? undefined) : undefined}
       />
 
-      {/* Desktop: three-panel side-by-side layout — always all three visible */}
-      <div className="relative hidden flex-1 overflow-hidden lg:flex">
-        <SourcesPanel
-          sources={sources}
-          onSourceUploaded={isGuest ? undefined : handleSourceUploaded}
-          selectedSourceId={selectedSourceId}
-          onSelectSource={(id) => {
-            if (isGuest) {
-              setSelectedSourceId(id)
-              setFocusedChunkId(null)
-              setChunkLoad({
-                sourceId: id,
-                chunks: id ? guestChunks : [],
-                isLoading: false,
-              })
-              return
-            }
-            handleSourceSelected(id)
+      {/* Desktop: resizable three-panel strip with horizontal overflow at minimum widths. */}
+      <div
+        data-testid="desktop-panel-layout"
+        className="relative hidden flex-1 overflow-x-auto overflow-y-hidden lg:block"
+      >
+        <div
+          data-testid="desktop-resizable-panels"
+          className="flex h-full"
+          style={{
+            minWidth: `${minimumDesktopPanelWidth}px`,
+            width: "100%",
           }}
-          onToggleIncluded={isGuest ? undefined : handleToggleIncluded}
-          onArchiveSource={isGuest ? undefined : handleArchiveSource}
-          uploadAction={isGuest ? undefined : uploadAction}
-          onLoginClick={isGuest ? redirectToLogin : undefined}
-        />
-        <ChunksPanel
-          chunks={chunkLoad.chunks}
-          selectedSource={selectedSourceTitle}
-          focusedChunkId={focusedChunkId}
-          isLoading={chunkLoad.isLoading}
-        />
-        <ChatPanel
-          messages={chat.messages}
-          isDisabled={isGuest || readySourceCount === 0}
-          isSending={chat.isSending}
-          sourceCount={readySourceCount}
-          onSend={handleChatSend}
-          onCitationClick={handleCitationClick}
-        />
+        >
+          <div
+            data-testid="desktop-sources-panel"
+            className="h-full shrink-0"
+            style={{
+              minWidth: `${DESKTOP_PANEL_MIN_WIDTHS.sources}px`,
+              width: `${desktopPanelWidths.sources}px`,
+            }}
+          >
+            <SourcesPanel
+              sources={sources}
+              onSourceUploaded={isGuest ? undefined : handleSourceUploaded}
+              selectedSourceId={selectedSourceId}
+              onSelectSource={handleSourceSelected}
+              onToggleIncluded={isGuest ? undefined : handleToggleIncluded}
+              onArchiveSource={isGuest ? undefined : handleArchiveSource}
+              archivingSourceIds={archivingSourceIds}
+              onLoginClick={isGuest ? redirectToLogin : undefined}
+            />
+          </div>
+          <DesktopResizeHandle
+            label="Resize sources and parsed chunks"
+            onResize={(deltaX) =>
+              handleDesktopPanelResize("sources", "chunks", deltaX)
+            }
+          />
+          <div
+            data-testid="desktop-chunks-panel"
+            className="h-full min-w-0 shrink-0 grow"
+            style={{
+              minWidth: `${DESKTOP_PANEL_MIN_WIDTHS.chunks}px`,
+              width: `${desktopPanelWidths.chunks}px`,
+            }}
+          >
+            <ChunksPanel
+              chunks={selectedChunks}
+              selectedSource={selectedSourceTitle}
+              focusedChunkId={focusedChunk.chunkId}
+              focusedChunkRequestId={focusedChunk.requestId}
+              isLoading={isSelectedChunksLoading}
+            />
+          </div>
+          <DesktopResizeHandle
+            label="Resize parsed chunks and chat"
+            onResize={(deltaX) =>
+              handleDesktopPanelResize("chunks", "chat", deltaX)
+            }
+          />
+          <div
+            data-testid="desktop-chat-panel"
+            className="h-full shrink-0"
+            style={{
+              minWidth: `${DESKTOP_PANEL_MIN_WIDTHS.chat}px`,
+              width: `${desktopPanelWidths.chat}px`,
+            }}
+          >
+            <ChatPanel
+              messages={chat.messages}
+              threads={chatThreads}
+              activeThreadId={chat.threadId}
+              isDisabled={isGuest || readySourceCount === 0}
+              isSending={chat.isSending}
+              isHistoryLoading={chat.isLoading}
+              isCreatingThread={isCreatingThread}
+              loadingThreadId={loadingThreadId}
+              archivingThreadIds={archivingThreadIds}
+              pendingCitationId={pendingCitationId}
+              sourceCount={readySourceCount}
+              onSend={handleChatSend}
+              onNewChat={isGuest ? undefined : handleCreateChatThread}
+              onThreadSelect={isGuest ? undefined : handleSelectChatThread}
+              onThreadArchive={isGuest ? undefined : handleArchiveChatThread}
+              onCitationClick={handleCitationClick}
+            />
+          </div>
+        </div>
       </div>
 
       {/* Mobile: single-panel with bottom tab bar. */}
@@ -380,15 +735,16 @@ export function WorkspaceShell({
       >
         <SourcesPanel
           sources={sources}
-          onSourceUploaded={handleSourceUploaded}
+          onSourceUploaded={isGuest ? undefined : handleSourceUploaded}
           selectedSourceId={selectedSourceId}
           onSelectSource={(id) => {
             handleSourceSelected(id)
             if (id) setMobilePanel("content")
           }}
-          onToggleIncluded={handleToggleIncluded}
-          onArchiveSource={handleArchiveSource}
-          uploadAction={uploadAction}
+          onToggleIncluded={isGuest ? undefined : handleToggleIncluded}
+          onArchiveSource={isGuest ? undefined : handleArchiveSource}
+          archivingSourceIds={archivingSourceIds}
+          onLoginClick={isGuest ? redirectToLogin : undefined}
         />
       </div>
       <div
@@ -400,10 +756,11 @@ export function WorkspaceShell({
         }`}
       >
         <ChunksPanel
-          chunks={chunkLoad.chunks}
+          chunks={selectedChunks}
           selectedSource={selectedSourceTitle}
-          focusedChunkId={focusedChunkId}
-          isLoading={chunkLoad.isLoading}
+          focusedChunkId={focusedChunk.chunkId}
+          focusedChunkRequestId={focusedChunk.requestId}
+          isLoading={isSelectedChunksLoading}
         />
       </div>
       <div
@@ -416,13 +773,23 @@ export function WorkspaceShell({
       >
         <ChatPanel
           messages={chat.messages}
-          isDisabled={readySourceCount === 0}
+          threads={chatThreads}
+          activeThreadId={chat.threadId}
+          isDisabled={isGuest || readySourceCount === 0}
           isSending={chat.isSending}
+          isHistoryLoading={chat.isLoading}
+          isCreatingThread={isCreatingThread}
+          loadingThreadId={loadingThreadId}
+          archivingThreadIds={archivingThreadIds}
+          pendingCitationId={pendingCitationId}
           sourceCount={readySourceCount}
           onSend={handleChatSend}
-          onCitationClick={(citation) => {
+          onNewChat={isGuest ? undefined : handleCreateChatThread}
+          onThreadSelect={isGuest ? undefined : handleSelectChatThread}
+          onThreadArchive={isGuest ? undefined : handleArchiveChatThread}
+          onCitationClick={(citation, citationId) => {
             setMobilePanel("content")
-            handleCitationClick(citation)
+            handleCitationClick(citation, citationId)
           }}
         />
       </div>
@@ -431,7 +798,7 @@ export function WorkspaceShell({
         activePanel={mobilePanel}
         onPanelChange={setMobilePanel}
         sourceCount={sources.filter((s) => s.status === "ready").length}
-        chunkCount={chunkLoad.chunks.length}
+        chunkCount={selectedChunks.length}
         hasMessages={hasMessages}
       />
 
@@ -455,17 +822,189 @@ async function fetchChunks(sourceId: string): Promise<ParsedChunkView[]> {
   }
 }
 
-function mergeSourceQueryState(
-  nextSources: readonly SourceView[],
-  currentSources: readonly SourceView[],
-): SourceView[] {
-  const currentById = new Map(
-    currentSources.map((source) => [source.id, source.excludedFromQuery]),
+async function fetchSources(): Promise<SourceView[]> {
+  const body = await getJson<SourcesResponse>(sourcesSWRKey)
+  return Array.isArray(body.sources) ? body.sources : []
+}
+
+async function fetchChatThreads(): Promise<ChatThreadView[]> {
+  const body = await getJson<{ threads?: ChatThreadView[] }>(chatThreadsSWRKey)
+  return Array.isArray(body.threads) ? body.threads : []
+}
+
+function getSourceChunksKey(sourceId: string): SourceChunksKey {
+  return ["source-chunks", sourceId] as const
+}
+
+function fetchChunksByKey([, sourceId]: SourceChunksKey): Promise<
+  ParsedChunkView[]
+> {
+  return fetchChunks(sourceId)
+}
+
+function getChatThreadKey(threadId: string): ChatThreadKey {
+  return ["chat-thread", threadId] as const
+}
+
+function getCachedChatThreadData(
+  cache: Cache<unknown>,
+  threadId: string,
+): ChatThreadDetailResponse | null {
+  const cachedState = cache.get(unstable_serialize(getChatThreadKey(threadId)))
+  const cachedData = cachedState?.data
+
+  return isChatThreadDetailResponse(cachedData, threadId) ? cachedData : null
+}
+
+function isChatThreadDetailResponse(
+  value: unknown,
+  threadId: string,
+): value is ChatThreadDetailResponse {
+  if (!value || typeof value !== "object") return false
+
+  const response = value as Partial<ChatThreadDetailResponse>
+  return response.requestedThreadId === threadId
+}
+
+function hasLoadedChatThreadData(
+  value: ChatThreadDetailResponse | null | undefined,
+): value is ChatThreadDetailResponse & {
+  thread: ChatThreadView
+  messages: ChatMessageView[]
+} {
+  return Boolean(value?.thread && Array.isArray(value.messages))
+}
+
+function fetchChatThreadByKey([
+  ,
+  threadId,
+]: ChatThreadKey): Promise<ChatThreadDetailResponse> {
+  return getJson<ChatThreadResponse>(
+    `/api/chat/threads/${encodeURIComponent(threadId)}`,
+  ).then((body) => ({ ...body, requestedThreadId: threadId }))
+}
+
+function postChatThread(): Promise<ChatThreadResponse> {
+  return postJson<ChatThreadResponse>(chatThreadsSWRKey, {})
+}
+
+function postChatMessage(
+  _key: string,
+  { arg }: { arg: ChatMessageRequest },
+): Promise<{
+  threadId?: string
+  messages?: ChatMessageView[]
+  message?: string
+}> {
+  return postJson(chatSWRKey, arg)
+}
+
+function patchArchiveSource(
+  _key: string,
+  { arg: sourceId }: { arg: string },
+): Promise<{ id?: string; archived?: boolean }> {
+  return patchJson(`/api/sources/${encodeURIComponent(sourceId)}`, {
+    archived: true,
+  })
+}
+
+function patchArchiveChatThread(
+  _key: string,
+  { arg: threadId }: { arg: string },
+): Promise<{ id?: string; archived?: boolean }> {
+  return patchJson(`/api/chat/threads/${encodeURIComponent(threadId)}`, {
+    archived: true,
+  })
+}
+
+function hasPendingSources(sources: readonly SourceView[]): boolean {
+  return sources.some(
+    (source) => source.status === "uploading" || source.status === "parsing",
   )
-  return nextSources.map((source) => ({
+}
+
+function applySourceQueryState(
+  sources: readonly SourceView[],
+  sourceExclusionById: Readonly<Record<string, boolean>>,
+): SourceView[] {
+  return sources.map((source) => ({
     ...source,
-    excludedFromQuery: currentById.get(source.id) ?? source.excludedFromQuery,
+    excludedFromQuery:
+      sourceExclusionById[source.id] ?? source.excludedFromQuery,
   }))
+}
+
+function upsertSource(
+  sources: readonly SourceView[],
+  source: SourceView,
+): SourceView[] {
+  return [source, ...sources.filter((candidate) => candidate.id !== source.id)]
+}
+
+function removeRecordKey(
+  record: Readonly<Record<string, boolean>>,
+  key: string,
+): Record<string, boolean> {
+  const remaining: Record<string, boolean> = {}
+  Object.entries(record).forEach(([recordKey, value]) => {
+    if (recordKey !== key) remaining[recordKey] = value
+  })
+  return remaining
+}
+
+function getInitialChatThreadData(
+  threadId: string | null,
+  chatThreads: readonly ChatThreadView[],
+  messages: readonly ChatMessageView[],
+): ChatThreadDetailResponse | undefined {
+  if (!threadId) return undefined
+  const thread = chatThreads.find((candidate) => candidate.id === threadId)
+  if (!thread) return undefined
+  return { requestedThreadId: threadId, thread, messages: [...messages] }
+}
+
+function addPendingId(currentIds: readonly string[], id: string): string[] {
+  return currentIds.includes(id) ? [...currentIds] : [...currentIds, id]
+}
+
+function removePendingId(currentIds: readonly string[], id: string): string[] {
+  return currentIds.filter((currentId) => currentId !== id)
+}
+
+function upsertThread(
+  threads: readonly ChatThreadView[],
+  thread: ChatThreadView,
+): ChatThreadView[] {
+  return [thread, ...threads.filter((candidate) => candidate.id !== thread.id)]
+}
+
+function upsertThreadAfterSend(
+  threads: readonly ChatThreadView[],
+  threadId: string,
+  firstUserMessage: string,
+): ChatThreadView[] {
+  const now = new Date().toISOString()
+  const existingThread = threads.find((thread) => thread.id === threadId)
+  const thread: ChatThreadView = existingThread
+    ? {
+        ...existingThread,
+        title:
+          existingThread.title === "New chat"
+            ? deriveChatThreadTitle(firstUserMessage)
+            : existingThread.title,
+        updatedAt: now,
+      }
+    : {
+        id: threadId,
+        title: deriveChatThreadTitle(firstUserMessage),
+        createdAt: now,
+        updatedAt: now,
+      }
+
+  return [
+    thread,
+    ...threads.filter((candidate) => candidate.id !== threadId),
+  ]
 }
 
 function initialsOf(user: WorkspaceShellProps["user"]): string {
@@ -475,4 +1014,51 @@ function initialsOf(user: WorkspaceShellProps["user"]): string {
   if (parts.length === 0) return "?"
   if (parts.length === 1) return parts[0][0]!.toUpperCase()
   return (parts[0][0]! + parts[1][0]!).toUpperCase()
+}
+
+function DesktopResizeHandle({
+  label,
+  onResize,
+}: {
+  label: string
+  onResize: (deltaX: number) => void
+}) {
+  function handlePointerDown(
+    event: ReactPointerEvent<HTMLButtonElement>,
+  ): void {
+    event.preventDefault()
+    let lastClientX = event.clientX
+
+    function handlePointerMove(moveEvent: PointerEvent): void {
+      const deltaX = moveEvent.clientX - lastClientX
+      lastClientX = moveEvent.clientX
+      onResize(deltaX)
+    }
+
+    function handlePointerUp(): void {
+      window.removeEventListener("pointermove", handlePointerMove)
+      window.removeEventListener("pointerup", handlePointerUp)
+    }
+
+    window.addEventListener("pointermove", handlePointerMove)
+    window.addEventListener("pointerup", handlePointerUp)
+  }
+
+  return (
+    <button
+      type="button"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={label}
+      className="group flex h-full shrink-0 cursor-col-resize items-center justify-center border-x border-transparent bg-border/40 transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+      style={{ width: `${DESKTOP_PANEL_GUTTER_WIDTH}px` }}
+      onPointerDown={handlePointerDown}
+    >
+      <span className="h-10 w-0.5 rounded-full bg-muted-foreground/35 group-hover:bg-primary/60" />
+    </button>
+  )
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max)
 }

@@ -26,13 +26,28 @@ describe("toParsedChunkView", () => {
         summary: "Intro summary",
         keywords: ["notebook", "parsed"],
         pageNums: [1, 2],
+        connectTo: [
+          {
+            target: "parser_image_1",
+            relation: "embeds",
+            ref: "[images/image-1.jpg]",
+            position: { start: 24, end: 44 },
+          },
+        ],
       },
       assetUrl: null,
     };
 
-    expect(toParsedChunkView(chunk, "notes.txt")).toEqual({
+    expect(
+      toParsedChunkView(chunk, "notes.txt", undefined, {
+        assetUrlsByFilePath: {
+          "images/image-1.jpg": "https://blob.example/image-1.jpg",
+        },
+      }),
+    ).toEqual({
       chunkId: "document_chunk_1",
       documentId: undefined,
+      parserChunkId: "parser_chunk_1",
       sectionPath: "Introduction",
       type: "text",
       content: "Notebook should show parsed text from Knowhere only on demand.",
@@ -40,6 +55,45 @@ describe("toParsedChunkView", () => {
       keywords: ["notebook", "parsed"],
       pageNums: [1, 2],
       sourceTitle: "notes.txt",
+      connections: [
+        {
+          targetParserChunkId: "parser_image_1",
+          relation: "embeds",
+          ref: "[images/image-1.jpg]",
+          position: { start: 24, end: 44 },
+        },
+      ],
+    });
+  });
+
+  it("maps media file paths to persisted parsed-result asset URLs", () => {
+    const chunk = makeDocumentChunk({
+      id: "document_chunk_image_1",
+      chunkId: "parser_image_1",
+      chunkType: "image",
+      filePath: null,
+      metadata: {
+        filePath: "images/image-1.jpg",
+        summary: "A diagram.",
+        pageNums: [3],
+      },
+      assetUrl: null,
+    });
+
+    expect(
+      toParsedChunkView(chunk, "manual.pdf", "doc_123", {
+        assetUrlsByFilePath: {
+          "images/image-1.jpg": "https://blob.example/image-1.jpg",
+        },
+      }),
+    ).toMatchObject({
+      chunkId: "document_chunk_image_1",
+      parserChunkId: "parser_image_1",
+      filePath: "images/image-1.jpg",
+      assetUrl: "https://blob.example/image-1.jpg",
+      type: "image",
+      summary: "A diagram.",
+      pageNums: [3],
     });
   });
 });
@@ -73,13 +127,14 @@ describe("loadChunksForSource", () => {
 
     expect(listChunks).toHaveBeenCalledWith("doc_123", {
       page: 1,
-      pageSize: 100,
+      pageSize: 200,
       includeAssetUrls: true,
     });
     expect(chunks).toEqual([
       {
         chunkId: "document_chunk_1",
         documentId: "doc_123",
+        parserChunkId: "parser_chunk_1",
         sectionPath: null,
         type: "text",
         content: "Source text from Knowhere",
@@ -102,9 +157,116 @@ describe("loadChunksForSource", () => {
     ).resolves.toEqual([]);
     expect(listChunks).not.toHaveBeenCalled();
   });
+
+  it("loads all chunk pages and resolves parser chunk connection targets", async () => {
+    const listChunks = vi
+      .fn()
+      .mockResolvedValueOnce({
+        chunks: [
+          makeDocumentChunk({
+            id: "document_text_1",
+            chunkId: "parser_text_1",
+            content: "Open [images/image-1.jpg] for the diagram.",
+            metadata: {
+              connectTo: [
+                {
+                  target: "parser_image_1",
+                  relation: "embeds",
+                  ref: "[images/image-1.jpg]",
+                  position: { start: 5, end: 25 },
+                },
+                {
+                  target: "missing_parser_chunk",
+                  relation: "embeds",
+                  ref: "[tables/missing.html]",
+                },
+              ],
+            },
+          }),
+        ],
+        pagination: { page: 1, pageSize: 1, total: 2, totalPages: 2 },
+      })
+      .mockResolvedValueOnce({
+        chunks: [
+          makeDocumentChunk({
+            id: "document_image_1",
+            chunkId: "parser_image_1",
+            chunkType: "image",
+            filePath: "images/image-1.jpg",
+          }),
+        ],
+        pagination: { page: 2, pageSize: 1, total: 2, totalPages: 2 },
+      });
+    const source = makeSource({ knowhereDocumentId: "doc_123" });
+
+    const chunks = await Effect.runPromise(
+      loadChunksForSource(
+        source,
+        { documents: { listChunks } },
+        {
+          assetUrlsByFilePath: {
+            "images/image-1.jpg": "https://blob.example/image-1.jpg",
+          },
+        },
+      ),
+    );
+
+    expect(listChunks).toHaveBeenNthCalledWith(1, "doc_123", {
+      page: 1,
+      pageSize: 200,
+      includeAssetUrls: true,
+    });
+    expect(listChunks).toHaveBeenNthCalledWith(2, "doc_123", {
+      page: 2,
+      pageSize: 200,
+      includeAssetUrls: true,
+    });
+    expect(chunks[0]?.connections).toEqual([
+      {
+        targetParserChunkId: "parser_image_1",
+        targetChunkId: "document_image_1",
+        relation: "embeds",
+        ref: "[images/image-1.jpg]",
+        position: { start: 5, end: 25 },
+      },
+      {
+        targetParserChunkId: "missing_parser_chunk",
+        relation: "embeds",
+        ref: "[tables/missing.html]",
+      },
+    ]);
+    expect(chunks[1]?.assetUrl).toBe("https://blob.example/image-1.jpg");
+  });
 });
 
 describe("resolveCitationChunk", () => {
+  it("prefers the citation excerpt over a broad section path", () => {
+    const chunk = resolveCitationChunk(
+      makeRetrievalResultView({
+        content: "exact sentence from the second chunk",
+        source: {
+          documentId: "doc_123",
+          sourceFileName: "notes.txt",
+          sectionPath: "Shared Section",
+        },
+      }),
+      [
+        makeParsedChunkView({
+          chunkId: "chunk_first",
+          sectionPath: "Shared Section",
+          content: "different sentence from the first chunk",
+        }),
+        makeParsedChunkView({
+          chunkId: "chunk_second",
+          sectionPath: "More Specific Section",
+          content: "prefix exact sentence from the second chunk suffix",
+        }),
+      ],
+    );
+
+    expect(chunk?.chunkId).toBe("chunk_second");
+  });
+
   it("matches a citation to the unique chunk with the same section path", () => {
     const chunk = resolveCitationChunk(
       makeRetrievalResultView({

@@ -24,7 +24,7 @@ function wrapKnowhereClient(client: Knowhere): Knowhere {
     get(target, prop, receiver) {
       const value = Reflect.get(target, prop, receiver)
       if (typeof value === "function") {
-        return createLoggingMethod(String(prop), value, [])
+        return createLoggingMethod(String(prop), value, [], target)
       }
       if (value !== null && typeof value === "object") {
         return createLoggingNamespace(String(prop), value)
@@ -39,10 +39,10 @@ function createLoggingNamespace(
   obj: object,
 ): object {
   return new Proxy(obj, {
-    get(_target, prop) {
-      const value = Reflect.get(obj, prop)
+    get(target, prop, receiver) {
+      const value = Reflect.get(target, prop, receiver)
       if (typeof value === "function") {
-        return createLoggingMethod(prop, value, [namespace])
+        return createLoggingMethod(prop, value, [namespace], target)
       }
       return value
     },
@@ -53,6 +53,7 @@ function createLoggingMethod(
   name: string | symbol,
   fn: (...args: unknown[]) => unknown,
   path: string[],
+  thisArg: object,
 ): (...args: unknown[]) => unknown {
   const fullPath = [...path, String(name)].join(".")
 
@@ -60,7 +61,7 @@ function createLoggingMethod(
     const start = Date.now()
     logger.info(`knowhere: ${fullPath}`, { args: safeArgs(args) })
 
-    const result = fn(...args)
+    const result = Reflect.apply(fn, thisArg, args) as unknown
     if (!isPromise(result)) return result
 
     return result.then(

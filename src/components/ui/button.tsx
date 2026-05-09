@@ -32,6 +32,12 @@ const buttonVariants = cva(
     compoundVariants: [
       {
         variant: "default",
+        size: "sm",
+        class:
+          "border-[#7F22FE] border-b-[4px] bg-[#8E51FF] font-mono-readable font-semibold hover:border-[#7008E7] hover:border-b-[5px] hover:bg-[#7F22FE] active:border-[#7008E7] active:border-b-[4px] active:bg-[#7008E7] active:pb-1 disabled:border-stone-200 disabled:bg-stone-300 disabled:text-stone-400",
+      },
+      {
+        variant: "default",
         size: ["default", "pill-md"],
         class:
           "border-[#7F22FE] border-b-[6px] bg-[#8E51FF] font-mono-readable font-semibold hover:border-[#7008E7] hover:border-b-[8px] hover:bg-[#7F22FE] active:border-[#7008E7] active:border-b-[6px] active:bg-[#7008E7] active:pb-0 disabled:border-stone-200 disabled:bg-stone-300 disabled:text-stone-400",

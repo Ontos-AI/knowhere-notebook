@@ -7,13 +7,12 @@ import { DbClient, dbLayer } from "./db"
 import {
   chatMessages,
   chatThreads,
+  sourceParseResults,
   sources,
   workspaces,
-  type ChatMessage,
-  type ChatThread,
   type Source,
-  type Workspace,
 } from "./schema"
+import { deriveChatThreadTitle } from "./chat-title"
 import type { CitationView, RetrievalResultView } from "./types"
 
 let _dbRuntime: ManagedRuntime.ManagedRuntime<DbClient, never> | null = null
@@ -21,6 +20,8 @@ function dbRuntime(): ManagedRuntime.ManagedRuntime<DbClient, never> {
   if (!_dbRuntime) _dbRuntime = ManagedRuntime.make(dbLayer)
   return _dbRuntime
 }
+
+const chatThreadListLimit = 50
 
 // ---- Effect functions (canonical) -----------------------------------------
 
@@ -165,6 +166,61 @@ export const markSourceFailedEffect = (
     failureReason: reason,
   })
 
+export const saveSourceParseResultEffect = (
+  workspaceId: string,
+  sourceId: string,
+  input: {
+    resultBlobUrl: string
+    assetUrlsByFilePath: Readonly<Record<string, string>>
+  },
+) =>
+  Effect.gen(function* () {
+    const db = yield* DbClient
+    const source = yield* findSourceInWorkspaceEffect(workspaceId, sourceId)
+    if (!source) return null
+
+    const [result] = yield* Effect.promise(() =>
+      db
+        .insert(sourceParseResults)
+        .values({
+          sourceId,
+          resultBlobUrl: input.resultBlobUrl,
+          assetUrls: input.assetUrlsByFilePath,
+        })
+        .onConflictDoUpdate({
+          target: sourceParseResults.sourceId,
+          set: {
+            resultBlobUrl: input.resultBlobUrl,
+            assetUrls: input.assetUrlsByFilePath,
+            updatedAt: sql`now()`,
+          },
+        })
+        .returning(),
+    )
+
+    return result ?? null
+  })
+
+export const getSourceParseAssetUrlsEffect = (
+  workspaceId: string,
+  sourceId: string,
+) =>
+  Effect.gen(function* () {
+    const db = yield* DbClient
+    const source = yield* findSourceInWorkspaceEffect(workspaceId, sourceId)
+    if (!source) return {}
+
+    const row = yield* Effect.promise(() =>
+      db
+        .select({ assetUrls: sourceParseResults.assetUrls })
+        .from(sourceParseResults)
+        .where(eq(sourceParseResults.sourceId, sourceId))
+        .limit(1),
+    )
+
+    return row[0]?.assetUrls ?? {}
+  })
+
 export const findChatThreadInWorkspaceEffect = (
   workspaceId: string,
   threadId: string,
@@ -185,6 +241,38 @@ export const findChatThreadInWorkspaceEffect = (
         .limit(1),
     )
     return row[0] ?? null
+  })
+
+export const listChatThreadsForWorkspaceEffect = (workspaceId: string) =>
+  Effect.gen(function* () {
+    const db = yield* DbClient
+    return yield* Effect.promise(() =>
+      db
+        .select()
+        .from(chatThreads)
+        .where(
+          and(
+            eq(chatThreads.workspaceId, workspaceId),
+            isNull(chatThreads.deletedAt),
+          ),
+        )
+        .orderBy(desc(chatThreads.updatedAt))
+        .limit(chatThreadListLimit),
+    )
+  })
+
+export const createChatThreadEffect = (workspaceId: string) =>
+  Effect.gen(function* () {
+    const db = yield* DbClient
+    const [thread] = yield* Effect.promise(() =>
+      db.insert(chatThreads).values({ workspaceId }).returning(),
+    )
+    if (!thread) {
+      return yield* Effect.die(
+        new Error("createChatThread: insert did not return a row."),
+      )
+    }
+    return thread
   })
 
 export const ensureDefaultChatThreadEffect = (workspaceId: string) =>
@@ -336,7 +424,12 @@ export const appendMessageToThreadEffect = (
           .returning()
         await tx
           .update(chatThreads)
-          .set({ updatedAt: sql`now()` })
+          .set({
+            updatedAt: sql`now()`,
+            ...(input.role === "user" && !thread.title
+              ? { title: deriveChatThreadTitle(input.content) }
+              : {}),
+          })
           .where(eq(chatThreads.id, input.threadId))
         return inserted ?? null
       }),
@@ -389,6 +482,26 @@ export const markSourceFailed = (
 ) =>
   dbRuntime().runPromise(markSourceFailedEffect(workspaceId, sourceId, reason))
 
+export const saveSourceParseResult = (
+  workspaceId: string,
+  sourceId: string,
+  input: {
+    resultBlobUrl: string
+    assetUrlsByFilePath: Readonly<Record<string, string>>
+  },
+) =>
+  dbRuntime().runPromise(
+    saveSourceParseResultEffect(workspaceId, sourceId, input),
+  )
+
+export const getSourceParseAssetUrls = (
+  workspaceId: string,
+  sourceId: string,
+) =>
+  dbRuntime().runPromise(
+    getSourceParseAssetUrlsEffect(workspaceId, sourceId),
+  )
+
 export const findChatThreadInWorkspace = (
   workspaceId: string,
   threadId: string,
@@ -396,6 +509,12 @@ export const findChatThreadInWorkspace = (
   dbRuntime().runPromise(
     findChatThreadInWorkspaceEffect(workspaceId, threadId),
   )
+
+export const listChatThreadsForWorkspace = (workspaceId: string) =>
+  dbRuntime().runPromise(listChatThreadsForWorkspaceEffect(workspaceId))
+
+export const createChatThread = (workspaceId: string) =>
+  dbRuntime().runPromise(createChatThreadEffect(workspaceId))
 
 export const ensureDefaultChatThread = (workspaceId: string) =>
   dbRuntime().runPromise(ensureDefaultChatThreadEffect(workspaceId))
