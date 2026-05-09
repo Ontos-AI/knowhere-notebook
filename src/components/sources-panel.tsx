@@ -30,6 +30,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { SourceView } from "@/lib/types";
+import { postSourceUpload } from "@/lib/source-upload-request";
 
 export type SourcesPanelProps = {
   sources: SourceView[];
@@ -45,11 +46,6 @@ export type SourcesPanelProps = {
 type UploadDialogState = {
   ok: boolean;
   message: string | null;
-  source?: SourceView;
-};
-
-type UploadResponseBody = {
-  message?: string;
   source?: SourceView;
 };
 
@@ -187,20 +183,14 @@ function UploadDialog({
       return;
     }
 
-    const formData = new FormData();
-    formData.set("file", file);
-
     setIsUploading(true);
     setState({ ok: true, message: null });
 
     try {
-      const response = await fetch("/api/sources", {
-        method: "POST",
-        body: formData,
-      });
-      const body = await readUploadResponse(response);
+      const response = await postSourceUpload(file);
+      const { body } = response;
 
-      if (!response.ok || !body.source) {
+      if (!isSuccessfulStatus(response.status) || !body.source) {
         setState({
           ok: false,
           message:
@@ -317,45 +307,8 @@ function UploadDialog({
   );
 }
 
-async function readUploadResponse(
-  response: Response,
-): Promise<UploadResponseBody> {
-  try {
-    const body: unknown = await response.json();
-    return parseUploadResponseBody(body);
-  } catch {
-    return {};
-  }
-}
-
-function parseUploadResponseBody(body: unknown): UploadResponseBody {
-  if (!isRecord(body)) return {};
-
-  const message = typeof body.message === "string" ? body.message : undefined;
-  const source = isSourceView(body.source) ? body.source : undefined;
-  return { message, source };
-}
-
-function isSourceView(value: unknown): value is SourceView {
-  if (!isRecord(value)) return false;
-  return (
-    typeof value.id === "string" &&
-    typeof value.title === "string" &&
-    isSourceStatus(value.status)
-  );
-}
-
-function isSourceStatus(value: unknown): value is SourceView["status"] {
-  return (
-    value === "uploading" ||
-    value === "parsing" ||
-    value === "ready" ||
-    value === "failed"
-  );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
+function isSuccessfulStatus(status: number): boolean {
+  return status >= 200 && status < 300;
 }
 
 function EmptySourcesState() {
