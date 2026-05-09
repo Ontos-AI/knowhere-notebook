@@ -33,20 +33,20 @@ export function ChunksPanel({
   }, [focusedChunkId]);
 
   const headerTitle = focusedChunkId
-    ? "Referenced Content Sections"
-    : "Document Content Sections";
+    ? "Referenced Chunks"
+    : "Parsed Chunks";
 
   const headerSubtitle = focusedChunkId ? (
-    <>Showing relevant sections from the last answer.</>
+    <>Showing relevant chunks from the last answer.</>
   ) : selectedSource ? (
     <>
-      Showing all sections from{" "}
+      Showing all parsed chunks from{" "}
       <span className="font-semibold italic text-foreground">
         {selectedSource}
       </span>
     </>
   ) : (
-    "Select a source to see its content sections."
+    "Select a source to see its parsed chunks."
   );
 
   return (
@@ -63,9 +63,9 @@ export function ChunksPanel({
       <ScrollArea className="flex-1">
         <div className="mx-auto flex w-full max-w-4xl flex-col items-center p-6">
           {isLoading ? (
-            <LoadingSections />
+            <LoadingChunks />
           ) : chunks.length === 0 ? (
-            <EmptySections />
+            <EmptyChunks />
           ) : (
             <div className="flex w-full flex-col gap-4">
               {chunks.map((chunk) => (
@@ -86,30 +86,30 @@ export function ChunksPanel({
   );
 }
 
-function EmptySections() {
+function EmptyChunks() {
   return (
     <div className="flex flex-col items-center gap-3 py-20 text-center">
       <div className="flex size-12 items-center justify-center rounded-full bg-muted">
         <Layers className="size-5 text-muted-foreground" />
       </div>
       <p className="text-sm font-medium text-foreground">
-        No content sections to show yet
+        No parsed chunks to show yet
       </p>
       <p className="max-w-xs text-xs text-muted-foreground">
         Upload and process a source, then pick it from the sidebar to see its
-        content sections.
+        parsed chunks.
       </p>
     </div>
   );
 }
 
-function LoadingSections() {
+function LoadingChunks() {
   return (
     <div className="flex flex-col items-center gap-3 py-20 text-center">
       <div className="flex size-12 items-center justify-center rounded-full bg-muted">
         <Layers className="size-5 text-muted-foreground" />
       </div>
-      <p className="text-sm text-muted-foreground">Loading content sections…</p>
+      <p className="text-sm text-muted-foreground">Loading parsed chunks…</p>
     </div>
   );
 }
@@ -227,7 +227,7 @@ function ImageChunkCard({
           <ImageIcon className="size-8 text-muted-foreground" />
           <div>
             <p className="text-sm font-medium text-foreground">
-              Image section
+              Image chunk
             </p>
             <p className="mt-1 max-w-xs text-xs text-muted-foreground">
               {chunk.summary ?? "Image content is not available in this view."}
@@ -279,7 +279,7 @@ function TableChunkCard({
             <Table2 className="size-8 text-muted-foreground" />
             <div>
               <p className="text-sm font-medium text-foreground">
-                Table section
+                Table chunk
               </p>
               <p className="mt-1 max-w-xs text-xs text-muted-foreground">
                 {chunk.summary ?? "Table content is not available in this view."}

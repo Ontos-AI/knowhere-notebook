@@ -188,8 +188,8 @@ function UploadDialog({
         <DialogHeader>
           <DialogTitle>Add source</DialogTitle>
           <DialogDescription>
-            Add a document to your notebook. Notebook accepts PDF, DOCX, TXT,
-            MD, and PPTX files up to 25 MB.
+            Add a document to your notebook. Notebook accepts PDF, DOC, DOCX,
+            TXT, MD, PPT, PPTX, and more files up to 100 MB.
           </DialogDescription>
         </DialogHeader>
         <form action={formAction} className="grid gap-4">
@@ -218,7 +218,7 @@ function UploadDialog({
                   Click to select or drag and drop a document
                 </p>
                 <p className="mt-2 rounded-md border border-border bg-background px-2.5 py-1 text-[11px] font-medium text-muted-foreground shadow-sm">
-                  Max size: 25 MB
+                  Max size: 100 MB
                 </p>
                 {selectedFileName && (
                   <p className="mt-3 max-w-full truncate text-xs font-medium text-foreground">
@@ -277,7 +277,7 @@ function EmptySourcesState() {
         No sources yet.
       </p>
       <p className="mt-1 max-w-[180px] text-[11px] text-muted-foreground">
-        Upload a document to read its content sections and ask questions.
+        Upload a document to read its parsed chunks and ask questions.
       </p>
     </div>
   );
@@ -327,7 +327,7 @@ function SourceRow({
         type="button"
         onClick={onSelect}
         className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
-        aria-label={`Open ${source.title} content sections`}
+        aria-label={`Open ${source.title} parsed chunks`}
       >
         <div
           className={`flex size-8 shrink-0 items-center justify-center rounded-lg ${iconBg.bg} ${iconBg.fg}`}
@@ -350,7 +350,7 @@ function SourceRow({
           }`}
         >
           {isReady
-            ? `Processed · ${source.chunkCount ?? 0} sections`
+            ? `Processed · ${source.chunkCount ?? 0} chunks`
             : source.status === "parsing"
             ? "Preparing"
             : source.status === "uploading"

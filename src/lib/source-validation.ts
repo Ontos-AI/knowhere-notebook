@@ -1,4 +1,4 @@
-export const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
+export const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 
 const SUPPORTED_EXTENSIONS = new Set([
   "pdf",
@@ -32,7 +32,7 @@ export function validateUploadFile(file: UploadFileInfo): UploadValidationResult
   if (file.size > MAX_UPLOAD_BYTES) {
     return {
       ok: false,
-      message: "File is too large. Upload a document up to 25 MB.",
+      message: "File is too large. Upload a document up to 100 MB.",
     };
   }
 

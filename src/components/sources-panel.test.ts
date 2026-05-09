@@ -39,7 +39,12 @@ describe("SourcesPanel", () => {
     const opened = render(React.createElement(C, { sources: [] }));
     await user.click(screen.getByRole("button", { name: "Upload Document" }));
 
-    expect(screen.getByText(/Notebook accepts PDF, DOCX, TXT, MD, and PPTX/)).toBeTruthy();
+    expect(
+      screen.getByText(
+        /Notebook accepts PDF, DOC, DOCX, TXT, MD, PPT, PPTX, and more files up to 100 MB/,
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText("Max size: 100 MB")).toBeTruthy();
     expect(opened.container.textContent).not.toMatch(/Knowhere|parsing|indexing/i);
   });
 
@@ -69,10 +74,11 @@ describe("SourcesPanel", () => {
     expect(onSelectSource).not.toHaveBeenCalled();
 
     fireEvent.click(
-      screen.getByRole("button", { name: "Open lecture.pdf content sections" }),
+      screen.getByRole("button", { name: "Open lecture.pdf parsed chunks" }),
     );
 
     expect(onSelectSource).toHaveBeenCalledWith("source_1");
+    expect(screen.getByText("Processed · 3 chunks")).toBeTruthy();
   });
 
   it("hides source actions that are not wired", () => {

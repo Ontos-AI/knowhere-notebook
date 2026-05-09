@@ -8,8 +8,8 @@ import { ChunksPanel } from "./chunks-panel";
 const C = ChunksPanel as React.FC<Record<string, unknown>>;
 
 describe("ChunksPanel", () => {
-  it("uses content-section language and hides internal chunk wording", () => {
-    const { container } = render(
+  it("uses parsed chunk language", () => {
+    render(
       React.createElement(C, {
         chunks: [
           {
@@ -24,8 +24,8 @@ describe("ChunksPanel", () => {
     );
 
     expect(
-      screen.getByRole("heading", { name: "Document Content Sections" }),
+      screen.getByRole("heading", { name: "Parsed Chunks" }),
     ).toBeTruthy();
-    expect(container.textContent).not.toMatch(/chunk/i);
+    expect(screen.getByText(/Showing all parsed chunks from/)).toBeTruthy();
   });
 });
