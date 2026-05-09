@@ -43,6 +43,21 @@ describe("SourcesPanel", () => {
     expect(screen.getByRole("button", { name: "Confirm" })).toBeTruthy();
   });
 
+  it("keeps upload confirmation controls visible inside the dialog viewport", async () => {
+    const user = userEvent.setup();
+
+    render(React.createElement(C, { sources: [] }));
+
+    await user.click(screen.getByRole("button", { name: "Upload Document" }));
+
+    const dialog = screen.getByRole("dialog");
+    const confirmButton = screen.getByRole("button", { name: "Confirm" });
+
+    expect(dialog.className).toContain("max-h-[calc(100dvh-2rem)]");
+    expect(dialog.className).toContain("overflow-hidden");
+    expect(confirmButton.parentElement?.className).toContain("shrink-0");
+  });
+
   it("uses plain product language for empty and upload states", async () => {
     const user = userEvent.setup();
 

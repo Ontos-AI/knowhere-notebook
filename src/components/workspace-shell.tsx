@@ -1,6 +1,6 @@
 "use client"
 
-import { startTransition, useEffect, useState } from "react"
+import { startTransition, useCallback, useEffect, useRef, useState } from "react"
 import type { PointerEvent as ReactPointerEvent } from "react"
 import { Effect } from "effect"
 import {
@@ -135,6 +135,12 @@ export function WorkspaceShell({
     chunks: [],
     isLoading: initialSelectedSourceId !== null,
   })
+  const loadedChunksBySourceId = useRef<Map<string, ParsedChunkView[]>>(
+    new Map(),
+  )
+  const pendingChunkLoadsBySourceId = useRef<
+    Map<string, Promise<ParsedChunkView[]>>
+  >(new Map())
   const [desktopPanelWidths, setDesktopPanelWidths] =
     useState<DesktopPanelWidths>({ ...DESKTOP_PANEL_DEFAULT_WIDTHS })
 
@@ -147,6 +153,29 @@ export function WorkspaceShell({
   function redirectToLogin() {
     window.location.href = loginUrl ?? "/login"
   }
+
+  const loadChunksForSource = useCallback(
+    async (sourceId: string): Promise<ParsedChunkView[]> => {
+      const loadedChunks = loadedChunksBySourceId.current.get(sourceId)
+      if (loadedChunks) return loadedChunks
+
+      const pendingLoad = pendingChunkLoadsBySourceId.current.get(sourceId)
+      if (pendingLoad) return pendingLoad
+
+      const load = fetchChunks(sourceId).then((chunks) => {
+        loadedChunksBySourceId.current.set(sourceId, chunks)
+        return chunks
+      })
+      pendingChunkLoadsBySourceId.current.set(sourceId, load)
+
+      try {
+        return await load
+      } finally {
+        pendingChunkLoadsBySourceId.current.delete(sourceId)
+      }
+    },
+    [],
+  )
 
   function handleDesktopPanelResize(
     leftPanel: DesktopPanelKey,
@@ -213,24 +242,23 @@ export function WorkspaceShell({
   }, [chunkLoad.sourceId, selectedSourceId, sources])
 
   useEffect(() => {
-    if (!chunkLoad.isLoading || !chunkLoad.sourceId) return
+    const sourceId = chunkLoad.sourceId
+    if (!chunkLoad.isLoading || !sourceId) return
 
     let isCurrent = true
     startTransition(async () => {
       try {
-        const body = await getJson<{ chunks?: ParsedChunkView[] }>(
-          `/api/sources/${encodeURIComponent(chunkLoad.sourceId!)}/chunks`,
-        )
+        const chunks = await loadChunksForSource(sourceId)
         if (!isCurrent) return
         setChunkLoad({
-          sourceId: chunkLoad.sourceId,
-          chunks: Array.isArray(body.chunks) ? body.chunks : [],
+          sourceId,
+          chunks,
           isLoading: false,
         })
       } finally {
         if (isCurrent) {
           setChunkLoad((current) =>
-            current.sourceId === chunkLoad.sourceId
+            current.sourceId === sourceId
               ? { ...current, isLoading: false }
               : current,
           )
@@ -241,7 +269,7 @@ export function WorkspaceShell({
     return () => {
       isCurrent = false
     }
-  }, [chunkLoad.isLoading, chunkLoad.sourceId])
+  }, [chunkLoad.isLoading, chunkLoad.sourceId, loadChunksForSource])
 
   const selectedSourceTitle =
     sources.find((source) => source.id === selectedSourceId)?.title ?? null
@@ -356,10 +384,21 @@ export function WorkspaceShell({
     if (!source) return
 
     setSelectedSourceId(source.id)
-    setFocusedChunkId(null)
-    setChunkLoad({ sourceId: source.id, chunks: [], isLoading: true })
 
-    const chunks = await fetchChunks(source.id)
+    if (chunkLoad.sourceId === source.id && !chunkLoad.isLoading) {
+      const focusedChunk = resolveCitationChunk(citation, chunkLoad.chunks)
+      setFocusedChunkId(focusedChunk?.chunkId ?? null)
+      return
+    }
+
+    setFocusedChunkId(null)
+    setChunkLoad((current) =>
+      current.sourceId === source.id && current.isLoading
+        ? current
+        : { sourceId: source.id, chunks: [], isLoading: true },
+    )
+
+    const chunks = await loadChunksForSource(source.id)
     const focusedChunk = resolveCitationChunk(citation, chunks)
     setChunkLoad({ sourceId: source.id, chunks, isLoading: false })
     setFocusedChunkId(focusedChunk?.chunkId ?? null)

@@ -1,7 +1,15 @@
 // @vitest-environment jsdom
 import React from "react";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   DESKTOP_PANEL_GUTTER_WIDTH,
@@ -12,8 +20,18 @@ import {
 const C = WorkspaceShell as React.FC<Record<string, unknown>>;
 
 describe("WorkspaceShell", () => {
+  beforeEach(() => {
+    globalThis.ResizeObserver = class ResizeObserver {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    };
+  });
+
   afterEach(() => {
     cleanup();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
   it("keeps desktop panels horizontally scrollable at their minimum widths", () => {
@@ -60,4 +78,139 @@ describe("WorkspaceShell", () => {
       `${DESKTOP_PANEL_MIN_WIDTHS.sources}px`,
     );
   });
+
+  it("reuses loaded chunks when users click another citation from the same source", async () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
+      const path = getRequestPath(input);
+
+      if (path === "/api/chat") {
+        return Response.json({
+          threadId: "thread_1",
+          messages: [
+            {
+              id: "assistant_1",
+              role: "assistant",
+              content: "The answer uses two sections.",
+              citations: [
+                {
+                  content: "First cited section",
+                  chunkType: "text",
+                  score: 0.91,
+                  source: {
+                    documentId: "doc_1",
+                    sourceFileName: "doc.pdf",
+                    sectionPath: "First",
+                  },
+                },
+                {
+                  content: "Second cited section",
+                  chunkType: "text",
+                  score: 0.9,
+                  source: {
+                    documentId: "doc_1",
+                    sourceFileName: "doc.pdf",
+                    sectionPath: "Second",
+                  },
+                },
+              ],
+            },
+          ],
+        });
+      }
+
+      if (path === "/api/sources/source_1/chunks") {
+        return Response.json({
+          chunks: [
+            {
+              chunkId: "chunk_1",
+              documentId: "doc_1",
+              sectionPath: "First",
+              type: "text",
+              content: "First cited section",
+              sourceTitle: "doc.pdf",
+            },
+            {
+              chunkId: "chunk_2",
+              documentId: "doc_1",
+              sectionPath: "Second",
+              type: "text",
+              content: "Second cited section",
+              sourceTitle: "doc.pdf",
+            },
+          ],
+        });
+      }
+
+      return Response.json({ message: "Unexpected request" }, { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetch);
+    const user = userEvent.setup();
+
+    render(
+      React.createElement(C, {
+        sources: [
+          {
+            id: "source_1",
+            title: "doc.pdf",
+            status: "ready",
+            documentId: "doc_1",
+          },
+        ],
+      }),
+    );
+
+    const desktopChatPanel = within(screen.getByTestId("desktop-chat-panel"));
+    const input = desktopChatPanel.getByPlaceholderText(
+      "Ask a question about your documents…",
+    );
+    const sendButton = desktopChatPanel.getByRole("button", {
+      name: "Send message",
+    });
+
+    await user.type(input, "What changed?");
+    await waitFor(() => {
+      expect((sendButton as HTMLButtonElement).disabled).toBe(false);
+    });
+    await user.click(sendButton);
+
+    const firstCitation = await desktopChatPanel.findByText("doc.pdf · First");
+    await user.click(firstCitation);
+
+    await waitFor(() => {
+      expect(
+        countFetches(fetch, "/api/sources/source_1/chunks"),
+      ).toBeGreaterThan(0);
+    });
+    expect(countFetches(fetch, "/api/sources/source_1/chunks")).toBe(1);
+    const scrollsAfterFirstCitation = scrollIntoView.mock.calls.length;
+
+    await user.click(desktopChatPanel.getByText("doc.pdf · Second"));
+
+    await waitFor(() => {
+      expect(scrollIntoView.mock.calls.length).toBeGreaterThan(
+        scrollsAfterFirstCitation,
+      );
+    });
+    expect(countFetches(fetch, "/api/sources/source_1/chunks")).toBe(1);
+  });
 });
+
+function getRequestPath(input: RequestInfo | URL): string {
+  const url =
+    typeof input === "string"
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : input.url;
+  return new URL(url, "http://localhost").pathname;
+}
+
+function countFetches(
+  fetch: ReturnType<typeof vi.fn<typeof globalThis.fetch>>,
+  url: string,
+): number {
+  return fetch.mock.calls.filter(([input]) => getRequestPath(input) === url)
+    .length;
+}
