@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("./db", () => ({
-  db: {},
   DbClient: {},
   dbLayer: {},
 }))

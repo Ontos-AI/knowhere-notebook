@@ -10,7 +10,7 @@ vi.mock("@ontos-ai/knowhere-sdk", () => ({
   },
 }));
 
-describe("getKnowhereClient", () => {
+describe("makeKnowhereClient", () => {
   const originalApiKey = process.env.KNOWHERE_API_KEY;
   const originalBaseURL = process.env.KNOWHERE_BASE_URL;
 
@@ -22,12 +22,11 @@ describe("getKnowhereClient", () => {
   });
 
   it("passes configured API base URL into the Knowhere SDK", async () => {
-    process.env.KNOWHERE_API_KEY = "sk_test";
     process.env.KNOWHERE_BASE_URL = "https://api-staging.knowhereto.ai";
 
-    const { getKnowhereClient } = await import("./knowhere");
+    const { makeKnowhereClient } = await import("./knowhere");
 
-    getKnowhereClient();
+    makeKnowhereClient("sk_test");
 
     expect(constructorSpy).toHaveBeenCalledWith({
       apiKey: "sk_test",

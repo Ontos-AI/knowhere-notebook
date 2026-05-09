@@ -1,41 +1,41 @@
-import "server-only";
+import "server-only"
 
-import type Knowhere from "@ontos-ai/knowhere-sdk";
-import type { JobResult } from "@ontos-ai/knowhere-sdk";
+import { Effect } from "effect"
+import type Knowhere from "@ontos-ai/knowhere-sdk"
+import type { JobResult } from "@ontos-ai/knowhere-sdk"
 
-import type { Source, Workspace } from "./schema";
+import type { Source, Workspace } from "./schema"
 import {
   listSourcesForWorkspace,
   markSourceFailed,
   markSourceReady,
-} from "./workspace";
+} from "./workspace"
 
 export async function reconcileSourcesForWorkspace(
   workspace: Workspace,
   client: Knowhere,
 ): Promise<Source[]> {
-  const rows = await listSourcesForWorkspace(workspace.id);
+  const rows = await listSourcesForWorkspace(workspace.id)
   const parsing = rows.filter(
     (row) => row.status === "parsing" && row.knowhereJobId,
-  );
-  if (parsing.length === 0) return rows;
+  )
+  if (parsing.length === 0) return rows
 
   await Promise.all(
     parsing.map(async (source) => {
-      const jobId = source.knowhereJobId;
-      if (!jobId) return;
+      const jobId = source.knowhereJobId
+      if (!jobId) return
 
       try {
-        const job = await client.jobs.get(jobId);
-        await updateSourceFromJob(workspace.id, source.id, job);
+        const job = await client.jobs.get(jobId)
+        await updateSourceFromJob(workspace.id, source.id, job)
       } catch {
-        // Leave the current row as-is on transient API errors. A later poll
-        // can reconcile it without turning a temporary outage into failure.
+        // Leave the current row as-is on transient API errors.
       }
     }),
-  );
+  )
 
-  return await listSourcesForWorkspace(workspace.id);
+  return await listSourcesForWorkspace(workspace.id)
 }
 
 async function updateSourceFromJob(
@@ -45,15 +45,15 @@ async function updateSourceFromJob(
 ): Promise<void> {
   if (job.isDone || job.status === "done") {
     if (job.documentId) {
-      await markSourceReady(workspaceId, sourceId, job.documentId);
-      return;
+      await markSourceReady(workspaceId, sourceId, job.documentId)
+      return
     }
     await markSourceFailed(
       workspaceId,
       sourceId,
       "Parsing finished but no document was published.",
-    );
-    return;
+    )
+    return
   }
 
   if (job.isFailed || job.status === "failed") {
@@ -61,6 +61,6 @@ async function updateSourceFromJob(
       workspaceId,
       sourceId,
       job.error?.message ?? "Parsing failed.",
-    );
+    )
   }
 }

@@ -1,10 +1,11 @@
 import { headers } from "next/headers"
+import { Effect } from "effect"
 
 import { ensureApiKeyForWorkspace } from "@/lib/api-key-service"
 import { authURLs } from "@/lib/auth-urls"
 import { getCurrentUser } from "@/lib/auth"
 import { DEMO_CHUNKS, DEMO_SOURCE } from "@/lib/demo-data"
-import { getKnowhereClient } from "@/lib/knowhere"
+import { makeKnowhereClient } from "@/lib/knowhere"
 import { sourceViewOptionsBySourceId } from "@/lib/source-counts"
 import { toSourceView } from "@/lib/source-view"
 import { ensureWorkspace, listSourcesForWorkspace } from "@/lib/workspace"
@@ -50,9 +51,11 @@ export default async function Home() {
   const workspace = await ensureWorkspace(user.id)
   const cookieHeader = (await headers()).get("cookie") ?? ""
   const apiKey = await ensureApiKeyForWorkspace(workspace.id, cookieHeader)
-  const client = getKnowhereClient(apiKey)
+  const client = makeKnowhereClient(apiKey)
   const sources = await listSourcesForWorkspace(workspace.id)
-  const sourceOptions = await sourceViewOptionsBySourceId(sources, client)
+  const sourceOptions = await Effect.runPromise(
+    sourceViewOptionsBySourceId(sources, client),
+  )
 
   return (
     <WorkspaceShell

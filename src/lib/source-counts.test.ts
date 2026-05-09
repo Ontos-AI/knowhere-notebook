@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
+import { Effect } from "effect"
 
 import type Knowhere from "@ontos-ai/knowhere-sdk"
 
@@ -33,13 +34,15 @@ describe("countChunksBySourceId", () => {
 
     const { countChunksBySourceId } = await import("./source-counts")
 
-    const counts = await countChunksBySourceId(
-      [
-        makeSource({ id: "ready", knowhereDocumentId: "doc_ready" }),
-        makeSource({ id: "parsing", status: "parsing", knowhereDocumentId: null }),
-        makeSource({ id: "missing-doc", knowhereDocumentId: null }),
-      ],
-      mockClient,
+    const counts = await Effect.runPromise(
+      countChunksBySourceId(
+        [
+          makeSource({ id: "ready", knowhereDocumentId: "doc_ready" }),
+          makeSource({ id: "parsing", status: "parsing", knowhereDocumentId: null }),
+          makeSource({ id: "missing-doc", knowhereDocumentId: null }),
+        ],
+        mockClient,
+      ),
     )
 
     expect(listChunks).toHaveBeenCalledOnce()
@@ -58,9 +61,11 @@ describe("countChunksBySourceId", () => {
 
     const { countChunksBySourceId } = await import("./source-counts")
 
-    const counts = await countChunksBySourceId(
-      [makeSource({ id: "ready", knowhereDocumentId: "doc_ready" })],
-      mockClient,
+    const counts = await Effect.runPromise(
+      countChunksBySourceId(
+        [makeSource({ id: "ready", knowhereDocumentId: "doc_ready" })],
+        mockClient,
+      ),
     )
 
     expect(counts.size).toBe(0)

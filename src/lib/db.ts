@@ -64,8 +64,3 @@ function makeDb(): Db {
   )
 }
 
-/**
- * Legacy singleton for non-Effect callers.
- * Prefer `yield* DbClient` in Effect code; provide `dbLayer` at the boundary.
- */
-export const db: Db = makeDb()

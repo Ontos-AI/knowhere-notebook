@@ -6,7 +6,7 @@ import { ensureApiKeyForWorkspace } from "@/lib/api-key-service";
 import { requireUser } from "@/lib/auth";
 import { generateGroundedAnswer, parseChatRequestBody } from "@/lib/chat";
 import { handleChatTurn } from "@/lib/chat-service";
-import { getKnowhereClient } from "@/lib/knowhere";
+import { makeKnowhereClient } from "@/lib/knowhere";
 import { ensureWorkspace, listSourcesForWorkspace } from "@/lib/workspace";
 import {
   appendMessageToThread,
@@ -25,7 +25,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   const sources = await listSourcesForWorkspace(workspace.id)
   const cookieHeader = (await headers()).get("cookie") ?? ""
   const apiKey = await ensureApiKeyForWorkspace(workspace.id, cookieHeader)
-  const client = getKnowhereClient(apiKey)
+  const client = makeKnowhereClient(apiKey)
 
   try {
     const result = await handleChatTurn({

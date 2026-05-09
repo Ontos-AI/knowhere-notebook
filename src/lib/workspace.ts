@@ -1,8 +1,9 @@
-import "server-only";
+import "server-only"
 
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm"
+import { Effect, ManagedRuntime } from "effect"
 
-import { db } from "./db";
+import { DbClient, dbLayer } from "./db"
 import {
   chatMessages,
   chatThreads,
@@ -12,340 +13,432 @@ import {
   type ChatThread,
   type Source,
   type Workspace,
-} from "./schema";
-import type { CitationView, RetrievalResultView } from "./types";
+} from "./schema"
+import type { CitationView, RetrievalResultView } from "./types"
 
-/**
- * Ensure a workspace exists for the given Dashboard user id.
- *
- * MVP model: one workspace per user. This runs on every authenticated
- * request that needs workspace context. It is idempotent:
- *   - First call inserts the row with a deterministic `namespace`
- *     derived from the generated UUID.
- *   - Every subsequent call is a single `SELECT ... WHERE user_id = $1`
- *     returning the existing row.
- *
- * The insert uses `ON CONFLICT (user_id) DO NOTHING` so concurrent first
- * calls from the same user race safely to the same row.
- */
-export async function ensureWorkspace(userId: string): Promise<Workspace> {
-  const existing = await db
-    .select()
-    .from(workspaces)
-    .where(eq(workspaces.userId, userId))
-    .limit(1);
-
-  if (existing[0]) return existing[0];
-
-  // Namespace is derived from a fresh UUID so it's guaranteed unique and
-  // opaque to the browser. We insert + select-back so we see the actual
-  // row regardless of who wins a race.
-  const namespace = `notebook-${crypto.randomUUID()}`;
-  await db
-    .insert(workspaces)
-    .values({ userId, namespace })
-    .onConflictDoNothing({ target: workspaces.userId });
-
-  const row = await db
-    .select()
-    .from(workspaces)
-    .where(eq(workspaces.userId, userId))
-    .limit(1);
-
-  if (!row[0]) {
-    // This should be impossible — the ON CONFLICT path guarantees a row
-    // exists after the insert completes. Surface loudly if it ever does.
-    throw new Error(
-      `ensureWorkspace: workspace row not found for user ${userId} after ` +
-        "upsert. Check that the workspaces.user_id unique index exists.",
-    );
-  }
-
-  return row[0];
+let _dbRuntime: ManagedRuntime.ManagedRuntime<DbClient, never> | null = null
+function dbRuntime(): ManagedRuntime.ManagedRuntime<DbClient, never> {
+  if (!_dbRuntime) _dbRuntime = ManagedRuntime.make(dbLayer)
+  return _dbRuntime
 }
 
-/**
- * Fetch a source by id, scoped to the given workspace, excluding
- * soft-deleted rows.
- *
- * Returns `null` if the source doesn't exist, belongs to a different
- * workspace, or has been soft-deleted. Callers that mutate a source
- * (update status, soft-delete, etc.) must call this first — never
- * query by raw `id` alone, because the id comes from the browser and
- * is otherwise free to forge.
- */
-export async function findSourceInWorkspace(
+// ---- Effect functions (canonical) -----------------------------------------
+
+export const ensureWorkspaceEffect = (userId: string) =>
+  Effect.gen(function* () {
+    const db = yield* DbClient
+    const existing = yield* Effect.promise(() =>
+      db
+        .select()
+        .from(workspaces)
+        .where(eq(workspaces.userId, userId))
+        .limit(1),
+    )
+
+    if (existing[0]) return existing[0]
+
+    const namespace = `notebook-${crypto.randomUUID()}`
+    yield* Effect.promise(() =>
+      db
+        .insert(workspaces)
+        .values({ userId, namespace })
+        .onConflictDoNothing({ target: workspaces.userId }),
+    )
+
+    const row = yield* Effect.promise(() =>
+      db
+        .select()
+        .from(workspaces)
+        .where(eq(workspaces.userId, userId))
+        .limit(1),
+    )
+
+    if (!row[0]) {
+      return yield* Effect.die(
+        new Error(
+          `ensureWorkspace: workspace row not found for user ${userId} after ` +
+            "upsert. Check that the workspaces.user_id unique index exists.",
+        ),
+      )
+    }
+
+    return row[0]
+  })
+
+export const findSourceInWorkspaceEffect = (
   workspaceId: string,
   sourceId: string,
-): Promise<Source | null> {
-  const row = await db
-    .select()
-    .from(sources)
-    .where(
-      and(
-        eq(sources.id, sourceId),
-        eq(sources.workspaceId, workspaceId),
-        isNull(sources.deletedAt),
-      ),
+) =>
+  Effect.gen(function* () {
+    const db = yield* DbClient
+    const row = yield* Effect.promise(() =>
+      db
+        .select()
+        .from(sources)
+        .where(
+          and(
+            eq(sources.id, sourceId),
+            eq(sources.workspaceId, workspaceId),
+            isNull(sources.deletedAt),
+          ),
+        )
+        .limit(1),
     )
-    .limit(1);
-  return row[0] ?? null;
-}
+    return row[0] ?? null
+  })
 
-export async function listSourcesForWorkspace(
-  workspaceId: string,
-): Promise<Source[]> {
-  return await db
-    .select()
-    .from(sources)
-    .where(and(eq(sources.workspaceId, workspaceId), isNull(sources.deletedAt)))
-    .orderBy(desc(sources.createdAt));
-}
+export const listSourcesForWorkspaceEffect = (workspaceId: string) =>
+  Effect.gen(function* () {
+    const db = yield* DbClient
+    return yield* Effect.promise(() =>
+      db
+        .select()
+        .from(sources)
+        .where(
+          and(eq(sources.workspaceId, workspaceId), isNull(sources.deletedAt)),
+        )
+        .orderBy(desc(sources.createdAt)),
+    )
+  })
 
-export async function createUploadingSource(
+export const createUploadingSourceEffect = (
   workspaceId: string,
   input: {
-    title: string;
-    mimeType: string;
-    sizeBytes: number;
+    title: string
+    mimeType: string
+    sizeBytes: number
   },
-): Promise<Source> {
-  const [source] = await db
-    .insert(sources)
-    .values({
-      workspaceId,
-      title: input.title,
-      mimeType: input.mimeType,
-      sizeBytes: input.sizeBytes,
-      status: "uploading",
-    })
-    .returning();
+) =>
+  Effect.gen(function* () {
+    const db = yield* DbClient
+    const [source] = yield* Effect.promise(() =>
+      db
+        .insert(sources)
+        .values({
+          workspaceId,
+          title: input.title,
+          mimeType: input.mimeType,
+          sizeBytes: input.sizeBytes,
+          status: "uploading",
+        })
+        .returning(),
+    )
 
-  if (!source) {
-    throw new Error("createUploadingSource: insert did not return a row.");
-  }
+    if (!source) {
+      return yield* Effect.die(
+        new Error("createUploadingSource: insert did not return a row."),
+      )
+    }
 
-  return source;
-}
+    return source
+  })
 
-export async function markSourceParsing(
+export const markSourceParsingEffect = (
   workspaceId: string,
   sourceId: string,
   jobId: string,
-): Promise<Source | null> {
-  return await updateSourceInWorkspace(workspaceId, sourceId, {
+) =>
+  updateSourceInWorkspaceEffect(workspaceId, sourceId, {
     status: "parsing",
     knowhereJobId: jobId,
     failureReason: null,
-  });
-}
+  })
 
-export async function markSourceReady(
+export const markSourceReadyEffect = (
   workspaceId: string,
   sourceId: string,
   documentId: string,
-): Promise<Source | null> {
-  return await updateSourceInWorkspace(workspaceId, sourceId, {
+) =>
+  updateSourceInWorkspaceEffect(workspaceId, sourceId, {
     status: "ready",
     knowhereDocumentId: documentId,
     failureReason: null,
-  });
-}
+  })
 
-export async function markSourceFailed(
+export const markSourceFailedEffect = (
   workspaceId: string,
   sourceId: string,
   reason: string,
-): Promise<Source | null> {
-  return await updateSourceInWorkspace(workspaceId, sourceId, {
+) =>
+  updateSourceInWorkspaceEffect(workspaceId, sourceId, {
     status: "failed",
     failureReason: reason,
-  });
-}
+  })
 
-/**
- * Fetch a chat thread by id, scoped to the given workspace, excluding
- * soft-deleted rows. Same contract as `findSourceInWorkspace`.
- */
-export async function findChatThreadInWorkspace(
+export const findChatThreadInWorkspaceEffect = (
   workspaceId: string,
   threadId: string,
-): Promise<ChatThread | null> {
-  const row = await db
-    .select()
-    .from(chatThreads)
-    .where(
-      and(
-        eq(chatThreads.id, threadId),
-        eq(chatThreads.workspaceId, workspaceId),
-        isNull(chatThreads.deletedAt),
-      ),
+) =>
+  Effect.gen(function* () {
+    const db = yield* DbClient
+    const row = yield* Effect.promise(() =>
+      db
+        .select()
+        .from(chatThreads)
+        .where(
+          and(
+            eq(chatThreads.id, threadId),
+            eq(chatThreads.workspaceId, workspaceId),
+            isNull(chatThreads.deletedAt),
+          ),
+        )
+        .limit(1),
     )
-    .limit(1);
-  return row[0] ?? null;
-}
+    return row[0] ?? null
+  })
 
-export async function ensureDefaultChatThread(
-  workspaceId: string,
-): Promise<ChatThread> {
-  const existing = await db
-    .select()
-    .from(chatThreads)
-    .where(
-      and(
-        eq(chatThreads.workspaceId, workspaceId),
-        isNull(chatThreads.deletedAt),
-      ),
+export const ensureDefaultChatThreadEffect = (workspaceId: string) =>
+  Effect.gen(function* () {
+    const db = yield* DbClient
+    const existing = yield* Effect.promise(() =>
+      db
+        .select()
+        .from(chatThreads)
+        .where(
+          and(
+            eq(chatThreads.workspaceId, workspaceId),
+            isNull(chatThreads.deletedAt),
+          ),
+        )
+        .orderBy(desc(chatThreads.updatedAt))
+        .limit(1),
     )
-    .orderBy(desc(chatThreads.updatedAt))
-    .limit(1);
-  if (existing[0]) return existing[0];
+    if (existing[0]) return existing[0]
 
-  const [thread] = await db
-    .insert(chatThreads)
-    .values({ workspaceId })
-    .returning();
-  if (!thread) {
-    throw new Error("ensureDefaultChatThread: insert did not return a row.");
-  }
-  return thread;
-}
+    const [thread] = yield* Effect.promise(() =>
+      db.insert(chatThreads).values({ workspaceId }).returning(),
+    )
+    if (!thread) {
+      return yield* Effect.die(
+        new Error("ensureDefaultChatThread: insert did not return a row."),
+      )
+    }
+    return thread
+  })
 
-export async function listMessagesForThread(
+export const listMessagesForThreadEffect = (
   workspaceId: string,
   threadId: string,
-): Promise<ChatMessage[] | null> {
-  const thread = await findChatThreadInWorkspace(workspaceId, threadId);
-  if (!thread) return null;
+) =>
+  Effect.gen(function* () {
+    const db = yield* DbClient
+    const thread = yield* findChatThreadInWorkspaceEffect(workspaceId, threadId)
+    if (!thread) return null
 
-  return await db
-    .select()
-    .from(chatMessages)
-    .where(eq(chatMessages.threadId, threadId))
-    .orderBy(chatMessages.createdAt);
-}
+    return yield* Effect.promise(() =>
+      db
+        .select()
+        .from(chatMessages)
+        .where(eq(chatMessages.threadId, threadId))
+        .orderBy(chatMessages.createdAt),
+    )
+  })
 
-/**
- * Soft-delete a source if (and only if) it belongs to the workspace and
- * is not already deleted. Returns `true` when a row was updated.
- *
- * Used instead of a hard DELETE per @Pi's N-006 review criteria. The
- * sidebar list and all read helpers filter on `deleted_at IS NULL`, so
- * a soft-deleted source disappears from the UI but stays available for
- * retention sweeps and audit.
- */
-export async function softDeleteSource(
+export const softDeleteSourceEffect = (
   workspaceId: string,
   sourceId: string,
-): Promise<boolean> {
-  const result = await db
-    .update(sources)
-    .set({ deletedAt: sql`now()`, updatedAt: sql`now()` })
-    .where(
-      and(
-        eq(sources.id, sourceId),
-        eq(sources.workspaceId, workspaceId),
-        isNull(sources.deletedAt),
-      ),
+) =>
+  Effect.gen(function* () {
+    const db = yield* DbClient
+    const result = yield* Effect.promise(() =>
+      db
+        .update(sources)
+        .set({ deletedAt: sql`now()`, updatedAt: sql`now()` })
+        .where(
+          and(
+            eq(sources.id, sourceId),
+            eq(sources.workspaceId, workspaceId),
+            isNull(sources.deletedAt),
+          ),
+        )
+        .returning({ id: sources.id }),
     )
-    .returning({ id: sources.id });
-  return result.length > 0;
-}
+    return result.length > 0
+  })
 
-async function updateSourceInWorkspace(
+const updateSourceInWorkspaceEffect = (
   workspaceId: string,
   sourceId: string,
-  values: Partial<Pick<
-    Source,
-    "status" | "failureReason" | "knowhereJobId" | "knowhereDocumentId"
-  >>,
-): Promise<Source | null> {
-  const [source] = await db
-    .update(sources)
-    .set({ ...values, updatedAt: sql`now()` })
-    .where(
-      and(
-        eq(sources.id, sourceId),
-        eq(sources.workspaceId, workspaceId),
-        isNull(sources.deletedAt),
-      ),
+  values: Partial<
+    Pick<
+      Source,
+      "status" | "failureReason" | "knowhereJobId" | "knowhereDocumentId"
+    >
+  >,
+) =>
+  Effect.gen(function* () {
+    const db = yield* DbClient
+    const [source] = yield* Effect.promise(() =>
+      db
+        .update(sources)
+        .set({ ...values, updatedAt: sql`now()` })
+        .where(
+          and(
+            eq(sources.id, sourceId),
+            eq(sources.workspaceId, workspaceId),
+            isNull(sources.deletedAt),
+          ),
+        )
+        .returning(),
     )
-    .returning();
-  return source ?? null;
-}
+    return source ?? null
+  })
 
-/**
- * Soft-delete a chat thread. Cascading delete of messages is NOT applied
- * — messages stay intact so the thread can be restored later. The
- * transcript read path filters by `deleted_at IS NULL` on the thread
- * itself, so soft-deleted threads don't show up in the history list.
- */
-export async function softDeleteChatThread(
+export const softDeleteChatThreadEffect = (
   workspaceId: string,
   threadId: string,
-): Promise<boolean> {
-  const result = await db
-    .update(chatThreads)
-    .set({ deletedAt: sql`now()`, updatedAt: sql`now()` })
-    .where(
-      and(
-        eq(chatThreads.id, threadId),
-        eq(chatThreads.workspaceId, workspaceId),
-        isNull(chatThreads.deletedAt),
-      ),
+) =>
+  Effect.gen(function* () {
+    const db = yield* DbClient
+    const result = yield* Effect.promise(() =>
+      db
+        .update(chatThreads)
+        .set({ deletedAt: sql`now()`, updatedAt: sql`now()` })
+        .where(
+          and(
+            eq(chatThreads.id, threadId),
+            eq(chatThreads.workspaceId, workspaceId),
+            isNull(chatThreads.deletedAt),
+          ),
+        )
+        .returning({ id: chatThreads.id }),
     )
-    .returning({ id: chatThreads.id });
-  return result.length > 0;
-}
+    return result.length > 0
+  })
 
-/**
- * Append a user or assistant message to a thread, verifying the thread
- * belongs to the given workspace first. Bumps the thread's `updated_at`
- * so it floats to the top of the history list.
- *
- * Returns the inserted row, or `null` if the thread doesn't belong to
- * the workspace. Callers are responsible for mapping `null` to a 404 /
- * similar — we deliberately don't throw here so the same function can
- * be used from both server actions and the retrieval route.
- */
-export async function appendMessageToThread(
+export const appendMessageToThreadEffect = (
   workspaceId: string,
   input: {
-    threadId: string;
-    role: "user" | "assistant";
-    content: string;
-    citations?: readonly (CitationView | RetrievalResultView)[] | null;
+    threadId: string
+    role: "user" | "assistant"
+    content: string
+    citations?: readonly (CitationView | RetrievalResultView)[] | null
   },
-): Promise<ChatMessage | null> {
-  const thread = await findChatThreadInWorkspace(workspaceId, input.threadId);
-  if (!thread) return null;
+) =>
+  Effect.gen(function* () {
+    const db = yield* DbClient
+    const thread = yield* findChatThreadInWorkspaceEffect(
+      workspaceId,
+      input.threadId,
+    )
+    if (!thread) return null
 
-  return await db.transaction(async (tx) => {
-    const [inserted] = await tx
-      .insert(chatMessages)
-      .values({
-        threadId: input.threadId,
-        role: input.role,
-        content: input.content,
-        citations: normalizeCitations(input.citations),
-      })
-      .returning();
-    await tx
-      .update(chatThreads)
-      .set({ updatedAt: sql`now()` })
-      .where(eq(chatThreads.id, input.threadId));
-    return inserted ?? null;
-  });
-}
+    return yield* Effect.promise(() =>
+      db.transaction(async (tx) => {
+        const [inserted] = await tx
+          .insert(chatMessages)
+          .values({
+            threadId: input.threadId,
+            role: input.role,
+            content: input.content,
+            citations: normalizeCitations(input.citations),
+          })
+          .returning()
+        await tx
+          .update(chatThreads)
+          .set({ updatedAt: sql`now()` })
+          .where(eq(chatThreads.id, input.threadId))
+        return inserted ?? null
+      }),
+    )
+  })
+
+export const pingDatabaseEffect = Effect.gen(function* () {
+  const db = yield* DbClient
+  yield* Effect.promise(() => db.execute(sql`select 1`))
+})
+
+// ---- Async wrappers (Next.js boundary) ------------------------------------
+
+export const ensureWorkspace = (userId: string) =>
+  dbRuntime().runPromise(ensureWorkspaceEffect(userId))
+
+export const findSourceInWorkspace = (workspaceId: string, sourceId: string) =>
+  dbRuntime().runPromise(findSourceInWorkspaceEffect(workspaceId, sourceId))
+
+export const listSourcesForWorkspace = (workspaceId: string) =>
+  dbRuntime().runPromise(listSourcesForWorkspaceEffect(workspaceId))
+
+export const createUploadingSource = (
+  workspaceId: string,
+  input: {
+    title: string
+    mimeType: string
+    sizeBytes: number
+  },
+) =>
+  dbRuntime().runPromise(createUploadingSourceEffect(workspaceId, input))
+
+export const markSourceParsing = (
+  workspaceId: string,
+  sourceId: string,
+  jobId: string,
+) => dbRuntime().runPromise(markSourceParsingEffect(workspaceId, sourceId, jobId))
+
+export const markSourceReady = (
+  workspaceId: string,
+  sourceId: string,
+  documentId: string,
+) =>
+  dbRuntime().runPromise(markSourceReadyEffect(workspaceId, sourceId, documentId))
+
+export const markSourceFailed = (
+  workspaceId: string,
+  sourceId: string,
+  reason: string,
+) =>
+  dbRuntime().runPromise(markSourceFailedEffect(workspaceId, sourceId, reason))
+
+export const findChatThreadInWorkspace = (
+  workspaceId: string,
+  threadId: string,
+) =>
+  dbRuntime().runPromise(
+    findChatThreadInWorkspaceEffect(workspaceId, threadId),
+  )
+
+export const ensureDefaultChatThread = (workspaceId: string) =>
+  dbRuntime().runPromise(ensureDefaultChatThreadEffect(workspaceId))
+
+export const listMessagesForThread = (
+  workspaceId: string,
+  threadId: string,
+) =>
+  dbRuntime().runPromise(listMessagesForThreadEffect(workspaceId, threadId))
+
+export const softDeleteSource = (workspaceId: string, sourceId: string) =>
+  dbRuntime().runPromise(softDeleteSourceEffect(workspaceId, sourceId))
+
+export const softDeleteChatThread = (workspaceId: string, threadId: string) =>
+  dbRuntime().runPromise(softDeleteChatThreadEffect(workspaceId, threadId))
+
+export const appendMessageToThread = (
+  workspaceId: string,
+  input: {
+    threadId: string
+    role: "user" | "assistant"
+    content: string
+    citations?: readonly (CitationView | RetrievalResultView)[] | null
+  },
+) => dbRuntime().runPromise(appendMessageToThreadEffect(workspaceId, input))
+
+export const pingDatabase = () => dbRuntime().runPromise(pingDatabaseEffect)
+
+// ---- Helpers ---------------------------------------------------------------
 
 function normalizeCitations(
-  citations: readonly (CitationView | RetrievalResultView)[] | null | undefined,
+  citations:
+    | readonly (CitationView | RetrievalResultView)[]
+    | null
+    | undefined,
 ): CitationView[] | null {
-  if (!citations || citations.length === 0) return null;
-  return citations.map(toCitationView);
+  if (!citations || citations.length === 0) return null
+  return citations.map(toCitationView)
 }
 
-function toCitationView(citation: CitationView | RetrievalResultView): CitationView {
+function toCitationView(
+  citation: CitationView | RetrievalResultView,
+): CitationView {
   return {
     chunkType: citation.chunkType,
     score: citation.score,
@@ -355,14 +448,5 @@ function toCitationView(citation: CitationView | RetrievalResultView): CitationV
       sourceFileName: citation.source.sourceFileName,
       sectionPath: citation.source.sectionPath,
     },
-  };
-}
-
-/**
- * Smoke test for the Postgres connection. Used by any health-check
- * endpoint so we can verify the deploy without needing a real user
- * session.
- */
-export async function pingDatabase(): Promise<void> {
-  await db.execute(sql`select 1`);
+  }
 }

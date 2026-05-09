@@ -1,13 +1,14 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import type { DocumentChunk } from "@ontos-ai/knowhere-sdk";
+import { afterEach, describe, expect, it, vi } from "vitest"
+import type { DocumentChunk } from "@ontos-ai/knowhere-sdk"
+import { Effect } from "effect"
 
-import type { Source } from "./schema";
+import type { Source } from "./schema"
 import {
   loadChunksForSource,
   resolveCitationChunk,
   toParsedChunkView,
-} from "./chunks";
-import type { ChatCitationView } from "./types";
+} from "./chunks"
+import type { ChatCitationView } from "./types"
 
 describe("toParsedChunkView", () => {
   it("maps Knowhere document chunks to the parsed-content view shape", () => {
@@ -64,9 +65,11 @@ describe("loadChunksForSource", () => {
       knowhereDocumentId: "doc_123",
     });
 
-    const chunks = await loadChunksForSource(source, {
-      documents: { listChunks },
-    });
+    const chunks = await Effect.runPromise(
+      loadChunksForSource(source, {
+        documents: { listChunks },
+      }),
+    )
 
     expect(listChunks).toHaveBeenCalledWith("doc_123", {
       page: 1,
@@ -93,7 +96,9 @@ describe("loadChunksForSource", () => {
     });
 
     await expect(
-      loadChunksForSource(source, { documents: { listChunks } }),
+      Effect.runPromise(
+        loadChunksForSource(source, { documents: { listChunks } }),
+      ),
     ).resolves.toEqual([]);
     expect(listChunks).not.toHaveBeenCalled();
   });

@@ -2,14 +2,11 @@ import "server-only"
 
 import { cookies, headers } from "next/headers"
 import { redirect } from "next/navigation"
-import { Context, Effect, Either, Layer, Schema, Schedule } from "effect"
-import {
-  FetchHttpClient,
-  HttpClient,
-  HttpClientRequest,
-  HttpClientResponse,
-} from "@effect/platform"
+import { Context, Effect, Either, Layer, Schema } from "effect"
 import { authURLs } from "./auth-urls"
+import { sessionCookieNames } from "./session-cookie-names"
+
+export { sessionCookieNames }
 
 /**
  * Auth helpers for Knowhere Notebook.
@@ -47,24 +44,6 @@ const oRPCEnvelope = Schema.Struct({
   json: Schema.Struct({ user: Schema.Union(AuthUserFromORPC, Schema.Null).pipe(Schema.optionalWith({ default: () => null })) }),
 })
 
-// ---- Cookie names ---------------------------------------------------------
-
-const DEFAULT_SESSION_COOKIE_NAMES = [
-  "better-auth.session_token",
-  "__Secure-better-auth.session_token",
-] as const
-
-export function sessionCookieNames(): readonly string[] {
-  const override = process.env.SESSION_COOKIE_NAMES
-  if (override !== undefined && override.trim().length > 0) {
-    return override
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean)
-  }
-  return DEFAULT_SESSION_COOKIE_NAMES
-}
-
 // ---- Auth Service ---------------------------------------------------------
 
 export const Auth = Context.GenericTag<
@@ -73,62 +52,12 @@ export const Auth = Context.GenericTag<
 
 // ---- Auth Layer (production) ----------------------------------------------
 
-const DASHBOARD_SESSION_TIMEOUT_MS = 3_000
-
-/** Production auth layer backed by Dashboard oRPC + fetch. */
-export const authLayer = Layer.effect(
-  Auth,
-  Effect.gen(function* () {
-    const http = (yield* HttpClient.HttpClient).pipe(
-      HttpClient.filterStatusOk,
-      HttpClient.retryTransient({
-        schedule: Schedule.exponential(100),
-        times: 2,
-      }),
-    )
-
-    const getCurrentUser = Effect.fn("Auth.getCurrentUser")(function* () {
-      const origin = process.env.DASHBOARD_ORIGIN
-      if (!origin) {
-        return yield* Effect.die(
-          new Error(
-            "DASHBOARD_ORIGIN is required. Set it to the Dashboard origin " +
-              "(see .env.local.example).",
-          ),
-        )
-      }
-
-      const cookieHeader =
-        (yield* Effect.promise(() => headers())).get("cookie") ?? ""
-      if (cookieHeader.length === 0) return null
-
-      const url = `${origin}/api/orpc/users/getCurrentUser`
-      return yield* HttpClientRequest.post(url).pipe(
-        HttpClientRequest.setHeader("cookie", cookieHeader),
-        HttpClientRequest.setHeader("content-type", "application/json"),
-        HttpClientRequest.bodyText("{}"),
-        http.execute,
-        Effect.flatMap(HttpClientResponse.schemaBodyJson(oRPCEnvelope)),
-        Effect.map((body) => body.json.user),
-        Effect.timeout(DASHBOARD_SESSION_TIMEOUT_MS),
-        Effect.catchAll(() => Effect.succeed(null)),
-      )
-    })
-
-    return { getCurrentUser }
-  }),
-).pipe(Layer.provide(FetchHttpClient.layer))
+export const authLayer = Layer.succeed(Auth, {
+  getCurrentUser: () => Effect.promise(() => getCurrentUser()),
+})
 
 // ---- Public API (Promise-based, for Next.js compatibility) ----------------
 
-/**
- * Server-side session lookup. Returns the authenticated user, or `null`
- * if the session is missing, expired, or Dashboard is unreachable.
- *
- * Do not cache the result across requests — session can expire mid-session.
- * The Next.js request cache makes this effectively a no-op when called
- * multiple times in the same request.
- */
 export async function getCurrentUser(): Promise<AuthUser | null> {
   const origin = process.env.DASHBOARD_ORIGIN
   if (!origin) {

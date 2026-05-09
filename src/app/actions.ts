@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 
 import { ensureApiKeyForWorkspace } from "@/lib/api-key-service";
 import { requireUser } from "@/lib/auth";
-import { getKnowhereClient } from "@/lib/knowhere";
+import { makeKnowhereClient } from "@/lib/knowhere";
 import { toSourceView } from "@/lib/source-view";
 import { uploadSourceToKnowhere } from "@/lib/source-upload";
 import {
@@ -50,7 +50,7 @@ export async function uploadSourceAction(
           return source;
         },
       },
-      knowhere: getKnowhereClient(apiKey),
+      knowhere: makeKnowhereClient(apiKey),
     });
     revalidatePath("/");
     return { ok: true, message: null, source: toSourceView(source) };

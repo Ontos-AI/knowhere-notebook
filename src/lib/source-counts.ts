@@ -1,54 +1,64 @@
-import "server-only";
+import "server-only"
 
-import type Knowhere from "@ontos-ai/knowhere-sdk";
+import { Effect, Either } from "effect"
+import type Knowhere from "@ontos-ai/knowhere-sdk"
 
-import type { Source } from "./schema";
+import type { Source } from "./schema"
 
-export async function countChunksBySourceId(
+export const countChunksBySourceId = (
   sources: readonly Source[],
   client: Knowhere,
-): Promise<Map<string, number>> {
-  const readySources = sources.filter(
-    (source) => source.status === "ready" && source.knowhereDocumentId,
-  );
-  if (readySources.length === 0) return new Map();
+) =>
+  Effect.gen(function* () {
+    const readySources = sources.filter(
+      (source) => source.status === "ready" && source.knowhereDocumentId,
+    )
+    if (readySources.length === 0) return new Map<string, number>()
 
-  const entries = await Promise.all(
-    readySources.map(async (source) => {
-      const documentId = source.knowhereDocumentId;
-      if (!documentId) return [source.id, undefined] as const;
+    const entries = yield* Effect.all(
+      readySources.map((source) =>
+        Effect.gen(function* () {
+          const documentId = source.knowhereDocumentId
+          if (!documentId) return [source.id, undefined] as const
 
-      try {
-        const response = await client.documents.listChunks(documentId, {
-          page: 1,
-          pageSize: 1,
-        });
-        return [source.id, response.pagination.total] as const;
-      } catch {
-        return [source.id, undefined] as const;
-      }
-    }),
-  );
+          const result = yield* Effect.either(
+            Effect.tryPromise(() =>
+              client.documents.listChunks(documentId, {
+                page: 1,
+                pageSize: 1,
+              }),
+            ),
+          )
 
-  return new Map(
-    entries.filter(
-      (entry): entry is readonly [string, number] =>
-        typeof entry[1] === "number",
-    ),
-  );
-}
+          if (Either.isLeft(result)) return [source.id, undefined] as const
 
-export async function sourceViewOptionsBySourceId(
+          return [
+            source.id,
+            result.right.pagination.total,
+          ] as const
+        }),
+      ),
+      { concurrency: "unbounded" },
+    )
+
+    return new Map(
+      entries.filter(
+        (entry): entry is readonly [string, number] =>
+          typeof entry[1] === "number",
+      ),
+    )
+  })
+
+export const sourceViewOptionsBySourceId = (
   sources: readonly Source[],
   client: Knowhere,
-): Promise<Map<string, { chunkCount?: number }>> {
-  const counts = await countChunksBySourceId(sources, client);
-  return new Map(
-    sources.map((source) => [
-      source.id,
-      {
-        chunkCount: counts.get(source.id),
-      },
-    ]),
-  );
-}
+) =>
+  Effect.gen(function* () {
+    const counts = yield* countChunksBySourceId(sources, client)
+    return new Map(
+      sources.map((source) => [
+        source.id,
+        { chunkCount: counts.get(source.id) },
+      ]),
+    )
+  })

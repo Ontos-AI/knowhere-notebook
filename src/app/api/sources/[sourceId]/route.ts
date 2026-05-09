@@ -4,7 +4,7 @@ import { Schema } from "effect";
 
 import { ensureApiKeyForWorkspace } from "@/lib/api-key-service";
 import { requireUser } from "@/lib/auth";
-import { getKnowhereClient } from "@/lib/knowhere";
+import { makeKnowhereClient } from "@/lib/knowhere";
 import { ensureWorkspace, findSourceInWorkspace, softDeleteSource } from "@/lib/workspace";
 
 type RouteContext = {
@@ -53,7 +53,7 @@ export async function PATCH(
   if (source.knowhereDocumentId) {
     const cookieHeader = (await headers()).get("cookie") ?? ""
     const apiKey = await ensureApiKeyForWorkspace(workspace.id, cookieHeader)
-    const client = getKnowhereClient(apiKey)
+    const client = makeKnowhereClient(apiKey)
     await client.documents.archive(source.knowhereDocumentId);
   }
 

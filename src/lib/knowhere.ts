@@ -26,21 +26,9 @@ export const knowhereClientLayer = Layer.sync(KnowhereClient, () => {
 })
 
 /**
- * Create a Knowhere client. When `apiKey` is provided it is used directly;
- * otherwise falls back to the `KNOWHERE_API_KEY` environment variable.
- *
- * Prefer passing a per-user API key from `ensureApiKeyForWorkspace` in
- * request-handling code. The env-var fallback exists for local dev and
- * for tests that don't exercise the full auth flow.
+ * Create a Knowhere client with the given API key.
+ * Use for per-request clients created from Dashboard-issued JWTs.
  */
-export function getKnowhereClient(apiKey?: string): Knowhere {
-  const key = apiKey ?? process.env.KNOWHERE_API_KEY
-  const baseURL = process.env.KNOWHERE_BASE_URL
-  if (!key) {
-    throw new Error(
-      "KNOWHERE_API_KEY environment variable or per-user API key is required. " +
-        "Set it in your .env.local file.",
-    )
-  }
-  return new Knowhere({ apiKey: key, baseURL })
+export function makeKnowhereClient(apiKey: string): Knowhere {
+  return new Knowhere({ apiKey, baseURL: process.env.KNOWHERE_BASE_URL })
 }
