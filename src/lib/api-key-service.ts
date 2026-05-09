@@ -7,6 +7,7 @@ import {
   HttpClientRequest,
   HttpClientResponse,
 } from "@effect/platform"
+import { logger } from "./logger"
 
 /**
  * Shape of the Dashboard JWT issuance response (oRPC envelope).
@@ -65,11 +66,24 @@ export const fetchKnowhereJwtEffect = (cookieHeader: string) =>
 export async function fetchKnowhereJwt(
   cookieHeader: string,
 ): Promise<string> {
-  return Effect.runPromise(
-    fetchKnowhereJwtEffect(cookieHeader).pipe(
-      Effect.provide(FetchHttpClient.layer),
-    ),
-  )
+  const start = Date.now()
+  try {
+    const token = await Effect.runPromise(
+      fetchKnowhereJwtEffect(cookieHeader).pipe(
+        Effect.provide(FetchHttpClient.layer),
+      ),
+    )
+    logger.info("dashboard: POST /api/orpc/users/issueServiceJwt ok", {
+      durationMs: Date.now() - start,
+    })
+    return token
+  } catch (error) {
+    logger.error("dashboard: POST /api/orpc/users/issueServiceJwt failed", {
+      durationMs: Date.now() - start,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    throw error
+  }
 }
 
 /**

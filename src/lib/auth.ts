@@ -11,6 +11,7 @@ import {
 } from "@effect/platform"
 import { authURLs } from "./auth-urls"
 import { sessionCookieNames } from "./session-cookie-names"
+import { logger } from "./logger"
 
 export { sessionCookieNames }
 
@@ -108,9 +109,29 @@ export const authLayer = Layer.effect(
 // ---- Public API (Promise-based, for Next.js compatibility) ----------------
 
 export async function getCurrentUser(): Promise<AuthUser | null> {
-  return Effect.runPromise(
+  const cookieHeader = (await headers()).get("cookie") ?? ""
+  if (cookieHeader.length === 0) {
+    logger.info("dashboard: POST /api/orpc/users/getCurrentUser skipped (no session cookie)")
+    return null
+  }
+
+  const start = Date.now()
+  const user = await Effect.runPromise(
     getCurrentUserEffect.pipe(Effect.provide(FetchHttpClient.layer)),
   )
+
+  if (user === null) {
+    logger.info("dashboard: POST /api/orpc/users/getCurrentUser -> no valid session", {
+      durationMs: Date.now() - start,
+    })
+  } else {
+    logger.info("dashboard: POST /api/orpc/users/getCurrentUser ok", {
+      userId: user.id,
+      durationMs: Date.now() - start,
+    })
+  }
+
+  return user
 }
 
 /**

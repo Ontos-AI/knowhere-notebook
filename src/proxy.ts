@@ -27,9 +27,12 @@ const PUBLIC_PATHS: readonly string[] = [
   "/api/internal/health",
 ]
 
+const STATIC_EXTENSIONS = /\.(?:svg|png|jpe?g|gif|webp|ico|woff2?|ttf|eot|css|js|map|txt|xml|webmanifest|json|pdf)$/i
+
 function isPublicPath(pathname: string): boolean {
   if (pathname.startsWith("/_next")) return true
   if (pathname.startsWith("/api/internal/")) return true
+  if (STATIC_EXTENSIONS.test(pathname)) return true
   return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"))
 }
 
