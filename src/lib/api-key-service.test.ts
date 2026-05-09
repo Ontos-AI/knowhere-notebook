@@ -7,6 +7,35 @@ vi.mock("./db", () => ({
 
 import { fetchKnowhereJwt, isAuthError } from "./api-key-service"
 
+function getHeaderValue(headers: HeadersInit | undefined, name: string): string | null {
+  if (headers === undefined) return null
+  if (headers instanceof Headers) return headers.get(name)
+
+  const lowerName = name.toLowerCase()
+  if (Array.isArray(headers)) {
+    const pair = headers.find(([key]) => key.toLowerCase() === lowerName)
+    return pair?.[1] ?? null
+  }
+
+  const entry = Object.entries(headers).find(
+    ([key]) => key.toLowerCase() === lowerName,
+  )
+  return entry?.[1] ?? null
+}
+
+async function readBodyText(body: BodyInit | null | undefined): Promise<string | null> {
+  if (body === undefined || body === null) return null
+  if (typeof body === "string") return body
+  if (body instanceof Blob) return await body.text()
+  if (body instanceof URLSearchParams) return body.toString()
+  if (body instanceof ArrayBuffer) return new TextDecoder().decode(body)
+  if (ArrayBuffer.isView(body)) {
+    const bytes = new Uint8Array(body.buffer, body.byteOffset, body.byteLength)
+    return new TextDecoder().decode(bytes)
+  }
+  return null
+}
+
 describe("isAuthError", () => {
   it("detects 401 status on a Response object", () => {
     expect(isAuthError(new Response(null, { status: 401 }))).toBe(true)
@@ -86,11 +115,11 @@ describe("fetchKnowhereJwt", () => {
     expect((init as RequestInit)?.method).toBe("POST")
 
     const reqHeaders = (init as RequestInit)?.headers
-    if (reqHeaders instanceof Headers) {
-      expect(reqHeaders.get("cookie")).toBe("session=xyz; other=val")
-    } else {
-      expect(reqHeaders).toMatchObject({ cookie: "session=xyz; other=val" })
-    }
+    expect(getHeaderValue(reqHeaders, "cookie")).toBe("session=xyz; other=val")
+    expect(getHeaderValue(reqHeaders, "content-type")).toContain(
+      "application/json",
+    )
+    expect(await readBodyText((init as RequestInit)?.body)).toBe("{}")
   })
 
   it("throws when DASHBOARD_ORIGIN is not set", async () => {
@@ -107,7 +136,7 @@ describe("fetchKnowhereJwt", () => {
       .mockResolvedValue(new Response("oops", { status: 503 }))
     await expect(
       fetchKnowhereJwt("session=x"),
-    ).rejects.toThrow(/Dashboard JWT issuance failed/)
+    ).rejects.toThrow(/Dashboard JWT issuance: non-2xx/)
   })
 
   it("throws on malformed response body", async () => {
@@ -120,7 +149,7 @@ describe("fetchKnowhereJwt", () => {
     )
     await expect(
       fetchKnowhereJwt("session=x"),
-    ).rejects.toThrow(/Dashboard JWT issuance failed/)
+    ).rejects.toThrow(/Dashboard JWT issuance: schema mismatch .*"json":null/)
   })
 
   it("throws if the token string is empty", async () => {
@@ -133,6 +162,6 @@ describe("fetchKnowhereJwt", () => {
     )
     await expect(
       fetchKnowhereJwt("session=x"),
-    ).rejects.toThrow(/Dashboard JWT issuance failed/)
+    ).rejects.toThrow(/Dashboard JWT issuance: schema mismatch .*"token":""/)
   })
 })

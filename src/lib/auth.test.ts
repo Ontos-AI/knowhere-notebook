@@ -21,6 +21,40 @@ import { extractUser, sessionCookieNames } from "./auth"
 
 const SESSION_PATH = "/api/orpc/users/getCurrentUser"
 
+type ParsedLogLine = {
+  readonly body?: unknown
+  readonly msg?: unknown
+}
+
+function getHeaderValue(headers: HeadersInit | undefined, name: string): string | null {
+  if (headers === undefined) return null
+  if (headers instanceof Headers) return headers.get(name)
+
+  const lowerName = name.toLowerCase()
+  if (Array.isArray(headers)) {
+    const pair = headers.find(([key]) => key.toLowerCase() === lowerName)
+    return pair?.[1] ?? null
+  }
+
+  const entry = Object.entries(headers).find(
+    ([key]) => key.toLowerCase() === lowerName,
+  )
+  return entry?.[1] ?? null
+}
+
+async function readBodyText(body: BodyInit | null | undefined): Promise<string | null> {
+  if (body === undefined || body === null) return null
+  if (typeof body === "string") return body
+  if (body instanceof Blob) return await body.text()
+  if (body instanceof URLSearchParams) return body.toString()
+  if (body instanceof ArrayBuffer) return new TextDecoder().decode(body)
+  if (ArrayBuffer.isView(body)) {
+    const bytes = new Uint8Array(body.buffer, body.byteOffset, body.byteLength)
+    return new TextDecoder().decode(bytes)
+  }
+  return null
+}
+
 describe("extractUser", () => {
   it("returns null when body is not an object", () => {
     expect(extractUser(null)).toBeNull()
@@ -155,13 +189,22 @@ describe("getCurrentUser", () => {
     const user = await getCurrentUser()
     expect(user).toEqual({ id: "u1", email: "a@b", name: null })
     expect(fetchSpy).toHaveBeenCalledOnce()
-    const [req] = fetchSpy.mock.calls[0]!
+    const [req, init] = fetchSpy.mock.calls[0]!
     const requestUrl =
       req instanceof Request ? req.url
       : req instanceof URL ? req.href
       : typeof req === "string" ? req
       : String(req)
     expect(requestUrl).toBe(expectedUrl)
+    const requestHeaders =
+      req instanceof Request ? req.headers : (init as RequestInit | undefined)?.headers
+    expect(getHeaderValue(requestHeaders, "cookie")).toBe(
+      "better-auth.session_token=abc; other=val",
+    )
+    expect(getHeaderValue(requestHeaders, "content-type")).toContain(
+      "application/json",
+    )
+    expect(await readBodyText((init as RequestInit | undefined)?.body)).toBe("{}")
   })
 
   it("returns null on Dashboard non-2xx response", async () => {
@@ -197,6 +240,30 @@ describe("getCurrentUser", () => {
     )
     const { getCurrentUser } = await loadWithCookie("session=x")
     expect(await getCurrentUser()).toBeNull()
+  })
+
+  it("logs the JSON body when Dashboard returns an unexpected response shape", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+    try {
+      globalThis.fetch = vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(JSON.stringify({ user: { id: "u1" } }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      const { getCurrentUser } = await loadWithCookie("session=x")
+
+      expect(await getCurrentUser()).toBeNull()
+
+      const line = String(warnSpy.mock.calls[0]?.[0] ?? "")
+      const parsed = JSON.parse(line) as ParsedLogLine
+      expect(parsed.msg).toBe(
+        "dashboard: POST /api/orpc/users/getCurrentUser -> schema mismatch",
+      )
+      expect(parsed.body).toBe(JSON.stringify({ user: { id: "u1" } }))
+    } finally {
+      warnSpy.mockRestore()
+    }
   })
 
   it("throws when DASHBOARD_ORIGIN is not configured", async () => {
