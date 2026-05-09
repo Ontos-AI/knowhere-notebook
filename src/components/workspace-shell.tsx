@@ -1,75 +1,105 @@
-"use client";
+"use client"
 
-import { startTransition, useEffect, useState } from "react";
-import { TopNav } from "@/components/top-nav";
-import { SourcesPanel } from "@/components/sources-panel";
-import { ChunksPanel } from "@/components/chunks-panel";
-import { ChatPanel } from "@/components/chat-panel";
-import { MobileTabBar } from "@/components/mobile-tab-bar";
-import { resolveCitationChunk } from "@/lib/chunks";
+import { startTransition, useEffect, useState } from "react"
+import { Effect } from "effect"
+import {
+  FetchHttpClient,
+  HttpClient,
+  HttpClientRequest,
+} from "@effect/platform"
+import { TopNav } from "@/components/top-nav"
+import { SourcesPanel } from "@/components/sources-panel"
+import { ChunksPanel } from "@/components/chunks-panel"
+import { ChatPanel } from "@/components/chat-panel"
+import { MobileTabBar } from "@/components/mobile-tab-bar"
+import { resolveCitationChunk } from "@/lib/chunks"
 import type {
   ChatCitationView,
   ChatMessageView,
   ParsedChunkView,
   SourceView,
-} from "@/lib/types";
-import type { UploadSourceActionState } from "@/app/actions";
+} from "@/lib/types"
+import type { UploadSourceActionState } from "@/app/actions"
+
+const getJson = <T,>(url: string) =>
+  Effect.runPromise(
+    Effect.flatMap(
+      HttpClientRequest.get(url).pipe(HttpClient.execute),
+      (res) => res.json,
+    ).pipe(Effect.provide(FetchHttpClient.layer)) as Effect.Effect<T>,
+  )
+
+const postJson = <T,>(url: string, body: unknown) =>
+  Effect.runPromise(
+    Effect.flatMap(
+      HttpClientRequest.post(url).pipe(
+        HttpClientRequest.setHeader("content-type", "application/json"),
+        HttpClientRequest.bodyText(JSON.stringify(body)),
+        HttpClient.execute,
+      ),
+      (res) => res.json,
+    ).pipe(Effect.provide(FetchHttpClient.layer)) as Effect.Effect<T>,
+  )
+
+const patchJson = <T,>(url: string, body: unknown) =>
+  Effect.runPromise(
+    Effect.flatMap(
+      HttpClientRequest.patch(url).pipe(
+        HttpClientRequest.setHeader("content-type", "application/json"),
+        HttpClientRequest.bodyText(JSON.stringify(body)),
+        HttpClient.execute,
+      ),
+      (res) => res.json,
+    ).pipe(Effect.provide(FetchHttpClient.layer)) as Effect.Effect<T>,
+  )
 
 /**
  * Which panel the mobile bottom-tab bar shows.
  */
-export type PanelId = "sources" | "content" | "chat";
+export type PanelId = "sources" | "content" | "chat"
 
 type ChunkLoadState = {
-  sourceId: string | null;
-  chunks: ParsedChunkView[];
-  isLoading: boolean;
-};
+  sourceId: string | null
+  chunks: ParsedChunkView[]
+  isLoading: boolean
+}
 
 type ChatState = {
-  threadId: string | null;
-  messages: ChatMessageView[];
-  isSending: boolean;
-  error: string | null;
-};
+  threadId: string | null
+  messages: ChatMessageView[]
+  isSending: boolean
+  error: string | null
+}
 
 export type WorkspaceShellProps = {
   user?: {
-    id: string;
-    name: string | null;
-    email: string | null;
-  };
+    id: string
+    name: string | null
+    email: string | null
+  }
   workspace?: {
-    id: string;
-    namespace: string;
-  };
-  sources?: SourceView[];
+    id: string
+    namespace: string
+  }
+  sources?: SourceView[]
   uploadAction?: (
     state: UploadSourceActionState,
     formData: FormData,
-  ) => Promise<UploadSourceActionState>;
+  ) => Promise<UploadSourceActionState>
   /** When true, the shell renders a read-only demo view for guests. */
-  isGuest?: boolean;
+  isGuest?: boolean
   /** Demo source shown to unauthenticated users. */
-  demoSource?: SourceView;
+  demoSource?: SourceView
   /** Demo chunks shown to unauthenticated users. */
-  demoChunks?: ParsedChunkView[];
+  demoChunks?: ParsedChunkView[]
   /**
    * Pre-built login URL with callbackURL. Passed from the server
    * component — do not read process.env in the client shell for auth
    * redirects because DASHBOARD_ORIGIN is not NEXT_PUBLIC_.
    */
-  loginUrl?: string;
-};
+  loginUrl?: string
+}
 
-/**
- * Authenticated workspace shell.
- *
- * Receives identity and workspace metadata from the server component that
- * already verified the session. Sources / chunks / messages are still
- * placeholders until PR-C (upload) and PR-E (chat) wire them to the
- * Knowhere API and Postgres.
- */
 export function WorkspaceShell({
   user,
   sources: initialSources,
@@ -79,107 +109,112 @@ export function WorkspaceShell({
   demoChunks,
   loginUrl,
 }: WorkspaceShellProps) {
-  const guestSources = demoSource ? [demoSource] : [];
-  const guestChunks = demoChunks ?? [];
-  const initialSrcs = isGuest ? guestSources : (initialSources ?? []);
+  const guestSources = demoSource ? [demoSource] : []
+  const guestChunks = demoChunks ?? []
+  const initialSrcs = isGuest ? guestSources : (initialSources ?? [])
 
-  const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
-  const [focusedChunkId, setFocusedChunkId] = useState<string | null>(null);
-  const [sources, setSources] = useState(initialSrcs);
-  const [mobilePanel, setMobilePanel] = useState<PanelId>("chat");
+  const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null)
+  const [focusedChunkId, setFocusedChunkId] = useState<string | null>(null)
+  const [sources, setSources] = useState(initialSrcs)
+  const [mobilePanel, setMobilePanel] = useState<PanelId>("chat")
   const [chat, setChat] = useState<ChatState>({
     threadId: null,
     messages: [],
     isSending: false,
     error: null,
-  });
+  })
   const [chunkLoad, setChunkLoad] = useState<ChunkLoadState>({
     sourceId: null,
     chunks: isGuest ? guestChunks : [],
     isLoading: false,
-  });
+  })
 
   function redirectToLogin() {
-    window.location.href = loginUrl ?? "/login";
+    window.location.href = loginUrl ?? "/login"
   }
 
   useEffect(() => {
     const hasPendingSources = sources.some(
       (source) => source.status === "uploading" || source.status === "parsing",
-    );
-    if (!hasPendingSources) return;
+    )
+    if (!hasPendingSources) return
 
     const interval = window.setInterval(() => {
       startTransition(async () => {
-        const response = await fetch("/api/sources", { cache: "no-store" });
-        if (!response.ok) return;
-        const body = (await response.json()) as { sources?: SourceView[] };
-        if (!Array.isArray(body.sources)) return;
-        const refreshedSources = body.sources;
+        try {
+          const body = await getJson<{ sources?: SourceView[] }>(
+            "/api/sources",
+          )
+          if (!Array.isArray(body.sources)) return
+          const refreshedSources = body.sources
 
-        setSources((current) => mergeSourceQueryState(refreshedSources, current));
-        const selectedSource = refreshedSources.find(
-          (source) => source.id === selectedSourceId,
-        );
-        if (
-          selectedSource &&
-          selectedSource.status === "ready" &&
-          chunkLoad.sourceId !== selectedSource.id
-        ) {
-          setChunkLoad({ sourceId: selectedSource.id, chunks: [], isLoading: true });
+          setSources((current) =>
+            mergeSourceQueryState(refreshedSources, current),
+          )
+          const selectedSource = refreshedSources.find(
+            (source) => source.id === selectedSourceId,
+          )
+          if (
+            selectedSource &&
+            selectedSource.status === "ready" &&
+            chunkLoad.sourceId !== selectedSource.id
+          ) {
+            setChunkLoad({
+              sourceId: selectedSource.id,
+              chunks: [],
+              isLoading: true,
+            })
+          }
+        } catch {
+          // Poll interval — silently ignore transient errors.
         }
-      });
-    }, 3000);
+      })
+    }, 3000)
 
-    return () => window.clearInterval(interval);
-  }, [chunkLoad.sourceId, selectedSourceId, sources]);
+    return () => window.clearInterval(interval)
+  }, [chunkLoad.sourceId, selectedSourceId, sources])
 
   useEffect(() => {
-    if (!chunkLoad.isLoading || !chunkLoad.sourceId) return;
+    if (!chunkLoad.isLoading || !chunkLoad.sourceId) return
 
-    let isCurrent = true;
+    let isCurrent = true
     startTransition(async () => {
       try {
-        const response = await fetch(
+        const body = await getJson<{ chunks?: ParsedChunkView[] }>(
           `/api/sources/${encodeURIComponent(chunkLoad.sourceId!)}/chunks`,
-          { cache: "no-store" },
-        );
-        if (!response.ok) return;
-        const body = (await response.json()) as {
-          chunks?: ParsedChunkView[];
-        };
-        if (!isCurrent) return;
+        )
+        if (!isCurrent) return
         setChunkLoad({
           sourceId: chunkLoad.sourceId,
           chunks: Array.isArray(body.chunks) ? body.chunks : [],
           isLoading: false,
-        });
+        })
       } finally {
         if (isCurrent) {
           setChunkLoad((current) =>
             current.sourceId === chunkLoad.sourceId
               ? { ...current, isLoading: false }
               : current,
-          );
+          )
         }
       }
-    });
+    })
 
     return () => {
-      isCurrent = false;
-    };
-  }, [chunkLoad.isLoading, chunkLoad.sourceId]);
+      isCurrent = false
+    }
+  }, [chunkLoad.isLoading, chunkLoad.sourceId])
 
-  const showParsed = selectedSourceId !== null || focusedChunkId !== null;
-  const showChat = selectedSourceId === null || focusedChunkId !== null;
+  const showParsed = selectedSourceId !== null || focusedChunkId !== null
+  const showChat = selectedSourceId === null || focusedChunkId !== null
   const selectedSourceTitle =
-    sources.find((source) => source.id === selectedSourceId)?.title ?? null;
+    sources.find((source) => source.id === selectedSourceId)?.title ?? null
 
   function handleSourceUploaded(source: SourceView) {
     setSources((current) => [
       source,
       ...current.filter((candidate) => candidate.id !== source.id),
-    ]);
+    ])
   }
 
   function handleToggleIncluded(sourceId: string, included: boolean) {
@@ -189,135 +224,116 @@ export function WorkspaceShell({
           ? { ...source, excludedFromQuery: !included }
           : source,
       ),
-    );
+    )
   }
 
   async function handleArchiveSource(sourceId: string) {
-    const response = await fetch(
-      `/api/sources/${encodeURIComponent(sourceId)}`,
-      {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ archived: true }),
-      },
-    );
-    if (response.ok) {
+    try {
+      await patchJson(`/api/sources/${encodeURIComponent(sourceId)}`, {
+        archived: true,
+      })
       setSources((current) =>
         current.filter((source) => source.id !== sourceId),
-      );
+      )
       setSelectedSourceId((current) =>
         current === sourceId ? null : current,
-      );
+      )
+    } catch {
+      // Silently ignore — the source stays in the list.
     }
   }
 
   function handleSourceSelected(sourceId: string | null) {
-    setSelectedSourceId(sourceId);
-    setFocusedChunkId(null);
-    setChunkLoad({ sourceId: null, chunks: [], isLoading: false });
+    setSelectedSourceId(sourceId)
+    setFocusedChunkId(null)
+    setChunkLoad({ sourceId: null, chunks: [], isLoading: false })
 
-    if (!sourceId) return;
+    if (!sourceId) return
 
-    const source = sources.find((candidate) => candidate.id === sourceId);
-    if (!source || source.status !== "ready") return;
+    const source = sources.find((candidate) => candidate.id === sourceId)
+    if (!source || source.status !== "ready") return
 
-    setChunkLoad({ sourceId, chunks: [], isLoading: true });
+    setChunkLoad({ sourceId, chunks: [], isLoading: true })
   }
 
   async function handleChatSend(text: string) {
-    // Optimistically append the user message so the UI responds
-    // immediately, before the /api/chat roundtrip completes.
-    const optimisticId = `pending-${Date.now()}`;
+    const optimisticId = `pending-${Date.now()}`
     const optimisticUser: ChatMessageView = {
       id: optimisticId,
       role: "user",
       content: text,
-    };
+    }
     setChat((current) => ({
       ...current,
       isSending: true,
       error: null,
       messages: [...current.messages, optimisticUser],
-    }));
+    }))
     try {
-      const response = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          message: text,
-          threadId: chat.threadId ?? undefined,
-          excludedSourceIds: sources
-            .filter((source) => source.excludedFromQuery)
-            .map((source) => source.id),
-        }),
-      });
-      const body = (await response.json()) as {
-        threadId?: string;
-        messages?: ChatMessageView[];
-        message?: string;
-      };
-      if (!response.ok || !body.threadId || !Array.isArray(body.messages)) {
+      const body = await postJson<{
+        threadId?: string
+        messages?: ChatMessageView[]
+        message?: string
+      }>("/api/chat", {
+        message: text,
+        threadId: chat.threadId ?? undefined,
+        excludedSourceIds: sources
+          .filter((source) => source.excludedFromQuery)
+          .map((source) => source.id),
+      })
+
+      if (!body.threadId || !Array.isArray(body.messages)) {
         setChat((current) => ({
           ...current,
           isSending: false,
-          messages: current.messages.filter(
-            (m) => m.id !== optimisticId,
-          ),
+          messages: current.messages.filter((m) => m.id !== optimisticId),
           error: body.message ?? "The assistant could not answer right now.",
-        }));
-        return;
+        }))
+        return
       }
 
       setChat((current) => {
-        // Keep the optimistic user message in place (it's already
-        // visible to the user), and only append the assistant messages
-        // that the server generated. The optimistic id stays as the
-        // React key — no noticeable difference vs the server-assigned
-        // UUID for the user, since only the assistant response content
-        // is new.
         const assistantMessages = body.messages!.filter(
           (m) => m.role === "assistant",
-        );
+        )
         return {
           threadId: body.threadId ?? current.threadId,
           messages: [...current.messages, ...assistantMessages],
           isSending: false,
           error: null,
-        };
-      });
+        }
+      })
     } catch {
       setChat((current) => ({
         ...current,
         isSending: false,
-        messages: current.messages.filter(
-          (m) => m.id !== optimisticId,
-        ),
+        messages: current.messages.filter((m) => m.id !== optimisticId),
         error: "The assistant could not answer right now.",
-      }));
+      }))
     }
   }
 
   async function handleCitationClick(citation: ChatCitationView) {
     const source = sources.find(
       (candidate) => candidate.documentId === citation.source.documentId,
-    );
-    if (!source) return;
+    )
+    if (!source) return
 
-    setSelectedSourceId(source.id);
-    setFocusedChunkId(null);
-    setChunkLoad({ sourceId: source.id, chunks: [], isLoading: true });
+    setSelectedSourceId(source.id)
+    setFocusedChunkId(null)
+    setChunkLoad({ sourceId: source.id, chunks: [], isLoading: true })
 
-    const chunks = await fetchChunks(source.id);
-    const focusedChunk = resolveCitationChunk(citation, chunks);
-    setChunkLoad({ sourceId: source.id, chunks, isLoading: false });
-    setFocusedChunkId(focusedChunk?.chunkId ?? null);
+    const chunks = await fetchChunks(source.id)
+    const focusedChunk = resolveCitationChunk(citation, chunks)
+    setChunkLoad({ sourceId: source.id, chunks, isLoading: false })
+    setFocusedChunkId(focusedChunk?.chunkId ?? null)
   }
 
   const readySourceCount = sources.filter(
     (source) => source.status === "ready",
-  ).length;
+  ).length
 
-  const hasMessages = chat.messages.length > 0;
+  const hasMessages = chat.messages.length > 0
 
   return (
     <div className="flex h-screen w-full flex-col overflow-hidden bg-[#fafafa]">
@@ -334,16 +350,16 @@ export function WorkspaceShell({
           selectedSourceId={selectedSourceId}
           onSelectSource={(id) => {
             if (isGuest) {
-              setSelectedSourceId(id);
-              setFocusedChunkId(null);
+              setSelectedSourceId(id)
+              setFocusedChunkId(null)
               setChunkLoad({
                 sourceId: id,
                 chunks: id ? guestChunks : [],
                 isLoading: false,
-              });
-              return;
+              })
+              return
             }
-            handleSourceSelected(id);
+            handleSourceSelected(id)
           }}
           onToggleIncluded={isGuest ? undefined : handleToggleIncluded}
           onArchiveSource={isGuest ? undefined : handleArchiveSource}
@@ -357,9 +373,9 @@ export function WorkspaceShell({
             focusedChunkId={focusedChunkId}
             isLoading={chunkLoad.isLoading}
             onClose={() => {
-              setSelectedSourceId(null);
-              setFocusedChunkId(null);
-              setChunkLoad({ sourceId: null, chunks: [], isLoading: false });
+              setSelectedSourceId(null)
+              setFocusedChunkId(null)
+              setChunkLoad({ sourceId: null, chunks: [], isLoading: false })
             }}
           />
         )}
@@ -375,9 +391,7 @@ export function WorkspaceShell({
         )}
       </div>
 
-      {/* Mobile: single-panel with bottom tab bar.
-          pb-14 gives each panel a gutter so the fixed tab bar (h-14)
-          doesn't cover content at the end of the scroll. */}
+      {/* Mobile: single-panel with bottom tab bar. */}
       <div
         id="panel-sources"
         role="tabpanel"
@@ -391,8 +405,8 @@ export function WorkspaceShell({
           onSourceUploaded={handleSourceUploaded}
           selectedSourceId={selectedSourceId}
           onSelectSource={(id) => {
-            handleSourceSelected(id);
-            if (id) setMobilePanel("content");
+            handleSourceSelected(id)
+            if (id) setMobilePanel("content")
           }}
           onToggleIncluded={handleToggleIncluded}
           onArchiveSource={handleArchiveSource}
@@ -413,10 +427,10 @@ export function WorkspaceShell({
           focusedChunkId={focusedChunkId}
           isLoading={chunkLoad.isLoading}
           onClose={() => {
-            setSelectedSourceId(null);
-            setFocusedChunkId(null);
-            setChunkLoad({ sourceId: null, chunks: [], isLoading: false });
-            setMobilePanel("sources");
+            setSelectedSourceId(null)
+            setFocusedChunkId(null)
+            setChunkLoad({ sourceId: null, chunks: [], isLoading: false })
+            setMobilePanel("sources")
           }}
         />
       </div>
@@ -435,8 +449,8 @@ export function WorkspaceShell({
           sourceCount={readySourceCount}
           onSend={handleChatSend}
           onCitationClick={(citation) => {
-            setMobilePanel("content");
-            handleCitationClick(citation);
+            setMobilePanel("content")
+            handleCitationClick(citation)
           }}
         />
       </div>
@@ -455,17 +469,18 @@ export function WorkspaceShell({
         </div>
       )}
     </div>
-  );
+  )
 }
 
 async function fetchChunks(sourceId: string): Promise<ParsedChunkView[]> {
-  const response = await fetch(
-    `/api/sources/${encodeURIComponent(sourceId)}/chunks`,
-    { cache: "no-store" },
-  );
-  if (!response.ok) return [];
-  const body = (await response.json()) as { chunks?: ParsedChunkView[] };
-  return Array.isArray(body.chunks) ? body.chunks : [];
+  try {
+    const body = await getJson<{ chunks?: ParsedChunkView[] }>(
+      `/api/sources/${encodeURIComponent(sourceId)}/chunks`,
+    )
+    return Array.isArray(body.chunks) ? body.chunks : []
+  } catch {
+    return []
+  }
 }
 
 function mergeSourceQueryState(
@@ -474,18 +489,18 @@ function mergeSourceQueryState(
 ): SourceView[] {
   const currentById = new Map(
     currentSources.map((source) => [source.id, source.excludedFromQuery]),
-  );
+  )
   return nextSources.map((source) => ({
     ...source,
     excludedFromQuery: currentById.get(source.id) ?? source.excludedFromQuery,
-  }));
+  }))
 }
 
 function initialsOf(user: WorkspaceShellProps["user"]): string {
-  if (!user) return "?";
-  const source = user.name ?? user.email ?? user.id;
-  const parts = source.split(/[\s@._-]+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  if (parts.length === 1) return parts[0][0]!.toUpperCase();
-  return (parts[0][0]! + parts[1][0]!).toUpperCase();
+  if (!user) return "?"
+  const source = user.name ?? user.email ?? user.id
+  const parts = source.split(/[\s@._-]+/).filter(Boolean)
+  if (parts.length === 0) return "?"
+  if (parts.length === 1) return parts[0][0]!.toUpperCase()
+  return (parts[0][0]! + parts[1][0]!).toUpperCase()
 }
