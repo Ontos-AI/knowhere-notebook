@@ -1,6 +1,12 @@
 "use client";
 
-import { useActionState, useEffect, useId, useRef, useState } from "react";
+import {
+  type FormEvent,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
 import { Plus, Upload, FileText, Database, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -24,7 +30,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { SourceView } from "@/lib/types";
-import type { UploadSourceActionState } from "@/app/actions";
 
 export type SourcesPanelProps = {
   sources: SourceView[];
@@ -33,12 +38,19 @@ export type SourcesPanelProps = {
   onSelectSource?: (sourceId: string | null) => void;
   onToggleIncluded?: (sourceId: string, included: boolean) => void;
   onArchiveSource?: (sourceId: string) => void;
-  uploadAction?: (
-    state: UploadSourceActionState,
-    formData: FormData,
-  ) => Promise<UploadSourceActionState>;
   /** When provided, the Upload button redirects to login instead of opening the dialog. */
   onLoginClick?: () => void;
+};
+
+type UploadDialogState = {
+  ok: boolean;
+  message: string | null;
+  source?: SourceView;
+};
+
+type UploadResponseBody = {
+  message?: string;
+  source?: SourceView;
 };
 
 export function SourcesPanel({
@@ -48,7 +60,6 @@ export function SourcesPanel({
   onSelectSource,
   onToggleIncluded,
   onArchiveSource,
-  uploadAction,
   onLoginClick,
 }: Partial<SourcesPanelProps> = {}) {
   const [confirmSourceId, setConfirmSourceId] = useState<string | null>(null);
@@ -98,13 +109,8 @@ export function SourcesPanel({
             <Plus className="size-4" />
             Log in to upload
           </Button>
-        ) : uploadAction ? (
-          <UploadDialog
-            onSourceUploaded={onSourceUploaded}
-            uploadAction={uploadAction}
-          />
         ) : (
-          <UploadDialog />
+          <UploadDialog onSourceUploaded={onSourceUploaded} />
         )}
       </div>
       <ScrollArea className="flex-1">
@@ -143,35 +149,76 @@ export function SourcesPanel({
 
 function UploadDialog({
   onSourceUploaded,
-  uploadAction,
 }: {
   onSourceUploaded?: (source: SourceView) => void;
-  uploadAction?: SourcesPanelProps["uploadAction"];
 }) {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [state, formAction, isUploading] = useActionState(
-    uploadAction ?? disabledUploadAction,
-    { ok: true, message: null },
-  );
+  const [state, setState] = useState<UploadDialogState>({
+    ok: true,
+    message: null,
+  });
+  const [isUploading, setIsUploading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const lastUploadedSourceIdRef = useRef<string | null>(null);
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
   const fileInputId = useId();
 
   useEffect(() => {
-    if (state.ok) {
-      if (inputRef.current) inputRef.current.value = "";
-    }
     if (
       state.ok &&
       state.source &&
       state.source.id !== lastUploadedSourceIdRef.current
     ) {
+      if (inputRef.current) inputRef.current.value = "";
+      setSelectedFileName(null);
       lastUploadedSourceIdRef.current = state.source.id;
       onSourceUploaded?.(state.source);
       setIsDialogOpen(false);
     }
   }, [state, onSourceUploaded]);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    if (isUploading) return;
+
+    const file = inputRef.current?.files?.[0] ?? null;
+    if (!file || file.size === 0) {
+      setState({ ok: false, message: "Choose a document to upload." });
+      return;
+    }
+
+    const formData = new FormData();
+    formData.set("file", file);
+
+    setIsUploading(true);
+    setState({ ok: true, message: null });
+
+    try {
+      const response = await fetch("/api/sources", {
+        method: "POST",
+        body: formData,
+      });
+      const body = await readUploadResponse(response);
+
+      if (!response.ok || !body.source) {
+        setState({
+          ok: false,
+          message:
+            body.message ?? "Upload failed. Try again or choose another file.",
+        });
+        return;
+      }
+
+      setState({ ok: true, message: null, source: body.source });
+    } catch {
+      setState({
+        ok: false,
+        message: "Upload failed. Try again or choose another file.",
+      });
+    } finally {
+      setIsUploading(false);
+    }
+  }
 
   return (
     <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
@@ -193,7 +240,7 @@ function UploadDialog({
             TXT, MD, PPT, PPTX, and more files up to 100 MB.
           </DialogDescription>
         </DialogHeader>
-        <form action={formAction} className="flex min-h-0 flex-1 flex-col">
+        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
           <div className="min-h-0 overflow-y-auto px-6 py-4">
             <label
               htmlFor={fileInputId}
@@ -257,7 +304,7 @@ function UploadDialog({
           <DialogFooter className="shrink-0 border-t border-border/70 bg-popover/95 p-4 sm:px-6">
             <Button
               type="submit"
-              disabled={isUploading || !uploadAction}
+              disabled={isUploading}
               size="sm"
               className="w-full sm:w-auto"
             >
@@ -270,11 +317,45 @@ function UploadDialog({
   );
 }
 
-async function disabledUploadAction(): Promise<UploadSourceActionState> {
-  return {
-    ok: false,
-    message: "Upload is not available yet.",
-  };
+async function readUploadResponse(
+  response: Response,
+): Promise<UploadResponseBody> {
+  try {
+    const body: unknown = await response.json();
+    return parseUploadResponseBody(body);
+  } catch {
+    return {};
+  }
+}
+
+function parseUploadResponseBody(body: unknown): UploadResponseBody {
+  if (!isRecord(body)) return {};
+
+  const message = typeof body.message === "string" ? body.message : undefined;
+  const source = isSourceView(body.source) ? body.source : undefined;
+  return { message, source };
+}
+
+function isSourceView(value: unknown): value is SourceView {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.id === "string" &&
+    typeof value.title === "string" &&
+    isSourceStatus(value.status)
+  );
+}
+
+function isSourceStatus(value: unknown): value is SourceView["status"] {
+  return (
+    value === "uploading" ||
+    value === "parsing" ||
+    value === "ready" ||
+    value === "failed"
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 function EmptySourcesState() {

@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 import React from "react";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -163,4 +169,91 @@ describe("SourcesPanel", () => {
     await user.click(screen.getByRole("button", { name: "Delete" }));
     expect(onArchiveSource).toHaveBeenCalledWith("source_1");
   });
+
+  it("uploads selected files through the sources API", async () => {
+    const user = userEvent.setup();
+    const uploadedSource = {
+      id: "source_1",
+      title: "notes.pdf",
+      status: "parsing",
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
+      expect(getRequestPath(input)).toBe("/api/sources");
+      expect(init?.method).toBe("POST");
+      expect(init?.body).toBeInstanceOf(FormData);
+      expect((init?.body as FormData).get("file")).toBeInstanceOf(File);
+      return Response.json({ source: uploadedSource }, { status: 201 });
+    });
+    const onSourceUploaded = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+
+    render(React.createElement(C, { sources: [], onSourceUploaded }));
+
+    await user.click(screen.getByRole("button", { name: "Upload Document" }));
+    const input = document.querySelector("input[type='file']");
+    if (!(input instanceof HTMLInputElement)) {
+      throw new Error("Upload input was not rendered.");
+    }
+
+    await user.upload(
+      input,
+      new File(["hello"], "notes.pdf", { type: "application/pdf" }),
+    );
+    const form = document.querySelector("form");
+    if (!(form instanceof HTMLFormElement)) {
+      throw new Error("Upload form was not rendered.");
+    }
+    fireEvent.submit(form);
+
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(onSourceUploaded).toHaveBeenCalledWith(uploadedSource),
+    );
+  });
+
+  it("shows upload API failures inside the upload dialog", async () => {
+    const user = userEvent.setup();
+    const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+      Response.json(
+        { message: "File is too large. Upload a document up to 100 MB." },
+        { status: 400 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    render(React.createElement(C, { sources: [] }));
+
+    await user.click(screen.getByRole("button", { name: "Upload Document" }));
+    const input = document.querySelector("input[type='file']");
+    if (!(input instanceof HTMLInputElement)) {
+      throw new Error("Upload input was not rendered.");
+    }
+
+    await user.upload(
+      input,
+      new File(["hello"], "large.pdf", { type: "application/pdf" }),
+    );
+    const form = document.querySelector("form");
+    if (!(form instanceof HTMLFormElement)) {
+      throw new Error("Upload form was not rendered.");
+    }
+    fireEvent.submit(form);
+
+    expect(
+      await screen.findByText(
+        "File is too large. Upload a document up to 100 MB.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Confirm" })).toBeTruthy();
+  });
 });
+
+function getRequestPath(input: RequestInfo | URL): string {
+  const url =
+    typeof input === "string"
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : input.url;
+  return new URL(url, "http://localhost").pathname;
+}

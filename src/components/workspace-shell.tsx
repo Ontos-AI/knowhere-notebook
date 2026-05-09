@@ -22,7 +22,6 @@ import type {
   ParsedChunkView,
   SourceView,
 } from "@/lib/types"
-import type { UploadSourceActionState } from "@/app/actions"
 
 const getJson = <T,>(url: string) =>
   Effect.runPromise(
@@ -102,10 +101,6 @@ export type WorkspaceShellProps = {
   chatThreads?: ChatThreadView[]
   activeChatThreadId?: string | null
   chatMessages?: ChatMessageView[]
-  uploadAction?: (
-    state: UploadSourceActionState,
-    formData: FormData,
-  ) => Promise<UploadSourceActionState>
   isGuest?: boolean
   loginUrl?: string
 }
@@ -116,7 +111,6 @@ export function WorkspaceShell({
   chatThreads: initialChatThreads,
   activeChatThreadId,
   chatMessages: initialChatMessages,
-  uploadAction,
   isGuest = false,
   loginUrl,
 }: WorkspaceShellProps) {
@@ -576,7 +570,6 @@ export function WorkspaceShell({
               onSelectSource={handleSourceSelected}
               onToggleIncluded={isGuest ? undefined : handleToggleIncluded}
               onArchiveSource={isGuest ? undefined : handleArchiveSource}
-              uploadAction={isGuest ? undefined : uploadAction}
               onLoginClick={isGuest ? redirectToLogin : undefined}
             />
           </div>
@@ -652,7 +645,6 @@ export function WorkspaceShell({
           }}
           onToggleIncluded={isGuest ? undefined : handleToggleIncluded}
           onArchiveSource={isGuest ? undefined : handleArchiveSource}
-          uploadAction={isGuest ? undefined : uploadAction}
           onLoginClick={isGuest ? redirectToLogin : undefined}
         />
       </div>
