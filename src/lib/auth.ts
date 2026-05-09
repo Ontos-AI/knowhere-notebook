@@ -12,6 +12,7 @@ import {
 import { authURLs } from "./auth-urls"
 import { sessionCookieNames } from "./session-cookie-names"
 import { logger } from "./logger"
+import { cons } from "effect/List"
 
 export { sessionCookieNames }
 
@@ -61,7 +62,7 @@ export const getCurrentUserEffect = Effect.gen(function* () {
     return yield* Effect.die(
       new Error(
         "DASHBOARD_ORIGIN is required. Set it to the Dashboard origin " +
-          "(see .env.local.example).",
+        "(see .env.local.example).",
       ),
     )
   }
@@ -76,10 +77,48 @@ export const getCurrentUserEffect = Effect.gen(function* () {
     HttpClientRequest.setHeader("content-type", "application/json"),
     HttpClientRequest.bodyText("{}"),
     http.execute,
-    Effect.flatMap(HttpClientResponse.schemaBodyJson(oRPCEnvelope)),
-    Effect.map((body) => body.json.user),
+    Effect.flatMap((response) =>
+      Effect.gen(function* () {
+        const status = response.status
+
+        if (status < 200 || status >= 300) {
+          const rawText = yield* Effect.either(response.text)
+          logger.warn(
+            "dashboard: POST /api/orpc/users/getCurrentUser -> non-2xx",
+            { status, body: Either.getOrElse(rawText, () => "").slice(0, 1000) },
+          )
+          return null
+        }
+
+        const parsed = yield* Effect.either(response.json)
+        if (Either.isLeft(parsed)) {
+          logger.warn(
+            "dashboard: POST /api/orpc/users/getCurrentUser -> invalid JSON",
+            { status, error: String(parsed.left) },
+          )
+          return null
+        }
+
+        const result = Schema.decodeUnknownEither(oRPCEnvelope)(parsed.right)
+        if (Either.isLeft(result)) {
+          logger.warn(
+            "dashboard: POST /api/orpc/users/getCurrentUser -> schema mismatch",
+            { status, body: String(parsed.right).slice(0, 1000) },
+          )
+          return null
+        }
+
+        return result.right.json.user
+      }),
+    ),
     Effect.timeout(DASHBOARD_SESSION_TIMEOUT_MS),
-    Effect.catchAll(() => Effect.succeed(null)),
+    Effect.catchAll((err) => {
+      logger.warn(
+        "dashboard: POST /api/orpc/users/getCurrentUser -> failed",
+        { error: String(err) },
+      )
+      return Effect.succeed(null)
+    }),
   )
 
   return body

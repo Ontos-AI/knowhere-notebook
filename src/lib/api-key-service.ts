@@ -1,6 +1,6 @@
 import "server-only"
 
-import { Effect, Schema } from "effect"
+import { Effect, Either, Schema } from "effect"
 import {
   FetchHttpClient,
   HttpClient,
@@ -47,13 +47,39 @@ export const fetchKnowhereJwtEffect = (cookieHeader: string) =>
       HttpClientRequest.setHeader("cookie", cookieHeader),
       HttpClientRequest.bodyText("{}"),
       http.execute,
-      Effect.flatMap(HttpClientResponse.schemaBodyJson(JwtResponse)),
-      Effect.catchAll((err) =>
-        Effect.die(
-          new Error(
-            `Dashboard JWT issuance failed: ${JSON.stringify(err)}`,
-          ),
-        ),
+      Effect.flatMap((response) =>
+        Effect.gen(function* () {
+          const status = response.status
+
+          if (status < 200 || status >= 300) {
+            const rawText = yield* Effect.either(response.text)
+            return yield* Effect.die(
+              new Error(
+                `Dashboard JWT issuance: non-2xx (status=${status}) body=${Either.getOrElse(rawText, () => "").slice(0, 1000)}`,
+              ),
+            )
+          }
+
+          const parsed = yield* Effect.either(response.json)
+          if (Either.isLeft(parsed)) {
+            return yield* Effect.die(
+              new Error(
+                `Dashboard JWT issuance: invalid JSON (status=${status}) error=${String(parsed.left)}`,
+              ),
+            )
+          }
+
+          const result = Schema.decodeUnknownEither(JwtResponse)(parsed.right)
+          if (Either.isLeft(result)) {
+            return yield* Effect.die(
+              new Error(
+                `Dashboard JWT issuance: schema mismatch (status=${status}) body=${String(parsed.right).slice(0, 1000)}`,
+              ),
+            )
+          }
+
+          return result.right
+        }),
       ),
     )
 
