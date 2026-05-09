@@ -24,15 +24,15 @@ const JwtResponse = Schema.Struct({
 export async function fetchKnowhereJwt(
   cookieHeader: string,
 ): Promise<string> {
-  const url = process.env.DASHBOARD_KNOWHERE_TOKEN_URL
-  if (!url) {
+  const origin = process.env.DASHBOARD_ORIGIN
+  if (!origin) {
     throw new Error(
-      "DASHBOARD_KNOWHERE_TOKEN_URL must be set. " +
-        "It should point to Dashboard's issueServiceJwt oRPC endpoint " +
-        "(see .env.local.example).",
+      "DASHBOARD_ORIGIN must be set. " +
+        "It should point to the Dashboard origin (see .env.local.example).",
     )
   }
 
+  const url = `${origin}/api/orpc/users/issueServiceJwt`
   const response = await fetch(url, {
     method: "POST",
     headers: {

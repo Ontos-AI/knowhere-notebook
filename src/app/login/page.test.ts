@@ -5,21 +5,21 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import LoginPage from "./page";
 
 describe("LoginPage", () => {
-  const originalDashboardLoginURL = process.env.DASHBOARD_LOGIN_URL;
+  const originalDashboardOrigin = process.env.DASHBOARD_ORIGIN;
   const originalNotebookPublicURL = process.env.NOTEBOOK_PUBLIC_URL;
 
   beforeEach(() => {
-    process.env.DASHBOARD_LOGIN_URL = "http://localhost:3000/login";
+    process.env.DASHBOARD_ORIGIN = "http://localhost:3000";
     process.env.NOTEBOOK_PUBLIC_URL = "http://localhost:3001";
   });
 
   afterEach(() => {
     cleanup();
 
-    if (originalDashboardLoginURL === undefined) {
-      delete process.env.DASHBOARD_LOGIN_URL;
+    if (originalDashboardOrigin === undefined) {
+      delete process.env.DASHBOARD_ORIGIN;
     } else {
-      process.env.DASHBOARD_LOGIN_URL = originalDashboardLoginURL;
+      process.env.DASHBOARD_ORIGIN = originalDashboardOrigin;
     }
 
     if (originalNotebookPublicURL === undefined) {

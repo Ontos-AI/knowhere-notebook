@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * The scope is intentionally narrow — we assert the contract with
  * Dashboard as Pi laid it out:
  *   - forward the incoming Cookie header verbatim
- *   - hit DASHBOARD_SESSION_URL server-side
+ *   - hit Dashboard's getCurrentUser oRPC endpoint server-side
  *   - treat `body.json.user === null` (or missing, or HTTP error, or
  *     malformed body, or network failure) as "anonymous"
  *   - never decode a JWT ourselves
@@ -18,6 +18,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  */
 
 import { extractUser, sessionCookieNames } from "./auth";
+
+const SESSION_PATH = "/api/orpc/users/getCurrentUser"
 
 describe("extractUser", () => {
   it("returns null when body is not an object", () => {
@@ -108,18 +110,17 @@ describe("sessionCookieNames", () => {
 
 describe("getCurrentUser", () => {
   const originalFetch = globalThis.fetch;
-  const originalSession = process.env.DASHBOARD_SESSION_URL;
+  const originalOrigin = process.env.DASHBOARD_ORIGIN;
 
   beforeEach(() => {
     vi.resetModules();
-    process.env.DASHBOARD_SESSION_URL =
-      "https://dashboard.example.test/api/orpc/users/getCurrentUser";
+    process.env.DASHBOARD_ORIGIN = "https://dashboard.example.test";
   });
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
-    if (originalSession === undefined) delete process.env.DASHBOARD_SESSION_URL;
-    else process.env.DASHBOARD_SESSION_URL = originalSession;
+    if (originalOrigin === undefined) delete process.env.DASHBOARD_ORIGIN;
+    else process.env.DASHBOARD_ORIGIN = originalOrigin;
   });
 
   async function loadWithCookie(cookieHeader: string) {
@@ -140,6 +141,7 @@ describe("getCurrentUser", () => {
   });
 
   it("POSTs to the Dashboard oRPC endpoint with the incoming Cookie", async () => {
+    const expectedUrl = `https://dashboard.example.test${SESSION_PATH}`;
     const fetchSpy = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(
         JSON.stringify({ json: { user: { id: "u1", email: "a@b" } } }),
@@ -156,7 +158,7 @@ describe("getCurrentUser", () => {
     const [req] = fetchSpy.mock.calls[0]!;
     const requestUrl =
       req instanceof Request ? req.url : typeof req === "string" ? req : String(req);
-    expect(requestUrl).toBe(process.env.DASHBOARD_SESSION_URL);
+    expect(requestUrl).toBe(expectedUrl);
   });
 
   it("returns null on Dashboard non-2xx response", async () => {
@@ -216,9 +218,9 @@ describe("getCurrentUser", () => {
     expect(await getCurrentUser()).toBeNull();
   });
 
-  it("throws when DASHBOARD_SESSION_URL is not configured", async () => {
-    delete process.env.DASHBOARD_SESSION_URL;
+  it("throws when DASHBOARD_ORIGIN is not configured", async () => {
+    delete process.env.DASHBOARD_ORIGIN;
     const { getCurrentUser } = await loadWithCookie("session=x");
-    await expect(getCurrentUser()).rejects.toThrow(/DASHBOARD_SESSION_URL/);
+    await expect(getCurrentUser()).rejects.toThrow(/DASHBOARD_ORIGIN/);
   });
 });

@@ -57,7 +57,7 @@ export type WorkspaceShellProps = {
   /**
    * Pre-built login URL with callbackURL. Passed from the server
    * component — do not read process.env in the client shell for auth
-   * redirects because DASHBOARD_LOGIN_URL is not NEXT_PUBLIC_.
+   * redirects because DASHBOARD_ORIGIN is not NEXT_PUBLIC_.
    */
   loginUrl?: string;
 };

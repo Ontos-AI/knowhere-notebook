@@ -13,7 +13,7 @@ export default async function LoginPage() {
     process.env.NOTEBOOK_PUBLIC_URL ??
     authURLs.resolveNotebookPublicURLFromHeaders(await headers());
   const loginHref = authURLs.buildDashboardLoginURL(
-    requireEnv("DASHBOARD_LOGIN_URL"),
+    `${requireEnv("DASHBOARD_ORIGIN")}/login`,
     notebookPublicURL,
   );
 

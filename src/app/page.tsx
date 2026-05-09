@@ -27,8 +27,9 @@ export default async function Home() {
   const user = await getCurrentUser()
 
   if (!user) {
-    const dashboardLoginURL =
-      process.env.DASHBOARD_LOGIN_URL ?? "http://localhost:3000/login"
+    const dashboardOrigin =
+      process.env.DASHBOARD_ORIGIN ?? "http://localhost:3000"
+    const dashboardLoginURL = `${dashboardOrigin}/login`
     const notebookPublicURL =
       process.env.NOTEBOOK_PUBLIC_URL ??
       authURLs.resolveNotebookPublicURLFromHeaders(await headers())

@@ -88,12 +88,12 @@ export const authLayer = Layer.effect(
     )
 
     const getCurrentUser = Effect.fn("Auth.getCurrentUser")(function* () {
-      const url = process.env.DASHBOARD_SESSION_URL
-      if (!url) {
+      const origin = process.env.DASHBOARD_ORIGIN
+      if (!origin) {
         return yield* Effect.die(
           new Error(
-            "DASHBOARD_SESSION_URL is required. Set it to the Dashboard " +
-              "users.getCurrentUser oRPC endpoint (see .env.local.example).",
+            "DASHBOARD_ORIGIN is required. Set it to the Dashboard origin " +
+              "(see .env.local.example).",
           ),
         )
       }
@@ -102,6 +102,7 @@ export const authLayer = Layer.effect(
         (yield* Effect.promise(() => headers())).get("cookie") ?? ""
       if (cookieHeader.length === 0) return null
 
+      const url = `${origin}/api/orpc/users/getCurrentUser`
       return yield* HttpClientRequest.post(url).pipe(
         HttpClientRequest.setHeader("cookie", cookieHeader),
         HttpClientRequest.setHeader("content-type", "application/json"),
@@ -129,17 +130,18 @@ export const authLayer = Layer.effect(
  * multiple times in the same request.
  */
 export async function getCurrentUser(): Promise<AuthUser | null> {
-  const url = process.env.DASHBOARD_SESSION_URL
-  if (!url) {
+  const origin = process.env.DASHBOARD_ORIGIN
+  if (!origin) {
     throw new Error(
-      "DASHBOARD_SESSION_URL is required. Set it to the Dashboard " +
-        "users.getCurrentUser oRPC endpoint (see .env.local.example).",
+      "DASHBOARD_ORIGIN is required. Set it to the Dashboard origin " +
+        "(see .env.local.example).",
     )
   }
 
   const cookieHeader = (await headers()).get("cookie") ?? ""
   if (cookieHeader.length === 0) return null
 
+  const url = `${origin}/api/orpc/users/getCurrentUser`
   let res: Response
   try {
     res = await fetch(url, {
@@ -178,11 +180,12 @@ export async function requireUser(): Promise<AuthUser> {
   const user = await getCurrentUser()
   if (user !== null) return user
 
-  const loginUrl = process.env.DASHBOARD_LOGIN_URL
-  if (!loginUrl) {
-    throw new Error("DASHBOARD_LOGIN_URL must be set.")
+  const origin = process.env.DASHBOARD_ORIGIN
+  if (!origin) {
+    throw new Error("DASHBOARD_ORIGIN must be set.")
   }
 
+  const loginUrl = `${origin}/login`
   const notebookUrl =
     process.env.NOTEBOOK_PUBLIC_URL ??
     authURLs.resolveNotebookPublicURLFromHeaders(await headers())

@@ -55,12 +55,13 @@ export function proxy(req: NextRequest): NextResponse {
     if (req.cookies.get(name)) return NextResponse.next();
   }
 
-  const loginUrl = process.env.DASHBOARD_LOGIN_URL;
-  if (!loginUrl) {
+  const origin = process.env.DASHBOARD_ORIGIN;
+  if (!origin) {
     // Misconfigured deploy. Don't silently let users in — send them to
     // the /login preview so the operator notices.
     return NextResponse.redirect(new URL("/login", req.url));
   }
+  const loginUrl = `${origin}/login`
 
   const notebookUrl =
     process.env.NOTEBOOK_PUBLIC_URL ?? new URL(req.url).origin;

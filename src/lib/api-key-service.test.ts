@@ -52,20 +52,22 @@ describe("isAuthError", () => {
   })
 })
 
+const JWT_PATH = "/api/orpc/users/issueServiceJwt"
+
 describe("fetchKnowhereJwt", () => {
   const originalFetch = globalThis.fetch
-  const originalUrl = process.env.DASHBOARD_KNOWHERE_TOKEN_URL
+  const originalOrigin = process.env.DASHBOARD_ORIGIN
 
   afterEach(() => {
     globalThis.fetch = originalFetch
-    if (originalUrl === undefined)
-      delete process.env.DASHBOARD_KNOWHERE_TOKEN_URL
-    else process.env.DASHBOARD_KNOWHERE_TOKEN_URL = originalUrl
+    if (originalOrigin === undefined)
+      delete process.env.DASHBOARD_ORIGIN
+    else process.env.DASHBOARD_ORIGIN = originalOrigin
   })
 
   it("POSTs to the JWT endpoint with the incoming cookie and empty JSON body", async () => {
-    process.env.DASHBOARD_KNOWHERE_TOKEN_URL =
-      "https://dashboard.example/api/orpc/users/issueServiceJwt"
+    process.env.DASHBOARD_ORIGIN = "https://dashboard.example"
+    const expectedUrl = `https://dashboard.example${JWT_PATH}`
     const fetchSpy = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -81,7 +83,7 @@ describe("fetchKnowhereJwt", () => {
     expect(token).toBe("eyJhbGciOiJIUzI1NiJ9.eyJpZCI6InVzZXIifQ.abc")
     expect(fetchSpy).toHaveBeenCalledOnce()
     const [url, init] = fetchSpy.mock.calls[0]!
-    expect(url).toBe(process.env.DASHBOARD_KNOWHERE_TOKEN_URL)
+    expect(url).toBe(expectedUrl)
     expect((init as RequestInit)?.method).toBe("POST")
     expect((init as RequestInit)?.body).toBe("{}")
     expect((init as RequestInit)?.headers).toMatchObject({
@@ -90,15 +92,15 @@ describe("fetchKnowhereJwt", () => {
     })
   })
 
-  it("throws when DASHBOARD_KNOWHERE_TOKEN_URL is not set", async () => {
-    delete process.env.DASHBOARD_KNOWHERE_TOKEN_URL
+  it("throws when DASHBOARD_ORIGIN is not set", async () => {
+    delete process.env.DASHBOARD_ORIGIN
     await expect(
       fetchKnowhereJwt("session=x"),
-    ).rejects.toThrow(/DASHBOARD_KNOWHERE_TOKEN_URL/)
+    ).rejects.toThrow(/DASHBOARD_ORIGIN/)
   })
 
   it("throws on non-2xx from Dashboard", async () => {
-    process.env.DASHBOARD_KNOWHERE_TOKEN_URL = "https://dashboard.example/api/orpc/users/issueServiceJwt"
+    process.env.DASHBOARD_ORIGIN = "https://dashboard.example"
     globalThis.fetch = vi
       .fn<typeof fetch>()
       .mockResolvedValue(new Response("oops", { status: 503 }))
@@ -108,7 +110,7 @@ describe("fetchKnowhereJwt", () => {
   })
 
   it("throws on malformed response body", async () => {
-    process.env.DASHBOARD_KNOWHERE_TOKEN_URL = "https://dashboard.example/api/orpc/users/issueServiceJwt"
+    process.env.DASHBOARD_ORIGIN = "https://dashboard.example"
     globalThis.fetch = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(JSON.stringify({ json: null }), {
         status: 200,
@@ -121,7 +123,7 @@ describe("fetchKnowhereJwt", () => {
   })
 
   it("throws if the token string is empty", async () => {
-    process.env.DASHBOARD_KNOWHERE_TOKEN_URL = "https://dashboard.example/api/orpc/users/issueServiceJwt"
+    process.env.DASHBOARD_ORIGIN = "https://dashboard.example"
     globalThis.fetch = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(
         JSON.stringify({ json: { token: "", expiresInSeconds: 900 } }),
