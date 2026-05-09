@@ -49,85 +49,114 @@
 }
 
 /*
- * Theme mirrors the UI prototype (knowhere-notebook.zip):
- * slate-based surfaces (slate-50 page, white cards), slate text, and
- * the Knowhere primary purple #7b20ea as the only accent.
+ * Knowhere brand design system.
+ *
+ * Surface palette mirrors the Knowhere Dashboard so the two products look
+ * like they belong to the same family.  Colors use HSL tuples (the
+ * Dashboard convention), and the primary accent is the logo purple
+ * (#7b20ea ≈ hsl(270 85% 52%)).
  */
+
+/* ---- light ------------------------------------------------------------- */
+
 :root {
-  --background: oklch(0.984 0.003 248);          /* slate-50 */
-  --foreground: oklch(0.208 0.042 265.755);       /* slate-900 */
-  --card: oklch(1 0 0);                           /* white */
-  --card-foreground: oklch(0.208 0.042 265.755);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.208 0.042 265.755);
-  --primary: oklch(0.45 0.28 290);                /* #7b20ea */
-  --primary-foreground: oklch(0.99 0 0);
-  --secondary: oklch(0.968 0.007 247.896);        /* slate-100 */
-  --secondary-foreground: oklch(0.208 0.042 265.755);
-  --muted: oklch(0.968 0.007 247.896);
-  --muted-foreground: oklch(0.554 0.046 257.417); /* slate-500 */
-  --accent: oklch(0.968 0.007 247.896);
-  --accent-foreground: oklch(0.208 0.042 265.755);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.929 0.013 255.508);           /* slate-200 */
-  --input: oklch(0.929 0.013 255.508);
-  --ring: oklch(0.45 0.28 290);
-  --chart-1: oklch(0.45 0.28 290);
-  --chart-2: oklch(0.60 0.24 290);
-  --chart-3: oklch(0.35 0.22 290);
-  --chart-4: oklch(0.70 0.18 290);
-  --chart-5: oklch(0.50 0.26 300);
-  --radius: 0.625rem;
-  --sidebar: oklch(1 0 0);
-  --sidebar-foreground: oklch(0.208 0.042 265.755);
-  --sidebar-primary: oklch(0.45 0.28 290);
-  --sidebar-primary-foreground: oklch(0.99 0 0);
-  --sidebar-accent: oklch(0.968 0.007 247.896);
-  --sidebar-accent-foreground: oklch(0.208 0.042 265.755);
-  --sidebar-border: oklch(0.929 0.013 255.508);
-  --sidebar-ring: oklch(0.45 0.28 290);
+  color-scheme: light;
+
+  --background: 210 40% 98%;
+  --foreground: 222 47% 11%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 47% 11%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 47% 11%;
+
+  --primary: 270 85% 52%;            /* #7b20ea (Knowhere logo purple) */
+  --primary-foreground: 210 40% 98%;
+
+  --secondary: 210 40% 96%;
+  --secondary-foreground: 222 47% 11%;
+  --muted: 210 40% 96%;
+  --muted-foreground: 215 16% 47%;
+  --accent: 210 40% 96%;
+  --accent-foreground: 222 47% 11%;
+
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 210 40% 98%;
+
+  --border: 214 32% 91%;
+  --input: 214 32% 91%;
+  --ring: 270 85% 52%;
+
+  --chart-1: 270 85% 52%;
+  --chart-2: 270 75% 65%;
+  --chart-3: 270 65% 45%;
+  --chart-4: 270 55% 70%;
+  --chart-5: 280 60% 55%;
+
+  --radius: 0.5rem;
+
+  --sidebar: 0 0% 100%;
+  --sidebar-foreground: 222 47% 11%;
+  --sidebar-primary: 270 85% 52%;
+  --sidebar-primary-foreground: 210 40% 98%;
+  --sidebar-accent: 210 40% 96%;
+  --sidebar-accent-foreground: 222 47% 11%;
+  --sidebar-border: 214 32% 91%;
+  --sidebar-ring: 270 85% 52%;
 }
 
+/* ---- dark -------------------------------------------------------------- */
+
 .dark {
-  --background: oklch(0.208 0.042 265.755);
-  --foreground: oklch(0.984 0.003 248);
-  --card: oklch(0.25 0.03 265);
-  --card-foreground: oklch(0.984 0.003 248);
-  --popover: oklch(0.25 0.03 265);
-  --popover-foreground: oklch(0.984 0.003 248);
-  --primary: oklch(0.60 0.24 290);
-  --primary-foreground: oklch(0.208 0.042 265.755);
-  --secondary: oklch(0.30 0.03 265);
-  --secondary-foreground: oklch(0.968 0.007 247.896);
-  --muted: oklch(0.30 0.03 265);
-  --muted-foreground: oklch(0.704 0.04 257);
-  --accent: oklch(0.32 0.04 265);
-  --accent-foreground: oklch(0.968 0.007 247.896);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(0.35 0.03 265);
-  --input: oklch(0.35 0.03 265);
-  --ring: oklch(0.60 0.24 290);
-  --chart-1: oklch(0.60 0.24 290);
-  --chart-2: oklch(0.50 0.20 290);
-  --chart-3: oklch(0.70 0.18 290);
-  --chart-4: oklch(0.40 0.22 290);
-  --chart-5: oklch(0.55 0.22 300);
-  --sidebar: oklch(0.25 0.03 265);
-  --sidebar-foreground: oklch(0.984 0.003 248);
-  --sidebar-primary: oklch(0.60 0.24 290);
-  --sidebar-primary-foreground: oklch(0.208 0.042 265.755);
-  --sidebar-accent: oklch(0.30 0.03 265);
-  --sidebar-accent-foreground: oklch(0.968 0.007 247.896);
-  --sidebar-border: oklch(0.35 0.03 265);
-  --sidebar-ring: oklch(0.60 0.24 290);
+  color-scheme: dark;
+
+  --background: 222 47% 11%;
+  --foreground: 210 40% 98%;
+  --card: 222 47% 11%;
+  --card-foreground: 210 40% 98%;
+  --popover: 222 47% 11%;
+  --popover-foreground: 210 40% 98%;
+
+  --primary: 270 85% 68%;            /* lighter purple for dark */
+  --primary-foreground: 222 47% 11%;
+
+  --secondary: 217 33% 18%;
+  --secondary-foreground: 210 40% 98%;
+  --muted: 217 33% 18%;
+  --muted-foreground: 215 20% 65%;
+  --accent: 217 33% 18%;
+  --accent-foreground: 210 40% 98%;
+
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 210 40% 98%;
+
+  --border: 215 19% 35%;
+  --input: 217 33% 18%;
+  --ring: 270 85% 68%;
+
+  --chart-1: 270 85% 68%;
+  --chart-2: 270 70% 55%;
+  --chart-3: 270 60% 75%;
+  --chart-4: 270 50% 45%;
+  --chart-5: 280 55% 60%;
+
+  --sidebar: 222 47% 11%;
+  --sidebar-foreground: 210 40% 98%;
+  --sidebar-primary: 270 85% 68%;
+  --sidebar-primary-foreground: 222 47% 11%;
+  --sidebar-accent: 217 33% 18%;
+  --sidebar-accent-foreground: 210 40% 98%;
+  --sidebar-border: 215 19% 35%;
+  --sidebar-ring: 270 85% 68%;
 }
+
+/* ---- base -------------------------------------------------------------- */
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
   }
   html {
     @apply font-sans;
