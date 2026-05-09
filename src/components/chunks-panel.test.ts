@@ -51,6 +51,33 @@ describe("ChunksPanel", () => {
     );
   });
 
+  it("keeps demo table chunks within the responsive chunk column", () => {
+    render(
+      React.createElement(C, {
+        chunks: [
+          {
+            chunkId: "table_1",
+            type: "table",
+            content:
+              "<table><tbody><tr><td>very-long-demo-table-cell-that-should-scroll-inside-the-card</td><td>another-wide-cell</td></tr></tbody></table>",
+            sourceTitle: "demo.pdf",
+          },
+        ],
+        selectedSource: "demo.pdf",
+      }),
+    );
+
+    expect(screen.getByTestId("chunks-scroll-content").className).toContain(
+      "min-w-0",
+    );
+    expect(screen.getByTestId("chunk-card-shell-table_1").className).toContain(
+      "min-w-0",
+    );
+    expect(screen.getByTestId("chunk-table-content-table_1").className).toContain(
+      "max-w-full",
+    );
+  });
+
   it("renders image chunks and scrolls to resolved connection targets", async () => {
     const user = userEvent.setup();
     const scrollIntoView = vi.fn();

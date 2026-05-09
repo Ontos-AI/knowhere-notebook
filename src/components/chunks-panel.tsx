@@ -19,6 +19,7 @@ export type ChunksPanelProps = {
   chunks: ParsedChunkView[];
   selectedSource?: string | null;
   focusedChunkId?: string | null;
+  focusedChunkRequestId?: number;
   isLoading?: boolean;
 };
 
@@ -26,6 +27,7 @@ export function ChunksPanel({
   chunks = [],
   selectedSource = null,
   focusedChunkId = null,
+  focusedChunkRequestId = 0,
   isLoading = false,
 }: Partial<ChunksPanelProps> = {}) {
   const chunkRefs = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -54,7 +56,7 @@ export function ChunksPanel({
 
   useEffect(() => {
     if (focusedChunkId) scrollToChunk(focusedChunkId);
-  }, [focusedChunkId, scrollToChunk]);
+  }, [focusedChunkId, focusedChunkRequestId, scrollToChunk]);
 
   const headerTitle = focusedChunkId
     ? "Referenced Chunks"
@@ -90,7 +92,7 @@ export function ChunksPanel({
       <ScrollArea className="flex-1">
         <div
           data-testid="chunks-scroll-content"
-          className="mx-auto flex w-full max-w-4xl flex-col items-center p-3 sm:p-6"
+          className="mx-auto flex w-full min-w-0 max-w-4xl flex-col items-center p-3 sm:p-6"
         >
           {isLoading ? (
             <LoadingChunks />
@@ -160,20 +162,32 @@ function ChunkCard({
 
   if (chunk.type === "image") {
     return (
-      <div ref={ref}>
+      <div
+        ref={ref}
+        data-testid={`chunk-card-shell-${chunk.chunkId}`}
+        className="w-full min-w-0"
+      >
         <ImageChunkCard chunk={chunk} isFocused={isFocused} />
       </div>
     );
   }
   if (chunk.type === "table") {
     return (
-      <div ref={ref}>
+      <div
+        ref={ref}
+        data-testid={`chunk-card-shell-${chunk.chunkId}`}
+        className="w-full min-w-0"
+      >
         <TableChunkCard chunk={chunk} isFocused={isFocused} />
       </div>
     );
   }
   return (
-    <div ref={ref}>
+    <div
+      ref={ref}
+      data-testid={`chunk-card-shell-${chunk.chunkId}`}
+      className="w-full min-w-0"
+    >
       <TextChunkCard
         chunk={chunk}
         isFocused={isFocused}
@@ -238,7 +252,7 @@ function TextChunkCard({
 }) {
   return (
     <Card
-      className={`cursor-default shadow-xs transition-colors ${focusCardClasses(isFocused)}`}
+      className={`w-full min-w-0 overflow-hidden cursor-default shadow-xs transition-colors ${focusCardClasses(isFocused)}`}
     >
       <CardContent className="p-4 sm:p-5">
         <ChunkHeader chunk={chunk} />
@@ -260,7 +274,7 @@ function ImageChunkCard({
 }) {
   return (
     <Card
-      className={`cursor-default shadow-xs transition-colors ${focusCardClasses(isFocused)}`}
+      className={`w-full min-w-0 overflow-hidden cursor-default shadow-xs transition-colors ${focusCardClasses(isFocused)}`}
     >
       <CardContent className="p-4 sm:p-5">
         <ChunkHeader chunk={chunk} />
@@ -464,13 +478,14 @@ function TableChunkCard({
 
   return (
     <Card
-      className={`cursor-default shadow-xs transition-colors ${focusCardClasses(isFocused)}`}
+      className={`w-full min-w-0 overflow-hidden cursor-default shadow-xs transition-colors ${focusCardClasses(isFocused)}`}
     >
       <CardContent className="p-4 sm:p-5">
         <ChunkHeader chunk={chunk} />
         {safeHtml ? (
           <div
-            className="prose prose-sm max-w-none overflow-x-auto text-sm leading-relaxed [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-border [&_td]:px-2 [&_td]:py-1 [&_th]:border [&_th]:border-border [&_th]:px-2 [&_th]:py-1 [&_th]:bg-muted"
+            data-testid={`chunk-table-content-${chunk.chunkId}`}
+            className="prose prose-sm max-w-full overflow-x-auto text-sm leading-relaxed [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-border [&_td]:px-2 [&_td]:py-1 [&_th]:border [&_th]:border-border [&_th]:bg-muted [&_th]:px-2 [&_th]:py-1"
             dangerouslySetInnerHTML={{ __html: safeHtml }}
           />
         ) : (

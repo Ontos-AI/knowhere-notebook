@@ -240,6 +240,33 @@ describe("loadChunksForSource", () => {
 });
 
 describe("resolveCitationChunk", () => {
+  it("prefers the citation excerpt over a broad section path", () => {
+    const chunk = resolveCitationChunk(
+      makeRetrievalResultView({
+        content: "exact sentence from the second chunk",
+        source: {
+          documentId: "doc_123",
+          sourceFileName: "notes.txt",
+          sectionPath: "Shared Section",
+        },
+      }),
+      [
+        makeParsedChunkView({
+          chunkId: "chunk_first",
+          sectionPath: "Shared Section",
+          content: "different sentence from the first chunk",
+        }),
+        makeParsedChunkView({
+          chunkId: "chunk_second",
+          sectionPath: "More Specific Section",
+          content: "prefix exact sentence from the second chunk suffix",
+        }),
+      ],
+    );
+
+    expect(chunk?.chunkId).toBe("chunk_second");
+  });
+
   it("matches a citation to the unique chunk with the same section path", () => {
     const chunk = resolveCitationChunk(
       makeRetrievalResultView({

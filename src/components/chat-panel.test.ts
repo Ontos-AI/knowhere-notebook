@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -59,6 +59,107 @@ describe("ChatPanel", () => {
 
     expect(screen.getByText("Sources used")).toBeTruthy();
     expect(screen.queryByText("Citations")).toBeNull();
+  });
+
+  it("renders citation links as buttons with per-citation loading feedback", async () => {
+    const user = userEvent.setup();
+    const onCitationClick = vi.fn();
+
+    render(
+      React.createElement(C, {
+        messages: [
+          {
+            id: "assistant_1",
+            role: "assistant",
+            content: "The deadline is Monday.",
+            citations: [
+              {
+                chunkType: "text",
+                score: 0.9,
+                source: {
+                  documentId: "doc_1",
+                  sourceFileName: "syllabus.pdf",
+                  sectionPath: "Schedule",
+                },
+              },
+            ],
+          },
+        ],
+        pendingCitationId: "assistant_1:0",
+        onCitationClick,
+      }),
+    );
+
+    const citationButton = screen.getByRole("button", {
+      name: "Open source syllabus.pdf · Schedule",
+    });
+
+    expect(within(citationButton).getByRole("status", { name: "Loading" }))
+      .toBeTruthy();
+
+    await user.click(citationButton);
+    expect(onCitationClick).not.toHaveBeenCalled();
+  });
+
+  it("shows button-level loading for chat API actions", async () => {
+    const user = userEvent.setup();
+
+    render(
+      React.createElement(C, {
+        threads: [
+          {
+            id: "thread_1",
+            title: "Revenue question",
+            createdAt: "2026-05-06T00:00:00.000Z",
+            updatedAt: "2026-05-07T00:00:00.000Z",
+          },
+          {
+            id: "thread_2",
+            title: "Margin question",
+            createdAt: "2026-05-06T00:00:00.000Z",
+            updatedAt: "2026-05-06T00:00:00.000Z",
+          },
+        ],
+        activeThreadId: "thread_2",
+        onNewChat: vi.fn(),
+        onThreadSelect: vi.fn(),
+        onThreadArchive: vi.fn(),
+        isSending: true,
+        isCreatingThread: true,
+        loadingThreadId: "thread_1",
+        archivingThreadIds: ["thread_2"],
+      }),
+    );
+
+    expect(
+      within(screen.getByRole("button", { name: "Send message" })).getByRole(
+        "status",
+        { name: "Loading" },
+      ),
+    ).toBeTruthy();
+    expect(
+      within(screen.getByRole("button", { name: "New chat" })).getByRole(
+        "status",
+        { name: "Loading" },
+      ),
+    ).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Open chat history" }));
+
+    expect(
+      within(
+        await screen.findByRole("button", {
+          name: "Open Revenue question chat",
+        }),
+      ).getByRole("status", { name: "Loading" }),
+    ).toBeTruthy();
+    expect(
+      within(
+        await screen.findByRole("button", {
+          name: "Delete Margin question chat",
+        }),
+      ).getByRole("status", { name: "Loading" }),
+    ).toBeTruthy();
   });
 
   it("uses fluid mobile widths and wraps long chat content", () => {

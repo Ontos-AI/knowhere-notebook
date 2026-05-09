@@ -109,13 +109,16 @@ export function resolveCitationChunk(
       !citation.source.documentId ||
       chunk.documentId === citation.source.documentId,
   )
+  const byContent = findByContent(documentChunks, citation.content)
+  if (byContent) return byContent
+
   const byPath = findUniqueBySectionPath(
     documentChunks,
     citation.source.sectionPath,
   )
   if (byPath) return byPath
 
-  return findByContent(documentChunks, citation.content)
+  return null
 }
 
 function toChunkType(chunkType: DocumentChunkType): ChunkType {

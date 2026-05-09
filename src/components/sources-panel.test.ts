@@ -6,6 +6,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -168,6 +169,30 @@ describe("SourcesPanel", () => {
 
     await user.click(screen.getByRole("button", { name: "Delete" }));
     expect(onArchiveSource).toHaveBeenCalledWith("source_1");
+  });
+
+  it("shows row-level loading while a source archive API action is pending", () => {
+    render(
+      React.createElement(C, {
+        sources: [
+          {
+            id: "source_1",
+            title: "lecture.pdf",
+            status: "ready",
+            chunkCount: 3,
+          },
+        ],
+        archivingSourceIds: ["source_1"],
+        onArchiveSource: vi.fn(),
+      }),
+    );
+
+    const deleteButton = screen.getByRole("button", {
+      name: "Delete lecture.pdf",
+    });
+    expect((deleteButton as HTMLButtonElement).disabled).toBe(true);
+    expect(within(deleteButton).getByRole("status", { name: "Loading" }))
+      .toBeTruthy();
   });
 
   it("uploads selected files through the sources API", async () => {

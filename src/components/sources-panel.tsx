@@ -29,6 +29,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Spinner } from "@/components/ui/spinner";
 import type { SourceView } from "@/lib/types";
 import { postSourceUpload } from "@/lib/source-upload-request";
 
@@ -39,6 +40,7 @@ export type SourcesPanelProps = {
   onSelectSource?: (sourceId: string | null) => void;
   onToggleIncluded?: (sourceId: string, included: boolean) => void;
   onArchiveSource?: (sourceId: string) => void;
+  archivingSourceIds?: readonly string[];
   /** When provided, the Upload button redirects to login instead of opening the dialog. */
   onLoginClick?: () => void;
 };
@@ -56,10 +58,14 @@ export function SourcesPanel({
   onSelectSource,
   onToggleIncluded,
   onArchiveSource,
+  archivingSourceIds = [],
   onLoginClick,
 }: Partial<SourcesPanelProps> = {}) {
   const [confirmSourceId, setConfirmSourceId] = useState<string | null>(null);
   const confirmSource = sources.find((s) => s.id === confirmSourceId) ?? null;
+  const archivingSourceIdSet: ReadonlySet<string> = new Set(archivingSourceIds);
+  const isConfirmSourceArchiving =
+    confirmSourceId !== null && archivingSourceIdSet.has(confirmSourceId);
 
   return (
     <aside className="z-10 flex h-full w-full shrink-0 flex-col border-r border-border/70 bg-background">
@@ -81,14 +87,24 @@ export function SourcesPanel({
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
+              disabled={isConfirmSourceArchiving}
               onClick={() => {
                 if (confirmSourceId) {
                   onArchiveSource?.(confirmSourceId);
-                  setConfirmSourceId(null);
+                  if (!archivingSourceIdSet.has(confirmSourceId)) {
+                    setConfirmSourceId(null);
+                  }
                 }
               }}
             >
-              Delete
+              {isConfirmSourceArchiving ? (
+                <>
+                  <Spinner className="size-3.5" />
+                  Deleting…
+                </>
+              ) : (
+                "Delete"
+              )}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -133,6 +149,7 @@ export function SourcesPanel({
                   onArchiveClick={
                     onArchiveSource ? setConfirmSourceId : undefined
                   }
+                  isArchiving={archivingSourceIdSet.has(source.id)}
                 />
               ))}
             </div>
@@ -333,12 +350,14 @@ function SourceRow({
   onSelect,
   onToggleIncluded,
   onArchiveClick,
+  isArchiving,
 }: {
   source: SourceView;
   isSelected: boolean;
   onSelect: () => void;
   onToggleIncluded?: (sourceId: string, included: boolean) => void;
   onArchiveClick?: (sourceId: string) => void;
+  isArchiving: boolean;
 }) {
   const isReady = source.status === "ready";
   const isBusy = source.status === "uploading" || source.status === "parsing";
@@ -370,6 +389,7 @@ function SourceRow({
       <button
         type="button"
         onClick={onSelect}
+        disabled={isArchiving}
         className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
         aria-label={`Open ${source.title} parsed chunks`}
       >
@@ -379,41 +399,47 @@ function SourceRow({
           <FileText className="size-4" />
         </div>
         <div className="min-w-0 overflow-hidden">
-        <p className="truncate text-sm font-medium text-foreground">
-          {source.title}
-        </p>
-        <p
-          className={`text-[10px] font-bold uppercase tracking-wider ${
-            isReady
-              ? "text-green-600"
-              : isFailed
-              ? "text-destructive"
-              : isBusy
-              ? "text-amber-500"
-              : "text-muted-foreground"
-          }`}
-        >
-          {isReady
-            ? `Processed · ${source.chunkCount ?? 0} chunks`
-            : source.status === "parsing"
-            ? "Preparing"
-            : source.status === "uploading"
-            ? "Uploading"
-            : "Failed"}
-        </p>
+          <p className="truncate text-sm font-medium text-foreground">
+            {source.title}
+          </p>
+          <p
+            className={`text-[10px] font-bold uppercase tracking-wider ${
+              isReady
+                ? "text-green-600"
+                : isFailed
+                ? "text-destructive"
+                : isBusy
+                ? "text-amber-500"
+                : "text-muted-foreground"
+            }`}
+          >
+            {isReady
+              ? `Processed · ${source.chunkCount ?? 0} chunks`
+              : source.status === "parsing"
+              ? "Preparing"
+              : source.status === "uploading"
+              ? "Uploading"
+              : "Failed"}
+          </p>
         </div>
       </button>
       {onArchiveClick && (
         <button
           type="button"
+          disabled={isArchiving}
           onClick={(e) => {
             e.stopPropagation();
+            if (isArchiving) return;
             onArchiveClick(source.id);
           }}
-          className="ml-auto shrink-0 rounded-lg p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+          className="ml-auto shrink-0 rounded-lg p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:cursor-wait disabled:opacity-70"
           aria-label={`Delete ${source.title}`}
         >
-          <Trash2 className="size-3.5" />
+          {isArchiving ? (
+            <Spinner className="size-3.5" />
+          ) : (
+            <Trash2 className="size-3.5" />
+          )}
         </button>
       )}
     </div>

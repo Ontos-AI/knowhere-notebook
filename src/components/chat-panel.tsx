@@ -5,7 +5,7 @@ import { History, MessageCircle, Plus, Send, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Badge } from "@/components/ui/badge";
+import { Spinner } from "@/components/ui/spinner";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -45,10 +45,14 @@ export type ChatPanelProps = {
   onNewChat?: () => void;
   onThreadSelect?: (threadId: string) => void;
   onThreadArchive?: (threadId: string) => void;
-  onCitationClick?: (citation: ChatCitationView) => void;
+  onCitationClick?: (citation: ChatCitationView, citationId: string) => void;
   sourceCount?: number;
   isSending?: boolean;
   isHistoryLoading?: boolean;
+  isCreatingThread?: boolean;
+  loadingThreadId?: string | null;
+  archivingThreadIds?: readonly string[];
+  pendingCitationId?: string | null;
   isDisabled?: boolean;
 };
 
@@ -64,6 +68,10 @@ export function ChatPanel({
   sourceCount = 0,
   isSending = false,
   isHistoryLoading = false,
+  isCreatingThread = false,
+  loadingThreadId = null,
+  archivingThreadIds = [],
+  pendingCitationId = null,
   isDisabled = false,
 }: Partial<ChatPanelProps> = {}) {
   const [input, setInput] = useState("");
@@ -79,6 +87,7 @@ export function ChatPanel({
   }
 
   function handleNewChat() {
+    if (isCreatingThread) return;
     onNewChat?.();
     setIsHistoryOpen(false);
   }
@@ -159,9 +168,14 @@ export function ChatPanel({
                         variant="outline"
                         size="icon"
                         aria-label="New chat"
+                        disabled={isCreatingThread}
                         onClick={handleNewChat}
                       >
-                        <Plus className="size-4" />
+                        {isCreatingThread ? (
+                          <Spinner className="size-4" />
+                        ) : (
+                          <Plus className="size-4" />
+                        )}
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>New chat</TooltipContent>
@@ -178,6 +192,9 @@ export function ChatPanel({
         activeThreadId={activeThreadId}
         isOpen={isHistoryOpen}
         isLoading={isHistoryLoading}
+        isCreatingThread={isCreatingThread}
+        loadingThreadId={loadingThreadId}
+        archivingThreadIds={archivingThreadIds}
         onOpenChange={setIsHistoryOpen}
         onNewChat={onNewChat ? handleNewChat : undefined}
         onThreadSelect={onThreadSelect}
@@ -197,6 +214,7 @@ export function ChatPanel({
                 key={m.id}
                 message={m}
                 onCitationClick={onCitationClick}
+                pendingCitationId={pendingCitationId}
               />
             ))}
           </div>
@@ -235,7 +253,11 @@ export function ChatPanel({
             onClick={handleSend}
             aria-label="Send message"
           >
-            <Send className="size-4" />
+            {isSending ? (
+              <Spinner className="size-4" />
+            ) : (
+              <Send className="size-4" />
+            )}
           </Button>
         </div>
         <div className="mt-3 flex items-center justify-end">
@@ -253,6 +275,9 @@ function ChatHistorySheet({
   activeThreadId,
   isOpen,
   isLoading,
+  isCreatingThread,
+  loadingThreadId,
+  archivingThreadIds,
   onOpenChange,
   onNewChat,
   onThreadSelect,
@@ -262,11 +287,17 @@ function ChatHistorySheet({
   activeThreadId: string | null;
   isOpen: boolean;
   isLoading: boolean;
+  isCreatingThread: boolean;
+  loadingThreadId: string | null;
+  archivingThreadIds: readonly string[];
   onOpenChange: (open: boolean) => void;
   onNewChat?: () => void;
   onThreadSelect?: (threadId: string) => void;
   onThreadArchive?: (threadId: string) => void;
 }) {
+  const archivingThreadIdSet: ReadonlySet<string> = new Set(archivingThreadIds);
+  const shouldUseGlobalThreadLoading = isLoading && loadingThreadId === null;
+
   return (
     <Sheet open={isOpen} onOpenChange={onOpenChange}>
       <SheetContent
@@ -285,10 +316,15 @@ function ChatHistorySheet({
                 variant="outline"
                 size="sm"
                 className="gap-1.5"
+                disabled={isCreatingThread}
                 onClick={onNewChat}
               >
-                <Plus className="size-4" />
-                New chat
+                {isCreatingThread ? (
+                  <Spinner className="size-4" />
+                ) : (
+                  <Plus className="size-4" />
+                )}
+                {isCreatingThread ? "Creating…" : "New chat"}
               </Button>
             )}
           </div>
@@ -303,7 +339,9 @@ function ChatHistorySheet({
                   key={thread.id}
                   thread={thread}
                   isActive={thread.id === activeThreadId}
-                  isLoading={isLoading}
+                  isLoading={shouldUseGlobalThreadLoading}
+                  isSelecting={thread.id === loadingThreadId}
+                  isArchiving={archivingThreadIdSet.has(thread.id)}
                   onSelect={() => {
                     onThreadSelect?.(thread.id);
                     onOpenChange(false);
@@ -327,15 +365,21 @@ function ChatThreadRow({
   thread,
   isActive,
   isLoading,
+  isSelecting,
+  isArchiving,
   onSelect,
   onArchive,
 }: {
   thread: ChatThreadView;
   isActive: boolean;
   isLoading: boolean;
+  isSelecting: boolean;
+  isArchiving: boolean;
   onSelect: () => void;
   onArchive?: () => void;
 }) {
+  const isDisabled = isLoading || isSelecting || isArchiving;
+
   return (
     <div
       className={`flex items-center gap-2 rounded-2xl border p-2 transition-colors ${
@@ -346,29 +390,38 @@ function ChatThreadRow({
     >
       <button
         type="button"
-        className="min-w-0 flex-1 text-left"
-        disabled={isLoading}
+        className="flex min-w-0 flex-1 items-center gap-2 text-left"
+        disabled={isDisabled}
         onClick={onSelect}
         aria-label={`Open ${thread.title} chat`}
       >
-        <p className="truncate text-sm font-semibold text-foreground">
-          {thread.title}
-        </p>
-        <p className="mt-0.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-          {formatThreadDate(thread.updatedAt)}
-        </p>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-semibold text-foreground">
+            {thread.title}
+          </span>
+          <span className="mt-0.5 block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+            {formatThreadDate(thread.updatedAt)}
+          </span>
+        </span>
+        {isSelecting && <Spinner className="size-3.5 shrink-0" />}
       </button>
       {onArchive && (
         <button
           type="button"
+          disabled={isArchiving}
           onClick={(event) => {
             event.stopPropagation();
+            if (isArchiving) return;
             onArchive();
           }}
-          className="shrink-0 rounded-lg p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+          className="shrink-0 rounded-lg p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:cursor-wait disabled:opacity-70"
           aria-label={`Delete ${thread.title} chat`}
         >
-          <Trash2 className="size-3.5" />
+          {isArchiving ? (
+            <Spinner className="size-3.5" />
+          ) : (
+            <Trash2 className="size-3.5" />
+          )}
         </button>
       )}
     </div>
@@ -418,9 +471,11 @@ function EmptyChat({ disabled }: { disabled: boolean }) {
 function MessageBubble({
   message,
   onCitationClick,
+  pendingCitationId,
 }: {
   message: ChatMessageView;
-  onCitationClick?: (citation: ChatCitationView) => void;
+  onCitationClick?: (citation: ChatCitationView, citationId: string) => void;
+  pendingCitationId?: string | null;
 }) {
   if (message.role === "user") {
     return (
@@ -442,21 +497,45 @@ function MessageBubble({
               Sources used
             </p>
             <div className="flex flex-wrap gap-1.5">
-              {message.citations.map((cite, i) => (
-                <Badge
-                  key={`${cite.source.documentId ?? ""}-${i}`}
-                  variant="outline"
-                  onClick={() => onCitationClick?.(cite)}
-                  className="max-w-full cursor-pointer whitespace-normal rounded-full bg-muted px-2 py-0 text-left text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted/70"
-                >
-                  {cite.source.sourceFileName ?? "Section"}
-                  {cite.source.sectionPath ? ` · ${cite.source.sectionPath}` : ""}
-                </Badge>
-              ))}
+              {message.citations.map((cite, i) => {
+                const citationId = getCitationId(message.id, i);
+                const label = getCitationLabel(cite);
+                const isPending = citationId === pendingCitationId;
+
+                return (
+                  <button
+                    key={citationId}
+                    type="button"
+                    disabled={!onCitationClick || isPending}
+                    onClick={() => onCitationClick?.(cite, citationId)}
+                    className="inline-flex max-w-full cursor-pointer items-center gap-1.5 whitespace-normal rounded-full border border-border bg-muted px-2 py-0 text-left text-[10px] font-medium text-muted-foreground shadow-2xs transition-colors hover:bg-muted/70 focus:outline-none focus:ring-4 focus:ring-ring/15 focus:ring-offset-2 focus:ring-offset-background disabled:cursor-wait disabled:opacity-75"
+                    aria-label={`Open source ${label}`}
+                  >
+                    {isPending && <Spinner className="size-3" />}
+                    <span className="min-w-0 break-words">{label}</span>
+                  </button>
+                );
+              })}
             </div>
           </div>
         )}
       </div>
     </div>
   );
+}
+
+function getCitationId(messageId: string, citationIndex: number): string {
+  return `${messageId}:${citationIndex}`;
+}
+
+function getCitationLabel(citation: ChatCitationView): string {
+  return [
+    citation.source.sourceFileName ?? "Section",
+    citation.source.sectionPath,
+  ]
+    .filter(
+      (value): value is string =>
+        typeof value === "string" && value.length > 0,
+    )
+    .join(" · ");
 }
