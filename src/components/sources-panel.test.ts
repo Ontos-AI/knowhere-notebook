@@ -2,13 +2,17 @@
 import React from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SourcesPanel } from "./sources-panel";
 
 const C = SourcesPanel as React.FC<Record<string, unknown>>;
 
 describe("SourcesPanel", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
   it("opens the upload dialog from the sidebar trigger", async () => {
     const user = userEvent.setup();
 
@@ -69,5 +73,28 @@ describe("SourcesPanel", () => {
     );
 
     expect(onSelectSource).toHaveBeenCalledWith("source_1");
+  });
+
+  it("hides source actions that are not wired", () => {
+    render(
+      React.createElement(C, {
+        sources: [
+          {
+            id: "source_1",
+            title: "lecture.pdf",
+            status: "ready",
+            chunkCount: 3,
+          },
+        ],
+      }),
+    );
+
+    const checkbox = screen.getByRole("checkbox", {
+      name: "Use lecture.pdf in answers",
+    }) as HTMLButtonElement;
+    expect(checkbox.disabled).toBe(true);
+    expect(
+      screen.queryByRole("button", { name: "Delete lecture.pdf" }),
+    ).toBeNull();
   });
 });

@@ -1,0 +1,28 @@
+{
+  "version": "2.0",
+  "job_id": "EPSTEIN FLIGHT LOGS UNREDACTED.pdf",
+  "data_id": null,
+  "source_file_name": "EPSTEIN FLIGHT LOGS UNREDACTED.pdf",
+  "processing_date": "2026-04-28T12:24:06.414905Z",
+  "processing": {
+    "page_count": 116,
+    "billing_status": "local_tabula",
+    "cost": {
+      "micro_dollars": 0,
+      "credits": 0
+    },
+    "timing": {
+      "started_at": "2026-04-28T12:24:06.414905Z",
+      "completed_at": "2026-04-28T12:24:06.414905Z",
+      "duration_ms": null
+    }
+  },
+  "statistics": {
+    "total_chunks": 117,
+    "text_chunks": 1,
+    "image_chunks": 0,
+    "table_chunks": 116,
+    "total_pages": 116,
+    "total_rows": 6857
+  }
+}

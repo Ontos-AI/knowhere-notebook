@@ -84,8 +84,6 @@ export type WorkspaceShellProps = {
     formData: FormData,
   ) => Promise<UploadSourceActionState>
   isGuest?: boolean
-  demoSource?: SourceView
-  demoChunks?: ParsedChunkView[]
   loginUrl?: string
 }
 
@@ -94,18 +92,21 @@ export function WorkspaceShell({
   sources: initialSources,
   uploadAction,
   isGuest = false,
-  demoSource,
-  demoChunks,
   loginUrl,
 }: WorkspaceShellProps) {
-  const guestSources = demoSource ? [demoSource] : []
-  const guestChunks = demoChunks ?? []
-  const initialSrcs = isGuest ? guestSources : (initialSources ?? [])
+  const initialSrcs = initialSources ?? []
+  const initialSelectedSourceId = isGuest
+    ? (initialSrcs.find((source) => source.status === "ready")?.id ?? null)
+    : null
 
-  const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null)
+  const [selectedSourceId, setSelectedSourceId] = useState<string | null>(
+    initialSelectedSourceId,
+  )
   const [focusedChunkId, setFocusedChunkId] = useState<string | null>(null)
   const [sources, setSources] = useState(initialSrcs)
-  const [mobilePanel, setMobilePanel] = useState<PanelId>("chat")
+  const [mobilePanel, setMobilePanel] = useState<PanelId>(
+    isGuest ? "content" : "chat",
+  )
   const [chat, setChat] = useState<ChatState>({
     threadId: null,
     messages: [],
@@ -113,9 +114,9 @@ export function WorkspaceShell({
     error: null,
   })
   const [chunkLoad, setChunkLoad] = useState<ChunkLoadState>({
-    sourceId: null,
-    chunks: isGuest ? guestChunks : [],
-    isLoading: false,
+    sourceId: initialSelectedSourceId,
+    chunks: [],
+    isLoading: initialSelectedSourceId !== null,
   })
 
   function redirectToLogin() {
@@ -335,19 +336,7 @@ export function WorkspaceShell({
           sources={sources}
           onSourceUploaded={isGuest ? undefined : handleSourceUploaded}
           selectedSourceId={selectedSourceId}
-          onSelectSource={(id) => {
-            if (isGuest) {
-              setSelectedSourceId(id)
-              setFocusedChunkId(null)
-              setChunkLoad({
-                sourceId: id,
-                chunks: id ? guestChunks : [],
-                isLoading: false,
-              })
-              return
-            }
-            handleSourceSelected(id)
-          }}
+          onSelectSource={handleSourceSelected}
           onToggleIncluded={isGuest ? undefined : handleToggleIncluded}
           onArchiveSource={isGuest ? undefined : handleArchiveSource}
           uploadAction={isGuest ? undefined : uploadAction}
@@ -380,15 +369,16 @@ export function WorkspaceShell({
       >
         <SourcesPanel
           sources={sources}
-          onSourceUploaded={handleSourceUploaded}
+          onSourceUploaded={isGuest ? undefined : handleSourceUploaded}
           selectedSourceId={selectedSourceId}
           onSelectSource={(id) => {
             handleSourceSelected(id)
             if (id) setMobilePanel("content")
           }}
-          onToggleIncluded={handleToggleIncluded}
-          onArchiveSource={handleArchiveSource}
-          uploadAction={uploadAction}
+          onToggleIncluded={isGuest ? undefined : handleToggleIncluded}
+          onArchiveSource={isGuest ? undefined : handleArchiveSource}
+          uploadAction={isGuest ? undefined : uploadAction}
+          onLoginClick={isGuest ? redirectToLogin : undefined}
         />
       </div>
       <div
@@ -416,7 +406,7 @@ export function WorkspaceShell({
       >
         <ChatPanel
           messages={chat.messages}
-          isDisabled={readySourceCount === 0}
+          isDisabled={isGuest || readySourceCount === 0}
           isSending={chat.isSending}
           sourceCount={readySourceCount}
           onSend={handleChatSend}

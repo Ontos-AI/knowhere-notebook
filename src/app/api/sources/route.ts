@@ -3,7 +3,8 @@ import { NextResponse } from "next/server"
 import { Effect } from "effect"
 
 import { ensureApiKeyForWorkspace } from "@/lib/api-key-service"
-import { requireUser } from "@/lib/auth"
+import { getCurrentUser } from "@/lib/auth"
+import { demoData } from "@/lib/demo-data"
 import { makeKnowhereClient } from "@/lib/knowhere"
 import { sourceViewOptionsBySourceId } from "@/lib/source-counts"
 import { reconcileSourcesForWorkspace } from "@/lib/source-reconcile"
@@ -11,7 +12,11 @@ import { toSourceView } from "@/lib/source-view"
 import { ensureWorkspace } from "@/lib/workspace"
 
 export async function GET(): Promise<NextResponse> {
-  const user = await requireUser();
+  const user = await getCurrentUser();
+  if (!user) {
+    return NextResponse.json({ sources: demoData.listSources() });
+  }
+
   const workspace = await ensureWorkspace(user.id);
   const cookieHeader = (await headers()).get("cookie") ?? ""
   const apiKey = await ensureApiKeyForWorkspace(workspace.id, cookieHeader)

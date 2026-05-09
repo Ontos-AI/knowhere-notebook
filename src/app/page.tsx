@@ -4,7 +4,7 @@ import { Effect } from "effect"
 import { ensureApiKeyForWorkspace } from "@/lib/api-key-service"
 import { authURLs } from "@/lib/auth-urls"
 import { getCurrentUser } from "@/lib/auth"
-import { DEMO_CHUNKS, DEMO_SOURCE } from "@/lib/demo-data"
+import { demoData } from "@/lib/demo-data"
 import { makeKnowhereClient } from "@/lib/knowhere"
 import { sourceViewOptionsBySourceId } from "@/lib/source-counts"
 import { toSourceView } from "@/lib/source-view"
@@ -18,9 +18,9 @@ export const dynamic = "force-dynamic"
  * Main workspace page. Server component.
  *
  * Two modes:
- *   - Guest (no Dashboard session): shows a static demo document with
- *     parsed chunks so first-time visitors can explore the product before
- *     logging in. Upload and chat are gated behind Dashboard login.
+ *   - Guest (no Dashboard session): shows static demo documents with parsed
+ *     chunks so first-time visitors can explore the product before logging in.
+ *     Upload and chat are gated behind Dashboard login.
  *   - Authenticated: the existing workspace flow — verify session,
  *     ensure workspace + API key, load real sources.
  */
@@ -41,8 +41,7 @@ export default async function Home() {
     return (
       <WorkspaceShell
         isGuest
-        demoSource={DEMO_SOURCE}
-        demoChunks={DEMO_CHUNKS}
+        sources={demoData.listSources()}
         loginUrl={loginUrl}
       />
     )

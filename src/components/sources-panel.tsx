@@ -127,7 +127,9 @@ export function SourcesPanel({
                     )
                   }
                   onToggleIncluded={onToggleIncluded}
-                  onArchiveClick={setConfirmSourceId}
+                  onArchiveClick={
+                    onArchiveSource ? setConfirmSourceId : undefined
+                  }
                 />
               ))}
             </div>
@@ -314,7 +316,7 @@ function SourceRow({
       >
         <Checkbox
           checked={!source.excludedFromQuery}
-          disabled={!isReady}
+          disabled={!isReady || !onToggleIncluded}
           onCheckedChange={(checked) =>
             onToggleIncluded?.(source.id, checked === true)
           }
