@@ -150,6 +150,11 @@ describe("ChunksPanel", () => {
     expect(screen.getByTestId("chunk-keywords-panel-text_1").textContent).toContain(
       "AI training capacity",
     );
+    expect(
+      screen.getByTestId("chunk-keywords-panel-text_1").className,
+    ).toContain("bg-emerald-50/70");
+    expect(screen.getByText("Robotaxi").className).toContain("bg-emerald-100/90");
+    expect(screen.getByText("Robotaxi").className).toContain("text-emerald-800");
   });
 
   it("allows horizontal scrolling for wide chunk content", async () => {

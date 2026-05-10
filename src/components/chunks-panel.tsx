@@ -36,6 +36,10 @@ export type ChunksPanelProps = {
 const estimatedChunkCardHeight = 220;
 const virtualListOverscan = 4;
 const infiniteScrollThreshold = 720;
+const keywordPanelClassName =
+  "rounded-lg border border-emerald-200/70 bg-emerald-50/70 p-3 shadow-[0_1px_0_rgba(16,185,129,0.08)] dark:border-emerald-400/20 dark:bg-emerald-950/20";
+const keywordBadgeClassName =
+  "rounded-md border border-emerald-200/80 bg-emerald-100/90 px-2 py-0.5 text-[11px] font-semibold text-emerald-800 shadow-[0_1px_0_rgba(16,185,129,0.10)] hover:bg-emerald-100 dark:border-emerald-400/25 dark:bg-emerald-400/10 dark:text-emerald-200";
 
 export function ChunksPanel({
   chunks = [],
@@ -468,15 +472,20 @@ function ChunkKeywords({ chunk }: { chunk: ParsedChunkView }): ReactNode {
   return (
     <section
       data-testid={`chunk-keywords-panel-${chunk.chunkId}`}
-      className="rounded-lg border border-border/70 bg-background/70 p-3"
+      className={keywordPanelClassName}
     >
-      <SectionLabel icon={<Tags className="size-3.5" />} label="Keywords" />
+      <SectionLabel
+        icon={<Tags className="size-3.5" />}
+        label="Keywords"
+        className="text-emerald-800 dark:text-emerald-200"
+        iconClassName="text-emerald-600 dark:text-emerald-300"
+      />
       <div className="mt-2 flex flex-wrap gap-1.5">
         {chunk.keywords.map((keyword) => (
           <Badge
             key={keyword}
             variant="secondary"
-            className="rounded-md px-2 py-0.5 text-[11px] font-medium text-muted-foreground"
+            className={keywordBadgeClassName}
           >
             {keyword}
           </Badge>
@@ -489,13 +498,22 @@ function ChunkKeywords({ chunk }: { chunk: ParsedChunkView }): ReactNode {
 function SectionLabel({
   icon,
   label,
+  className,
+  iconClassName,
 }: {
   icon: ReactNode;
   label: string;
+  className?: string;
+  iconClassName?: string;
 }): ReactNode {
   return (
-    <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
-      <span className="text-primary">{icon}</span>
+    <div
+      className={cn(
+        "flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-muted-foreground",
+        className,
+      )}
+    >
+      <span className={cn("text-primary", iconClassName)}>{icon}</span>
       {label}
     </div>
   );
