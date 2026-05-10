@@ -57,6 +57,19 @@
   color-scheme: dark;
 }
 
+/* ---- citation highlight pulse ---- */
+
+@keyframes citation-pulse {
+  0% { box-shadow: 0 0 0 0 hsl(var(--ring) / 0.5); }
+  50% { box-shadow: 0 0 0 8px hsl(var(--ring) / 0.15); }
+  100% { box-shadow: 0 0 0 0 hsl(var(--ring) / 0); }
+}
+
+.citation-card-highlight {
+  animation: citation-pulse 1.2s ease-out;
+}
+
+
 @layer base {
   * {
     @apply border-border;
@@ -69,6 +82,19 @@
     overflow-x: clip;
   }
 }
+
+/* ---- citation highlight pulse ---- */
+
+@keyframes citation-pulse {
+  0% { box-shadow: 0 0 0 0 hsl(var(--ring) / 0.5); }
+  50% { box-shadow: 0 0 0 8px hsl(var(--ring) / 0.15); }
+  100% { box-shadow: 0 0 0 0 hsl(var(--ring) / 0); }
+}
+
+.citation-card-highlight {
+  animation: citation-pulse 1.2s ease-out;
+}
+
 
 @layer base {
   :root {

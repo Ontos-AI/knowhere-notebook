@@ -160,7 +160,7 @@ function MessageBubble({
                   onClick={() => onCitationClick?.(cite)}
                   className="cursor-pointer rounded-full bg-muted px-2 py-0 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted/70"
                 >
-                  {cite.source.sourceFileName ?? "Section"}
+                  {cite.description ?? cite.source.sourceFileName ?? "Source"}
                   {cite.source.sectionPath ? ` · ${cite.source.sectionPath}` : ""}
                 </Badge>
               ))}

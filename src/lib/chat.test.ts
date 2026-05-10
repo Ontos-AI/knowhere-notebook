@@ -127,7 +127,7 @@ describe("buildGroundedPrompt", () => {
     expect(prompt).toContain("What is PR-E?");
     expect(prompt).toContain("PR-E wires chat to Knowhere retrieval.");
     expect(prompt).toContain("requirements.txt");
-    expect(prompt).toContain("If the sources do not answer");
+    expect(prompt).toContain("don't answer the question, say so directly");
   });
 });
 

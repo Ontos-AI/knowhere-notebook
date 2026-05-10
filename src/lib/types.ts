@@ -66,6 +66,8 @@ export type CitationView = Omit<RetrievalResultView, "content">;
  */
 export type ChatCitationView = CitationView & {
   content?: string;
+  /** One-line human-readable summary shown on the citation chip. */
+  description?: string;
 };
 
 export type ChatMessageView = {
