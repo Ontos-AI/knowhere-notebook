@@ -106,19 +106,23 @@ export function ChunksPanel({
     [requestMoreChunksIfNeeded],
   );
 
-  const resetFocusedChunkPosition = useCallback((): void => {
-    const viewport = viewportRef.current;
-
-    if (viewport) {
-      viewport.scrollTop = 0;
-      viewport.scrollLeft = 0;
-    }
-
+  const scrollToFocusedChunk = useCallback((): void => {
+    if (!activeFocusedChunkId) return;
+    // getChunksWithFocusedFirst moves the focused chunk to index 0 in
+    // visibleChunks, so the virtual list renders it at position 0 in
+    // the reordered array.  scrollToOffset(0) and scrollToIndex(0)
+    // both land on the focused chunk.
     chunkVirtualizer.scrollToOffset(0, {
       align: "start",
       behavior: "auto",
     });
-  }, [chunkVirtualizer]);
+    requestAnimationFrame(() => {
+      chunkVirtualizer.scrollToOffset(0, {
+        align: "start",
+        behavior: "smooth",
+      });
+    });
+  }, [activeFocusedChunkId, chunkVirtualizer]);
 
   useEffect(() => {
     const viewport = viewportRef.current;
@@ -135,16 +139,8 @@ export function ChunksPanel({
       return;
     }
 
-    resetFocusedChunkPosition();
-
-    const frameId = window.requestAnimationFrame(() => {
-      resetFocusedChunkPosition();
-    });
-
-    return () => {
-      window.cancelAnimationFrame(frameId);
-    };
-  }, [activeFocusedChunkId, focusedChunkRequestId, resetFocusedChunkPosition]);
+    scrollToFocusedChunk();
+  }, [activeFocusedChunkId, focusedChunkRequestId, scrollToFocusedChunk]);
 
   const requestChunkFocus = useCallback((chunkId: string): void => {
     setLocalFocusedChunkId(chunkId);
