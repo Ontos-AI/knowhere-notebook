@@ -81,6 +81,60 @@ describe("ChunksPanel", () => {
     );
   });
 
+  it("keeps long chunk title layout while using less-rounded corners", () => {
+    mockVisibleVirtualViewport();
+
+    render(
+      React.createElement(C, {
+        chunks: [
+          {
+            chunkId: "image_1",
+            type: "image",
+            content: "",
+            sourceTitle: "TSLA-Q4-2025-UPDATE.PDF",
+            summary:
+              "IMAGE-2 THE IMAGE IS A LINE GRAPH SHOWING THE GROWTH OF FSD MILES OVER TIME",
+          },
+        ],
+        selectedSource: "TSLA-Q4-2025-Update.pdf",
+      }),
+    );
+
+    const titleBadge = screen.getByText(/TSLA-Q4-2025-UPDATE\.PDF/);
+
+    expect(titleBadge.className).toContain("max-w-full");
+    expect(titleBadge.className).toContain("whitespace-normal");
+    expect(titleBadge.className).toContain("rounded-lg");
+    expect(titleBadge.className).not.toContain("inline-block");
+    expect(titleBadge.className).not.toContain("max-w-[calc");
+    expect(titleBadge.className).not.toContain("rounded-full");
+  });
+
+  it("allows horizontal scrolling for wide chunk content", async () => {
+    render(
+      React.createElement(C, {
+        chunks: [
+          {
+            chunkId: "table_1",
+            type: "table",
+            content:
+              "<table><tbody><tr><td>very-long-demo-table-cell-that-should-scroll-inside-the-card</td><td>another-wide-cell</td></tr></tbody></table>",
+            sourceTitle: "demo.pdf",
+          },
+        ],
+        selectedSource: "demo.pdf",
+      }),
+    );
+
+    const viewport = screen
+      .getByTestId("chunks-panel")
+      .querySelector<HTMLElement>("[data-radix-scroll-area-viewport]");
+
+    await waitFor(() => {
+      expect(viewport?.style.overflowX).toBe("scroll");
+    });
+  });
+
   it("renders image chunks and scrolls to resolved connection targets", async () => {
     mockVisibleVirtualViewport();
 
@@ -141,6 +195,35 @@ describe("ChunksPanel", () => {
         .getByRole("button", { name: "Missing" })
         .getAttribute("aria-disabled"),
     ).toBe("true");
+  });
+
+  it("renders and scrolls to a focused virtual chunk outside the initial range", async () => {
+    mockVisibleVirtualViewport();
+
+    const scrollIntoView = vi.fn();
+    window.HTMLElement.prototype.scrollIntoView = scrollIntoView;
+    const chunks = Array.from({ length: 60 }, (_, index) => ({
+      chunkId: `chunk_${index + 1}`,
+      type: "text",
+      content: `Chunk ${index + 1} content`,
+      sourceTitle: "large.pdf",
+    }));
+
+    render(
+      React.createElement(C, {
+        chunks,
+        selectedSource: "large.pdf",
+        focusedChunkId: "chunk_50",
+        focusedChunkRequestId: 1,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("chunk-card-shell-chunk_50")).toBeTruthy();
+    });
+    await waitFor(() => {
+      expect(scrollIntoView).toHaveBeenCalled();
+    });
   });
 
   it("formats generated artifact references for display", () => {

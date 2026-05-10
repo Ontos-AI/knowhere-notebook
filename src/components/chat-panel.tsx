@@ -579,7 +579,7 @@ function MessageBubble({
                     type="button"
                     disabled={!onCitationClick || isPending}
                     onClick={() => onCitationClick?.(cite, citationId)}
-                    className="inline-flex max-w-full cursor-pointer items-center gap-1.5 whitespace-normal rounded-full border border-border bg-muted px-2 py-0 text-left text-[10px] font-medium text-muted-foreground shadow-2xs transition-colors hover:bg-muted/70 focus:outline-none focus:ring-4 focus:ring-ring/15 focus:ring-offset-2 focus:ring-offset-background disabled:cursor-wait disabled:opacity-75"
+                    className="inline-flex max-w-full cursor-pointer items-center gap-1.5 whitespace-normal rounded-lg border border-border bg-muted px-2 py-0 text-left text-[10px] font-medium text-muted-foreground shadow-2xs transition-colors hover:bg-muted/70 focus:outline-none focus:ring-4 focus:ring-ring/15 focus:ring-offset-2 focus:ring-offset-background disabled:cursor-wait disabled:opacity-75"
                     aria-label={`Open source ${label}`}
                   >
                     {isPending && <Spinner className="size-3" />}
