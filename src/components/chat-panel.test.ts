@@ -103,6 +103,43 @@ describe("ChatPanel", () => {
     expect(onCitationClick).not.toHaveBeenCalled();
   });
 
+  it("does not repeat identical source and description labels", () => {
+    render(
+      React.createElement(C, {
+        messages: [
+          {
+            id: "assistant_1",
+            role: "assistant",
+            content: "The document mentions Tesla.",
+            citations: [
+              {
+                chunkType: "text",
+                score: 0.9,
+                description: "TSLA-Q4-2025-Update.pdf",
+                source: {
+                  documentId: "doc_1",
+                  sourceFileName: "TSLA-Q4-2025-Update.pdf",
+                  sectionPath: "TSLA-Q4-2025-Update.pdf",
+                },
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(
+      screen.getByRole("button", {
+        name: "Open source TSLA-Q4-2025-Update.pdf",
+      }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText(
+        "TSLA-Q4-2025-Update.pdf · TSLA-Q4-2025-Update.pdf",
+      ),
+    ).toBeNull();
+  });
+
   it("uses less-rounded corners for wrapped parsed chunk source links", () => {
     render(
       React.createElement(C, {

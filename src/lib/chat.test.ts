@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import type { RetrievalResult } from "@ontos-ai/knowhere-sdk"
+import type { DocumentChunk, RetrievalResult } from "@ontos-ai/knowhere-sdk"
 import { Effect } from "effect"
 import { generateText } from "ai"
 
@@ -188,8 +188,176 @@ describe("answerQuestionWithRetrieval", () => {
       retrievalQuery:
         "Tesla Q4 2025 Update energy generation and storage deployments",
       messages,
-      results: [makeRetrievalResult()],
+      results: [
+        makeRetrievalResult({
+          source: {
+            documentId: "doc_included",
+            sourceFileName: "TSLA-Q4-2025-Update.pdf",
+            sectionPath: "Intro",
+          },
+        }),
+      ],
     });
+  });
+
+  it("answers quoted keyword count questions from all document chunks", async () => {
+    const retrieval = { query: vi.fn() };
+    const generateRetrievalQuery = vi.fn();
+    const generateAnswer = vi.fn();
+    const documentChunks = {
+      documents: {
+        listChunks: vi
+          .fn()
+          .mockResolvedValueOnce({
+            chunks: [
+              makeDocumentChunk({
+                id: "chunk_1",
+                content: "Tesla delivered vehicles. Tesla expanded energy.",
+                sectionPath: "Overview",
+              }),
+            ],
+            pagination: { totalPages: 2 },
+          })
+          .mockResolvedValueOnce({
+            chunks: [
+              makeDocumentChunk({
+                id: "chunk_2",
+                content: "tesla added Superchargers.",
+                sectionPath: "Network",
+              }),
+              makeDocumentChunk({
+                id: "chunk_3",
+                content: "No matching term here.",
+                sectionPath: "Other",
+              }),
+            ],
+            pagination: { totalPages: 2 },
+          }),
+      },
+    };
+
+    const answer = await Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "how many 'Tesla' keywords appeared in the document?",
+        namespace: "notebook-workspace",
+        sources: [
+          makeSource({
+            title: "TSLA-Q4-2025-Update.pdf",
+            knowhereDocumentId: "doc_tesla",
+          }),
+        ],
+        excludedSourceIds: [],
+        retrieval,
+        documentChunks,
+        generateRetrievalQuery,
+        generateAnswer,
+        messages: [],
+      }),
+    );
+
+    expect(documentChunks.documents.listChunks).toHaveBeenNthCalledWith(
+      1,
+      "doc_tesla",
+      {
+        page: 1,
+        pageSize: 200,
+        includeAssetUrls: false,
+      },
+    );
+    expect(documentChunks.documents.listChunks).toHaveBeenNthCalledWith(
+      2,
+      "doc_tesla",
+      {
+        page: 2,
+        pageSize: 200,
+        includeAssetUrls: false,
+      },
+    );
+    expect(retrieval.query).not.toHaveBeenCalled();
+    expect(generateRetrievalQuery).not.toHaveBeenCalled();
+    expect(generateAnswer).not.toHaveBeenCalled();
+    expect(answer).toEqual({
+      answer:
+        'The keyword "Tesla" appears 3 times in TSLA-Q4-2025-Update.pdf across the parsed document chunks. [Source 1: whole document keyword count]',
+      citations: [
+        {
+          content: "Tesla delivered vehicles. Tesla expanded energy.",
+          chunkType: "text",
+          score: 1,
+          description: "whole document keyword count",
+          source: {
+            documentId: "doc_tesla",
+            sourceFileName: "TSLA-Q4-2025-Update.pdf",
+            sectionPath: "Overview",
+          },
+        },
+      ],
+    });
+  });
+
+  it("uses Notebook source titles for retrieved answer prompts and citation labels", async () => {
+    const rawResult = makeRetrievalResult({
+      source: {
+        documentId: "doc_tesla",
+        sourceFileName: "document-CFxAaNTRUliEnWOokpI66xfj7JJkad.pdf",
+        sectionPath: "FINANCIAL SUMMARY",
+      },
+    });
+    const retrieval = {
+      query: vi.fn().mockResolvedValue({
+        results: [rawResult],
+      }),
+    };
+    const generateRetrievalQuery = vi.fn().mockResolvedValue("Tesla summary");
+    const generateAnswer = vi
+      .fn()
+      .mockResolvedValue(
+        "Tesla summary answer. [Source 1: TSLA-Q4-2025-Update.pdf]",
+      );
+
+    const answer = await Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "Summarize Tesla.",
+        namespace: "notebook-workspace",
+        sources: [
+          makeSource({
+            title: "TSLA-Q4-2025-Update.pdf",
+            knowhereDocumentId: "doc_tesla",
+          }),
+        ],
+        excludedSourceIds: [],
+        retrieval,
+        generateRetrievalQuery,
+        generateAnswer,
+        messages: [],
+      }),
+    );
+
+    expect(generateAnswer).toHaveBeenCalledWith({
+      question: "Summarize Tesla.",
+      retrievalQuery: "Tesla summary",
+      messages: [],
+      results: [
+        {
+          ...rawResult,
+          source: {
+            documentId: "doc_tesla",
+            sourceFileName: "TSLA-Q4-2025-Update.pdf",
+            sectionPath: "FINANCIAL SUMMARY",
+          },
+        },
+      ],
+    });
+    expect(answer.citations).toEqual([
+      {
+        ...rawResult,
+        source: {
+          documentId: "doc_tesla",
+          sourceFileName: "TSLA-Q4-2025-Update.pdf",
+          sectionPath: "FINANCIAL SUMMARY",
+        },
+      },
+    ]);
   });
 });
 
@@ -365,6 +533,23 @@ function makeRetrievalResult(
       sourceFileName: "notes.txt",
       sectionPath: "Intro",
     },
+    ...overrides,
+  };
+}
+
+function makeDocumentChunk(overrides: Partial<DocumentChunk> = {}): DocumentChunk {
+  return {
+    id: "chunk_1",
+    chunkId: "parser_chunk_1",
+    chunkType: "text",
+    content: "Document content",
+    sectionId: "section_1",
+    sectionPath: "Intro",
+    sourceChunkPath: "Intro",
+    filePath: null,
+    sortOrder: 1,
+    metadata: {},
+    createdAt: new Date("2026-05-06T00:00:00Z"),
     ...overrides,
   };
 }

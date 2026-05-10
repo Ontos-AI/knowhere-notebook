@@ -3,6 +3,7 @@ import { Effect, Either } from "effect"
 import {
   answerQuestionWithRetrieval,
   type ChatHistoryMessage,
+  type DocumentChunksClient,
   type GenerateAnswer,
   type GenerateRetrievalQuery,
   type RetrievalClient,
@@ -60,6 +61,7 @@ type ChatTurnInput = {
   threadId?: string
   excludedSourceIds: readonly string[]
   retrieval: RetrievalClient
+  documentChunks?: DocumentChunksClient
   generateRetrievalQuery: GenerateRetrievalQuery
   generateAnswer: GenerateAnswer
   repository: ChatRepository
@@ -117,6 +119,7 @@ export const handleChatTurnEffect = (input: ChatTurnInput) =>
       sources: readySources,
       excludedSourceIds: input.excludedSourceIds,
       retrieval: input.retrieval,
+      documentChunks: input.documentChunks,
       generateRetrievalQuery: input.generateRetrievalQuery,
       generateAnswer: input.generateAnswer,
       messages: chatHistoryMessages,

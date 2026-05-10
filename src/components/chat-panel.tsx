@@ -623,7 +623,7 @@ function getCitationId(messageId: string, citationIndex: number): string {
 }
 
 function getCitationLabel(citation: ChatCitationView): string {
-  return [
+  const values = [
     citation.source.sourceFileName ?? "Section",
     citation.description ?? citation.source.sectionPath,
   ]
@@ -631,5 +631,20 @@ function getCitationLabel(citation: ChatCitationView): string {
       (value): value is string =>
         typeof value === "string" && value.length > 0,
     )
-    .join(" · ");
+    .map((value) => value.trim())
+
+  const labels: string[] = [];
+  for (const value of values) {
+    if (
+      value &&
+      !labels.some(
+        (existingValue): boolean =>
+          existingValue.toLowerCase() === value.toLowerCase(),
+      )
+    ) {
+      labels.push(value);
+    }
+  }
+
+  return labels.join(" · ");
 }

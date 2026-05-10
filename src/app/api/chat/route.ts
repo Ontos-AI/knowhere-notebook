@@ -40,6 +40,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       threadId: body.value.threadId,
       excludedSourceIds: body.value.excludedSourceIds,
       retrieval: client.retrieval,
+      documentChunks: client,
       generateRetrievalQuery: generateContextualRetrievalQuery,
       generateAnswer: generateGroundedAnswer,
       repository: {
