@@ -81,8 +81,6 @@ describe("WorkspaceShell", () => {
   });
 
   it("reuses loaded chunks when users click another citation from the same source", async () => {
-    const scrollIntoView = vi.fn();
-    Element.prototype.scrollIntoView = scrollIntoView;
     const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
       const path = getRequestPath(input);
 
@@ -185,21 +183,21 @@ describe("WorkspaceShell", () => {
       ).toBeGreaterThan(0);
     });
     expect(countFetches(fetch, "/api/sources/source_1/chunks")).toBe(1);
-    const scrollsAfterFirstCitation = scrollIntoView.mock.calls.length;
 
     await user.click(desktopChatPanel.getByText("doc.pdf · Second"));
 
     await waitFor(() => {
-      expect(scrollIntoView.mock.calls.length).toBeGreaterThan(
-        scrollsAfterFirstCitation,
-      );
+      const topRow = screen
+        .getByTestId("desktop-chunks-panel")
+        .querySelector<HTMLElement>('[data-index="0"]');
+
+      expect(topRow?.getAttribute("data-chunk-id")).toBe("chunk_2");
+      expect(topRow?.getAttribute("data-focused-chunk")).toBe("true");
     });
     expect(countFetches(fetch, "/api/sources/source_1/chunks")).toBe(1);
   });
 
   it("runs the citation jump again when users click the same source link twice", async () => {
-    const scrollIntoView = vi.fn();
-    Element.prototype.scrollIntoView = scrollIntoView;
     const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
       const path = getRequestPath(input);
 
@@ -277,15 +275,22 @@ describe("WorkspaceShell", () => {
     });
     await user.click(citation);
     await waitFor(() => {
-      expect(scrollIntoView).toHaveBeenCalled();
+      const topRow = screen
+        .getByTestId("desktop-chunks-panel")
+        .querySelector<HTMLElement>('[data-index="0"]');
+
+      expect(topRow?.getAttribute("data-chunk-id")).toBe("chunk_1");
+      expect(topRow?.getAttribute("data-focused-chunk")).toBe("true");
     });
-    const scrollsAfterFirstClick = scrollIntoView.mock.calls.length;
 
     await user.click(citation);
     await waitFor(() => {
-      expect(scrollIntoView.mock.calls.length).toBeGreaterThan(
-        scrollsAfterFirstClick,
-      );
+      const topRow = screen
+        .getByTestId("desktop-chunks-panel")
+        .querySelector<HTMLElement>('[data-index="0"]');
+
+      expect(topRow?.getAttribute("data-chunk-id")).toBe("chunk_1");
+      expect(topRow?.getAttribute("data-focused-chunk")).toBe("true");
     });
     expect(countFetches(fetch, "/api/sources/source_1/chunks")).toBe(1);
   });
