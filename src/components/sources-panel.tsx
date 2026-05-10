@@ -114,7 +114,6 @@ export function SourcesPanel({
         {onLoginClick ? (
           <Button
             onClick={onLoginClick}
-            variant="outline"
             size="sm"
             className="flex w-full items-center justify-center gap-2 shadow-xs"
           >
@@ -232,7 +231,6 @@ function UploadDialog({
       <Button
         type="button"
         onClick={() => setIsDialogOpen(true)}
-        variant="outline"
         size="sm"
         className="flex w-full items-center justify-center gap-2 shadow-xs"
       >

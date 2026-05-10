@@ -50,6 +50,25 @@ describe("SourcesPanel", () => {
     expect(screen.getByRole("button", { name: "Confirm" })).toBeTruthy();
   });
 
+  it("uses the same primary compact style for source CTAs", () => {
+    const onLoginClick = vi.fn();
+
+    const { rerender } = render(React.createElement(C, { sources: [] }));
+    expectPrimaryCompactButton(
+      screen.getByRole("button", { name: "Upload Document" }),
+    );
+
+    rerender(
+      React.createElement(C, {
+        sources: [],
+        onLoginClick,
+      }),
+    );
+    expectPrimaryCompactButton(
+      screen.getByRole("button", { name: "Log in to upload" }),
+    );
+  });
+
   it("keeps upload confirmation controls visible inside the dialog viewport", async () => {
     const user = userEvent.setup();
 
@@ -281,4 +300,11 @@ function getRequestPath(input: RequestInfo | URL): string {
         ? input.toString()
         : input.url;
   return new URL(url, "http://localhost").pathname;
+}
+
+function expectPrimaryCompactButton(button: HTMLElement): void {
+  expect(button.className).toContain("bg-[#8E51FF]");
+  expect(button.className).toContain("border-b-[4px]");
+  expect(button.className).toContain("font-mono-readable");
+  expect(button.className).not.toContain("bg-background");
 }

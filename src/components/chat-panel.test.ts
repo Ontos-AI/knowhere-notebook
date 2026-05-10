@@ -198,6 +198,35 @@ describe("ChatPanel", () => {
     ).toBeTruthy();
   });
 
+  it("replaces the disabled guest composer with a login button", async () => {
+    const onLoginClick = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      React.createElement(C, {
+        isDisabled: true,
+        onLoginClick,
+      }),
+    );
+
+    expect(
+      screen.queryByPlaceholderText("Upload a document to start asking questions."),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Send message" }),
+    ).toBeNull();
+
+    const loginButton = screen.getByRole("button", {
+      name: "Log in to start",
+    });
+    expect(loginButton.className).toContain("bg-[#8E51FF]");
+    expect(loginButton.className).toContain("border-b-[4px]");
+    expect(loginButton.className).toContain("font-mono-readable");
+
+    await user.click(loginButton);
+    expect(onLoginClick).toHaveBeenCalledOnce();
+  });
+
   it("uses fluid mobile widths and wraps long chat content", () => {
     render(
       React.createElement(C, {
