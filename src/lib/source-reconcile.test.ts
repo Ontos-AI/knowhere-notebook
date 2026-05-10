@@ -22,6 +22,8 @@ function makeSource(overrides: Partial<Source>): Source {
     knowhereDocumentId: null,
     stagedBlobPathname: null,
     stagedBlobUrl: null,
+    originalBlobPathname: null,
+    originalBlobUrl: null,
     createdAt: new Date("2026-05-06T00:00:00Z"),
     updatedAt: new Date("2026-05-06T00:00:00Z"),
     deletedAt: null,
@@ -163,20 +165,21 @@ describe("reconcileSourcesForWorkspace", () => {
     expect(calls).toEqual(["store", "save", "ready"])
   })
 
-  it("deletes staged public Blob uploads after completed URL parsing jobs", async () => {
+  it("keeps original public Blob uploads after completed URL parsing jobs", async () => {
     const parsing = makeSource({
       id: "source_1",
       knowhereJobId: "job_1",
-      stagedBlobPathname: "source-uploads/upload_1/document.pdf",
-      stagedBlobUrl:
+      originalBlobPathname: "source-uploads/upload_1/document.pdf",
+      originalBlobUrl:
         "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
     })
     const ready = makeSource({
       id: "source_1",
       status: "ready",
       knowhereDocumentId: "doc_1",
-      stagedBlobPathname: null,
-      stagedBlobUrl: null,
+      originalBlobPathname: "source-uploads/upload_1/document.pdf",
+      originalBlobUrl:
+        "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
     })
     const listSourcesForWorkspace = vi
       .fn()
@@ -203,13 +206,8 @@ describe("reconcileSourcesForWorkspace", () => {
       clearSourceStagedBlob,
     })
 
-    expect(deleteStagedSourceBlob).toHaveBeenCalledWith(
-      "source-uploads/upload_1/document.pdf",
-    )
-    expect(clearSourceStagedBlob).toHaveBeenCalledWith(
-      workspace.id,
-      "source_1",
-    )
+    expect(deleteStagedSourceBlob).not.toHaveBeenCalled()
+    expect(clearSourceStagedBlob).not.toHaveBeenCalled()
   })
 
   it("marks failed parsing jobs failed with a user-safe reason", async () => {

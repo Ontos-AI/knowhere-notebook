@@ -161,6 +161,21 @@
 }
 
 @layer utilities {
+  .original-docx-preview .docx-wrapper {
+    width: 100%;
+    max-width: 100%;
+    align-items: stretch;
+    background: transparent;
+    padding: 0;
+  }
+
+  .original-docx-preview .docx-wrapper > section.docx,
+  .original-docx-preview section.docx {
+    width: 100% !important;
+    max-width: 100%;
+    min-width: 0;
+  }
+
   .hero-scrollbar-dark {
     scrollbar-width: auto;
     scrollbar-color: #52525b var(--hero-scrollbar-track, #18181b);

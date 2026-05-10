@@ -102,15 +102,26 @@ export type ChatThreadView = {
 
 export type SourceStatus = "uploading" | "parsing" | "ready" | "failed";
 
+export type SourceOriginalFileView = {
+  url: string;
+  mimeType: string;
+  sizeBytes?: number;
+  canDownload?: boolean;
+};
+
 /**
  * Sources sidebar row — metadata-only, per the MVP persistence rule.
  */
 export type SourceView = {
   id: string;
   title: string;
+  /** Browser-provided content type for preview routing. */
+  mimeType: string;
   status: SourceStatus;
   /** Knowhere document ID once parsing publishes. */
   documentId?: string;
+  /** Public Blob URL for original-file preview and download. */
+  originalFile?: SourceOriginalFileView;
   /** Count from the Knowhere chunks API, not a local aggregate. */
   chunkCount?: number;
   /** User opt-out for this query session. Drives excludeDocumentIds. */

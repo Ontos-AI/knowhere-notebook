@@ -77,6 +77,8 @@ const source: Source = {
   knowhereDocumentId: null,
   stagedBlobPathname: null,
   stagedBlobUrl: null,
+  originalBlobPathname: null,
+  originalBlobUrl: null,
   createdAt: new Date("2026-05-10T00:00:00Z"),
   updatedAt: new Date("2026-05-10T00:00:00Z"),
   deletedAt: null,
@@ -112,6 +114,7 @@ describe("POST /api/sources", () => {
         id: "source_1",
         title: "notes.pdf",
         status: "parsing",
+        mimeType: "application/pdf",
       },
     });
     expect(response.status).toBe(201);
@@ -155,6 +158,7 @@ describe("POST /api/sources", () => {
         id: "source_1",
         title: "notes.pdf",
         status: "parsing",
+        mimeType: "application/pdf",
       },
     });
     expect(response.status).toBe(201);

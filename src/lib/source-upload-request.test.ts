@@ -16,45 +16,79 @@ describe("postSourceUpload", () => {
     vi.clearAllMocks();
   });
 
-  it("posts the selected file as multipart form data through the Effect HTTP client", async () => {
+  it("uploads the selected file to Blob before creating source metadata", async () => {
     let requestMethod = "";
     let requestPath = "";
-    let uploadedFileName = "";
+    let requestBody: unknown = null;
+    let requestContentType = "";
     const uploadedSource = {
       id: "source_1",
       title: "notes.pdf",
       status: "parsing",
+      mimeType: "application/pdf",
+      originalFile: {
+        url: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
+        mimeType: "application/pdf",
+      },
     } as const;
+    const file = new File(["hello"], "notes.pdf", { type: "application/pdf" });
+    const blob = {
+      url: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
+      downloadUrl:
+        "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf?download=1",
+      pathname: "source-uploads/upload_1/document.pdf",
+      contentType: "application/pdf",
+      contentDisposition: 'attachment; filename="document.pdf"',
+      etag: "etag_1",
+    };
+
     vi.stubGlobal("location", { origin: "http://localhost" });
+    vi.stubGlobal("crypto", { randomUUID: () => "upload_1" });
+    mocks.uploadBlob.mockResolvedValue(blob);
     const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
       const request = input instanceof Request
         ? input
         : new Request(new URL(String(input), "http://localhost").toString(), init);
-      const formData = await request.formData();
-      const file = formData.get("file");
-
       requestPath = new URL(request.url).pathname;
       requestMethod = request.method;
-      uploadedFileName =
-        typeof file === "object" && file !== null && "name" in file
-          ? String(file.name)
-          : "";
+      requestContentType = request.headers.get("content-type") ?? "";
+      if (requestContentType.includes("application/json")) {
+        requestBody = await request.json();
+      }
 
       return Response.json({ source: uploadedSource }, { status: 201 });
     });
     vi.stubGlobal("fetch", fetch);
 
-    const result = await postSourceUpload(
-      new File(["hello"], "notes.pdf", { type: "application/pdf" }),
-    );
+    const result = await postSourceUpload(file);
 
     expect(result).toEqual({
       status: 201,
       body: { source: uploadedSource },
     });
+    expect(mocks.uploadBlob).toHaveBeenCalledWith(
+      "source-uploads/upload_1/document.pdf",
+      file,
+      expect.objectContaining({
+        access: "public",
+        contentType: "application/pdf",
+        handleUploadUrl: "/api/source-uploads/blob",
+        multipart: true,
+      }),
+    );
     expect(requestPath).toBe("/api/sources");
     expect(requestMethod).toBe("POST");
-    expect(uploadedFileName).toBe("notes.pdf");
+    expect(requestContentType).toContain("application/json");
+    expect(requestBody).toEqual({
+      upload: {
+        type: "blob",
+        pathname: "source-uploads/upload_1/document.pdf",
+        url: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
+        fileName: "notes.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: file.size,
+      },
+    });
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 

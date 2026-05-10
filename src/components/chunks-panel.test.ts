@@ -50,6 +50,97 @@ describe("ChunksPanel", () => {
     expect(screen.getByText(/Showing all parsed chunks from/)).toBeTruthy();
   });
 
+  it("switches to a download-only original file state for unsupported previews", async () => {
+    const user = userEvent.setup();
+
+    render(
+      React.createElement(C, {
+        chunks: [],
+        selectedSource: "brief.doc",
+        selectedSourceFile: {
+          url: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.doc",
+          mimeType: "application/msword",
+        },
+      }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Original" }));
+
+    const downloadLink = screen.getByRole("link", {
+      name: "Download original file",
+    });
+    expect(downloadLink.getAttribute("href")).toBe(
+      "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.doc?download=1",
+    );
+    expect(screen.getByText("Preview is not available for this file.")).toBeTruthy();
+  });
+
+  it("renders browser-supported image originals inline", async () => {
+    const user = userEvent.setup();
+
+    render(
+      React.createElement(C, {
+        chunks: [],
+        selectedSource: "diagram.png",
+        selectedSourceFile: {
+          url: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.png",
+          mimeType: "image/png",
+        },
+      }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Original" }));
+
+    const image = screen.getByRole("img", { name: "diagram.png" });
+    expect(image.getAttribute("src")).toBe(
+      "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.png",
+    );
+  });
+
+  it("returns to parsed chunks when a citation focuses a chunk from the original view", async () => {
+    mockVisibleVirtualViewport();
+    const user = userEvent.setup();
+    const chunks = [
+      {
+        chunkId: "chunk_1",
+        type: "text",
+        content: "Referenced content from the parsed document.",
+        sourceTitle: "report.doc",
+      },
+    ];
+    const selectedSourceFile = {
+      url: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.doc",
+      mimeType: "application/msword",
+    };
+    const { rerender } = render(
+      React.createElement(C, {
+        chunks,
+        selectedSource: "report.doc",
+        selectedSourceFile,
+      }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Original" }));
+    expect(screen.getByRole("heading", { name: "Original File" })).toBeTruthy();
+
+    rerender(
+      React.createElement(C, {
+        chunks,
+        selectedSource: "report.doc",
+        selectedSourceFile,
+        focusedChunkId: "chunk_1",
+        focusedChunkRequestId: 1,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("heading", { name: "Referenced Chunks" }),
+      ).toBeTruthy();
+    });
+    expect(screen.getByTestId("chunk-card-shell-chunk_1")).toBeTruthy();
+  });
+
   it("uses compact, non-folding spacing for the mobile chunk view", () => {
     render(React.createElement(C, { chunks: [] }));
 

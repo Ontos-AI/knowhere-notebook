@@ -21,14 +21,19 @@ describe("validateUploadFile", () => {
     });
   });
 
-  it("accepts legacy Word and PowerPoint formats", () => {
+  it("accepts the Knowhere-supported preview source extensions", () => {
     const wordResult = validateUploadFile({
       name: "brief.doc",
       type: "",
       size: 1024,
     });
-    const deckResult = validateUploadFile({
-      name: "deck.ppt",
+    const spreadsheetResult = validateUploadFile({
+      name: "forecast.xlsx",
+      type: "",
+      size: 1024,
+    });
+    const imageResult = validateUploadFile({
+      name: "diagram.png",
       type: "",
       size: 1024,
     });
@@ -38,24 +43,30 @@ describe("validateUploadFile", () => {
       extension: "doc",
       mimeType: "application/msword",
     });
-    expect(deckResult).toMatchObject({
+    expect(spreadsheetResult).toMatchObject({
       ok: true,
-      extension: "ppt",
-      mimeType: "application/vnd.ms-powerpoint",
+      extension: "xlsx",
+      mimeType:
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+    expect(imageResult).toMatchObject({
+      ok: true,
+      extension: "png",
+      mimeType: "image/png",
     });
   });
 
   it("rejects unsupported file types before Knowhere handoff", () => {
     const result = validateUploadFile({
-      name: "photo.png",
-      type: "image/png",
+      name: "deck.ppt",
+      type: "application/vnd.ms-powerpoint",
       size: 1024,
     });
 
     expect(result).toEqual({
       ok: false,
       message:
-        "Unsupported file type. Upload a PDF, Word, PowerPoint, text, or Markdown document.",
+        "Unsupported file type. Upload a PDF, Word, PowerPoint, spreadsheet, image, text, or Markdown document.",
     });
   });
 

@@ -737,6 +737,7 @@ function WorkspaceShellContent({
             <ChunksPanel
               chunks={selectedChunks}
               selectedSource={selectedSourceTitle}
+              selectedSourceFile={selectedSource?.originalFile ?? null}
               focusedChunkId={focusedChunk.chunkId}
               focusedChunkRequestId={focusedChunk.requestId}
               isLoading={isSelectedChunksLoading}
@@ -816,6 +817,7 @@ function WorkspaceShellContent({
         <ChunksPanel
           chunks={selectedChunks}
           selectedSource={selectedSourceTitle}
+          selectedSourceFile={selectedSource?.originalFile ?? null}
           focusedChunkId={focusedChunk.chunkId}
           focusedChunkRequestId={focusedChunk.requestId}
           isLoading={isSelectedChunksLoading}

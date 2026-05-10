@@ -110,6 +110,8 @@ export const createUploadingSourceEffect = (
     sizeBytes: number
     stagedBlobPathname?: string | null
     stagedBlobUrl?: string | null
+    originalBlobPathname?: string | null
+    originalBlobUrl?: string | null
   },
 ) =>
   Effect.gen(function* () {
@@ -125,6 +127,8 @@ export const createUploadingSourceEffect = (
           status: "uploading",
           stagedBlobPathname: input.stagedBlobPathname,
           stagedBlobUrl: input.stagedBlobUrl,
+          originalBlobPathname: input.originalBlobPathname,
+          originalBlobUrl: input.originalBlobUrl,
         })
         .returning(),
     )
@@ -369,6 +373,8 @@ const updateSourceInWorkspaceEffect = (
       | "knowhereDocumentId"
       | "stagedBlobPathname"
       | "stagedBlobUrl"
+      | "originalBlobPathname"
+      | "originalBlobUrl"
     >
   >,
 ) =>
@@ -478,6 +484,8 @@ export const createUploadingSource = (
     sizeBytes: number
     stagedBlobPathname?: string | null
     stagedBlobUrl?: string | null
+    originalBlobPathname?: string | null
+    originalBlobUrl?: string | null
   },
 ) =>
   dbRuntime().runPromise(createUploadingSourceEffect(workspaceId, input))

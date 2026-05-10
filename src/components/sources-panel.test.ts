@@ -11,6 +11,14 @@ import {
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const mocks = vi.hoisted(() => ({
+  uploadBlob: vi.fn(),
+}));
+
+vi.mock("@vercel/blob/client", () => ({
+  upload: mocks.uploadBlob,
+}));
+
 import { SourcesPanel } from "./sources-panel";
 
 const C = SourcesPanel as React.FC<Record<string, unknown>>;
@@ -30,6 +38,8 @@ describe("SourcesPanel", () => {
 
   afterEach(() => {
     cleanup();
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
     Object.defineProperty(globalThis, "ResizeObserver", {
       configurable: true,
       value: originalResizeObserver,
@@ -102,7 +112,7 @@ describe("SourcesPanel", () => {
 
     expect(
       screen.getByText(
-        /Notebook accepts PDF, DOC, DOCX, TXT, MD, PPT, PPTX, and more files up to 100 MB/,
+        /Notebook accepts PDF, DOC, DOCX, TXT, MD, XLS, XLSX, PPTX, images, and more files up to 100 MB/,
       ),
     ).toBeTruthy();
     expect(screen.getByText("Max size: 100 MB")).toBeTruthy();
@@ -220,12 +230,22 @@ describe("SourcesPanel", () => {
       id: "source_1",
       title: "notes.pdf",
       status: "parsing",
+      mimeType: "application/pdf",
+      originalFile: {
+        url: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
+        mimeType: "application/pdf",
+      },
     };
+    let requestBody: unknown = null;
+    mocks.uploadBlob.mockResolvedValue(makeUploadedBlob());
+    vi.stubGlobal("crypto", { randomUUID: () => "upload_1" });
     const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
-      expect(getRequestPath(input)).toBe("/api/sources");
-      expect(init?.method).toBe("POST");
-      expect(init?.body).toBeInstanceOf(FormData);
-      expect((init?.body as FormData).get("file")).toBeInstanceOf(File);
+      const request = input instanceof Request
+        ? input
+        : new Request(new URL(String(input), "http://localhost").toString(), init);
+      expect(getRequestPath(request)).toBe("/api/sources");
+      expect(request.method).toBe("POST");
+      requestBody = await request.json();
       return Response.json({ source: uploadedSource }, { status: 201 });
     });
     const onSourceUploaded = vi.fn();
@@ -250,6 +270,26 @@ describe("SourcesPanel", () => {
     fireEvent.submit(form);
 
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    expect(mocks.uploadBlob).toHaveBeenCalledWith(
+      "source-uploads/upload_1/document.pdf",
+      expect.objectContaining({ name: "notes.pdf" }),
+      expect.objectContaining({
+        access: "public",
+        contentType: "application/pdf",
+        handleUploadUrl: "/api/source-uploads/blob",
+        multipart: true,
+      }),
+    );
+    expect(requestBody).toEqual({
+      upload: {
+        type: "blob",
+        pathname: "source-uploads/upload_1/document.pdf",
+        url: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
+        fileName: "notes.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 5,
+      },
+    });
     await waitFor(() =>
       expect(onSourceUploaded).toHaveBeenCalledWith(uploadedSource),
     );
@@ -257,12 +297,18 @@ describe("SourcesPanel", () => {
 
   it("shows upload API failures inside the upload dialog", async () => {
     const user = userEvent.setup();
-    const fetch = vi.fn<typeof globalThis.fetch>(async () =>
-      Response.json(
+    mocks.uploadBlob.mockResolvedValue(makeUploadedBlob());
+    vi.stubGlobal("crypto", { randomUUID: () => "upload_1" });
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
+      if (getRequestPath(input) === "/api/source-uploads/blob") {
+        return Response.json({ ok: true }, { status: 200 });
+      }
+
+      return Response.json(
         { message: "File is too large. Upload a document up to 100 MB." },
         { status: 400 },
-      ),
-    );
+      );
+    });
     vi.stubGlobal("fetch", fetch);
 
     render(React.createElement(C, { sources: [] }));
@@ -307,4 +353,23 @@ function expectPrimaryCompactButton(button: HTMLElement): void {
   expect(button.className).toContain("border-b-[4px]");
   expect(button.className).toContain("font-mono-readable");
   expect(button.className).not.toContain("bg-background");
+}
+
+function makeUploadedBlob(): {
+  readonly url: string;
+  readonly downloadUrl: string;
+  readonly pathname: string;
+  readonly contentType: string;
+  readonly contentDisposition: string;
+  readonly etag: string;
+} {
+  return {
+    url: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
+    downloadUrl:
+      "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf?download=1",
+    pathname: "source-uploads/upload_1/document.pdf",
+    contentType: "application/pdf",
+    contentDisposition: 'attachment; filename="document.pdf"',
+    etag: "etag_1",
+  };
 }

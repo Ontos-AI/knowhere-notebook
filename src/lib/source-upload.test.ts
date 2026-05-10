@@ -27,6 +27,8 @@ function makeSource(overrides: Partial<Source> = {}): Source {
     knowhereDocumentId: null,
     stagedBlobPathname: null,
     stagedBlobUrl: null,
+    originalBlobPathname: null,
+    originalBlobUrl: null,
     createdAt: new Date("2026-05-06T00:00:00Z"),
     updatedAt: new Date("2026-05-06T00:00:00Z"),
     deletedAt: null,
@@ -53,7 +55,7 @@ describe("uploadSourceToKnowhere", () => {
     await expect(
       uploadSourceToKnowhere(
         workspace,
-        new File(["x"], "image.png", { type: "image/png" }),
+        new File(["x"], "deck.ppt", { type: "application/vnd.ms-powerpoint" }),
         deps,
       ),
     ).rejects.toThrow(/Unsupported file type/);
@@ -201,8 +203,8 @@ describe("uploadSourceToKnowhere", () => {
         title: "large.pdf",
         mimeType: "application/pdf",
         sizeBytes: 5,
-        stagedBlobPathname: "source-uploads/upload_1/document.pdf",
-        stagedBlobUrl: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
+        originalBlobPathname: "source-uploads/upload_1/document.pdf",
+        originalBlobUrl: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
       },
     );
     expect(deps.knowhere.jobs.create).toHaveBeenCalledWith({
@@ -219,13 +221,15 @@ describe("uploadSourceToKnowhere", () => {
     });
   });
 
-  it("deletes staged public Blob uploads when URL job creation fails", async () => {
+  it("keeps the original public Blob and returns a failed source when URL job creation fails", async () => {
     const uploadingSource = makeSource({ title: "large.pdf", sizeBytes: 5 });
     const failedSource = makeSource({
       title: "large.pdf",
       status: "failed",
       failureReason: "Knowhere upload failed.",
       sizeBytes: 5,
+      originalBlobPathname: "source-uploads/upload_1/document.pdf",
+      originalBlobUrl: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
     });
     const deps = {
       repository: {
@@ -239,25 +243,28 @@ describe("uploadSourceToKnowhere", () => {
           upload: vi.fn(),
         },
       },
-      deleteStagedSourceBlob: vi.fn().mockResolvedValue(undefined),
     };
 
-    await expect(
-      uploadSourceBlobToKnowhere(
-        workspace,
-        {
-          pathname: "source-uploads/upload_1/document.pdf",
-          url: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
-          fileName: "large.pdf",
-          mimeType: "application/pdf",
-          sizeBytes: 5,
-        },
-        deps,
-      ),
-    ).rejects.toThrow(/Knowhere upload failed/);
+    const result = await uploadSourceBlobToKnowhere(
+      workspace,
+      {
+        pathname: "source-uploads/upload_1/document.pdf",
+        url: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
+        fileName: "large.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 5,
+      },
+      deps,
+    );
 
-    expect(deps.deleteStagedSourceBlob).toHaveBeenCalledWith(
-      "source-uploads/upload_1/document.pdf",
+    expect(result).toMatchObject({
+      status: "failed",
+      originalBlobUrl: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
+    });
+    expect(deps.repository.markSourceFailed).toHaveBeenCalledWith(
+      workspace.id,
+      uploadingSource.id,
+      "Knowhere upload failed.",
     );
   });
 });

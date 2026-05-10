@@ -19,12 +19,18 @@ import DOMPurify from "dompurify";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import type { ParsedChunkConnection, ParsedChunkView } from "@/lib/types";
+import { SourceOriginalPreview } from "@/components/source-original-preview";
+import type {
+  ParsedChunkConnection,
+  ParsedChunkView,
+  SourceOriginalFileView,
+} from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 export type ChunksPanelProps = {
   chunks: ParsedChunkView[];
   selectedSource?: string | null;
+  selectedSourceFile?: SourceOriginalFileView | null;
   focusedChunkId?: string | null;
   focusedChunkRequestId?: number;
   isLoading?: boolean;
@@ -40,6 +46,7 @@ const infiniteScrollThreshold = 720;
 export function ChunksPanel({
   chunks = [],
   selectedSource = null,
+  selectedSourceFile = null,
   focusedChunkId = null,
   focusedChunkRequestId = 0,
   isLoading = false,
@@ -48,6 +55,7 @@ export function ChunksPanel({
   onLoadMore,
 }: Partial<ChunksPanelProps> = {}) {
   const viewportRef = useRef<HTMLDivElement>(null);
+  const [activeView, setActiveView] = useState<"parsed" | "original">("parsed");
   const [localFocusedChunkId, setLocalFocusedChunkId] = useState<string | null>(
     null,
   );
@@ -151,8 +159,21 @@ export function ChunksPanel({
   }, []);
 
   const headerTitle = focusedChunkId ? "Referenced Chunks" : "Parsed Chunks";
+  const hasOriginalFile = selectedSource !== null && selectedSourceFile !== null;
+  const visibleView = hasOriginalFile ? activeView : "parsed";
 
-  const headerSubtitle = focusedChunkId ? (
+  const headerSubtitle = visibleView === "original" ? (
+    selectedSource ? (
+      <>
+        Showing the original file for{" "}
+        <span className="font-semibold italic text-foreground">
+          {selectedSource}
+        </span>
+      </>
+    ) : (
+      "Select a source to preview its original file."
+    )
+  ) : focusedChunkId ? (
     <>Showing relevant chunks from the last answer.</>
   ) : selectedSource ? (
     <>
@@ -165,60 +186,106 @@ export function ChunksPanel({
     "Select a source to see its parsed chunks."
   );
 
+  useEffect(() => {
+    if (!hasOriginalFile) setActiveView("parsed");
+  }, [hasOriginalFile]);
+
+  useEffect(() => {
+    if (focusedChunkId) setActiveView("parsed");
+  }, [focusedChunkId, focusedChunkRequestId]);
+
   return (
     <main
       data-testid="chunks-panel"
       className="z-0 flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-background"
     >
-      <header className="flex shrink-0 items-start justify-between border-b border-border/70 px-4 py-3 sm:px-6 sm:py-4">
+      <header className="flex shrink-0 items-start justify-between gap-3 border-b border-border/70 px-4 py-3 sm:px-6 sm:py-4">
         <div className="min-w-0">
-          <h2 className="text-sm font-bold text-foreground">{headerTitle}</h2>
+          <h2 className="text-sm font-bold text-foreground">
+            {visibleView === "original" ? "Original File" : headerTitle}
+          </h2>
           <p className="mt-1 text-xs leading-5 text-muted-foreground sm:truncate">
             {headerSubtitle}
           </p>
         </div>
+        {hasOriginalFile ? (
+          <div className="flex shrink-0 rounded-lg border border-border bg-muted/40 p-0.5">
+            <button
+              type="button"
+              onClick={() => setActiveView("parsed")}
+              className={viewToggleClassName(visibleView === "parsed")}
+            >
+              Parsed
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveView("original")}
+              className={viewToggleClassName(visibleView === "original")}
+            >
+              Original
+            </button>
+          </div>
+        ) : null}
       </header>
 
-      <ScrollArea
-        className="flex-1"
-        viewportRef={viewportRef}
-        onViewportScroll={handleViewportScroll}
-        scrollbars="both"
-      >
-        <div
-          data-testid="chunks-scroll-content"
-          className="mx-auto flex w-full min-w-0 max-w-4xl flex-col items-center p-3 sm:p-6"
+      {visibleView === "original" ? (
+        <ScrollArea className="flex-1" scrollbars="both">
+          <SourceOriginalPreview
+            sourceTitle={selectedSource ?? "Original file"}
+            file={selectedSourceFile}
+          />
+        </ScrollArea>
+      ) : (
+        <ScrollArea
+          className="flex-1"
+          viewportRef={viewportRef}
+          onViewportScroll={handleViewportScroll}
+          scrollbars="both"
         >
-          {isLoading ? (
-            <LoadingChunks />
-          ) : chunks.length === 0 ? (
-            <EmptyChunks />
-          ) : (
-            <div
-              className="relative w-full min-w-0"
-              style={{ height: totalHeight }}
-              aria-label="Parsed chunks"
-            >
-              {virtualItems.map((virtualItem) => (
-                <VirtualChunkRow
-                  key={virtualItem.key}
-                  virtualItem={virtualItem}
-                  chunk={visibleChunks[virtualItem.index]}
-                  focusedChunkId={activeFocusedChunkId}
-                  measureElement={chunkVirtualizer.measureElement}
-                  onReferenceClick={requestChunkFocus}
-                />
-              ))}
-            </div>
-          )}
-          {isLoadingMore && (
-            <div className="py-4 text-center text-xs text-muted-foreground">
-              Loading more parsed chunks...
-            </div>
-          )}
-        </div>
-      </ScrollArea>
+          <div
+            data-testid="chunks-scroll-content"
+            className="mx-auto flex w-full min-w-0 max-w-4xl flex-col items-center p-3 sm:p-6"
+          >
+            {isLoading ? (
+              <LoadingChunks />
+            ) : chunks.length === 0 ? (
+              <EmptyChunks />
+            ) : (
+              <div
+                className="relative w-full min-w-0"
+                style={{ height: totalHeight }}
+                aria-label="Parsed chunks"
+              >
+                {virtualItems.map((virtualItem) => (
+                  <VirtualChunkRow
+                    key={virtualItem.key}
+                    virtualItem={virtualItem}
+                    chunk={visibleChunks[virtualItem.index]}
+                    focusedChunkId={activeFocusedChunkId}
+                    measureElement={chunkVirtualizer.measureElement}
+                    onReferenceClick={requestChunkFocus}
+                  />
+                ))}
+              </div>
+            )}
+            {isLoadingMore && (
+              <div className="py-4 text-center text-xs text-muted-foreground">
+                Loading more parsed chunks...
+              </div>
+            )}
+          </div>
+        </ScrollArea>
+      )}
     </main>
+  );
+}
+
+function viewToggleClassName(isActive: boolean): string {
+  return cn(
+    "rounded-md px-2.5 py-1 text-xs font-semibold transition-colors",
+    isActive
+      ? "bg-background text-foreground shadow-xs"
+      : "text-muted-foreground hover:text-foreground",
   );
 }
 
