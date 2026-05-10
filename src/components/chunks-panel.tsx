@@ -10,7 +10,12 @@ import {
   type ReactNode,
   type UIEventHandler,
 } from "react";
-import { useVirtualizer, type VirtualItem } from "@tanstack/react-virtual";
+import {
+  defaultRangeExtractor,
+  useVirtualizer,
+  type Range,
+  type VirtualItem,
+} from "@tanstack/react-virtual";
 import { ImageIcon, Layers, Table2 } from "lucide-react";
 import DOMPurify from "dompurify";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -48,6 +53,18 @@ export function ChunksPanel({
     null,
   );
   const activeFocusedChunkId = focusedChunkId ?? localFocusedChunkId;
+  const focusedChunkIndex = useMemo(
+    () =>
+      activeFocusedChunkId
+        ? chunks.findIndex((chunk) => chunk.chunkId === activeFocusedChunkId)
+        : -1,
+    [activeFocusedChunkId, chunks],
+  );
+  const extractVirtualRange = useCallback(
+    (range: Range): number[] =>
+      getVirtualRangeWithFocusedIndex(range, focusedChunkIndex),
+    [focusedChunkIndex],
+  );
   // TanStack Virtual owns scroll measurement callbacks; this component is not memoized by React Compiler.
   // eslint-disable-next-line react-hooks/incompatible-library
   const chunkVirtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
@@ -55,6 +72,7 @@ export function ChunksPanel({
     getScrollElement: () => viewportRef.current,
     estimateSize: () => estimatedChunkCardHeight,
     overscan: virtualListOverscan,
+    rangeExtractor: extractVirtualRange,
   });
   const virtualItems = chunkVirtualizer.getVirtualItems();
   const totalHeight = chunkVirtualizer.getTotalSize();
@@ -88,13 +106,6 @@ export function ChunksPanel({
     [requestMoreChunksIfNeeded],
   );
 
-  const focusedChunkIndex = useMemo(
-    () =>
-      activeFocusedChunkId
-        ? chunks.findIndex((chunk) => chunk.chunkId === activeFocusedChunkId)
-        : -1,
-    [activeFocusedChunkId, chunks],
-  );
   const isFocusedChunkRendered =
     focusedChunkIndex >= 0 &&
     virtualItems.some((item) => item.index === focusedChunkIndex);
@@ -114,7 +125,7 @@ export function ChunksPanel({
       return;
     }
 
-    chunkVirtualizer.scrollToIndex(index, { align: "center" });
+    chunkVirtualizer.scrollToIndex(index, { align: "start" });
   }, [chunkVirtualizer]);
 
   const scrollToChunkId = useCallback(
@@ -153,7 +164,7 @@ export function ChunksPanel({
     if (activeFocusedChunkId && focusedElement) {
       focusedElement.scrollIntoView({
         behavior: "smooth",
-        block: "center",
+        block: "start",
       });
     }
   }, [activeFocusedChunkId, focusedChunkRequestId, isFocusedChunkRendered]);
@@ -191,6 +202,7 @@ export function ChunksPanel({
         className="flex-1"
         viewportRef={viewportRef}
         onViewportScroll={handleViewportScroll}
+        scrollbars="both"
       >
         <div
           data-testid="chunks-scroll-content"
@@ -298,6 +310,23 @@ function VirtualChunkRow({
   );
 }
 
+function getVirtualRangeWithFocusedIndex(
+  range: Range,
+  focusedChunkIndex: number,
+): number[] {
+  const indexes = defaultRangeExtractor(range);
+
+  if (
+    focusedChunkIndex < 0 ||
+    focusedChunkIndex >= range.count ||
+    indexes.includes(focusedChunkIndex)
+  ) {
+    return indexes;
+  }
+
+  return [...indexes, focusedChunkIndex].sort((left, right) => left - right);
+}
+
 function hasVisibleViewportSize(viewport: HTMLDivElement): boolean {
   return viewport.clientHeight > 0 && viewport.scrollHeight > 0;
 }
@@ -350,7 +379,7 @@ function ChunkHeader({ chunk }: { chunk: ParsedChunkView }) {
     <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
       <Badge
         variant="secondary"
-        className="max-w-full whitespace-normal rounded-full border-blue-100 bg-blue-50 px-2.5 py-1 text-left text-[10px] uppercase tracking-tight text-blue-700 hover:bg-blue-50"
+        className="max-w-full whitespace-normal rounded-lg border-blue-100 bg-blue-50 px-2.5 py-1 text-left text-[10px] uppercase tracking-tight text-blue-700 hover:bg-blue-50"
       >
         {chunk.sourceTitle}
         {chunk.summary ? ` · ${chunk.summary}` : ""}

@@ -4,11 +4,14 @@ import { cn } from "@/lib/utils"
 import * as ScrollAreaPrimitive from "@radix-ui/react-scroll-area"
 import * as React from "react"
 
+type ScrollAreaScrollbarVisibility = "vertical" | "horizontal" | "both"
+
 type ScrollAreaProps = React.ComponentPropsWithoutRef<
   typeof ScrollAreaPrimitive.Root
 > & {
   viewportRef?: React.Ref<HTMLDivElement>
   onViewportScroll?: React.UIEventHandler<HTMLDivElement>
+  scrollbars?: ScrollAreaScrollbarVisibility
 }
 
 const ScrollArea = React.forwardRef<
@@ -21,26 +24,35 @@ const ScrollArea = React.forwardRef<
       children,
       viewportRef,
       onViewportScroll,
+      scrollbars = "vertical",
       ...props
     },
     ref,
-  ) => (
-    <ScrollAreaPrimitive.Root
-      ref={ref}
-      className={cn("relative overflow-hidden", className)}
-      {...props}
-    >
-      <ScrollAreaPrimitive.Viewport
-        ref={viewportRef}
-        className="h-full w-full rounded-[inherit]"
-        onScroll={onViewportScroll}
+  ) => {
+    const hasVerticalScrollbar =
+      scrollbars === "vertical" || scrollbars === "both"
+    const hasHorizontalScrollbar =
+      scrollbars === "horizontal" || scrollbars === "both"
+
+    return (
+      <ScrollAreaPrimitive.Root
+        ref={ref}
+        className={cn("relative overflow-hidden", className)}
+        {...props}
       >
-        {children}
-      </ScrollAreaPrimitive.Viewport>
-      <ScrollBar />
-      <ScrollAreaPrimitive.Corner />
-    </ScrollAreaPrimitive.Root>
-  ),
+        <ScrollAreaPrimitive.Viewport
+          ref={viewportRef}
+          className="h-full w-full rounded-[inherit]"
+          onScroll={onViewportScroll}
+        >
+          {children}
+        </ScrollAreaPrimitive.Viewport>
+        {hasVerticalScrollbar ? <ScrollBar orientation="vertical" /> : null}
+        {hasHorizontalScrollbar ? <ScrollBar orientation="horizontal" /> : null}
+        <ScrollAreaPrimitive.Corner />
+      </ScrollAreaPrimitive.Root>
+    )
+  },
 )
 ScrollArea.displayName = ScrollAreaPrimitive.Root.displayName
 
