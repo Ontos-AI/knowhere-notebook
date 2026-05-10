@@ -55,12 +55,22 @@ export function ChunksPanel({
     () => getChunksWithFocusedFirst(chunks, activeFocusedChunkId),
     [activeFocusedChunkId, chunks],
   );
+  const getVirtualChunkKey = useCallback(
+    (index: number): string | number => visibleChunks[index]?.chunkId ?? index,
+    [visibleChunks],
+  );
+  const measureVirtualChunkElement = useCallback(
+    (element: HTMLDivElement): number => element.offsetHeight,
+    [],
+  );
   // TanStack Virtual owns scroll measurement callbacks; this component is not memoized by React Compiler.
   // eslint-disable-next-line react-hooks/incompatible-library
   const chunkVirtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
     count: visibleChunks.length,
     getScrollElement: () => viewportRef.current,
+    getItemKey: getVirtualChunkKey,
     estimateSize: () => estimatedChunkCardHeight,
+    measureElement: measureVirtualChunkElement,
     overscan: virtualListOverscan,
   });
   const virtualItems = chunkVirtualizer.getVirtualItems();
@@ -115,7 +125,6 @@ export function ChunksPanel({
       viewport.scrollTop = 0;
       viewport.scrollLeft = 0;
     }
-    chunkVirtualizer.measure();
     chunkVirtualizer.scrollToOffset(0, {
       align: "start",
       behavior: "auto",
