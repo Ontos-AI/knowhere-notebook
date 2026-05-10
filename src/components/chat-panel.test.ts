@@ -103,6 +103,40 @@ describe("ChatPanel", () => {
     expect(onCitationClick).not.toHaveBeenCalled();
   });
 
+  it("uses less-rounded corners for wrapped parsed chunk source links", () => {
+    render(
+      React.createElement(C, {
+        messages: [
+          {
+            id: "assistant_1",
+            role: "assistant",
+            content: "The chunk title is long.",
+            citations: [
+              {
+                chunkType: "text",
+                score: 0.9,
+                source: {
+                  documentId: "doc_1",
+                  sourceFileName: "TSLA-Q4-2025-UPDATE.PDF",
+                  sectionPath:
+                    "TABLE-1 TESLA REPORTED 2025 FINANCIAL RESULTS INCLUDING $4.4B OPERATING INCOME AND $14.7B OPERATING CASH FLOW",
+                },
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    const sourceLink = screen.getByRole("button", {
+      name: /Open source TSLA-Q4-2025-UPDATE\.PDF/,
+    });
+
+    expect(sourceLink.className).toContain("whitespace-normal");
+    expect(sourceLink.className).toContain("rounded-lg");
+    expect(sourceLink.className).not.toContain("rounded-full");
+  });
+
   it("shows button-level loading for chat API actions", async () => {
     const user = userEvent.setup();
 
