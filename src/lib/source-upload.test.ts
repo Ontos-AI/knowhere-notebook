@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { uploadSourceToKnowhere } from "./source-upload";
+import {
+  uploadSourceBlobToKnowhere,
+  uploadSourceToKnowhere,
+} from "./source-upload";
 import type { Source } from "./schema";
 import type { Workspace } from "./schema";
 
@@ -149,5 +152,81 @@ describe("uploadSourceToKnowhere", () => {
       uploadingSource.id,
       "Knowhere upload failed.",
     );
+  });
+
+  it("downloads a client-uploaded Blob staging file before handing it to Knowhere", async () => {
+    const uploadingSource = makeSource({ title: "large.pdf", sizeBytes: 5 });
+    const parsingSource = makeSource({
+      title: "large.pdf",
+      status: "parsing",
+      knowhereJobId: "job_123",
+      sizeBytes: 5,
+    });
+    const blobStore = {
+      get: vi.fn().mockResolvedValue({
+        statusCode: 200,
+        stream: new Response("hello").body,
+        blob: {
+          pathname: "source-uploads/upload_1/document.pdf",
+          contentType: "application/pdf",
+          size: 5,
+        },
+      }),
+      del: vi.fn().mockResolvedValue(undefined),
+    };
+    const deps = {
+      repository: {
+        createUploadingSource: vi.fn().mockResolvedValue(uploadingSource),
+        markSourceParsing: vi.fn().mockResolvedValue(parsingSource),
+        markSourceFailed: vi.fn(),
+      },
+      knowhere: {
+        jobs: {
+          create: vi.fn().mockResolvedValue({
+            jobId: "job_123",
+            status: "waiting-file",
+            sourceType: "file",
+            createdAt: new Date("2026-05-06T00:00:00Z"),
+          }),
+          upload: vi.fn().mockResolvedValue(undefined),
+        },
+      },
+      blobStore,
+    };
+
+    const result = await uploadSourceBlobToKnowhere(
+      workspace,
+      {
+        pathname: "source-uploads/upload_1/document.pdf",
+        fileName: "large.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 5,
+      },
+      deps,
+    );
+
+    expect(blobStore.get).toHaveBeenCalledWith(
+      "source-uploads/upload_1/document.pdf",
+    );
+    expect(deps.repository.createUploadingSource).toHaveBeenCalledWith(
+      workspace.id,
+      {
+        title: "large.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 5,
+      },
+    );
+    expect(deps.knowhere.jobs.upload).toHaveBeenCalledWith(
+      expect.objectContaining({ jobId: "job_123" }),
+      expect.objectContaining({ file: expect.stringContaining("large.pdf") }),
+    );
+    expect(blobStore.del).toHaveBeenCalledWith(
+      "source-uploads/upload_1/document.pdf",
+    );
+    expect(result).toMatchObject({
+      id: "source_1",
+      title: "large.pdf",
+      status: "parsing",
+    });
   });
 });

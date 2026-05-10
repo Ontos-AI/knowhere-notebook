@@ -9,7 +9,16 @@ import { withApiErrorResponse } from "@/lib/api-error-response"
 import { demoData } from "@/lib/demo-data"
 import { makeKnowhereClient } from "@/lib/knowhere"
 import { sourceViewOptionsBySourceId } from "@/lib/source-counts"
-import { uploadSourceToKnowhere } from "@/lib/source-upload"
+import {
+  type UploadSourceDependencies,
+  uploadSourceBlobToKnowhere,
+  uploadSourceToKnowhere,
+} from "@/lib/source-upload"
+import {
+  parseSourceBlobUploadBody,
+  type SourceBlobUploadInput,
+  validateSourceBlobUploadInput,
+} from "@/lib/source-blob-upload"
 import { validateUploadFile } from "@/lib/source-validation"
 import { reconcileSourcesForWorkspace } from "@/lib/source-reconcile"
 import { toSourceView } from "@/lib/source-view"
@@ -56,16 +65,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         )
       }
 
-      const formData = await request.formData()
-      const file = formData.get("file")
-      if (!(file instanceof File) || file.size === 0) {
+      const upload = await readSourceUploadRequest(request)
+      if (upload.type === "error") {
         return NextResponse.json(
-          { message: "Choose a document to upload." },
+          { message: upload.message },
           { status: 400 },
         )
       }
 
-      const validation = validateUploadFile(file)
+      const validation = upload.type === "file"
+        ? validateUploadFile(upload.file)
+        : validateSourceBlobUploadInput(upload.input)
       if (!validation.ok) {
         return NextResponse.json({ message: validation.message }, { status: 400 })
       }
@@ -73,7 +83,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       const workspace = await ensureWorkspace(user.id)
       const cookieHeader = (await headers()).get("cookie") ?? ""
       const apiKey = await ensureApiKeyForWorkspace(workspace.id, cookieHeader)
-      const source = await uploadSourceToKnowhere(workspace, file, {
+      const uploadDependencies = {
         repository: {
           createUploadingSource,
           markSourceParsing: async (...args) => {
@@ -88,7 +98,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           },
         },
         knowhere: makeKnowhereClient(apiKey),
-      }).finally(() => {
+      } satisfies UploadSourceDependencies
+      const source = await (
+        upload.type === "file"
+          ? uploadSourceToKnowhere(workspace, upload.file, uploadDependencies)
+          : uploadSourceBlobToKnowhere(workspace, upload.input, uploadDependencies)
+      ).finally(() => {
         revalidatePath("/")
       })
 
@@ -96,4 +111,47 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     },
     "Upload failed. Try again or choose another file.",
   )
+}
+
+type SourceUploadRequest =
+  | {
+      readonly type: "file"
+      readonly file: File
+    }
+  | {
+      readonly type: "blob"
+      readonly input: SourceBlobUploadInput
+    }
+  | {
+      readonly type: "error"
+      readonly message: string
+    }
+
+async function readSourceUploadRequest(
+  request: NextRequest,
+): Promise<SourceUploadRequest> {
+  const contentType = request.headers.get("content-type") ?? ""
+  if (contentType.includes("application/json")) {
+    const body = (await request.json()) as unknown
+    const input = parseSourceBlobUploadBody(body)
+    if (!input) {
+      return {
+        type: "error",
+        message: "Choose a document to upload.",
+      }
+    }
+
+    return { type: "blob", input }
+  }
+
+  const formData = await request.formData()
+  const file = formData.get("file")
+  if (!(file instanceof File) || file.size === 0) {
+    return {
+      type: "error",
+      message: "Choose a document to upload.",
+    }
+  }
+
+  return { type: "file", file }
 }

@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => {
     getCurrentUser: vi.fn(),
     makeKnowhereClient: vi.fn(),
     revalidatePath: vi.fn(),
+    uploadSourceBlobToKnowhere: vi.fn(),
     uploadSourceToKnowhere: vi.fn(),
     ensureWorkspace: vi.fn(),
     createUploadingSource: vi.fn(),
@@ -38,6 +39,7 @@ vi.mock("@/lib/knowhere", () => ({
 }));
 
 vi.mock("@/lib/source-upload", () => ({
+  uploadSourceBlobToKnowhere: mocks.uploadSourceBlobToKnowhere,
   uploadSourceToKnowhere: mocks.uploadSourceToKnowhere,
 }));
 
@@ -85,6 +87,7 @@ describe("POST /api/sources", () => {
     mocks.ensureWorkspace.mockResolvedValue(workspace);
     mocks.ensureApiKeyForWorkspace.mockResolvedValue("jwt_123");
     mocks.makeKnowhereClient.mockReturnValue({ jobs: {} });
+    mocks.uploadSourceBlobToKnowhere.mockResolvedValue(source);
     mocks.uploadSourceToKnowhere.mockResolvedValue(source);
   });
 
@@ -124,6 +127,50 @@ describe("POST /api/sources", () => {
         knowhere: { jobs: {} },
       }),
     );
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/");
+  });
+
+  it("creates a source from a Blob-backed upload without sending the file through the route body", async () => {
+    const response = await POST(
+      new NextRequest("http://localhost:3001/api/sources", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          upload: {
+            type: "blob",
+            pathname: "source-uploads/upload_1/document.pdf",
+            fileName: "large.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 5 * 1024 * 1024,
+          },
+        }),
+      }),
+    );
+
+    await expect(response.json()).resolves.toEqual({
+      source: {
+        id: "source_1",
+        title: "notes.pdf",
+        status: "parsing",
+      },
+    });
+    expect(response.status).toBe(201);
+    expect(mocks.uploadSourceBlobToKnowhere).toHaveBeenCalledWith(
+      workspace,
+      {
+        pathname: "source-uploads/upload_1/document.pdf",
+        fileName: "large.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 5 * 1024 * 1024,
+      },
+      expect.objectContaining({
+        repository: expect.objectContaining({
+          createUploadingSource: mocks.createUploadingSource,
+        }),
+        knowhere: { jobs: {} },
+      }),
+    );
+    expect(mocks.uploadSourceToKnowhere).not.toHaveBeenCalled();
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/");
   });
 
