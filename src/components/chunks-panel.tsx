@@ -1,12 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { ImageIcon, Layers, Table2 } from "lucide-react";
 import DOMPurify from "dompurify";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import type { ParsedChunkView } from "@/lib/types";
+
+const ESTIMATED_CHUNK_HEIGHT_PX = 220;
+const OVERSCAN_COUNT = 3;
 
 export type ChunksPanelProps = {
   chunks: ParsedChunkView[];
@@ -21,17 +24,6 @@ export function ChunksPanel({
   focusedChunkId = null,
   isLoading = false,
 }: Partial<ChunksPanelProps> = {}) {
-  const focusedRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (focusedChunkId && focusedRef.current) {
-      focusedRef.current.scrollIntoView({
-        behavior: "smooth",
-        block: "center",
-      });
-    }
-  }, [focusedChunkId]);
-
   const headerTitle = focusedChunkId
     ? "Referenced Content Sections"
     : "Document Content Sections";
@@ -50,8 +42,8 @@ export function ChunksPanel({
   );
 
   return (
-    <main className="z-0 flex flex-1 flex-col overflow-hidden bg-background">
-      <header className="flex shrink-0 items-center justify-between border-b border-border/70 px-6 py-4">
+    <main className="z-0 flex flex-[3] flex-col overflow-hidden border-r border-border bg-background">
+      <header className="flex shrink-0 items-center justify-between border-b border-border px-6 py-4">
         <div className="min-w-0">
           <h2 className="text-sm font-bold text-foreground">{headerTitle}</h2>
           <p className="mt-0.5 truncate text-xs text-muted-foreground">
@@ -60,29 +52,95 @@ export function ChunksPanel({
         </div>
       </header>
 
-      <ScrollArea className="flex-1">
-        <div className="mx-auto flex w-full max-w-4xl flex-col items-center p-6">
-          {isLoading ? (
-            <LoadingSections />
-          ) : chunks.length === 0 ? (
-            <EmptySections />
-          ) : (
-            <div className="flex w-full flex-col gap-4">
-              {chunks.map((chunk) => (
+      {isLoading ? (
+        <div className="flex flex-1 items-center justify-center">
+          <LoadingSections />
+        </div>
+      ) : chunks.length === 0 ? (
+        <div className="flex flex-1 items-center justify-center">
+          <EmptySections />
+        </div>
+      ) : (
+        <VirtualChunkList
+          chunks={chunks}
+          focusedChunkId={focusedChunkId}
+          ChunkCard={ChunkCard}
+        />
+      )}
+    </main>
+  );
+}
+
+/**
+ * Renders only the chunks visible in the viewport plus a small overscan
+ * buffer. For 100+ chunk documents this keeps the DOM light and the scroll
+ * frame rate high.  The virtualizer provides `scrollToIndex` for hash-based
+ * navigation to off-screen chunks — no DOM node needs to be mounted for the
+ * container to scroll to the right position.
+ */
+function VirtualChunkList({
+  chunks,
+  focusedChunkId,
+  ChunkCard,
+}: {
+  chunks: ParsedChunkView[];
+  focusedChunkId: string | null;
+  ChunkCard: React.ComponentType<{
+    chunk: ParsedChunkView;
+    isFocused: boolean;
+    focusRef?: React.RefObject<HTMLDivElement | null>;
+  }>;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const virtualizer = useVirtualizer({
+    count: chunks.length,
+    getScrollElement: () => containerRef.current,
+    estimateSize: useCallback(() => ESTIMATED_CHUNK_HEIGHT_PX, []),
+    overscan: OVERSCAN_COUNT,
+  });
+
+  // When the focused chunk changes (e.g. citation click or hash change),
+  // find its index and tell the virtualizer to scroll there.
+  useEffect(() => {
+    if (!focusedChunkId) return;
+    const index = chunks.findIndex((c) => c.chunkId === focusedChunkId);
+    if (index >= 0) {
+      virtualizer.scrollToIndex(index, { align: "center", behavior: "smooth" });
+    }
+  }, [focusedChunkId, chunks, virtualizer]);
+
+  return (
+    <div ref={containerRef} className="flex-1 overflow-auto">
+      <div
+        className="relative mx-auto w-full max-w-4xl px-6 py-4"
+        style={{ height: `${virtualizer.getTotalSize()}px` }}
+      >
+        {virtualizer.getVirtualItems().map((virtualItem) => {
+          const chunk = chunks[virtualItem.index];
+          if (!chunk) return null;
+          return (
+            <div
+              key={virtualItem.key}
+              data-index={virtualItem.index}
+              ref={virtualizer.measureElement}
+              className="absolute left-6 right-6"
+              style={{
+                top: 0,
+                transform: `translateY(${virtualItem.start}px)`,
+              }}
+            >
+              <div className="pb-4">
                 <ChunkCard
-                  key={chunk.chunkId}
                   chunk={chunk}
                   isFocused={chunk.chunkId === focusedChunkId}
-                  focusRef={
-                    chunk.chunkId === focusedChunkId ? focusedRef : undefined
-                  }
                 />
-              ))}
+              </div>
             </div>
-          )}
-        </div>
-      </ScrollArea>
-    </main>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -117,31 +175,18 @@ function LoadingSections() {
 function ChunkCard({
   chunk,
   isFocused,
-  focusRef,
 }: {
   chunk: ParsedChunkView;
   isFocused: boolean;
   focusRef?: React.RefObject<HTMLDivElement | null>;
 }) {
   if (chunk.type === "image") {
-    return (
-      <div ref={focusRef}>
-        <ImageChunkCard chunk={chunk} isFocused={isFocused} />
-      </div>
-    );
+    return <ImageChunkCard chunk={chunk} isFocused={isFocused} />;
   }
   if (chunk.type === "table") {
-    return (
-      <div ref={focusRef}>
-        <TableChunkCard chunk={chunk} isFocused={isFocused} />
-      </div>
-    );
+    return <TableChunkCard chunk={chunk} isFocused={isFocused} />;
   }
-  return (
-    <div ref={focusRef}>
-      <TextChunkCard chunk={chunk} isFocused={isFocused} />
-    </div>
-  );
+  return <TextChunkCard chunk={chunk} isFocused={isFocused} />;
 }
 
 function ChunkHeader({ chunk }: { chunk: ParsedChunkView }) {
@@ -197,7 +242,7 @@ function TextChunkCard({
 }) {
   return (
     <Card
-      className={`cursor-default shadow-xs transition-colors ${focusCardClasses(isFocused)}`}
+      className={`cursor-default shadow-sm transition-colors ${focusCardClasses(isFocused)}`}
     >
       <CardContent className="p-5">
         <ChunkHeader chunk={chunk} />
@@ -219,7 +264,7 @@ function ImageChunkCard({
 }) {
   return (
     <Card
-      className={`cursor-default shadow-xs transition-colors ${focusCardClasses(isFocused)}`}
+      className={`cursor-default shadow-sm transition-colors ${focusCardClasses(isFocused)}`}
     >
       <CardContent className="p-5">
         <ChunkHeader chunk={chunk} />
@@ -265,7 +310,7 @@ function TableChunkCard({
 
   return (
     <Card
-      className={`cursor-default shadow-xs transition-colors ${focusCardClasses(isFocused)}`}
+      className={`cursor-default shadow-sm transition-colors ${focusCardClasses(isFocused)}`}
     >
       <CardContent className="p-5">
         <ChunkHeader chunk={chunk} />
