@@ -1,6 +1,13 @@
 // @vitest-environment jsdom
 import React from "react";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -252,6 +259,7 @@ describe("ChunksPanel", () => {
       .querySelector<HTMLElement>("[data-radix-scroll-area-viewport]");
     if (!viewport) throw new Error("Chunks viewport was not rendered.");
     viewport.scrollTop = 440;
+    fireEvent.scroll(viewport);
 
     rerender(
       React.createElement(C, {
@@ -331,6 +339,83 @@ describe("ChunksPanel", () => {
       expect(followingRow?.getAttribute("data-index")).toBe("1");
       expect(followingRow?.style.transform).toBe("translateY(520px)");
     });
+  });
+
+  it("reapplies the start position after the focused chunk layout pass", async () => {
+    const frameCallbacks: Array<FrameRequestCallback> = [];
+    vi.stubGlobal(
+      "requestAnimationFrame",
+      vi.fn((callback: FrameRequestCallback) => {
+        frameCallbacks.push(callback);
+        return frameCallbacks.length;
+      }),
+    );
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+    mockVirtualViewportWithChunkHeights({
+      chunk_1: 120,
+      table_3: 520,
+      chunk_2: 120,
+    });
+
+    const chunks = [
+      {
+        chunkId: "chunk_1",
+        type: "text",
+        content: "Opening summary.",
+        sourceTitle: "large.pdf",
+      },
+      {
+        chunkId: "chunk_2",
+        type: "text",
+        content: "Second text chunk.",
+        sourceTitle: "large.pdf",
+      },
+      {
+        chunkId: "table_3",
+        type: "table",
+        content:
+          "<table><tbody><tr><td>Tall table content</td></tr></tbody></table>",
+        sourceTitle: "large.pdf",
+      },
+    ];
+    const { rerender } = render(
+      React.createElement(C, {
+        chunks,
+        selectedSource: "large.pdf",
+      }),
+    );
+    const viewport = screen
+      .getByTestId("chunks-panel")
+      .querySelector<HTMLElement>("[data-radix-scroll-area-viewport]");
+    if (!viewport) throw new Error("Chunks viewport was not rendered.");
+    viewport.scrollTop = 440;
+    fireEvent.scroll(viewport);
+
+    rerender(
+      React.createElement(C, {
+        chunks,
+        selectedSource: "large.pdf",
+        focusedChunkId: "table_3",
+        focusedChunkRequestId: 1,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen
+          .getByTestId("chunk-card-shell-table_3")
+          .closest("[data-index]")
+          ?.getAttribute("data-index"),
+      ).toBe("0");
+    });
+    viewport.scrollTop = 312;
+
+    expect(frameCallbacks.length).toBeGreaterThan(0);
+    act(() => {
+      frameCallbacks.forEach((callback) => callback(0));
+    });
+
+    expect(viewport.scrollTop).toBe(0);
   });
 
   it("formats generated artifact references for display", () => {
