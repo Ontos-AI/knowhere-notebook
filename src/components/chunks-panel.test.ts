@@ -275,6 +275,64 @@ describe("ChunksPanel", () => {
     });
   });
 
+  it("remeasures a tall focused chunk after citation reordering", async () => {
+    mockVirtualViewportWithChunkHeights({
+      chunk_1: 120,
+      table_3: 520,
+      chunk_2: 120,
+    });
+
+    const chunks = [
+      {
+        chunkId: "chunk_1",
+        type: "text",
+        content: "Opening summary.",
+        sourceTitle: "large.pdf",
+      },
+      {
+        chunkId: "chunk_2",
+        type: "text",
+        content: "Second text chunk.",
+        sourceTitle: "large.pdf",
+      },
+      {
+        chunkId: "table_3",
+        type: "table",
+        content:
+          "<table><tbody><tr><td>Tall table content</td></tr></tbody></table>",
+        sourceTitle: "large.pdf",
+      },
+    ];
+    const { rerender } = render(
+      React.createElement(C, {
+        chunks,
+        selectedSource: "large.pdf",
+      }),
+    );
+
+    rerender(
+      React.createElement(C, {
+        chunks,
+        selectedSource: "large.pdf",
+        focusedChunkId: "table_3",
+        focusedChunkRequestId: 1,
+      }),
+    );
+
+    await waitFor(() => {
+      const focusedRow = screen
+        .getByTestId("chunk-card-shell-table_3")
+        .closest<HTMLElement>("[data-index]");
+      const followingRow = screen
+        .getByTestId("chunk-card-shell-chunk_1")
+        .closest<HTMLElement>("[data-index]");
+
+      expect(focusedRow?.getAttribute("data-index")).toBe("0");
+      expect(followingRow?.getAttribute("data-index")).toBe("1");
+      expect(followingRow?.style.transform).toBe("translateY(520px)");
+    });
+  });
+
   it("formats generated artifact references for display", () => {
     mockVisibleVirtualViewport();
 
@@ -358,9 +416,17 @@ describe("ChunksPanel", () => {
 });
 
 function mockVisibleVirtualViewport(): void {
+  mockVirtualViewportWithChunkHeights({});
+}
+
+function mockVirtualViewportWithChunkHeights(
+  heightsByChunkId: Readonly<Record<string, number>>,
+): void {
   vi.spyOn(window.HTMLElement.prototype, "offsetHeight", "get")
     .mockImplementation(function getOffsetHeight(this: HTMLElement): number {
       if (this.hasAttribute("data-radix-scroll-area-viewport")) return 720;
+      const chunkId = this.getAttribute("data-chunk-id");
+      if (chunkId) return heightsByChunkId[chunkId] ?? 220;
       if (this.hasAttribute("data-index")) return 220;
       return 1;
     });
