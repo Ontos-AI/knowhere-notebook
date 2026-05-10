@@ -114,6 +114,52 @@ describe("ChunksPanel", () => {
     expect(sourcePanel.textContent).toContain("images/image-2.jpg");
   });
 
+  it("hides Knowhere default root prefixes from chunk section titles", () => {
+    mockVisibleVirtualViewport();
+
+    render(
+      React.createElement(C, {
+        chunks: [
+          {
+            chunkId: "text_1",
+            type: "text",
+            content: "Financial summary content.",
+            sourceTitle: "TSLA-Q4-2025-Update.pdf",
+            sectionPath:
+              "Default_Root/TSLA-Q4-2025-Update.pdf-->FINANCIAL SUMMARY",
+          },
+          {
+            chunkId: "text_2",
+            type: "text",
+            content: "Storage deployment content.",
+            sourceTitle: "TSLA-Q4-2025-Update.pdf",
+            sectionPath:
+              "Default_Root/TSLA-Q4-2025-Update.pdf-->OPERATIONAL SUMMARY-->Energy generation and storage",
+          },
+        ],
+        selectedSource: "TSLA-Q4-2025-Update.pdf",
+      }),
+    );
+
+    const financialSourcePanel = screen.getByTestId(
+      "chunk-source-panel-text_1",
+    );
+    const storageSourcePanel = screen.getByTestId("chunk-source-panel-text_2");
+
+    expect(financialSourcePanel.textContent).toContain("FINANCIAL SUMMARY");
+    expect(financialSourcePanel.textContent).not.toContain("Default_Root");
+    expect(financialSourcePanel.textContent).not.toContain(
+      "TSLA-Q4-2025-Update.pdf",
+    );
+    expect(storageSourcePanel.textContent).toContain(
+      "OPERATIONAL SUMMARY / Energy generation and storage",
+    );
+    expect(storageSourcePanel.textContent).not.toContain("Default_Root");
+    expect(storageSourcePanel.textContent).not.toContain(
+      "TSLA-Q4-2025-Update.pdf",
+    );
+  });
+
   it("renders text chunks with structured source, summary, content, and keyword sections", () => {
     mockVisibleVirtualViewport();
 

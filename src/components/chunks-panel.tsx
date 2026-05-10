@@ -382,7 +382,8 @@ function ChunkCardFrame({
 }
 
 function ChunkSourcePanel({ chunk }: { chunk: ParsedChunkView }): ReactNode {
-  const pageLabel = formatPageNumbers(chunk.pageNums);
+  const pageLabel: string | null = formatPageNumbers(chunk.pageNums);
+  const sectionLabel: string | null = formatChunkSectionPath(chunk.sectionPath);
 
   return (
     <section
@@ -415,15 +416,47 @@ function ChunkSourcePanel({ chunk }: { chunk: ParsedChunkView }): ReactNode {
               </Badge>
             ) : null}
           </div>
-          {chunk.sectionPath ? (
+          {sectionLabel ? (
             <p className="mt-2 break-words text-xs leading-5 text-muted-foreground">
-              {chunk.sectionPath}
+              {sectionLabel}
             </p>
           ) : null}
         </div>
       </div>
     </section>
   );
+}
+
+function formatChunkSectionPath(
+  sectionPath: ParsedChunkView["sectionPath"],
+): string | null {
+  const trimmedSectionPath: string = sectionPath?.trim() ?? "";
+  if (!trimmedSectionPath) return null;
+
+  const userVisiblePath: string =
+    removeKnowhereDefaultRootPrefix(trimmedSectionPath);
+  const readablePath: string = userVisiblePath
+    .split("-->")
+    .map((segment: string): string => segment.trim())
+    .filter((segment: string): boolean => segment.length > 0)
+    .join(" / ");
+
+  return readablePath.length > 0 ? readablePath : null;
+}
+
+function removeKnowhereDefaultRootPrefix(sectionPath: string): string {
+  const knowhereDefaultRootPrefix = "Default_Root/" as const;
+  const hasKnowhereDefaultRootPrefix: boolean = sectionPath.startsWith(
+    knowhereDefaultRootPrefix,
+  );
+  if (!hasKnowhereDefaultRootPrefix) return sectionPath;
+
+  const sectionSegments: string[] = sectionPath.split("-->");
+  if (sectionSegments.length <= 1) {
+    return sectionPath.slice(knowhereDefaultRootPrefix.length);
+  }
+
+  return sectionSegments.slice(1).join("-->");
 }
 
 function ChunkSummaryPanel({ chunk }: { chunk: ParsedChunkView }): ReactNode {
