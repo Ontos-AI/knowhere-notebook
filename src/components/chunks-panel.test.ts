@@ -135,12 +135,10 @@ describe("ChunksPanel", () => {
     });
   });
 
-  it("renders image chunks and scrolls to resolved connection targets", async () => {
+  it("renders image chunks and moves resolved connection targets first", async () => {
     mockVisibleVirtualViewport();
 
     const user = userEvent.setup();
-    const scrollIntoView = vi.fn();
-    window.HTMLElement.prototype.scrollIntoView = scrollIntoView;
 
     render(
       React.createElement(C, {
@@ -188,7 +186,12 @@ describe("ChunksPanel", () => {
 
     await user.click(screen.getByRole("button", { name: "Image 1" }));
     await waitFor(() => {
-      expect(scrollIntoView).toHaveBeenCalledTimes(1);
+      const focusedRow = screen
+        .getByTestId("chunk-card-shell-image_1")
+        .closest("[data-index]");
+
+      expect(focusedRow?.getAttribute("data-index")).toBe("0");
+      expect(focusedRow?.getAttribute("data-focused-chunk")).toBe("true");
     });
     expect(
       screen
@@ -197,11 +200,9 @@ describe("ChunksPanel", () => {
     ).toBe("true");
   });
 
-  it("renders and scrolls to a focused virtual chunk outside the initial range", async () => {
+  it("renders a focused virtual chunk outside the initial range first", async () => {
     mockVisibleVirtualViewport();
 
-    const scrollIntoView = vi.fn();
-    window.HTMLElement.prototype.scrollIntoView = scrollIntoView;
     const chunks = Array.from({ length: 60 }, (_, index) => ({
       chunkId: `chunk_${index + 1}`,
       type: "text",
@@ -222,10 +223,55 @@ describe("ChunksPanel", () => {
       expect(screen.getByTestId("chunk-card-shell-chunk_50")).toBeTruthy();
     });
     await waitFor(() => {
-      expect(scrollIntoView).toHaveBeenCalledWith({
-        behavior: "smooth",
-        block: "start",
-      });
+      const focusedRow = screen
+        .getByTestId("chunk-card-shell-chunk_50")
+        .closest("[data-index]");
+
+      expect(focusedRow?.getAttribute("data-index")).toBe("0");
+      expect(focusedRow?.getAttribute("data-focused-chunk")).toBe("true");
+    });
+  });
+
+  it("places the focused chunk first and resets the list to the start", async () => {
+    mockVisibleVirtualViewport();
+
+    const chunks = Array.from({ length: 8 }, (_, index) => ({
+      chunkId: `chunk_${index + 1}`,
+      type: "text",
+      content: `Chunk ${index + 1} content`,
+      sourceTitle: "large.pdf",
+    }));
+    const { rerender } = render(
+      React.createElement(C, {
+        chunks,
+        selectedSource: "large.pdf",
+      }),
+    );
+    const viewport = screen
+      .getByTestId("chunks-panel")
+      .querySelector<HTMLElement>("[data-radix-scroll-area-viewport]");
+    if (!viewport) throw new Error("Chunks viewport was not rendered.");
+    viewport.scrollTop = 440;
+
+    rerender(
+      React.createElement(C, {
+        chunks,
+        selectedSource: "large.pdf",
+        focusedChunkId: "chunk_6",
+        focusedChunkRequestId: 1,
+      }),
+    );
+
+    await waitFor(() => {
+      const focusedRow = screen
+        .getByTestId("chunk-card-shell-chunk_6")
+        .closest("[data-index]");
+
+      expect(focusedRow?.getAttribute("data-index")).toBe("0");
+      expect(focusedRow?.getAttribute("data-focused-chunk")).toBe("true");
+    });
+    await waitFor(() => {
+      expect(viewport.scrollTop).toBe(0);
     });
   });
 
