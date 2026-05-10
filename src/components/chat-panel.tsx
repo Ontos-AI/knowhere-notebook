@@ -1,6 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
+import { useVirtualizer, type VirtualItem } from "@tanstack/react-virtual";
 import { History, MessageCircle, Plus, Send, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -56,6 +62,9 @@ export type ChatPanelProps = {
   isDisabled?: boolean;
 };
 
+const estimatedMessageHeight = 160;
+const virtualMessageOverscan = 6;
+
 export function ChatPanel({
   messages = [],
   threads = [],
@@ -77,8 +86,27 @@ export function ChatPanel({
   const [input, setInput] = useState("");
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [confirmThreadId, setConfirmThreadId] = useState<string | null>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
   const canSend = !isDisabled && !isSending && input.trim().length > 0;
   const confirmThread = threads.find((thread) => thread.id === confirmThreadId);
+  // TanStack Virtual owns scroll measurement callbacks; this component is not memoized by React Compiler.
+  // eslint-disable-next-line react-hooks/incompatible-library
+  const messageVirtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
+    count: messages.length,
+    getScrollElement: () => viewportRef.current,
+    estimateSize: () => estimatedMessageHeight,
+    overscan: virtualMessageOverscan,
+  });
+  const virtualItems = messageVirtualizer.getVirtualItems();
+  const totalHeight = messageVirtualizer.getTotalSize();
+
+  useEffect(() => {
+    if (messages.length === 0) {
+      return;
+    }
+
+    messageVirtualizer.scrollToIndex(messages.length - 1, { align: "end" });
+  }, [messageVirtualizer, messages.length]);
 
   function handleSend() {
     if (!canSend) return;
@@ -204,15 +232,21 @@ export function ChatPanel({
       <ScrollArea
         data-testid="chat-scroll"
         className="flex min-w-0 flex-1 flex-col overflow-x-hidden p-3 sm:p-4"
+        viewportRef={viewportRef}
       >
         {messages.length === 0 ? (
           <EmptyChat disabled={isDisabled} />
         ) : (
-          <div className="mt-auto flex min-w-0 flex-col gap-4 sm:gap-5">
-            {messages.map((m) => (
-              <MessageBubble
-                key={m.id}
-                message={m}
+          <div
+            className="relative mt-auto min-w-0"
+            style={{ height: totalHeight }}
+          >
+            {virtualItems.map((virtualItem) => (
+              <VirtualMessageRow
+                key={virtualItem.key}
+                virtualItem={virtualItem}
+                message={messages[virtualItem.index]}
+                measureElement={messageVirtualizer.measureElement}
                 onCitationClick={onCitationClick}
                 pendingCitationId={pendingCitationId}
               />
@@ -267,6 +301,45 @@ export function ChatPanel({
         </div>
       </div>
     </section>
+  );
+}
+
+function VirtualMessageRow({
+  virtualItem,
+  message,
+  measureElement,
+  onCitationClick,
+  pendingCitationId,
+}: {
+  virtualItem: VirtualItem;
+  message: ChatMessageView | undefined;
+  measureElement: (node: HTMLDivElement | null) => void;
+  onCitationClick?: (citation: ChatCitationView, citationId: string) => void;
+  pendingCitationId?: string | null;
+}) {
+  if (!message) {
+    return null;
+  }
+
+  const rowStyle: CSSProperties = {
+    position: "absolute",
+    transform: `translateY(${virtualItem.start}px)`,
+    width: "100%",
+  };
+
+  return (
+    <div
+      ref={measureElement}
+      data-index={virtualItem.index}
+      style={rowStyle}
+      className="min-w-0 pb-4 sm:pb-5"
+    >
+      <MessageBubble
+        message={message}
+        onCitationClick={onCitationClick}
+        pendingCitationId={pendingCitationId}
+      />
+    </div>
   );
 }
 
@@ -434,9 +507,7 @@ function EmptyChatHistory() {
       <div className="mb-3 flex size-10 items-center justify-center rounded-full bg-muted text-muted-foreground">
         <MessageCircle className="size-5" />
       </div>
-      <p className="text-xs font-semibold text-foreground">
-        No chats yet.
-      </p>
+      <p className="text-xs font-semibold text-foreground">No chats yet.</p>
     </div>
   );
 }

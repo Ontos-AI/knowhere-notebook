@@ -26,6 +26,7 @@ describe("WorkspaceShell", () => {
       unobserve() {}
       disconnect() {}
     };
+    mockVisibleVirtualViewport();
   });
 
   afterEach(() => {
@@ -287,6 +288,131 @@ describe("WorkspaceShell", () => {
       );
     });
     expect(countFetches(fetch, "/api/sources/source_1/chunks")).toBe(1);
+  });
+
+  it("does not reuse partial chunk pages for ambiguous citation jumps", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
+      const url = getRequestURL(input);
+
+      if (url.pathname === "/api/sources/source_1/chunks" && url.search) {
+        const page = url.searchParams.get("page");
+        return Response.json({
+          chunks:
+            page === "1"
+              ? [
+                  {
+                    chunkId: "loaded_wrong_chunk",
+                    documentId: "doc_1",
+                    sectionPath: "Repeated",
+                    type: "text",
+                    content: "Loaded page text with the same section path.",
+                    sourceTitle: "doc.pdf",
+                  },
+                ]
+              : [],
+          pagination: {
+            page: Number(page ?? "1"),
+            pageSize: 100,
+            total: 200,
+            totalPages: 2,
+          },
+        });
+      }
+
+      if (url.pathname === "/api/sources/source_1/chunks") {
+        return Response.json({
+          chunks: [
+            {
+              chunkId: "loaded_wrong_chunk",
+              documentId: "doc_1",
+              sectionPath: "Repeated",
+              type: "text",
+              content: "Loaded page text with the same section path.",
+              sourceTitle: "doc.pdf",
+            },
+            {
+              chunkId: "unloaded_exact_chunk",
+              documentId: "doc_1",
+              sectionPath: "Repeated",
+              type: "text",
+              content: "Exact cited text from an unloaded page.",
+              sourceTitle: "doc.pdf",
+            },
+          ],
+        });
+      }
+
+      return Response.json({ message: "Unexpected request" }, { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetch);
+    const user = userEvent.setup();
+
+    render(
+      React.createElement(C, {
+        sources: [
+          {
+            id: "source_1",
+            title: "doc.pdf",
+            status: "ready",
+            documentId: "doc_1",
+            chunkCount: 200,
+          },
+        ],
+        chatThreads: [
+          {
+            id: "thread_1",
+            title: "Current chat",
+            createdAt: "2026-05-07T00:00:00.000Z",
+            updatedAt: "2026-05-07T00:00:00.000Z",
+          },
+        ],
+        activeChatThreadId: "thread_1",
+        chatMessages: [
+          {
+            id: "assistant_1",
+            role: "assistant",
+            content: "The answer cites an unloaded chunk.",
+            citations: [
+              {
+                content: "Exact cited text from an unloaded page.",
+                chunkType: "text",
+                score: 0.91,
+                source: {
+                  documentId: "doc_1",
+                  sourceFileName: "doc.pdf",
+                  sectionPath: "Repeated",
+                },
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    const desktopSourcesPanel = within(screen.getByTestId("desktop-sources-panel"));
+    await user.click(
+      desktopSourcesPanel.getByRole("button", {
+        name: "Open doc.pdf parsed chunks",
+      }),
+    );
+    await waitFor(() => {
+      expect(
+        countFetchesWithSearch(fetch, "/api/sources/source_1/chunks", "?page=1&pageSize=100"),
+      ).toBeGreaterThan(0);
+    });
+
+    const desktopChatPanel = within(screen.getByTestId("desktop-chat-panel"));
+    await user.click(
+      desktopChatPanel.getByRole("button", {
+        name: "Open source doc.pdf · Repeated",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(
+        countFetchesWithSearch(fetch, "/api/sources/source_1/chunks", ""),
+      ).toBe(1);
+    });
   });
 
   it("renders the most recent recovered chat on workspace load", () => {
@@ -577,13 +703,17 @@ describe("WorkspaceShell", () => {
 });
 
 function getRequestPath(input: RequestInfo | URL): string {
+  return getRequestURL(input).pathname;
+}
+
+function getRequestURL(input: RequestInfo | URL): URL {
   const url =
     typeof input === "string"
       ? input
       : input instanceof URL
         ? input.toString()
         : input.url;
-  return new URL(url, "http://localhost").pathname;
+  return new URL(url, "http://localhost");
 }
 
 function countFetches(
@@ -592,4 +722,26 @@ function countFetches(
 ): number {
   return fetch.mock.calls.filter(([input]) => getRequestPath(input) === url)
     .length;
+}
+
+function countFetchesWithSearch(
+  fetch: ReturnType<typeof vi.fn<typeof globalThis.fetch>>,
+  path: string,
+  search: string,
+): number {
+  return fetch.mock.calls.filter(([input]) => {
+    const url = getRequestURL(input);
+    return url.pathname === path && url.search === search;
+  }).length;
+}
+
+function mockVisibleVirtualViewport(): void {
+  vi.spyOn(window.HTMLElement.prototype, "offsetHeight", "get")
+    .mockImplementation(function getOffsetHeight(this: HTMLElement): number {
+      if (this.hasAttribute("data-radix-scroll-area-viewport")) return 720;
+      if (this.hasAttribute("data-index")) return 180;
+      return 1;
+    });
+  vi.spyOn(window.HTMLElement.prototype, "offsetWidth", "get")
+    .mockImplementation((): number => 720);
 }

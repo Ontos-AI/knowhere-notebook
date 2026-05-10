@@ -6,8 +6,11 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
+  type UIEventHandler,
 } from "react";
+import { useVirtualizer, type VirtualItem } from "@tanstack/react-virtual";
 import { ImageIcon, Layers, Table2 } from "lucide-react";
 import DOMPurify from "dompurify";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -21,7 +24,14 @@ export type ChunksPanelProps = {
   focusedChunkId?: string | null;
   focusedChunkRequestId?: number;
   isLoading?: boolean;
+  isLoadingMore?: boolean;
+  hasMoreChunks?: boolean;
+  onLoadMore?: () => void;
 };
+
+const estimatedChunkCardHeight = 220;
+const virtualListOverscan = 4;
+const infiniteScrollThreshold = 720;
 
 export function ChunksPanel({
   chunks = [],
@@ -29,38 +39,126 @@ export function ChunksPanel({
   focusedChunkId = null,
   focusedChunkRequestId = 0,
   isLoading = false,
+  isLoadingMore = false,
+  hasMoreChunks = false,
+  onLoadMore,
 }: Partial<ChunksPanelProps> = {}) {
-  const chunkRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const viewportRef = useRef<HTMLDivElement>(null);
   const [localFocusedChunkId, setLocalFocusedChunkId] = useState<string | null>(
     null,
   );
   const activeFocusedChunkId = focusedChunkId ?? localFocusedChunkId;
+  // TanStack Virtual owns scroll measurement callbacks; this component is not memoized by React Compiler.
+  // eslint-disable-next-line react-hooks/incompatible-library
+  const chunkVirtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
+    count: chunks.length,
+    getScrollElement: () => viewportRef.current,
+    estimateSize: () => estimatedChunkCardHeight,
+    overscan: virtualListOverscan,
+  });
+  const virtualItems = chunkVirtualizer.getVirtualItems();
+  const totalHeight = chunkVirtualizer.getTotalSize();
 
-  function setChunkRef(chunkId: string, element: HTMLDivElement | null): void {
-    if (element) {
-      chunkRefs.current.set(chunkId, element);
-      return;
-    }
-    chunkRefs.current.delete(chunkId);
-  }
+  const requestMoreChunksIfNeeded = useCallback(
+    (viewport: HTMLDivElement): void => {
+      if (
+        !onLoadMore ||
+        !hasMoreChunks ||
+        isLoading ||
+        isLoadingMore ||
+        !hasVisibleViewportSize(viewport)
+      ) {
+        return;
+      }
 
-  const scrollToChunk = useCallback((chunkId: string): void => {
-    const element = chunkRefs.current.get(chunkId);
-    if (!element) return;
-    setLocalFocusedChunkId(chunkId);
-    element.scrollIntoView({
-      behavior: "smooth",
-      block: "center",
-    });
-  }, []);
+      const distanceFromBottom =
+        viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+
+      if (distanceFromBottom <= infiniteScrollThreshold) {
+        onLoadMore();
+      }
+    },
+    [hasMoreChunks, isLoading, isLoadingMore, onLoadMore],
+  );
+
+  const handleViewportScroll = useCallback<UIEventHandler<HTMLDivElement>>(
+    (event) => {
+      requestMoreChunksIfNeeded(event.currentTarget);
+    },
+    [requestMoreChunksIfNeeded],
+  );
+
+  const focusedChunkIndex = useMemo(
+    () =>
+      activeFocusedChunkId
+        ? chunks.findIndex((chunk) => chunk.chunkId === activeFocusedChunkId)
+        : -1,
+    [activeFocusedChunkId, chunks],
+  );
+  const isFocusedChunkRendered =
+    focusedChunkIndex >= 0 &&
+    virtualItems.some((item) => item.index === focusedChunkIndex);
 
   useEffect(() => {
-    if (focusedChunkId) scrollToChunk(focusedChunkId);
-  }, [focusedChunkId, focusedChunkRequestId, scrollToChunk]);
+    const viewport = viewportRef.current;
 
-  const headerTitle = focusedChunkId
-    ? "Referenced Chunks"
-    : "Parsed Chunks";
+    if (!viewport) {
+      return;
+    }
+
+    requestMoreChunksIfNeeded(viewport);
+  }, [chunks.length, requestMoreChunksIfNeeded, totalHeight]);
+
+  const scrollToChunkIndex = useCallback((index: number): void => {
+    if (index < 0) {
+      return;
+    }
+
+    chunkVirtualizer.scrollToIndex(index, { align: "center" });
+  }, [chunkVirtualizer]);
+
+  const scrollToChunkId = useCallback(
+    (chunkId: string): void => {
+      const index = chunks.findIndex((chunk) => chunk.chunkId === chunkId);
+
+      if (index < 0) {
+        return;
+      }
+
+      scrollToChunkIndex(index);
+    },
+    [chunks, scrollToChunkIndex],
+  );
+
+  const requestChunkFocus = useCallback(
+    (chunkId: string): void => {
+      setLocalFocusedChunkId(chunkId);
+      scrollToChunkId(chunkId);
+    },
+    [scrollToChunkId],
+  );
+
+  useEffect(() => {
+    if (focusedChunkId) {
+      scrollToChunkId(focusedChunkId);
+    }
+  }, [focusedChunkId, focusedChunkRequestId, scrollToChunkId]);
+
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    const focusedElement = viewport?.querySelector<HTMLElement>(
+      '[data-focused-chunk="true"]',
+    );
+
+    if (activeFocusedChunkId && focusedElement) {
+      focusedElement.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    }
+  }, [activeFocusedChunkId, focusedChunkRequestId, isFocusedChunkRendered]);
+
+  const headerTitle = focusedChunkId ? "Referenced Chunks" : "Parsed Chunks";
 
   const headerSubtitle = focusedChunkId ? (
     <>Showing relevant chunks from the last answer.</>
@@ -89,7 +187,11 @@ export function ChunksPanel({
         </div>
       </header>
 
-      <ScrollArea className="flex-1">
+      <ScrollArea
+        className="flex-1"
+        viewportRef={viewportRef}
+        onViewportScroll={handleViewportScroll}
+      >
         <div
           data-testid="chunks-scroll-content"
           className="mx-auto flex w-full min-w-0 max-w-4xl flex-col items-center p-3 sm:p-6"
@@ -99,16 +201,26 @@ export function ChunksPanel({
           ) : chunks.length === 0 ? (
             <EmptyChunks />
           ) : (
-            <div className="flex w-full flex-col gap-3 sm:gap-4">
-              {chunks.map((chunk) => (
-                <ChunkCard
-                  key={chunk.chunkId}
-                  chunk={chunk}
-                  isFocused={chunk.chunkId === activeFocusedChunkId}
-                  setChunkRef={setChunkRef}
-                  onReferenceClick={scrollToChunk}
+            <div
+              className="relative w-full min-w-0"
+              style={{ height: totalHeight }}
+              aria-label="Parsed chunks"
+            >
+              {virtualItems.map((virtualItem) => (
+                <VirtualChunkRow
+                  key={virtualItem.key}
+                  virtualItem={virtualItem}
+                  chunk={chunks[virtualItem.index]}
+                  focusedChunkId={activeFocusedChunkId}
+                  measureElement={chunkVirtualizer.measureElement}
+                  onReferenceClick={requestChunkFocus}
                 />
               ))}
+            </div>
+          )}
+          {isLoadingMore && (
+            <div className="py-4 text-center text-xs text-muted-foreground">
+              Loading more parsed chunks...
             </div>
           )}
         </div>
@@ -140,30 +252,68 @@ function LoadingChunks() {
       <div className="flex size-12 items-center justify-center rounded-full bg-muted">
         <Layers className="size-5 text-muted-foreground" />
       </div>
-      <p className="text-sm text-muted-foreground">Loading parsed chunks…</p>
+      <p className="text-sm text-muted-foreground">Loading parsed chunks...</p>
     </div>
   );
+}
+
+function VirtualChunkRow({
+  virtualItem,
+  chunk,
+  focusedChunkId,
+  measureElement,
+  onReferenceClick,
+}: {
+  virtualItem: VirtualItem;
+  chunk: ParsedChunkView | undefined;
+  focusedChunkId: string | null;
+  measureElement: (node: HTMLDivElement | null) => void;
+  onReferenceClick: (chunkId: string) => void;
+}) {
+  if (!chunk) {
+    return null;
+  }
+
+  const rowStyle: CSSProperties = {
+    position: "absolute",
+    transform: `translateY(${virtualItem.start}px)`,
+    width: "100%",
+  };
+
+  return (
+    <div
+      ref={measureElement}
+      data-index={virtualItem.index}
+      style={rowStyle}
+      className="w-full min-w-0 pb-3 sm:pb-4"
+      data-chunk-id={chunk.chunkId}
+      data-focused-chunk={chunk.chunkId === focusedChunkId ? "true" : undefined}
+    >
+      <ChunkCard
+        chunk={chunk}
+        isFocused={chunk.chunkId === focusedChunkId}
+        onReferenceClick={onReferenceClick}
+      />
+    </div>
+  );
+}
+
+function hasVisibleViewportSize(viewport: HTMLDivElement): boolean {
+  return viewport.clientHeight > 0 && viewport.scrollHeight > 0;
 }
 
 function ChunkCard({
   chunk,
   isFocused,
-  setChunkRef,
   onReferenceClick,
 }: {
   chunk: ParsedChunkView;
   isFocused: boolean;
-  setChunkRef: (chunkId: string, element: HTMLDivElement | null) => void;
   onReferenceClick: (chunkId: string) => void;
 }) {
-  const ref = (element: HTMLDivElement | null) => {
-    setChunkRef(chunk.chunkId, element);
-  };
-
   if (chunk.type === "image") {
     return (
       <div
-        ref={ref}
         data-testid={`chunk-card-shell-${chunk.chunkId}`}
         className="w-full min-w-0"
       >
@@ -174,7 +324,6 @@ function ChunkCard({
   if (chunk.type === "table") {
     return (
       <div
-        ref={ref}
         data-testid={`chunk-card-shell-${chunk.chunkId}`}
         className="w-full min-w-0"
       >
@@ -184,7 +333,6 @@ function ChunkCard({
   }
   return (
     <div
-      ref={ref}
       data-testid={`chunk-card-shell-${chunk.chunkId}`}
       className="w-full min-w-0"
     >
@@ -467,8 +615,16 @@ function TableChunkCard({
       hasHtml
         ? DOMPurify.sanitize(chunk.content, {
             ALLOWED_TAGS: [
-              "table", "thead", "tbody", "tfoot", "tr", "th", "td",
-              "caption", "colgroup", "col",
+              "table",
+              "thead",
+              "tbody",
+              "tfoot",
+              "tr",
+              "th",
+              "td",
+              "caption",
+              "colgroup",
+              "col",
             ],
             ALLOWED_ATTR: ["colspan", "rowspan", "scope", "align"],
           })

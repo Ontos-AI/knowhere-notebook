@@ -48,7 +48,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         NextResponse.json({ message: error.message }, { status: error.status }),
       onRight: (value) => NextResponse.json(value),
     })
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { message: "Your session may have expired. Please refresh the page." },
       { status: 401 },

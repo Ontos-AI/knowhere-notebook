@@ -15,10 +15,12 @@ describe("ChatPanel", () => {
       unobserve() {}
       disconnect() {}
     };
+    mockVisibleVirtualViewport();
   });
 
   afterEach(() => {
     cleanup();
+    vi.restoreAllMocks();
   });
 
   it("explains answers in plain source-based language", () => {
@@ -241,3 +243,14 @@ describe("ChatPanel", () => {
     expect(onThreadSelect).toHaveBeenCalledWith("thread_1");
   });
 });
+
+function mockVisibleVirtualViewport(): void {
+  vi.spyOn(window.HTMLElement.prototype, "offsetHeight", "get")
+    .mockImplementation(function getOffsetHeight(this: HTMLElement): number {
+      if (this.hasAttribute("data-radix-scroll-area-viewport")) return 720;
+      if (this.hasAttribute("data-index")) return 160;
+      return 1;
+    });
+  vi.spyOn(window.HTMLElement.prototype, "offsetWidth", "get")
+    .mockImplementation((): number => 720);
+}

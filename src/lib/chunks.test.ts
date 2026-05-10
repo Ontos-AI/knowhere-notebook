@@ -4,7 +4,10 @@ import { Effect } from "effect"
 
 import type { Source } from "./schema"
 import {
+  getChunkPageParams,
+  loadChunkPageForSource,
   loadChunksForSource,
+  resolveChunkConnectionTargets,
   resolveCitationChunk,
   toParsedChunkView,
 } from "./chunks"
@@ -236,6 +239,92 @@ describe("loadChunksForSource", () => {
       },
     ]);
     expect(chunks[1]?.assetUrl).toBe("https://blob.example/image-1.jpg");
+  });
+});
+
+describe("loadChunkPageForSource", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("fetches only the requested SDK chunk page for infinite scrolling", async () => {
+    const listChunks = vi.fn().mockResolvedValue({
+      chunks: [
+        makeDocumentChunk({
+          id: "document_chunk_2",
+          chunkId: "parser_chunk_2",
+          content: "Second page text",
+        }),
+      ],
+      pagination: { page: 2, pageSize: 50, total: 125, totalPages: 3 },
+    });
+    const source = makeSource({
+      title: "notes.txt",
+      knowhereDocumentId: "doc_123",
+    });
+
+    const page = await Effect.runPromise(
+      loadChunkPageForSource(
+        source,
+        { documents: { listChunks } },
+        { page: 2, pageSize: 50 },
+      ),
+    );
+
+    expect(listChunks).toHaveBeenCalledWith("doc_123", {
+      page: 2,
+      pageSize: 50,
+      includeAssetUrls: true,
+    });
+    expect(page.pagination).toEqual({
+      page: 2,
+      pageSize: 50,
+      total: 125,
+      totalPages: 3,
+    });
+    expect(page.chunks).toMatchObject([
+      {
+        chunkId: "document_chunk_2",
+        documentId: "doc_123",
+        content: "Second page text",
+      },
+    ]);
+  });
+
+  it("normalizes route query parameters to SDK pagination limits", () => {
+    expect(
+      getChunkPageParams(
+        new URLSearchParams({
+          page: "0",
+          pageSize: "500",
+        }),
+      ),
+    ).toEqual({
+      page: 1,
+      pageSize: 200,
+    });
+  });
+
+  it("resolves connection targets across already-loaded infinite pages", () => {
+    const chunks = resolveChunkConnectionTargets([
+      makeParsedChunkView({
+        chunkId: "text_1",
+        parserChunkId: "parser_text_1",
+        connections: [
+          {
+            targetParserChunkId: "parser_image_1",
+            relation: "embeds",
+          },
+        ],
+      }),
+      makeParsedChunkView({
+        chunkId: "image_1",
+        parserChunkId: "parser_image_1",
+        type: "image",
+      }),
+    ]);
+
+    expect(chunks[0]?.connections?.[0]?.targetChunkId).toBe("image_1");
   });
 });
 

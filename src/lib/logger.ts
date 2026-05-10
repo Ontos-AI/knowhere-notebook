@@ -13,9 +13,13 @@ function formatLog(entry: LogEntry): string {
   if (process.env.NODE_ENV === "development") {
     const color = { info: 36, warn: 33, error: 31 }[entry.level]
     const prefix = `\x1b[${color}m${entry.level.toUpperCase()}\x1b[0m`
-    const { ts, level, msg, ...meta } = entry
+    const meta = Object.fromEntries(
+      Object.entries(entry).filter(
+        ([key]) => key !== "ts" && key !== "level" && key !== "msg",
+      ),
+    )
     const metaStr = Object.keys(meta).length > 0 ? " " + JSON.stringify(meta) : ""
-    return `${ts} ${prefix} ${msg}${metaStr}`
+    return `${entry.ts} ${prefix} ${entry.msg}${metaStr}`
   }
   return JSON.stringify(entry)
 }
