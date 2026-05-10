@@ -8,7 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import type { ParsedChunkView } from "@/lib/types";
 
-const OVERSCAN_COUNT = 3;
+const OVERSCAN_COUNT = 1; // mobile-friendly: small viewport needs few extras
 const BASE_PADDING_PX = 120;         // card chrome (header, badges, padding)
 const LINE_HEIGHT_PX = 22;
 const CHARS_PER_LINE = 90;           // approximate at max-w-4xl + px-5
