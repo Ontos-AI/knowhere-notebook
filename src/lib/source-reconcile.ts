@@ -1,5 +1,6 @@
 import "server-only"
 
+import { del } from "@vercel/blob"
 import type Knowhere from "@ontos-ai/knowhere-sdk"
 import type { JobResult } from "@ontos-ai/knowhere-sdk"
 
@@ -10,6 +11,7 @@ import {
   type StoredParsedResultAssets,
 } from "./parsed-result-assets"
 import {
+  clearSourceStagedBlob,
   listSourcesForWorkspace,
   markSourceFailed,
   markSourceReady,
@@ -24,6 +26,11 @@ type SourceReconcileDependencies = {
     workspaceId: string,
     sourceId: string,
     input: StoredParsedResultAssets,
+  ) => Promise<unknown>
+  deleteStagedSourceBlob?: (pathname: string) => Promise<void>
+  clearSourceStagedBlob?: (
+    workspaceId: string,
+    sourceId: string,
   ) => Promise<unknown>
 }
 
@@ -45,7 +52,7 @@ export async function reconcileSourcesForWorkspace(
 
       try {
         const job = await client.jobs.get(jobId)
-        await updateSourceFromJob(workspace.id, source.id, job, client, deps)
+        await updateSourceFromJob(workspace.id, source, job, client, deps)
       } catch {
         // Leave the current row as-is on transient API errors.
       }
@@ -57,7 +64,7 @@ export async function reconcileSourcesForWorkspace(
 
 async function updateSourceFromJob(
   workspaceId: string,
-  sourceId: string,
+  source: Source,
   job: JobResult,
   client: Knowhere,
   deps: SourceReconcileDependencies,
@@ -68,27 +75,43 @@ async function updateSourceFromJob(
       const saveParseResult = deps.saveSourceParseResult ?? saveSourceParseResult
       const stored = await storeAssets({
         workspaceId,
-        sourceId,
+        sourceId: source.id,
         job,
         client,
       })
-      await saveParseResult(workspaceId, sourceId, stored)
-      await markSourceReady(workspaceId, sourceId, job.documentId)
+      await saveParseResult(workspaceId, source.id, stored)
+      await deleteSourceStagedBlob(workspaceId, source, deps)
+      await markSourceReady(workspaceId, source.id, job.documentId)
       return
     }
+    await deleteSourceStagedBlob(workspaceId, source, deps)
     await markSourceFailed(
       workspaceId,
-      sourceId,
+      source.id,
       "Parsing finished but no document was published.",
     )
     return
   }
 
   if (job.isFailed || job.status === "failed") {
+    await deleteSourceStagedBlob(workspaceId, source, deps)
     await markSourceFailed(
       workspaceId,
-      sourceId,
+      source.id,
       job.error?.message ?? "Parsing failed.",
     )
   }
+}
+
+async function deleteSourceStagedBlob(
+  workspaceId: string,
+  source: Source,
+  deps: SourceReconcileDependencies,
+): Promise<void> {
+  if (!source.stagedBlobPathname) return
+
+  const deleteBlob = deps.deleteStagedSourceBlob ?? del
+  const clearStagedBlob = deps.clearSourceStagedBlob ?? clearSourceStagedBlob
+  await deleteBlob(source.stagedBlobPathname)
+  await clearStagedBlob(workspaceId, source.id)
 }

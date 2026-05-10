@@ -25,6 +25,8 @@ function makeSource(overrides: Partial<Source> = {}): Source {
     failureReason: null,
     knowhereJobId: null,
     knowhereDocumentId: null,
+    stagedBlobPathname: null,
+    stagedBlobUrl: null,
     createdAt: new Date("2026-05-06T00:00:00Z"),
     updatedAt: new Date("2026-05-06T00:00:00Z"),
     deletedAt: null,
@@ -154,7 +156,7 @@ describe("uploadSourceToKnowhere", () => {
     );
   });
 
-  it("downloads a client-uploaded Blob staging file before handing it to Knowhere", async () => {
+  it("creates a URL parse job from a client-uploaded public Blob", async () => {
     const uploadingSource = makeSource({ title: "large.pdf", sizeBytes: 5 });
     const parsingSource = makeSource({
       title: "large.pdf",
@@ -162,18 +164,6 @@ describe("uploadSourceToKnowhere", () => {
       knowhereJobId: "job_123",
       sizeBytes: 5,
     });
-    const blobStore = {
-      get: vi.fn().mockResolvedValue({
-        statusCode: 200,
-        stream: new Response("hello").body,
-        blob: {
-          pathname: "source-uploads/upload_1/document.pdf",
-          contentType: "application/pdf",
-          size: 5,
-        },
-      }),
-      del: vi.fn().mockResolvedValue(undefined),
-    };
     const deps = {
       repository: {
         createUploadingSource: vi.fn().mockResolvedValue(uploadingSource),
@@ -184,20 +174,20 @@ describe("uploadSourceToKnowhere", () => {
         jobs: {
           create: vi.fn().mockResolvedValue({
             jobId: "job_123",
-            status: "waiting-file",
-            sourceType: "file",
+            status: "pending",
+            sourceType: "url",
             createdAt: new Date("2026-05-06T00:00:00Z"),
           }),
           upload: vi.fn().mockResolvedValue(undefined),
         },
       },
-      blobStore,
     };
 
     const result = await uploadSourceBlobToKnowhere(
       workspace,
       {
         pathname: "source-uploads/upload_1/document.pdf",
+        url: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
         fileName: "large.pdf",
         mimeType: "application/pdf",
         sizeBytes: 5,
@@ -205,28 +195,69 @@ describe("uploadSourceToKnowhere", () => {
       deps,
     );
 
-    expect(blobStore.get).toHaveBeenCalledWith(
-      "source-uploads/upload_1/document.pdf",
-    );
     expect(deps.repository.createUploadingSource).toHaveBeenCalledWith(
       workspace.id,
       {
         title: "large.pdf",
         mimeType: "application/pdf",
         sizeBytes: 5,
+        stagedBlobPathname: "source-uploads/upload_1/document.pdf",
+        stagedBlobUrl: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
       },
     );
-    expect(deps.knowhere.jobs.upload).toHaveBeenCalledWith(
-      expect.objectContaining({ jobId: "job_123" }),
-      expect.objectContaining({ file: expect.stringContaining("large.pdf") }),
-    );
-    expect(blobStore.del).toHaveBeenCalledWith(
-      "source-uploads/upload_1/document.pdf",
-    );
+    expect(deps.knowhere.jobs.create).toHaveBeenCalledWith({
+      sourceType: "url",
+      sourceUrl: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
+      fileName: "large.pdf",
+      namespace: workspace.namespace,
+    });
+    expect(deps.knowhere.jobs.upload).not.toHaveBeenCalled();
     expect(result).toMatchObject({
       id: "source_1",
       title: "large.pdf",
       status: "parsing",
     });
+  });
+
+  it("deletes staged public Blob uploads when URL job creation fails", async () => {
+    const uploadingSource = makeSource({ title: "large.pdf", sizeBytes: 5 });
+    const failedSource = makeSource({
+      title: "large.pdf",
+      status: "failed",
+      failureReason: "Knowhere upload failed.",
+      sizeBytes: 5,
+    });
+    const deps = {
+      repository: {
+        createUploadingSource: vi.fn().mockResolvedValue(uploadingSource),
+        markSourceParsing: vi.fn(),
+        markSourceFailed: vi.fn().mockResolvedValue(failedSource),
+      },
+      knowhere: {
+        jobs: {
+          create: vi.fn().mockRejectedValue(new Error("network")),
+          upload: vi.fn(),
+        },
+      },
+      deleteStagedSourceBlob: vi.fn().mockResolvedValue(undefined),
+    };
+
+    await expect(
+      uploadSourceBlobToKnowhere(
+        workspace,
+        {
+          pathname: "source-uploads/upload_1/document.pdf",
+          url: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
+          fileName: "large.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 5,
+        },
+        deps,
+      ),
+    ).rejects.toThrow(/Knowhere upload failed/);
+
+    expect(deps.deleteStagedSourceBlob).toHaveBeenCalledWith(
+      "source-uploads/upload_1/document.pdf",
+    );
   });
 });

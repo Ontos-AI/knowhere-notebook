@@ -72,8 +72,8 @@ describe("postSourceUpload", () => {
       type: "application/pdf",
     });
     const blob = {
-      url: "https://blob.example/source-uploads/upload_1/document.pdf",
-      downloadUrl: "https://blob.example/source-uploads/upload_1/document.pdf?download=1",
+      url: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
+      downloadUrl: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf?download=1",
       pathname: "source-uploads/upload_1/document.pdf",
       contentType: "application/pdf",
       contentDisposition: 'attachment; filename="document.pdf"',
@@ -108,7 +108,7 @@ describe("postSourceUpload", () => {
       "source-uploads/upload_1/document.pdf",
       file,
       expect.objectContaining({
-        access: "private",
+        access: "public",
         contentType: "application/pdf",
         handleUploadUrl: "/api/source-uploads/blob",
         multipart: true,
@@ -121,6 +121,7 @@ describe("postSourceUpload", () => {
       upload: {
         type: "blob",
         pathname: "source-uploads/upload_1/document.pdf",
+        url: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
         fileName: "large.pdf",
         mimeType: "application/pdf",
         sizeBytes: file.size,
@@ -138,8 +139,8 @@ describe("postSourceUpload", () => {
       type: "application/pdf",
     });
     const blob = {
-      url: "https://blob.example/source-uploads/upload_1/document.pdf",
-      downloadUrl: "https://blob.example/source-uploads/upload_1/document.pdf?download=1",
+      url: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
+      downloadUrl: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf?download=1",
       pathname: "source-uploads/upload_1/document.pdf",
       contentType: "application/pdf",
       contentDisposition: 'attachment; filename="document.pdf"',

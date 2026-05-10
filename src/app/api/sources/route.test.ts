@@ -75,6 +75,8 @@ const source: Source = {
   failureReason: null,
   knowhereJobId: "job_1",
   knowhereDocumentId: null,
+  stagedBlobPathname: null,
+  stagedBlobUrl: null,
   createdAt: new Date("2026-05-10T00:00:00Z"),
   updatedAt: new Date("2026-05-10T00:00:00Z"),
   deletedAt: null,
@@ -139,6 +141,7 @@ describe("POST /api/sources", () => {
           upload: {
             type: "blob",
             pathname: "source-uploads/upload_1/document.pdf",
+            url: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
             fileName: "large.pdf",
             mimeType: "application/pdf",
             sizeBytes: 5 * 1024 * 1024,
@@ -159,6 +162,7 @@ describe("POST /api/sources", () => {
       workspace,
       {
         pathname: "source-uploads/upload_1/document.pdf",
+        url: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
         fileName: "large.pdf",
         mimeType: "application/pdf",
         sizeBytes: 5 * 1024 * 1024,

@@ -29,7 +29,7 @@ describe("POST /api/source-uploads/blob", () => {
     mocks.getCurrentUser.mockResolvedValue({ id: "user_1" });
   });
 
-  it("generates a private client-upload token capped at the 100 MB document limit", async () => {
+  it("generates a public client-upload token capped at the 100 MB document limit", async () => {
     mocks.handleUpload.mockImplementation(async (options) => {
       const tokenOptions = await options.onBeforeGenerateToken(
         "source-uploads/upload_1/document.pdf",

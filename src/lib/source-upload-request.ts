@@ -50,7 +50,7 @@ async function postBlobBackedSourceUpload(
 
   const pathname = getSourceUploadBlobPathname(file);
   const blob = await uploadBlob(pathname, file, {
-    access: "private",
+    access: "public",
     contentType: validation.mimeType,
     handleUploadUrl: SOURCE_UPLOAD_BLOB_HANDLE_PATH,
     multipart: true,
@@ -60,7 +60,7 @@ async function postBlobBackedSourceUpload(
       sizeBytes: file.size,
     }),
   });
-  const input = createSourceBlobUploadInput(file, blob.pathname);
+  const input = createSourceBlobUploadInput(file, blob.pathname, blob.url);
   if ("message" in input) {
     await cleanupSourceBlobUpload(blob.pathname);
     return {
@@ -108,6 +108,7 @@ const postSourceUploadEffect = Effect.fn("postSourceUpload")(
 const postSourceBlobUploadEffect = Effect.fn("postSourceBlobUpload")(
   function* (input: {
     readonly pathname: string;
+    readonly url: string;
     readonly fileName: string;
     readonly mimeType: string;
     readonly sizeBytes: number;
@@ -119,6 +120,7 @@ const postSourceBlobUploadEffect = Effect.fn("postSourceBlobUpload")(
         upload: {
           type: "blob",
           pathname: input.pathname,
+          url: input.url,
           fileName: input.fileName,
           mimeType: input.mimeType,
           sizeBytes: input.sizeBytes,

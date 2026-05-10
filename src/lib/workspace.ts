@@ -108,6 +108,8 @@ export const createUploadingSourceEffect = (
     title: string
     mimeType: string
     sizeBytes: number
+    stagedBlobPathname?: string | null
+    stagedBlobUrl?: string | null
   },
 ) =>
   Effect.gen(function* () {
@@ -121,6 +123,8 @@ export const createUploadingSourceEffect = (
           mimeType: input.mimeType,
           sizeBytes: input.sizeBytes,
           status: "uploading",
+          stagedBlobPathname: input.stagedBlobPathname,
+          stagedBlobUrl: input.stagedBlobUrl,
         })
         .returning(),
     )
@@ -164,6 +168,15 @@ export const markSourceFailedEffect = (
   updateSourceInWorkspaceEffect(workspaceId, sourceId, {
     status: "failed",
     failureReason: reason,
+  })
+
+export const clearSourceStagedBlobEffect = (
+  workspaceId: string,
+  sourceId: string,
+) =>
+  updateSourceInWorkspaceEffect(workspaceId, sourceId, {
+    stagedBlobPathname: null,
+    stagedBlobUrl: null,
   })
 
 export const saveSourceParseResultEffect = (
@@ -350,7 +363,12 @@ const updateSourceInWorkspaceEffect = (
   values: Partial<
     Pick<
       Source,
-      "status" | "failureReason" | "knowhereJobId" | "knowhereDocumentId"
+      | "status"
+      | "failureReason"
+      | "knowhereJobId"
+      | "knowhereDocumentId"
+      | "stagedBlobPathname"
+      | "stagedBlobUrl"
     >
   >,
 ) =>
@@ -458,6 +476,8 @@ export const createUploadingSource = (
     title: string
     mimeType: string
     sizeBytes: number
+    stagedBlobPathname?: string | null
+    stagedBlobUrl?: string | null
   },
 ) =>
   dbRuntime().runPromise(createUploadingSourceEffect(workspaceId, input))
@@ -481,6 +501,9 @@ export const markSourceFailed = (
   reason: string,
 ) =>
   dbRuntime().runPromise(markSourceFailedEffect(workspaceId, sourceId, reason))
+
+export const clearSourceStagedBlob = (workspaceId: string, sourceId: string) =>
+  dbRuntime().runPromise(clearSourceStagedBlobEffect(workspaceId, sourceId))
 
 export const saveSourceParseResult = (
   workspaceId: string,

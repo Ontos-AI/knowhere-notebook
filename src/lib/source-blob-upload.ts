@@ -10,12 +10,16 @@ export const SERVER_UPLOAD_BODY_LIMIT_BYTES = 4 * 1024 * 1024;
 
 export type SourceBlobUploadInput = {
   readonly pathname: string;
+  readonly url: string;
   readonly fileName: string;
   readonly mimeType: string;
   readonly sizeBytes: number;
 };
 
-export type SourceBlobUploadMetadata = Omit<SourceBlobUploadInput, "pathname">;
+export type SourceBlobUploadMetadata = Omit<
+  SourceBlobUploadInput,
+  "pathname" | "url"
+>;
 
 export function shouldStageUploadInBlob(file: File): boolean {
   return file.size > SERVER_UPLOAD_BODY_LIMIT_BYTES;
@@ -31,6 +35,7 @@ export function getSourceUploadBlobPathname(file: File): string {
 export function createSourceBlobUploadInput(
   file: File,
   pathname: string,
+  url: string,
 ): SourceBlobUploadInput | { readonly message: string } {
   const validation = validateUploadFile(file);
   if (!validation.ok) {
@@ -39,6 +44,7 @@ export function createSourceBlobUploadInput(
 
   return {
     pathname,
+    url,
     fileName: validation.title,
     mimeType: validation.mimeType,
     sizeBytes: file.size,
@@ -52,9 +58,10 @@ export function parseSourceBlobUploadBody(
   const upload = body.upload;
   if (!isRecord(upload) || upload.type !== "blob") return null;
 
-  const { pathname, fileName, mimeType, sizeBytes } = upload;
+  const { pathname, url, fileName, mimeType, sizeBytes } = upload;
   if (
     typeof pathname !== "string" ||
+    typeof url !== "string" ||
     typeof fileName !== "string" ||
     typeof mimeType !== "string" ||
     typeof sizeBytes !== "number" ||
@@ -64,7 +71,7 @@ export function parseSourceBlobUploadBody(
     return null;
   }
 
-  return { pathname, fileName, mimeType, sizeBytes };
+  return { pathname, url, fileName, mimeType, sizeBytes };
 }
 
 export function parseSourceBlobClientPayload(
@@ -95,6 +102,22 @@ export function parseSourceBlobClientPayload(
 export function validateSourceBlobUploadInput(
   input: SourceBlobUploadInput,
 ): UploadValidationResult {
+  const validation = validateSourceBlobUploadMetadata(input);
+  if (!validation.ok) return validation;
+
+  if (!isValidPublicSourceBlobUrl(input.url, input.pathname)) {
+    return {
+      ok: false,
+      message: "Invalid upload URL. Choose the document again.",
+    };
+  }
+
+  return validation;
+}
+
+export function validateSourceBlobUploadMetadata(
+  input: SourceBlobUploadMetadata & { readonly pathname: string },
+): UploadValidationResult {
   if (!isValidSourceBlobPathname(input.pathname)) {
     return {
       ok: false,
@@ -114,6 +137,24 @@ export function validateSourceBlobUploadInput(
     type: input.mimeType,
     size: input.sizeBytes,
   });
+}
+
+export function isValidPublicSourceBlobUrl(
+  url: string,
+  pathname: string,
+): boolean {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "https:") return false;
+    if (!parsed.hostname.endsWith(".public.blob.vercel-storage.com")) {
+      return false;
+    }
+
+    const normalizedPathname = parsed.pathname.replace(/^\/+/, "");
+    return normalizedPathname === pathname;
+  } catch {
+    return false;
+  }
 }
 
 export function isValidSourceBlobPathname(pathname: string): boolean {

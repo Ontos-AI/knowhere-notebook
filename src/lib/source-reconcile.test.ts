@@ -20,6 +20,8 @@ function makeSource(overrides: Partial<Source>): Source {
     failureReason: null,
     knowhereJobId: "job_1",
     knowhereDocumentId: null,
+    stagedBlobPathname: null,
+    stagedBlobUrl: null,
     createdAt: new Date("2026-05-06T00:00:00Z"),
     updatedAt: new Date("2026-05-06T00:00:00Z"),
     deletedAt: null,
@@ -49,6 +51,7 @@ async function loadReconcile({
     markSourceFailed,
     markSourceReady,
     saveSourceParseResult,
+    clearSourceStagedBlob: vi.fn(),
   }))
   vi.doMock("./parsed-result-assets", () => ({
     storeParsedResultAssets,
@@ -158,6 +161,55 @@ describe("reconcileSourcesForWorkspace", () => {
       },
     )
     expect(calls).toEqual(["store", "save", "ready"])
+  })
+
+  it("deletes staged public Blob uploads after completed URL parsing jobs", async () => {
+    const parsing = makeSource({
+      id: "source_1",
+      knowhereJobId: "job_1",
+      stagedBlobPathname: "source-uploads/upload_1/document.pdf",
+      stagedBlobUrl:
+        "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
+    })
+    const ready = makeSource({
+      id: "source_1",
+      status: "ready",
+      knowhereDocumentId: "doc_1",
+      stagedBlobPathname: null,
+      stagedBlobUrl: null,
+    })
+    const listSourcesForWorkspace = vi
+      .fn()
+      .mockResolvedValueOnce([parsing])
+      .mockResolvedValueOnce([ready])
+    const deleteStagedSourceBlob = vi.fn()
+    const clearSourceStagedBlob = vi.fn()
+    const { reconcileSourcesForWorkspace } = await loadReconcile({
+      listSourcesForWorkspace,
+    })
+
+    const mockClient = {
+      jobs: {
+        get: vi.fn().mockResolvedValue({
+          status: "done",
+          documentId: "doc_1",
+          isDone: true,
+        }),
+      },
+    } as unknown as import("@ontos-ai/knowhere-sdk").default
+
+    await reconcileSourcesForWorkspace(workspace, mockClient, {
+      deleteStagedSourceBlob,
+      clearSourceStagedBlob,
+    })
+
+    expect(deleteStagedSourceBlob).toHaveBeenCalledWith(
+      "source-uploads/upload_1/document.pdf",
+    )
+    expect(clearSourceStagedBlob).toHaveBeenCalledWith(
+      workspace.id,
+      "source_1",
+    )
   })
 
   it("marks failed parsing jobs failed with a user-safe reason", async () => {
