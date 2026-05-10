@@ -1,4 +1,8 @@
-import type { RetrievalQueryParams, RetrievalResult } from "@ontos-ai/knowhere-sdk"
+import type {
+  DocumentChunk,
+  RetrievalQueryParams,
+  RetrievalResult,
+} from "@ontos-ai/knowhere-sdk"
 import { generateText } from "ai"
 import { Effect, Either, Schema } from "effect"
 
@@ -12,9 +16,29 @@ const RECENT_CONTEXT_MESSAGE_LIMIT = 8
 const CONTEXT_CONTENT_CHAR_LIMIT = 900
 const RETRIEVAL_QUERY_CHAR_LIMIT = 600
 const SOURCE_CONTEXT_LIMIT = 12
+const DOCUMENT_CHUNK_PAGE_SIZE = 200
+const DOCUMENT_COUNT_DESCRIPTION = "whole document keyword count"
 
 export type RetrievalClient = {
   query(params: RetrievalQueryParams): Promise<{ results: RetrievalResult[] }>
+}
+
+export type DocumentChunksClient = {
+  documents: {
+    listChunks(
+      documentId: string,
+      params: {
+        page: number
+        pageSize: number
+        includeAssetUrls: boolean
+      },
+    ): Promise<{
+      chunks: DocumentChunk[]
+      pagination?: {
+        totalPages?: number
+      }
+    }>
+  }
 }
 
 export type ChatHistoryMessage = {
@@ -43,6 +67,7 @@ export type AnswerQuestionInput = {
   sources: readonly Source[]
   excludedSourceIds: readonly string[]
   retrieval: RetrievalClient
+  documentChunks?: DocumentChunksClient
   generateRetrievalQuery: GenerateRetrievalQuery
   generateAnswer: GenerateAnswer
   messages: readonly ChatHistoryMessage[]
@@ -66,6 +91,15 @@ export type ParseChatRequestResult =
 export const answerQuestionWithRetrieval = (input: AnswerQuestionInput) =>
   Effect.gen(function* () {
     const question = input.question.trim()
+    const documentCountAnswer = yield* answerDocumentKeywordCountQuestion({
+      question,
+      sources: input.sources,
+      excludedSourceIds: input.excludedSourceIds,
+      messages: input.messages,
+      documentChunks: input.documentChunks,
+    })
+    if (documentCountAnswer) return documentCountAnswer
+
     const generatedQuery = yield* Effect.tryPromise(() =>
       input.generateRetrievalQuery({
         question,
@@ -87,18 +121,19 @@ export const answerQuestionWithRetrieval = (input: AnswerQuestionInput) =>
     if (response.results.length === 0) {
       return { answer: NO_RESULTS_ANSWER, citations: [] as ChatCitationView[] }
     }
+    const results = toUserVisibleRetrievalResults(response.results, input.sources)
 
     const answer = yield* Effect.tryPromise(() =>
       input.generateAnswer({
         question,
         retrievalQuery: query,
         messages: input.messages,
-        results: response.results,
+        results,
       }),
     )
     return {
       answer,
-      citations: toChatCitationViews(response.results, answer),
+      citations: toChatCitationViews(results, answer),
     }
   })
 
@@ -253,7 +288,10 @@ function toChatCitationViews(
   const descriptionsBySourceNumber = getCitationDescriptions(answer)
 
   return results.map((result, index) => {
-    const description = descriptionsBySourceNumber.get(index + 1)
+    const description = normalizeCitationDescription(
+      descriptionsBySourceNumber.get(index + 1),
+      result,
+    )
     return {
       content: result.content,
       chunkType: result.chunkType,
@@ -267,6 +305,289 @@ function toChatCitationViews(
       },
     }
   })
+}
+
+function toUserVisibleRetrievalResults(
+  results: readonly RetrievalResult[],
+  sources: readonly Source[],
+): RetrievalResult[] {
+  const sourceTitleByDocumentId = new Map(
+    sources
+      .filter((source) => source.knowhereDocumentId && source.title)
+      .map((source) => [source.knowhereDocumentId!, source.title]),
+  )
+
+  return results.map((result): RetrievalResult => {
+    const sourceTitle = result.source.documentId
+      ? sourceTitleByDocumentId.get(result.source.documentId)
+      : undefined
+    if (!sourceTitle) return result
+
+    return {
+      ...result,
+      source: {
+        ...result.source,
+        sourceFileName: sourceTitle,
+      },
+    }
+  })
+}
+
+function normalizeCitationDescription(
+  description: string | undefined,
+  result: RetrievalResult,
+): string | undefined {
+  const normalized = description?.trim()
+  if (!normalized) return undefined
+
+  const duplicateCandidates = [
+    result.source.sourceFileName,
+    result.source.sectionPath,
+  ]
+  const isDuplicate = duplicateCandidates.some(
+    (candidate): boolean =>
+      typeof candidate === "string" &&
+      candidate.trim().toLowerCase() === normalized.toLowerCase(),
+  )
+  return isDuplicate ? undefined : normalized
+}
+
+function answerDocumentKeywordCountQuestion(input: {
+  question: string
+  sources: readonly Source[]
+  excludedSourceIds: readonly string[]
+  messages: readonly ChatHistoryMessage[]
+  documentChunks?: DocumentChunksClient
+}) {
+  return Effect.gen(function* () {
+    if (!input.documentChunks) return null
+
+    const request = parseDocumentKeywordCountQuestion(input.question)
+    if (!request) return null
+
+    const source = resolveDocumentKeywordCountSource({
+      question: input.question,
+      sources: input.sources,
+      excludedSourceIds: input.excludedSourceIds,
+      messages: input.messages,
+    })
+    if (!source?.knowhereDocumentId) return null
+
+    const chunks = yield* loadAllDocumentChunks(
+      input.documentChunks,
+      source.knowhereDocumentId,
+    )
+    const countResult = countKeywordOccurrences(chunks, request.keyword)
+    const answer = formatDocumentKeywordCountAnswer({
+      keyword: request.keyword,
+      count: countResult.count,
+      sourceTitle: source.title,
+    })
+
+    return {
+      answer,
+      citations: [
+        {
+          content: countResult.firstMatchingChunk?.content ?? undefined,
+          chunkType: countResult.firstMatchingChunk?.chunkType ?? "text",
+          score: 1,
+          description: DOCUMENT_COUNT_DESCRIPTION,
+          source: {
+            documentId: source.knowhereDocumentId,
+            sourceFileName: source.title,
+            sectionPath: countResult.firstMatchingChunk?.sectionPath ?? undefined,
+          },
+        },
+      ],
+    } satisfies AnswerQuestionResult
+  })
+}
+
+function parseDocumentKeywordCountQuestion(
+  question: string,
+): { keyword: string } | null {
+  const quotedKeyword = /["'“”‘’]([^"'“”‘’]{1,80})["'“”‘’]/u.exec(question)
+  const keyword = quotedKeyword?.[1]?.trim()
+  if (!keyword) return null
+
+  const hasCountIntent =
+    /\b(?:how many|count|number of|occurrences?|appears?|appeared|times)\b/iu.test(
+      question,
+    ) ||
+    /\b(?:keyword|keywords|word|words|term|terms|occurrence|occurrences)\b/iu.test(
+      question,
+    )
+  if (!hasCountIntent) return null
+
+  return { keyword }
+}
+
+function resolveDocumentKeywordCountSource(input: {
+  question: string
+  sources: readonly Source[]
+  excludedSourceIds: readonly string[]
+  messages: readonly ChatHistoryMessage[]
+}): Source | null {
+  const includedSources = getIncludedReadySources(
+    input.sources,
+    input.excludedSourceIds,
+  )
+  if (includedSources.length === 0) return null
+
+  const mentionedSource = findQuestionMentionedSource(
+    input.question,
+    includedSources,
+  )
+  if (mentionedSource) return mentionedSource
+
+  const recentSource = findRecentCitedSource(input.messages, includedSources)
+  if (recentSource) return recentSource
+
+  return includedSources.length === 1 ? includedSources[0]! : null
+}
+
+function getIncludedReadySources(
+  sources: readonly Source[],
+  excludedSourceIds: readonly string[],
+): Source[] {
+  const excludedSourceIdsSet = new Set(excludedSourceIds)
+  return sources.filter(
+    (source): source is Source & { knowhereDocumentId: string } =>
+      source.status === "ready" &&
+      typeof source.knowhereDocumentId === "string" &&
+      source.knowhereDocumentId.length > 0 &&
+      !excludedSourceIdsSet.has(source.id),
+  )
+}
+
+function findQuestionMentionedSource(
+  question: string,
+  sources: readonly Source[],
+): Source | null {
+  const normalizedQuestion = normalizeSourceMatchText(question)
+  return (
+    sources.find((source): boolean =>
+      getSourceMatchCandidates(source).some((candidate): boolean =>
+        normalizedQuestion.includes(candidate),
+      ),
+    ) ?? null
+  )
+}
+
+function getSourceMatchCandidates(source: Source): string[] {
+  const title = source.title.trim()
+  const titleWithoutExtension = title.replace(/\.[^.]+$/u, "")
+  return [title, titleWithoutExtension, source.knowhereDocumentId ?? ""]
+    .map(normalizeSourceMatchText)
+    .filter((candidate): boolean => candidate.length >= 3)
+}
+
+function normalizeSourceMatchText(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/gu, " ")
+    .trim()
+}
+
+function findRecentCitedSource(
+  messages: readonly ChatHistoryMessage[],
+  sources: readonly Source[],
+): Source | null {
+  const sourceByDocumentId = new Map(
+    sources.map((source) => [source.knowhereDocumentId, source]),
+  )
+
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i]
+    const citations = message?.citations ?? []
+    for (let j = citations.length - 1; j >= 0; j -= 1) {
+      const documentId = citations[j]?.source.documentId
+      const source = documentId ? sourceByDocumentId.get(documentId) : undefined
+      if (source) return source
+    }
+  }
+
+  return null
+}
+
+function loadAllDocumentChunks(
+  client: DocumentChunksClient,
+  documentId: string,
+) {
+  return Effect.gen(function* () {
+    const chunks: DocumentChunk[] = []
+    let page = 1
+    let totalPages = 1
+
+    do {
+      const response = yield* Effect.tryPromise(() =>
+        client.documents.listChunks(documentId, {
+          page,
+          pageSize: DOCUMENT_CHUNK_PAGE_SIZE,
+          includeAssetUrls: false,
+        }),
+      )
+      chunks.push(...response.chunks)
+      totalPages = getDocumentChunkTotalPages(response.pagination)
+      page += 1
+    } while (page <= totalPages)
+
+    return chunks
+  })
+}
+
+function getDocumentChunkTotalPages(
+  pagination:
+    | {
+        totalPages?: number
+      }
+    | undefined,
+): number {
+  const totalPages = pagination?.totalPages
+  return typeof totalPages === "number" && Number.isFinite(totalPages)
+    ? Math.max(1, totalPages)
+    : 1
+}
+
+function countKeywordOccurrences(
+  chunks: readonly DocumentChunk[],
+  keyword: string,
+): { count: number; firstMatchingChunk?: DocumentChunk } {
+  const keywordPattern = buildKeywordPattern(keyword)
+  let count = 0
+  let firstMatchingChunk: DocumentChunk | undefined
+
+  for (const chunk of chunks) {
+    const content = chunk.content ?? ""
+    const matches = content.match(keywordPattern)
+    if (!matches) continue
+
+    count += matches.length
+    firstMatchingChunk ??= chunk
+  }
+
+  return { count, firstMatchingChunk }
+}
+
+function buildKeywordPattern(keyword: string): RegExp {
+  const escapedKeyword = escapeRegExp(keyword)
+  if (/^[a-z0-9_]+$/iu.test(keyword)) {
+    return new RegExp(`\\b${escapedKeyword}\\b`, "giu")
+  }
+  return new RegExp(escapedKeyword, "giu")
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")
+}
+
+function formatDocumentKeywordCountAnswer(input: {
+  keyword: string
+  count: number
+  sourceTitle: string
+}): string {
+  const times = input.count === 1 ? "time" : "times"
+  return `The keyword "${input.keyword}" appears ${input.count} ${times} in ${input.sourceTitle} across the parsed document chunks. [Source 1: ${DOCUMENT_COUNT_DESCRIPTION}]`
 }
 
 function getCitationDescriptions(answer: string): Map<number, string> {
