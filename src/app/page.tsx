@@ -1,65 +1,90 @@
-"use client";
+import { headers } from "next/headers"
+import { Effect } from "effect"
 
-import { useState } from "react";
-import { TopNav } from "@/components/top-nav";
-import { SourcesPanel } from "@/components/sources-panel";
-import { ChunksPanel } from "@/components/chunks-panel";
-import { ChatPanel } from "@/components/chat-panel";
+import { ensureApiKeyForWorkspace } from "@/lib/api-key-service"
+import { authURLs } from "@/lib/auth-urls"
+import { getCurrentUser } from "@/lib/auth"
+import { toChatMessageView, toChatThreadView } from "@/lib/chat-view"
+import { demoData } from "@/lib/demo-data"
+import { makeKnowhereClient } from "@/lib/knowhere"
+import { sourceViewOptionsBySourceId } from "@/lib/source-counts"
+import { toSourceView } from "@/lib/source-view"
+import {
+  ensureWorkspace,
+  listChatThreadsForWorkspace,
+  listMessagesForThread,
+  listSourcesForWorkspace,
+} from "@/lib/workspace"
+import { WorkspaceShell } from "@/components/workspace-shell"
+
+export const dynamic = "force-dynamic"
 
 /**
- * Main workspace page.
+ * Main workspace page. Server component.
  *
- * Layout (mirrors the UI prototype):
- *   - Sources sidebar is always visible
- *   - Parsed Content panel is conditional: shows when a source is selected
- *     or when a chat citation is clicked
- *   - Chat panel is hidden while a user is browsing source detail; shown
- *     when no source is selected or when a citation is being inspected
- *
- * This is still the shell — sources/chunks/messages arrive from their
- * real sources once N-001 through N-005 are wired.
+ * Two modes:
+ *   - Guest (no Dashboard session): shows static demo documents with parsed
+ *     chunks so first-time visitors can explore the product before logging in.
+ *     Upload and chat are gated behind Dashboard login.
+ *   - Authenticated: the existing workspace flow — verify session,
+ *     ensure workspace + API key, load real sources.
  */
-export default function Home() {
-  const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
-  const [focusedChunkId, setFocusedChunkId] = useState<string | null>(null);
+export default async function Home() {
+  const user = await getCurrentUser()
 
-  const showParsed = selectedSourceId !== null || focusedChunkId !== null;
-  const showChat = selectedSourceId === null || focusedChunkId !== null;
+  if (!user) {
+    const dashboardOrigin =
+      process.env.DASHBOARD_ORIGIN ?? "http://localhost:3000"
+    const dashboardLoginURL = `${dashboardOrigin}/login`
+    const notebookPublicURL =
+      process.env.NOTEBOOK_PUBLIC_URL ??
+      authURLs.resolveNotebookPublicURLFromHeaders(await headers())
+    const loginUrl = authURLs.buildDashboardLoginURL(
+      dashboardLoginURL,
+      notebookPublicURL,
+    )
+    return (
+      <WorkspaceShell
+        isGuest
+        sources={demoData.listSources()}
+        loginUrl={loginUrl}
+      />
+    )
+  }
+
+  const workspace = await ensureWorkspace(user.id)
+  const cookieHeader = (await headers()).get("cookie") ?? ""
+  const apiKey = await ensureApiKeyForWorkspace(workspace.id, cookieHeader)
+  const client = makeKnowhereClient(apiKey)
+  const sources = await listSourcesForWorkspace(workspace.id)
+  const chatThreads = await listChatThreadsForWorkspace(workspace.id)
+  const activeChatThread = chatThreads[0] ?? null
+  const chatMessages = activeChatThread
+    ? await listMessagesForThread(workspace.id, activeChatThread.id)
+    : []
+  const sourceOptions = await Effect.runPromise(
+    sourceViewOptionsBySourceId(sources, client),
+  )
 
   return (
-    <div className="flex h-screen w-full flex-col overflow-hidden bg-muted/40">
-      <TopNav />
-      <div className="relative flex flex-1 overflow-hidden">
-        <SourcesPanel
-          selectedSourceId={selectedSourceId}
-          onSelectSource={(id) => {
-            setSelectedSourceId(id);
-            setFocusedChunkId(null);
-          }}
-        />
-        {showParsed && (
-          <ChunksPanel
-            selectedSource={selectedSourceId}
-            focusedChunkId={focusedChunkId}
-            onClose={() => {
-              setSelectedSourceId(null);
-              setFocusedChunkId(null);
-            }}
-          />
-        )}
-        {showChat && (
-          <ChatPanel
-            isDisabled
-            onCitationClick={(cite) => {
-              // Citations carry no chunkId in the retrieval shape; when we
-              // wire this up, the page will also fetch the matching chunk
-              // by (documentId, sectionPath) and scroll the ChunksPanel.
-              setFocusedChunkId(cite.source.documentId ?? null);
-              setSelectedSourceId(null);
-            }}
-          />
-        )}
-      </div>
-    </div>
-  );
+    <WorkspaceShell
+      user={{
+        id: user.id,
+        name: user.name ?? null,
+        email: user.email ?? null,
+      }}
+      workspace={{
+        id: workspace.id,
+        namespace: workspace.namespace,
+      }}
+      sources={sources.map((source) =>
+        toSourceView(source, sourceOptions.get(source.id)),
+      )}
+      chatThreads={chatThreads.map(toChatThreadView)}
+      activeChatThreadId={activeChatThread?.id ?? null}
+      chatMessages={(chatMessages ?? []).map((message) =>
+        toChatMessageView(message),
+      )}
+    />
+  )
 }

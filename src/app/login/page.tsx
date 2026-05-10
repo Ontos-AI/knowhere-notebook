@@ -1,37 +1,49 @@
 import Link from "next/link";
-import { BookOpen } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { NotebookLogoMark } from "@/components/notebook-logo-mark";
+import { headers } from "next/headers";
 import { Card, CardContent } from "@/components/ui/card";
+import { authURLs } from "@/lib/auth-urls";
 
 /**
- * Login gate preview for the MVP shell.
- *
- * In N-001 this page becomes an "intercept" route that redirects to the
- * Dashboard login URL (`DASHBOARD_LOGIN_URL`) with a returnTo parameter
- * pointing back at `/`. Today it's a visual preview only — the button is a
- * link to `/` so suguan and Pi can click through the prototype flow.
+ * Login gate preview for the MVP shell. The real auth redirect is handled by
+ * server-side guards; this page keeps direct `/login` visits user-friendly.
  */
-export default function LoginPage() {
+export default async function LoginPage() {
+  const notebookPublicURL =
+    process.env.NOTEBOOK_PUBLIC_URL ??
+    authURLs.resolveNotebookPublicURLFromHeaders(await headers());
+  const loginHref = authURLs.buildDashboardLoginURL(
+    `${requireEnv("DASHBOARD_ORIGIN")}/login`,
+    notebookPublicURL,
+  );
+
   return (
-    <div className="flex min-h-screen w-full items-center justify-center bg-muted/40 p-4 text-foreground">
+    <div className="flex min-h-screen w-full items-center justify-center bg-[#fafafa] p-4 text-[#09090b]">
       <Card className="m-auto w-full max-w-md rounded-2xl border-none bg-transparent shadow-none">
         <CardContent className="flex flex-col items-center p-8 text-center">
-          <div className="mb-6 flex size-12 items-center justify-center rounded-xl bg-primary">
-            <BookOpen className="size-7 text-primary-foreground" />
+          <div className="mb-6 flex size-12 items-center justify-center">
+            <NotebookLogoMark width={28} />
           </div>
           <h1 className="mb-8 text-2xl font-bold tracking-tight">
             Knowhere Notebook
           </h1>
-          <Link href="/" className="w-full">
-            <Button size="lg" className="w-full rounded-xl py-6">
-              Login
-            </Button>
+          <Link
+            href={loginHref}
+            className="inline-flex h-9 w-full items-center justify-center rounded-xl bg-[#2563eb] px-2.5 py-6 text-sm font-medium text-white transition-colors hover:bg-[#2563eb]/90"
+          >
+            Sign in
           </Link>
-          <p className="mt-4 text-xs text-muted-foreground">
-            Login is handled by Knowhere Dashboard.
+          <p className="mt-4 text-xs text-[#71717b]">
+            Use your Knowhere account to continue.
           </p>
         </CardContent>
       </Card>
     </div>
   );
+}
+
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) throw new Error(`${name} must be set.`);
+  return value;
 }

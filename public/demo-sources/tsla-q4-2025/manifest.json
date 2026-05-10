@@ -1,0 +1,278 @@
+{
+  "version": "1.0",
+  "job_id": "job_874e80cb6ebc",
+  "data_id": "test_file_document_001",
+  "source_file_name": "TSLA-Q4-2025-Update.pdf",
+  "processing_date": "2026-03-11T01:55:15.932342Z",
+  "statistics": {
+    "total_chunks": 71,
+    "text_chunks": 35,
+    "image_chunks": 19,
+    "table_chunks": 17,
+    "total_pages": null
+  },
+  "files": {
+    "chunks": "chunks.json",
+    "markdown": "full.md",
+    "kb_csv": "kb.csv",
+    "hierarchy": "hierarchy.json",
+    "images": [
+      {
+        "id": "ea4cef09-8ff1-5ec6-812f-1bb6f463779a",
+        "file_path": "images/image-1-## Other S.jpg",
+        "size_bytes": 74795,
+        "format": "jpg",
+        "width": 1420,
+        "height": 694
+      },
+      {
+        "id": "b5fef3b1-d6fa-5fea-b82d-171557c050be",
+        "file_path": "images/image-2-We continu.jpg",
+        "size_bytes": 66330,
+        "format": "jpg",
+        "width": 1420,
+        "height": 606
+      },
+      {
+        "id": "b1def06a-9baf-5e8f-98ee-8decac860bda",
+        "file_path": "images/image-3-## AI Infe.jpg",
+        "size_bytes": 60722,
+        "format": "jpg",
+        "width": 1194,
+        "height": 675
+      },
+      {
+        "id": "7761e287-42d9-53ef-a8ca-f034f250c746",
+        "file_path": "images/image-4-## FSD (Su.jpg",
+        "size_bytes": 44210,
+        "format": "jpg",
+        "width": 1432,
+        "height": 617
+      },
+      {
+        "id": "6e3b452d-cdf4-5836-9fe2-9884b1c9f373",
+        "file_path": "images/image-5-# Product .jpg",
+        "size_bytes": 385618,
+        "format": "jpg",
+        "width": 3190,
+        "height": 1592
+      },
+      {
+        "id": "03071841-88a8-5289-8b35-ee70def4630b",
+        "file_path": "images/image-6-We continu.jpg",
+        "size_bytes": 607247,
+        "format": "jpg",
+        "width": 3190,
+        "height": 1592
+      },
+      {
+        "id": "decf63ee-e970-5ed3-8055-f0e6cc84380f",
+        "file_path": "images/image-7-## MODEL Y.jpg",
+        "size_bytes": 357888,
+        "format": "jpg",
+        "width": 3190,
+        "height": 1592
+      },
+      {
+        "id": "e2bcc205-b75d-56f8-8acb-24f52649a305",
+        "file_path": "images/image-8-MODEL 3 - .jpg",
+        "size_bytes": 330572,
+        "format": "jpg",
+        "width": 3190,
+        "height": 1598
+      },
+      {
+        "id": "b3a45fdf-f8b4-5bfb-b59d-3975a8a7ed2c",
+        "file_path": "images/image-9-MODEL 3 - .jpg",
+        "size_bytes": 363200,
+        "format": "jpg",
+        "width": 3190,
+        "height": 1594
+      },
+      {
+        "id": "e8d7f57b-630f-528a-9e9a-f5f73209f878",
+        "file_path": "images/image-10-MODEL 3 - .jpg",
+        "size_bytes": 375445,
+        "format": "jpg",
+        "width": 3190,
+        "height": 1594
+      },
+      {
+        "id": "bcb1693d-ea72-5b7a-93c8-004cc1f63183",
+        "file_path": "images/image-11-## FSD (SU.jpg",
+        "size_bytes": 243607,
+        "format": "jpg",
+        "width": 3197,
+        "height": 1601
+      },
+      {
+        "id": "bbccf18c-63b3-5f77-907f-8b39f9d27b53",
+        "file_path": "images/image-12-TESLA SEMI.jpg",
+        "size_bytes": 848519,
+        "format": "jpg",
+        "width": 3190,
+        "height": 1594
+      },
+      {
+        "id": "87959d9f-039d-5241-b5b7-fcbf96173534",
+        "file_path": "images/image-13-TESLA SEMI.jpg",
+        "size_bytes": 617211,
+        "format": "jpg",
+        "width": 3190,
+        "height": 1596
+      },
+      {
+        "id": "1a6e21a8-6bb4-5a2b-8119-6881b3361db2",
+        "file_path": "images/image-14-TESLA SEMI.jpg",
+        "size_bytes": 85432,
+        "format": "jpg",
+        "width": 1033,
+        "height": 1028
+      },
+      {
+        "id": "0c76ed13-0693-58fa-8da2-e6d8ceca17c7",
+        "file_path": "images/image-15-# GIGAFACT.jpg",
+        "size_bytes": 72601,
+        "format": "jpg",
+        "width": 1010,
+        "height": 1022
+      },
+      {
+        "id": "8c598e3c-17a1-540e-8658-619b561dcdef",
+        "file_path": "images/image-16-Vehicle De.jpg",
+        "size_bytes": 78110,
+        "format": "jpg",
+        "width": 1017,
+        "height": 1022
+      },
+      {
+        "id": "22f8c1af-8f60-5cda-95b8-4547179435bd",
+        "file_path": "images/image-17-Operating .jpg",
+        "size_bytes": 90735,
+        "format": "jpg",
+        "width": 1037,
+        "height": 1028
+      },
+      {
+        "id": "74027a14-e3e3-59ca-a616-7db10ddca9aa",
+        "file_path": "images/image-18-Net Income.jpg",
+        "size_bytes": 89421,
+        "format": "jpg",
+        "width": 1014,
+        "height": 1022
+      },
+      {
+        "id": "89e413bf-d4e6-5e2a-a338-9bd2bd20e2b0",
+        "file_path": "images/image-19-Vehicle De.jpg",
+        "size_bytes": 102625,
+        "format": "jpg",
+        "width": 1017,
+        "height": 1024
+      }
+    ],
+    "tables": [
+      {
+        "id": "53f41a6a-259f-596d-92eb-0e6b7141e849",
+        "file_path": "tables/table-1 Profitability $4.4B GAAP operating... 2025 marked a critic....html",
+        "size_bytes": 2779,
+        "format": "html"
+      },
+      {
+        "id": "481804a6-0fb5-52fc-bc47-ef5728621f6b",
+        "file_path": "tables/table-2 ($ in millions, exce... Q4-2024 Q1-2025 Q2-2025 Q3-2025 Q4-2025 YoY.html",
+        "size_bytes": 2916,
+        "format": "html"
+      },
+      {
+        "id": "31077385-2188-5cc5-bbfb-85e07e94c5c8",
+        "file_path": "tables/table-3 ($ in millions, exce... 2021 2022 2023 2024 2025 YoY.html",
+        "size_bytes": 2919,
+        "format": "html"
+      },
+      {
+        "id": "b5c761ee-7dcc-586c-ad45-ddeade780d71",
+        "file_path": "tables/table-4 Q4-2024 Q1-2025 Q2-2025 Q3-2025 Q4-2025 YoY.html",
+        "size_bytes": 2314,
+        "format": "html"
+      },
+      {
+        "id": "26d47253-8c6c-5a73-b256-2a7db6fc1ed2",
+        "file_path": "tables/table-5 2021 2022 2023 2024 2025 YoY.html",
+        "size_bytes": 2318,
+        "format": "html"
+      },
+      {
+        "id": "cdae270e-2dc4-5edc-9876-26a9454fbfff",
+        "file_path": "tables/table-6 Region Product Capacity Status.html",
+        "size_bytes": 1328,
+        "format": "html"
+      },
+      {
+        "id": "0428af2c-bf5d-54a6-a142-09ec146d027e",
+        "file_path": "tables/table-7 Region Product Capacity Status.html",
+        "size_bytes": 651,
+        "format": "html"
+      },
+      {
+        "id": "d4b47369-e206-5d49-afdd-db918ddee012",
+        "file_path": "tables/table-8 State Metro Status.html",
+        "size_bytes": 593,
+        "format": "html"
+      },
+      {
+        "id": "3ff046c6-93f4-5d22-a6af-11ecf2660ce3",
+        "file_path": "tables/table-9 In millions of USD o... Q4-2024 Q1-2025 Q2-2025 Q3-2025 Q4-2025.html",
+        "size_bytes": 4227,
+        "format": "html"
+      },
+      {
+        "id": "e8b0029e-f466-5106-9021-f1532106f98c",
+        "file_path": "tables/table-10 In millions of USD 31-Dec-24 31-Mar-25 30-Jun-25 30-Sep-25 31-Dec-25.html",
+        "size_bytes": 3901,
+        "format": "html"
+      },
+      {
+        "id": "59b9a9d1-53ce-5589-ad5d-3868ed9d931f",
+        "file_path": "tables/table-11 In millions of USD Q4-2024 Q1-2025 Q2-2025 Q3-2025 Q4-2025.html",
+        "size_bytes": 3131,
+        "format": "html"
+      },
+      {
+        "id": "675abba3-3bcf-5b5d-94dd-a9e9a711e78b",
+        "file_path": "tables/table-12 In millions of USD o... Q4-2024 Q1-2025 Q2-2025 Q3-2025 Q4-2025.html",
+        "size_bytes": 3214,
+        "format": "html"
+      },
+      {
+        "id": "9a6a2ecd-f489-5cf2-971a-acb1610cbef8",
+        "file_path": "tables/table-13 In millions of USD o... 2021 2022 2023 2024 2025.html",
+        "size_bytes": 3589,
+        "format": "html"
+      },
+      {
+        "id": "11e23444-db42-599d-83b0-2ccbefb4cca6",
+        "file_path": "tables/table-14 In millions of USD 2Q-2022 3Q-2022 4Q-2022 1Q-2023 2Q-2023 3Q-2023 4Q-2023 1Q-2024 2Q-2024.html",
+        "size_bytes": 1118,
+        "format": "html"
+      },
+      {
+        "id": "6e943cfc-b8b9-5d7e-a32f-3769d82e78eb",
+        "file_path": "tables/table-15 In millions of USD 2Q-2022 3Q-2022 4Q-2022 1Q-2023 2Q-2023 3Q-2023 4Q-2023 1Q-2024 2Q-2024.html",
+        "size_bytes": 2034,
+        "format": "html"
+      },
+      {
+        "id": "850121bf-50d7-564c-a67a-1ba6cd8f7258",
+        "file_path": "tables/table-16 In millions of USD 1Q-2023 2Q-2023 3Q-2023 4Q-2023 1Q-2024 2Q-2024 3Q-2024 4Q-2024 1Q-2025.html",
+        "size_bytes": 988,
+        "format": "html"
+      },
+      {
+        "id": "7610ec09-9a49-5628-a9a0-3c852f00278b",
+        "file_path": "tables/table-17 In millions of USD 1Q-2023 2Q-2023 3Q-2023 4Q-2023 1Q-2024 2Q-2024 3Q-2024 4Q-2024 1Q-2025.html",
+        "size_bytes": 1873,
+        "format": "html"
+      }
+    ]
+  }
+}
