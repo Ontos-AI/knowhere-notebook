@@ -16,7 +16,6 @@ import DOMPurify from "dompurify";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { observeElementRectWithFallback } from "@/lib/virtualizer";
 import type { ParsedChunkConnection, ParsedChunkView } from "@/lib/types";
 
 export type ChunksPanelProps = {
@@ -56,7 +55,6 @@ export function ChunksPanel({
     getScrollElement: () => viewportRef.current,
     estimateSize: () => estimatedChunkCardHeight,
     overscan: virtualListOverscan,
-    observeElementRect: observeElementRectWithFallback,
   });
   const virtualItems = chunkVirtualizer.getVirtualItems();
   const totalHeight = chunkVirtualizer.getTotalSize();
@@ -97,12 +95,9 @@ export function ChunksPanel({
         : -1,
     [activeFocusedChunkId, chunks],
   );
-  const isFocusedChunkRendered = useMemo(
-    () =>
-      focusedChunkIndex >= 0 &&
-      virtualItems.some((item) => item.index === focusedChunkIndex),
-    [focusedChunkIndex, virtualItems],
-  );
+  const isFocusedChunkRendered =
+    focusedChunkIndex >= 0 &&
+    virtualItems.some((item) => item.index === focusedChunkIndex);
 
   useEffect(() => {
     const viewport = viewportRef.current;
@@ -131,7 +126,6 @@ export function ChunksPanel({
       }
 
       scrollToChunkIndex(index);
-      scrollRenderedChunkIntoView(viewportRef.current, chunkId);
     },
     [chunks, scrollToChunkIndex],
   );
@@ -162,7 +156,7 @@ export function ChunksPanel({
         block: "center",
       });
     }
-  }, [activeFocusedChunkId, isFocusedChunkRendered]);
+  }, [activeFocusedChunkId, focusedChunkRequestId, isFocusedChunkRendered]);
 
   const headerTitle = focusedChunkId ? "Referenced Chunks" : "Parsed Chunks";
 
@@ -306,22 +300,6 @@ function VirtualChunkRow({
 
 function hasVisibleViewportSize(viewport: HTMLDivElement): boolean {
   return viewport.clientHeight > 0 && viewport.scrollHeight > 0;
-}
-
-function scrollRenderedChunkIntoView(
-  viewport: HTMLDivElement | null,
-  chunkId: string,
-): void {
-  const chunkElements =
-    viewport?.querySelectorAll<HTMLElement>("[data-chunk-id]") ?? [];
-  const chunkElement = Array.from(chunkElements).find(
-    (element) => element.dataset.chunkId === chunkId,
-  );
-
-  chunkElement?.scrollIntoView({
-    behavior: "smooth",
-    block: "center",
-  });
 }
 
 function ChunkCard({

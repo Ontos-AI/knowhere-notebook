@@ -141,7 +141,7 @@ export const loadChunkPageForSource = (
     )
 
     return {
-      chunks: resolveChunkConnectionTargets(chunks),
+      chunks,
       pagination: normalizeChunkPagination(
         response.pagination,
         params,

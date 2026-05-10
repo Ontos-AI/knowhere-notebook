@@ -40,7 +40,6 @@ import type {
   ChatMessageView,
   ChatThreadView,
 } from "@/lib/types";
-import { observeElementRectWithFallback } from "@/lib/virtualizer";
 
 const CHAT_COMPOSER_ID = "chat-composer";
 
@@ -97,7 +96,6 @@ export function ChatPanel({
     getScrollElement: () => viewportRef.current,
     estimateSize: () => estimatedMessageHeight,
     overscan: virtualMessageOverscan,
-    observeElementRect: observeElementRectWithFallback,
   });
   const virtualItems = messageVirtualizer.getVirtualItems();
   const totalHeight = messageVirtualizer.getTotalSize();

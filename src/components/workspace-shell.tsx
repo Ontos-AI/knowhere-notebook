@@ -258,8 +258,12 @@ function WorkspaceShellContent({
       keepPreviousData: false,
     },
   )
-  const pagedSelectedChunks = resolveChunkConnectionTargets(
-    (selectedChunkPages ?? []).flatMap((page) => page.chunks ?? []),
+  const pagedSelectedChunks = useMemo(
+    () =>
+      resolveChunkConnectionTargets(
+        (selectedChunkPages ?? []).flatMap((page) => page.chunks ?? []),
+      ),
+    [selectedChunkPages],
   )
   const selectedChunks = selectedSourceId
     ? (prefetchedSelectedChunks ?? pagedSelectedChunks)

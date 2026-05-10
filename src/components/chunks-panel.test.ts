@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -19,6 +19,7 @@ describe("ChunksPanel", () => {
 
   afterEach(() => {
     cleanup();
+    vi.restoreAllMocks();
   });
 
   it("uses parsed chunk language", () => {
@@ -52,6 +53,8 @@ describe("ChunksPanel", () => {
   });
 
   it("keeps demo table chunks within the responsive chunk column", () => {
+    mockVisibleVirtualViewport();
+
     render(
       React.createElement(C, {
         chunks: [
@@ -79,6 +82,8 @@ describe("ChunksPanel", () => {
   });
 
   it("renders image chunks and scrolls to resolved connection targets", async () => {
+    mockVisibleVirtualViewport();
+
     const user = userEvent.setup();
     const scrollIntoView = vi.fn();
     window.HTMLElement.prototype.scrollIntoView = scrollIntoView;
@@ -128,7 +133,9 @@ describe("ChunksPanel", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "Image 1" }));
-    expect(scrollIntoView).toHaveBeenCalled();
+    await waitFor(() => {
+      expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    });
     expect(
       screen
         .getByRole("button", { name: "Missing" })
@@ -137,6 +144,8 @@ describe("ChunksPanel", () => {
   });
 
   it("formats generated artifact references for display", () => {
+    mockVisibleVirtualViewport();
+
     render(
       React.createElement(C, {
         chunks: [
@@ -193,4 +202,36 @@ describe("ChunksPanel", () => {
 
     expect(onLoadMore).not.toHaveBeenCalled();
   });
+
+  it("does not render virtual chunk rows for a zero-sized hidden viewport", async () => {
+    render(
+      React.createElement(C, {
+        chunks: [
+          {
+            chunkId: "chunk_1",
+            type: "text",
+            content: "Hidden panel chunk.",
+            sourceTitle: "large.pdf",
+          },
+        ],
+      }),
+    );
+
+    await new Promise<void>((resolve) => {
+      window.setTimeout(resolve, 0);
+    });
+
+    expect(screen.queryByTestId("chunk-card-shell-chunk_1")).toBeNull();
+  });
 });
+
+function mockVisibleVirtualViewport(): void {
+  vi.spyOn(window.HTMLElement.prototype, "offsetHeight", "get")
+    .mockImplementation(function getOffsetHeight(this: HTMLElement): number {
+      if (this.hasAttribute("data-radix-scroll-area-viewport")) return 720;
+      if (this.hasAttribute("data-index")) return 220;
+      return 1;
+    });
+  vi.spyOn(window.HTMLElement.prototype, "offsetWidth", "get")
+    .mockImplementation((): number => 720);
+}
