@@ -1,6 +1,5 @@
 import "server-only"
 
-import { del } from "@vercel/blob"
 import { Effect } from "effect"
 import type { Job } from "@ontos-ai/knowhere-sdk"
 
@@ -21,6 +20,8 @@ export type UploadSourceRepository = {
       sizeBytes: number
       stagedBlobPathname?: string | null
       stagedBlobUrl?: string | null
+      originalBlobPathname?: string | null
+      originalBlobUrl?: string | null
     },
   ): Promise<Source>
   markSourceParsing(
@@ -58,7 +59,6 @@ export type UploadKnowhereClient = {
 export type UploadSourceDependencies = {
   repository: UploadSourceRepository
   knowhere: UploadKnowhereClient
-  deleteStagedSourceBlob?: (pathname: string) => Promise<void>
 }
 
 /**
@@ -144,8 +144,8 @@ export const uploadSourceBlobToKnowhereEffect = (
         title: validation.title,
         mimeType: validation.mimeType,
         sizeBytes: input.sizeBytes,
-        stagedBlobPathname: input.pathname,
-        stagedBlobUrl: input.url,
+        originalBlobPathname: input.pathname,
+        originalBlobUrl: input.url,
       }),
     )
 
@@ -167,22 +167,17 @@ export const uploadSourceBlobToKnowhereEffect = (
         ),
       )
     }).pipe(
-      Effect.catchAll((err) =>
+      Effect.catchAll(() =>
         Effect.gen(function* () {
           const message = "Knowhere upload failed."
-          yield* Effect.promise(() =>
+          const failedSource = yield* Effect.promise(() =>
             deps.repository.markSourceFailed(
               workspace.id,
               source.id,
               message,
             ),
           )
-          yield* Effect.promise(() =>
-            (deps.deleteStagedSourceBlob ?? del)(input.pathname).catch(
-              () => undefined,
-            ),
-          )
-          return yield* Effect.die(new Error(message, { cause: err }))
+          return failedSource
         }),
       ),
     )

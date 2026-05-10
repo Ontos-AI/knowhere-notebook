@@ -17,6 +17,14 @@ import {
   WorkspaceShell,
 } from "./workspace-shell";
 
+const mocks = vi.hoisted(() => ({
+  uploadBlob: vi.fn(),
+}));
+
+vi.mock("@vercel/blob/client", () => ({
+  upload: mocks.uploadBlob,
+}));
+
 const C = WorkspaceShell as React.FC<Record<string, unknown>>;
 
 describe("WorkspaceShell", () => {
@@ -32,6 +40,7 @@ describe("WorkspaceShell", () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+    vi.clearAllMocks();
     vi.restoreAllMocks();
   });
 
@@ -566,6 +575,8 @@ describe("WorkspaceShell", () => {
   });
 
   it("revalidates sources from the API after upload instead of only trusting the upload response", async () => {
+    mocks.uploadBlob.mockResolvedValue(makeUploadedBlob());
+    vi.stubGlobal("crypto", { randomUUID: () => "upload_1" });
     const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
       const path = getRequestPath(input);
 
@@ -576,7 +587,12 @@ describe("WorkspaceShell", () => {
               id: "source_1",
               title: "upload-response.pdf",
               status: "parsing",
+              mimeType: "application/pdf",
               chunkCount: 0,
+              originalFile: {
+                url: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
+                mimeType: "application/pdf",
+              },
             },
           },
           { status: 201 },
@@ -591,7 +607,12 @@ describe("WorkspaceShell", () => {
               title: "server-normalized.pdf",
               status: "ready",
               documentId: "doc_1",
+              mimeType: "application/pdf",
               chunkCount: 4,
+              originalFile: {
+                url: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
+                mimeType: "application/pdf",
+              },
             },
           ],
         });
@@ -766,6 +787,25 @@ function countFetchesWithSearch(
     const url = getRequestURL(input);
     return url.pathname === path && url.search === search;
   }).length;
+}
+
+function makeUploadedBlob(): {
+  readonly url: string;
+  readonly downloadUrl: string;
+  readonly pathname: string;
+  readonly contentType: string;
+  readonly contentDisposition: string;
+  readonly etag: string;
+} {
+  return {
+    url: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
+    downloadUrl:
+      "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf?download=1",
+    pathname: "source-uploads/upload_1/document.pdf",
+    contentType: "application/pdf",
+    contentDisposition: 'attachment; filename="document.pdf"',
+    etag: "etag_1",
+  };
 }
 
 function mockVisibleVirtualViewport(): void {

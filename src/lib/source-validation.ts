@@ -1,13 +1,17 @@
 export const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 
 const SUPPORTED_EXTENSIONS = new Set([
-  "pdf",
   "doc",
   "docx",
-  "txt",
-  "md",
-  "ppt",
+  "pdf",
+  "xls",
+  "xlsx",
   "pptx",
+  "jpg",
+  "jpeg",
+  "png",
+  "md",
+  "txt",
 ]);
 
 export type UploadFileInfo = {
@@ -41,7 +45,7 @@ export function validateUploadFile(file: UploadFileInfo): UploadValidationResult
     return {
       ok: false,
       message:
-        "Unsupported file type. Upload a PDF, Word, PowerPoint, text, or Markdown document.",
+        "Unsupported file type. Upload a PDF, Word, PowerPoint, spreadsheet, image, text, or Markdown document.",
     };
   }
 
@@ -67,14 +71,21 @@ function inferMimeType(extension: string): string {
       return "application/msword";
     case "docx":
       return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    case "xls":
+      return "application/vnd.ms-excel";
+    case "xlsx":
+      return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
     case "txt":
       return "text/plain";
     case "md":
       return "text/markdown";
-    case "ppt":
-      return "application/vnd.ms-powerpoint";
     case "pptx":
       return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+    case "jpg":
+    case "jpeg":
+      return "image/jpeg";
+    case "png":
+      return "image/png";
     default:
       return "application/octet-stream";
   }

@@ -6,7 +6,6 @@ import {
 
 export const SOURCE_UPLOAD_BLOB_HANDLE_PATH = "/api/source-uploads/blob";
 export const SOURCE_UPLOAD_BLOB_PREFIX = "source-uploads";
-export const SERVER_UPLOAD_BODY_LIMIT_BYTES = 4 * 1024 * 1024;
 
 export type SourceBlobUploadInput = {
   readonly pathname: string;
@@ -20,10 +19,6 @@ export type SourceBlobUploadMetadata = Omit<
   SourceBlobUploadInput,
   "pathname" | "url"
 >;
-
-export function shouldStageUploadInBlob(file: File): boolean {
-  return file.size > SERVER_UPLOAD_BODY_LIMIT_BYTES;
-}
 
 export function getSourceUploadBlobPathname(file: File): string {
   const validation = validateUploadFile(file);

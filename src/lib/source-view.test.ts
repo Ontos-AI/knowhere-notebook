@@ -16,6 +16,8 @@ function makeSource(overrides: Partial<Source>): Source {
     knowhereDocumentId: "doc_1",
     stagedBlobPathname: null,
     stagedBlobUrl: null,
+    originalBlobPathname: null,
+    originalBlobUrl: null,
     createdAt: new Date("2026-05-06T00:00:00Z"),
     updatedAt: new Date("2026-05-06T00:00:00Z"),
     deletedAt: null,
@@ -25,12 +27,27 @@ function makeSource(overrides: Partial<Source>): Source {
 
 describe("toSourceView", () => {
   it("maps database source metadata to the sidebar view shape", () => {
-    expect(toSourceView(makeSource({}), { chunkCount: 7 })).toEqual({
+    expect(
+      toSourceView(
+        makeSource({
+          originalBlobPathname: "source-uploads/upload_1/document.pdf",
+          originalBlobUrl:
+            "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
+        }),
+        { chunkCount: 7 },
+      ),
+    ).toEqual({
       id: "source_1",
       title: "notes.pdf",
+      mimeType: "application/pdf",
       status: "ready",
       documentId: "doc_1",
       chunkCount: 7,
+      originalFile: {
+        url: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 1,
+      },
     });
   });
 
@@ -46,6 +63,7 @@ describe("toSourceView", () => {
     ).toEqual({
       id: "source_1",
       title: "notes.pdf",
+      mimeType: "application/pdf",
       status: "parsing",
       documentId: undefined,
     });

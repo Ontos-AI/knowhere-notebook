@@ -1,10 +1,11 @@
 import { NextRequest } from "next/server";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
   const archive = vi.fn();
   return {
     archive,
+    deleteBlob: vi.fn(),
     ensureApiKeyForWorkspace: vi.fn(),
     ensureWorkspace: vi.fn(),
     findSourceInWorkspace: vi.fn(),
@@ -16,6 +17,10 @@ const mocks = vi.hoisted(() => {
 
 vi.mock("next/headers", () => ({
   headers: vi.fn(async () => new Headers({ cookie: "session=abc" })),
+}));
+
+vi.mock("@vercel/blob", () => ({
+  del: mocks.deleteBlob,
 }));
 
 vi.mock("@/lib/api-key-service", () => ({
@@ -39,12 +44,17 @@ vi.mock("@/lib/workspace", () => ({
 import { PATCH } from "./route";
 
 describe("PATCH /api/sources/[sourceId]", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("archives the Knowhere document before soft deleting the source", async () => {
     mocks.requireUser.mockResolvedValue({ id: "user_1" });
     mocks.ensureWorkspace.mockResolvedValue({ id: "workspace_1" });
     mocks.findSourceInWorkspace.mockResolvedValue({
       id: "source_1",
       knowhereDocumentId: "doc_123",
+      originalBlobPathname: "source-uploads/upload_1/document.pdf",
     });
     mocks.ensureApiKeyForWorkspace.mockResolvedValue("jwt_123");
     mocks.makeKnowhereClient.mockReturnValue({
@@ -74,6 +84,42 @@ describe("PATCH /api/sources/[sourceId]", () => {
     expect(mocks.softDeleteSource).toHaveBeenCalledWith(
       "workspace_1",
       "source_1",
+    );
+    expect(mocks.deleteBlob).toHaveBeenCalledWith(
+      "source-uploads/upload_1/document.pdf",
+    );
+  });
+
+  it("does not fail an already-soft-deleted source when original Blob cleanup fails", async () => {
+    mocks.requireUser.mockResolvedValue({ id: "user_1" });
+    mocks.ensureWorkspace.mockResolvedValue({ id: "workspace_1" });
+    mocks.findSourceInWorkspace.mockResolvedValue({
+      id: "source_1",
+      knowhereDocumentId: null,
+      originalBlobPathname: "source-uploads/upload_1/document.pdf",
+    });
+    mocks.softDeleteSource.mockResolvedValue(true);
+    mocks.deleteBlob.mockRejectedValue(new Error("blob outage"));
+
+    const response = await PATCH(
+      new NextRequest("http://localhost:3001/api/sources/source_1", {
+        method: "PATCH",
+        body: JSON.stringify({ archived: true }),
+      }),
+      { params: Promise.resolve({ sourceId: "source_1" }) },
+    );
+
+    await expect(response.json()).resolves.toEqual({
+      id: "source_1",
+      archived: true,
+    });
+    expect(response.status).toBe(200);
+    expect(mocks.softDeleteSource).toHaveBeenCalledWith(
+      "workspace_1",
+      "source_1",
+    );
+    expect(mocks.deleteBlob).toHaveBeenCalledWith(
+      "source-uploads/upload_1/document.pdf",
     );
   });
 });
