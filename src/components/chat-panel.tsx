@@ -166,10 +166,15 @@ function MessageBubble({
                   key={`${cite.source.documentId ?? ""}-${i}`}
                   variant="outline"
                   onClick={() => onCitationClick?.(cite)}
-                  className="cursor-pointer rounded border-border bg-muted px-2 py-0 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted/70"
+                  className="group cursor-pointer rounded border-border bg-muted px-2 py-0 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted/70"
+                  title={
+                    cite.description ??
+                    `${cite.source.sourceFileName ?? "Source"}${cite.source.sectionPath ? ` · ${cite.source.sectionPath}` : ""}`
+                  }
                 >
-                  {cite.source.sourceFileName ?? "Section"}
-                  {cite.source.sectionPath ? ` · ${cite.source.sectionPath}` : ""}
+                  {cite.description ??
+                    cite.source.sourceFileName ??
+                    "Source"}
                 </Badge>
               ))}
             </div>

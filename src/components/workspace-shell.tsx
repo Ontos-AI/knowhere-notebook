@@ -7,6 +7,7 @@ import { ChunksPanel } from "@/components/chunks-panel";
 import { ChatPanel } from "@/components/chat-panel";
 import { MobileTabBar } from "@/components/mobile-tab-bar";
 import { resolveCitationChunk } from "@/lib/chunks";
+import { useHashFragment } from "@/lib/use-hash-fragment";
 import type {
   ChatCitationView,
   ChatMessageView,
@@ -84,7 +85,7 @@ export function WorkspaceShell({
   const initialSrcs = isGuest ? guestSources : (initialSources ?? []);
 
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
-  const [focusedChunkId, setFocusedChunkId] = useState<string | null>(null);
+  const [focusedChunkId, navigateToChunk] = useHashFragment();
   const [sources, setSources] = useState(initialSrcs);
   const [mobilePanel, setMobilePanel] = useState<PanelId>("chat");
   const [chat, setChat] = useState<ChatState>({
@@ -213,7 +214,7 @@ export function WorkspaceShell({
 
   function handleSourceSelected(sourceId: string | null) {
     setSelectedSourceId(sourceId);
-    setFocusedChunkId(null);
+    navigateToChunk(null);
     setChunkLoad({ sourceId: null, chunks: [], isLoading: false });
 
     if (!sourceId) return;
@@ -304,13 +305,13 @@ export function WorkspaceShell({
     if (!source) return;
 
     setSelectedSourceId(source.id);
-    setFocusedChunkId(null);
+    navigateToChunk(null);
     setChunkLoad({ sourceId: source.id, chunks: [], isLoading: true });
 
     const chunks = await fetchChunks(source.id);
     const focusedChunk = resolveCitationChunk(citation, chunks);
     setChunkLoad({ sourceId: source.id, chunks, isLoading: false });
-    setFocusedChunkId(focusedChunk?.chunkId ?? null);
+    navigateToChunk(focusedChunk?.chunkId ?? null);
   }
 
   const readySourceCount = sources.filter(
@@ -335,7 +336,7 @@ export function WorkspaceShell({
           onSelectSource={(id) => {
             if (isGuest) {
               setSelectedSourceId(id);
-              setFocusedChunkId(null);
+              navigateToChunk(null);
               setChunkLoad({
                 sourceId: id,
                 chunks: id ? guestChunks : [],
@@ -358,7 +359,7 @@ export function WorkspaceShell({
             isLoading={chunkLoad.isLoading}
             onClose={() => {
               setSelectedSourceId(null);
-              setFocusedChunkId(null);
+              navigateToChunk(null);
               setChunkLoad({ sourceId: null, chunks: [], isLoading: false });
             }}
           />
@@ -414,7 +415,7 @@ export function WorkspaceShell({
           isLoading={chunkLoad.isLoading}
           onClose={() => {
             setSelectedSourceId(null);
-            setFocusedChunkId(null);
+            navigateToChunk(null);
             setChunkLoad({ sourceId: null, chunks: [], isLoading: false });
             setMobilePanel("sources");
           }}

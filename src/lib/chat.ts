@@ -81,25 +81,29 @@ export function buildGroundedPrompt(input: {
 }): string {
   const sources = input.results
     .map((result, index) => {
-      const sourceName = result.source.sourceFileName ?? "Unknown source";
+      const sourceName = result.source.sourceFileName ?? "Untitled";
       const section = result.source.sectionPath
-        ? ` (${result.source.sectionPath})`
+        ? ` · ${result.source.sectionPath}`
         : "";
-      return [
-        `[${index + 1}] ${sourceName}${section}`,
-        result.content,
-      ].join("\n");
+      const label = `[${index + 1}] ${sourceName}${section}`;
+      return `${label}\n${result.content}`;
     })
     .join("\n\n");
 
   return [
-    "Answer the user's question using only the source excerpts below.",
-    "If the sources do not answer the question, say you could not find it in the sources.",
-    "Keep the answer concise and cite the relevant source names naturally.",
+    "You are an assistant that answers questions from provided source excerpts.",
+    "Your answer must be grounded only in the sources below.",
+    "If the sources do not answer the question, say so directly.",
+    "",
+    "CITATION FORMAT:",
+    "After each statement that draws from a source, include a short citation label",
+    "in brackets with the source number and a brief note on what the source says.",
+    "Example: \"The SA node is the heart's primary pacemaker [Source 1: cardiac anatomy overview].\"",
+    "Use only the source numbers provided — do not invent source names.",
     "",
     `Question: ${input.question}`,
     "",
-    "Source excerpts:",
+    "Sources:",
     sources,
   ].join("\n");
 }
