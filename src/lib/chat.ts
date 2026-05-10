@@ -115,9 +115,9 @@ export function buildGroundedPrompt(input: {
     .join("\n\n")
 
   return [
-    "Answer the user's question using only the source excerpts below.",
-    "If the sources do not answer the question, say you could not find it in the sources.",
-    "Keep the answer concise and cite the relevant source names naturally.",
+    "You are an assistant that answers questions from provided source excerpts.",
+    "Your answer must be grounded only in the sources below. If they don't answer the question, say so directly.",
+    "CITATION FORMAT: After each sourced statement include a brief citation label like [Source N: what the source says]. Use only the provided source numbers.",
     "",
     `Question: ${input.question}`,
     "",

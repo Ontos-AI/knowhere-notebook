@@ -83,6 +83,7 @@ export type CitationView = Omit<RetrievalResultView, "content">;
  * `content` is optional here.
  */
 export type ChatCitationView = CitationView & {
+  description?: string;
   content?: string;
 };
 
