@@ -8,8 +8,20 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import type { ParsedChunkView } from "@/lib/types";
 
-const ESTIMATED_CHUNK_HEIGHT_PX = 220;
 const OVERSCAN_COUNT = 3;
+const BASE_PADDING_PX = 120;         // card chrome (header, badges, padding)
+const LINE_HEIGHT_PX = 22;
+const CHARS_PER_LINE = 90;           // approximate at max-w-4xl + px-5
+const IMAGE_ESTIMATE_PX = 280;
+const TABLE_ESTIMATE_PX = 320;
+
+/** Per-chunk height estimate so scrollToIndex is accurate for any content size. */
+function estimateChunkHeight(chunk: ParsedChunkView): number {
+  if (chunk.type === "image") return IMAGE_ESTIMATE_PX;
+  if (chunk.type === "table") return TABLE_ESTIMATE_PX;
+  const contentLines = Math.ceil(chunk.content.length / CHARS_PER_LINE) || 1;
+  return BASE_PADDING_PX + contentLines * LINE_HEIGHT_PX;
+}
 
 export type ChunksPanelProps = {
   chunks: ParsedChunkView[];
@@ -96,7 +108,10 @@ function VirtualChunkList({
   const virtualizer = useVirtualizer({
     count: chunks.length,
     getScrollElement: () => containerRef.current,
-    estimateSize: useCallback(() => ESTIMATED_CHUNK_HEIGHT_PX, []),
+    estimateSize: useCallback(
+      (index: number) => estimateChunkHeight(chunks[index]!),
+      [chunks],
+    ),
     overscan: OVERSCAN_COUNT,
   });
 
