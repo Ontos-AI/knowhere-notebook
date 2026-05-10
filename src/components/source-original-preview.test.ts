@@ -8,6 +8,7 @@ import { SourceOriginalPreview } from "./source-original-preview";
 const pdfPageRenderLog: number[] = [];
 const pdfPageWidthLog: number[] = [];
 const pdfPageDevicePixelRatioLog: Array<number | undefined> = [];
+const docxRenderOptionsLog: unknown[] = [];
 let pdfDocumentPageCount = 35;
 let pdfVisiblePageNumbers: ReadonlySet<number> = new Set([1, 2]);
 let shouldDelayPdfChildrenUntilLoad = false;
@@ -100,7 +101,17 @@ vi.mock("react-pdf", () => ({
 }));
 
 vi.mock("docx-preview", () => ({
-  renderAsync: vi.fn(() => Promise.resolve()),
+  renderAsync: vi.fn(
+    (
+      _data: ArrayBuffer,
+      _container: HTMLElement,
+      _styleContainer: HTMLElement | undefined,
+      options: unknown,
+    ) => {
+      docxRenderOptionsLog.push(options);
+      return Promise.resolve();
+    },
+  ),
 }));
 
 describe("SourceOriginalPreview", () => {
@@ -108,6 +119,7 @@ describe("SourceOriginalPreview", () => {
     pdfPageRenderLog.length = 0;
     pdfPageWidthLog.length = 0;
     pdfPageDevicePixelRatioLog.length = 0;
+    docxRenderOptionsLog.length = 0;
     pdfDocumentPageCount = 35;
     pdfVisiblePageNumbers = new Set([1, 2]);
     shouldDelayPdfChildrenUntilLoad = false;
@@ -297,6 +309,54 @@ describe("SourceOriginalPreview", () => {
     expect(pdfPageDevicePixelRatioLog).toContain(2);
   });
 
+  it("uses more of wide preview panels instead of capping PDF pages at 1100px", async () => {
+    pdfContainerClientWidth = 1800;
+    pdfVisiblePageNumbers = new Set([1]);
+
+    render(
+      React.createElement(SourceOriginalPreview, {
+        sourceTitle: "wide-table-report.pdf",
+        file: {
+          url: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/wide-table-report.pdf",
+          mimeType: "application/pdf",
+        },
+      }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("pdf-page-1")).toBeTruthy();
+    });
+
+    await waitFor(() => {
+      expect(pdfPageWidthLog).toContain(1600);
+    });
+    expect(pdfPageWidthLog).not.toContain(1100);
+  });
+
+  it("shrinks PDF pages to narrow preview panels without a fixed minimum width", async () => {
+    pdfContainerClientWidth = 240;
+    pdfVisiblePageNumbers = new Set([1]);
+
+    render(
+      React.createElement(SourceOriginalPreview, {
+        sourceTitle: "narrow-report.pdf",
+        file: {
+          url: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/narrow-report.pdf",
+          mimeType: "application/pdf",
+        },
+      }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("pdf-page-1")).toBeTruthy();
+    });
+
+    await waitFor(() => {
+      expect(pdfPageWidthLog).toContain(208);
+    });
+    expect(pdfPageWidthLog).not.toContain(280);
+  });
+
   it("uses PDF page dimensions for offscreen placeholders before rendering", async () => {
     pdfDocumentPageCount = 2;
     pdfVisiblePageNumbers = new Set([1]);
@@ -480,5 +540,33 @@ describe("SourceOriginalPreview", () => {
     unmount();
 
     expect(fetchSignals[0]?.aborted).toBe(true);
+  });
+
+  it("renders DOCX previews without the library fixed page width", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(new Uint8Array([1, 2, 3]).buffer, { status: 200 }),
+        ),
+      ),
+    );
+
+    render(
+      React.createElement(SourceOriginalPreview, {
+        sourceTitle: "report.docx",
+        file: {
+          url: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/report.docx",
+          mimeType:
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        },
+      }),
+    );
+
+    await waitFor(() => {
+      expect(docxRenderOptionsLog).toHaveLength(1);
+    });
+
+    expect(docxRenderOptionsLog[0]).toMatchObject({ ignoreWidth: true });
   });
 });
