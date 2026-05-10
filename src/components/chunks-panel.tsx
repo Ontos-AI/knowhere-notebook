@@ -4,23 +4,34 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import { ImageIcon, Layers, Table2 } from "lucide-react";
 import DOMPurify from "dompurify";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { prepare, layout } from "@chenglou/pretext";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import type { ParsedChunkView } from "@/lib/types";
 
-const OVERSCAN_COUNT = 1; // mobile-friendly: small viewport needs few extras
-const BASE_PADDING_PX = 120;         // card chrome (header, badges, padding)
+const OVERSCAN_COUNT = 1;
+const CARD_CHROME_HEIGHT_PX = 120;
+const FONT_SIZE = "14px";
+const FONT_FAMILY = "Geist, Inter, sans-serif";
+const FONT_CSS = `400 ${FONT_SIZE} ${FONT_FAMILY}`;
 const LINE_HEIGHT_PX = 22;
-const CHARS_PER_LINE = 90;           // approximate at max-w-4xl + px-5
-const IMAGE_ESTIMATE_PX = 280;
-const TABLE_ESTIMATE_PX = 320;
+const CHARS_PER_LINE = 90; // fallback when Canvas is unavailable
 
-/** Per-chunk height estimate so scrollToIndex is accurate for any content size. */
-function estimateChunkHeight(chunk: ParsedChunkView): number {
-  if (chunk.type === "image") return IMAGE_ESTIMATE_PX;
-  if (chunk.type === "table") return TABLE_ESTIMATE_PX;
-  const contentLines = Math.ceil(chunk.content.length / CHARS_PER_LINE) || 1;
-  return BASE_PADDING_PX + contentLines * LINE_HEIGHT_PX;
+const IMAGE_CHUNK_HEIGHT_PX = 280;
+const TABLE_CHUNK_HEIGHT_PX = 320;
+const FALLBACK_ESTIMATE_PX = 280;
+
+let _canvasAvailable: boolean | null = null;
+function isCanvasAvailable(): boolean {
+  if (_canvasAvailable !== null) return _canvasAvailable;
+  try {
+    const c = document.createElement("canvas");
+    const ctx = c.getContext("2d");
+    _canvasAvailable = ctx !== null;
+  } catch {
+    _canvasAvailable = false;
+  }
+  return _canvasAvailable;
 }
 
 export type ChunksPanelProps = {
@@ -84,11 +95,12 @@ export function ChunksPanel({
 }
 
 /**
- * Renders only the chunks visible in the viewport plus a small overscan
- * buffer. For 100+ chunk documents this keeps the DOM light and the scroll
- * frame rate high.  The virtualizer provides `scrollToIndex` for hash-based
- * navigation to off-screen chunks — no DOM node needs to be mounted for the
- * container to scroll to the right position.
+ * Renders only the chunks visible in the viewport using virtualization.
+ *
+ * Pretext (Canvas measureText) computes exact pixel heights for every chunk
+ * before DOM rendering.  This gives the virtualizer perfect estimates so
+ * scrollToIndex lands on the right position even for distant unrendered
+ * chunks — no guessing, no reflow loops.
  */
 function VirtualChunkList({
   chunks,
@@ -104,13 +116,41 @@ function VirtualChunkList({
   }>;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const containerWidthRef = useRef(640); // approximate max-w-4xl minus padding
+
+  // Pretext (Canvas measureText) for exact heights when Canvas is
+  // available; content-length fallback for jsdom/test environments.
+  const canvasOk = isCanvasAvailable();
+  const chunkHeights = useMemo(() => {
+    return chunks.map((chunk) => {
+      if (chunk.type === "image") return IMAGE_CHUNK_HEIGHT_PX;
+      if (chunk.type === "table") return TABLE_CHUNK_HEIGHT_PX;
+      if (!canvasOk) {
+        return (
+          CARD_CHROME_HEIGHT_PX +
+          Math.ceil(chunk.content.length / CHARS_PER_LINE) * LINE_HEIGHT_PX
+        );
+      }
+      try {
+        const prepared = prepare(chunk.content, FONT_CSS);
+        const { height } = layout(
+          prepared,
+          containerWidthRef.current,
+          LINE_HEIGHT_PX,
+        );
+        return CARD_CHROME_HEIGHT_PX + Math.max(height, LINE_HEIGHT_PX);
+      } catch {
+        return FALLBACK_ESTIMATE_PX;
+      }
+    });
+  }, [chunks, canvasOk]);
 
   const virtualizer = useVirtualizer({
     count: chunks.length,
     getScrollElement: () => containerRef.current,
     estimateSize: useCallback(
-      (index: number) => estimateChunkHeight(chunks[index]!),
-      [chunks],
+      (index: number) => chunkHeights[index] ?? IMAGE_CHUNK_HEIGHT_PX,
+      [chunkHeights],
     ),
     overscan: OVERSCAN_COUNT,
   });
@@ -137,8 +177,6 @@ function VirtualChunkList({
           return (
             <div
               key={virtualItem.key}
-              data-index={virtualItem.index}
-              ref={virtualizer.measureElement}
               className="absolute left-6 right-6"
               style={{
                 top: 0,
