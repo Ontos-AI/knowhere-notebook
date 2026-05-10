@@ -5,6 +5,7 @@ import { ensureApiKeyForWorkspace } from "@/lib/api-key-service"
 import { authURLs } from "@/lib/auth-urls"
 import { getCurrentUser } from "@/lib/auth"
 import { toChatMessageView, toChatThreadView } from "@/lib/chat-view"
+import { DEMO_CHAT_MESSAGES } from "@/lib/demo-chat"
 import { demoData } from "@/lib/demo-data"
 import { makeKnowhereClient } from "@/lib/knowhere"
 import { sourceViewOptionsBySourceId } from "@/lib/source-counts"
@@ -47,6 +48,7 @@ export default async function Home() {
       <WorkspaceShell
         isGuest
         sources={demoData.listSources()}
+        chatMessages={[...DEMO_CHAT_MESSAGES]}
         loginUrl={loginUrl}
       />
     )
