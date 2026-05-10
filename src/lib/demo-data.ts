@@ -14,6 +14,8 @@ type DemoSourceDefinition = {
   readonly id: string;
   readonly documentId: string;
   readonly title: string;
+  readonly mimeType: string;
+  readonly originalFilePath: string;
   readonly assetDirectory: string;
   readonly chunkCount: number;
 };
@@ -31,6 +33,8 @@ const demoSourceDefinitions: readonly DemoSourceDefinition[] = [
     id: "demo-tsla-q4-2025",
     documentId: "demo-doc-tsla-q4-2025",
     title: "TSLA-Q4-2025-Update.pdf",
+    mimeType: "application/pdf",
+    originalFilePath: "original.pdf",
     assetDirectory: "tsla-q4-2025",
     chunkCount: 71,
   },
@@ -38,6 +42,8 @@ const demoSourceDefinitions: readonly DemoSourceDefinition[] = [
     id: "demo-epstein-flight-logs",
     documentId: "demo-doc-epstein-flight-logs",
     title: "EPSTEIN FLIGHT LOGS UNREDACTED.pdf",
+    mimeType: "application/pdf",
+    originalFilePath: "original.pdf",
     assetDirectory: "epstein-flight-logs",
     chunkCount: 117,
   },
@@ -53,9 +59,15 @@ function listSources(): SourceView[] {
   return demoSourceDefinitions.map((source) => ({
     id: source.id,
     title: source.title,
+    mimeType: source.mimeType,
     status: "ready",
     documentId: source.documentId,
     chunkCount: source.chunkCount,
+    originalFile: {
+      url: buildDemoAssetURL(source.assetDirectory, source.originalFilePath),
+      mimeType: source.mimeType,
+      canDownload: false,
+    },
   }));
 }
 

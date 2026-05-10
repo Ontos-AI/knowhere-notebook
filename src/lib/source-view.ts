@@ -14,13 +14,31 @@ export function toSourceView(
   source: Source,
   options: { chunkCount?: number } = {},
 ): SourceView {
-  return {
+  const originalFile = source.originalBlobUrl
+    ? {
+        url: source.originalBlobUrl,
+        mimeType: source.mimeType,
+        sizeBytes: source.sizeBytes,
+      }
+    : undefined
+
+  const view: SourceView = {
     id: source.id,
     title: source.title,
+    mimeType: source.mimeType,
     status: toSourceStatus(source.status),
     documentId: source.knowhereDocumentId ?? undefined,
-    chunkCount: options.chunkCount,
   };
+
+  if (originalFile) {
+    view.originalFile = originalFile;
+  }
+
+  if (options.chunkCount !== undefined) {
+    view.chunkCount = options.chunkCount;
+  }
+
+  return view;
 }
 
 function toSourceStatus(status: string): SourceView["status"] {

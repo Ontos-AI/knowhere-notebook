@@ -242,7 +242,7 @@ function UploadDialog({
           <DialogTitle>Add source</DialogTitle>
           <DialogDescription>
             Add a document to your notebook. Notebook accepts PDF, DOC, DOCX,
-            TXT, MD, PPT, PPTX, and more files up to 100 MB.
+            TXT, MD, XLS, XLSX, PPTX, images, and more files up to 100 MB.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
@@ -287,7 +287,7 @@ function UploadDialog({
                 name="file"
                 type="file"
                 className="hidden"
-                accept=".pdf,.doc,.docx,.txt,.md,.ppt,.pptx"
+                accept=".pdf,.doc,.docx,.txt,.md,.xls,.xlsx,.pptx,.jpg,.jpeg,.png"
                 disabled={isUploading}
                 onChange={(e) => {
                   setSelectedFileName(e.target.files?.[0]?.name ?? null);
@@ -454,6 +454,13 @@ function fileIconTint(title: string): { bg: string; fg: string } {
       return { bg: "bg-purple-100", fg: "text-primary" };
     case "md":
       return { bg: "bg-emerald-100", fg: "text-emerald-600" };
+    case "xls":
+    case "xlsx":
+      return { bg: "bg-green-100", fg: "text-green-700" };
+    case "jpg":
+    case "jpeg":
+    case "png":
+      return { bg: "bg-sky-100", fg: "text-sky-600" };
     case "ppt":
     case "pptx":
       return { bg: "bg-orange-100", fg: "text-orange-600" };

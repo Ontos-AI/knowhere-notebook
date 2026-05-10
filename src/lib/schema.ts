@@ -15,9 +15,9 @@ import {
  * Persistence rule (per @suguan + the technical plan):
  *   - Postgres stores only metadata, status, Knowhere IDs, and chat
  *     threads/messages.
- *   - It does NOT store file blobs or chunk copies. File blobs get
- *     streamed straight to Knowhere via a temp file and discarded.
- *     Chunks are fetched on demand from Knowhere's chunks API.
+ *   - It does NOT store file bytes or chunk copies in Postgres. Original
+ *     uploads and parsed media artifacts live in Blob storage; chunks are
+ *     fetched on demand from Knowhere's chunks API.
  *
  * Soft delete (per @Pi's PR-B review criteria):
  *   - Every user-visible resource has a nullable `deleted_at` timestamp.
@@ -69,8 +69,10 @@ export type NewWorkspace = typeof workspaces.$inferInsert;
  *   - `knowhere_document_id` — set when parsing completes; the sole handle
  *                              used to fetch chunks and to exclude a source
  *                              from a retrieval query
- *   - `staged_blob_*` — temporary public Blob staging pointer for large
- *                       client uploads; cleared after Knowhere parsing
+ *   - `original_blob_*` — public Blob pointer for the original upload preview
+ *                         and download path
+ *   - `staged_blob_*`   — legacy temporary Blob staging pointer retained for
+ *                         older rows during the PR #28 transition
  *   - `deleted_at`   — soft delete timestamp; reads filter it out
  *
  * Indexes:
@@ -94,6 +96,8 @@ export const sources = pgTable(
     knowhereDocumentId: text("knowhere_document_id"),
     stagedBlobPathname: text("staged_blob_pathname"),
     stagedBlobUrl: text("staged_blob_url"),
+    originalBlobPathname: text("original_blob_pathname"),
+    originalBlobUrl: text("original_blob_url"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

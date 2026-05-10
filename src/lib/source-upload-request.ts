@@ -9,7 +9,6 @@ import { Effect } from "effect";
 import {
   createSourceBlobUploadInput,
   getSourceUploadBlobPathname,
-  shouldStageUploadInBlob,
   SOURCE_UPLOAD_BLOB_HANDLE_PATH,
 } from "./source-blob-upload";
 import { validateUploadFile } from "./source-validation";
@@ -28,13 +27,7 @@ type SourceUploadResponse = {
 export async function postSourceUpload(
   file: File,
 ): Promise<SourceUploadResponse> {
-  if (shouldStageUploadInBlob(file)) {
-    return postBlobBackedSourceUpload(file);
-  }
-
-  return Effect.runPromise(
-    postSourceUploadEffect(file).pipe(Effect.provide(FetchHttpClient.layer)),
-  );
+  return postBlobBackedSourceUpload(file);
 }
 
 async function postBlobBackedSourceUpload(
@@ -84,26 +77,6 @@ async function postBlobBackedSourceUpload(
     throw error;
   }
 }
-
-const postSourceUploadEffect = Effect.fn("postSourceUpload")(
-  function* (file: File) {
-    const formData: FormData = new FormData();
-    formData.set("file", file);
-
-    const response = yield* HttpClientRequest.post(
-      resolveSameOriginUrl("/api/sources"),
-    ).pipe(
-      HttpClientRequest.bodyFormData(formData),
-      HttpClient.execute,
-    );
-    const body: unknown = yield* response.json;
-
-    return {
-      status: response.status,
-      body: parseSourceUploadResponseBody(body),
-    };
-  },
-);
 
 const postSourceBlobUploadEffect = Effect.fn("postSourceBlobUpload")(
   function* (input: {

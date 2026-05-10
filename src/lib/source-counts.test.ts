@@ -18,6 +18,8 @@ function makeSource(overrides: Partial<Source>): Source {
     knowhereDocumentId: "doc_1",
     stagedBlobPathname: null,
     stagedBlobUrl: null,
+    originalBlobPathname: null,
+    originalBlobUrl: null,
     createdAt: new Date("2026-05-06T00:00:00Z"),
     updatedAt: new Date("2026-05-06T00:00:00Z"),
     deletedAt: null,

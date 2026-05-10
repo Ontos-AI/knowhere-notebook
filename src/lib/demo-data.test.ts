@@ -20,16 +20,28 @@ describe("demoData", () => {
       {
         id: "demo-tsla-q4-2025",
         title: "TSLA-Q4-2025-Update.pdf",
+        mimeType: "application/pdf",
         status: "ready",
         documentId: "demo-doc-tsla-q4-2025",
         chunkCount: 71,
+        originalFile: {
+          url: "/demo-sources/tsla-q4-2025/original.pdf",
+          mimeType: "application/pdf",
+          canDownload: false,
+        },
       },
       {
         id: "demo-epstein-flight-logs",
         title: "EPSTEIN FLIGHT LOGS UNREDACTED.pdf",
+        mimeType: "application/pdf",
         status: "ready",
         documentId: "demo-doc-epstein-flight-logs",
         chunkCount: 117,
+        originalFile: {
+          url: "/demo-sources/epstein-flight-logs/original.pdf",
+          mimeType: "application/pdf",
+          canDownload: false,
+        },
       },
     ]);
   });

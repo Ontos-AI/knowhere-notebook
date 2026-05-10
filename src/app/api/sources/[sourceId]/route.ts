@@ -1,6 +1,7 @@
 import { headers } from "next/headers"
 import { NextResponse, type NextRequest } from "next/server";
 import { Schema } from "effect";
+import { del } from "@vercel/blob"
 
 import { ensureApiKeyForWorkspace } from "@/lib/api-key-service";
 import { requireUser } from "@/lib/auth";
@@ -58,6 +59,13 @@ export async function PATCH(
   }
 
   await softDeleteSource(workspace.id, sourceId);
+  if (source.originalBlobPathname) {
+    try {
+      await del(source.originalBlobPathname)
+    } catch {
+      // Source archival already succeeded; Blob cleanup is best-effort.
+    }
+  }
 
   return NextResponse.json({ id: sourceId, archived: true });
 }
