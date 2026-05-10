@@ -476,6 +476,8 @@ function makeSource(overrides: Partial<Source> = {}): Source {
     failureReason: null,
     knowhereJobId: "job_123",
     knowhereDocumentId: "doc_123",
+    stagedBlobPathname: null,
+    stagedBlobUrl: null,
     createdAt: new Date("2026-05-06T00:00:00Z"),
     updatedAt: new Date("2026-05-06T00:00:00Z"),
     deletedAt: null,

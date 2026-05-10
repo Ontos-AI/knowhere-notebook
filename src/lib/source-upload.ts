@@ -1,6 +1,6 @@
 import "server-only"
 
-import { del, get } from "@vercel/blob"
+import { del } from "@vercel/blob"
 import { Effect } from "effect"
 import type { Job } from "@ontos-ai/knowhere-sdk"
 
@@ -19,6 +19,8 @@ export type UploadSourceRepository = {
       title: string
       mimeType: string
       sizeBytes: number
+      stagedBlobPathname?: string | null
+      stagedBlobUrl?: string | null
     },
   ): Promise<Source>
   markSourceParsing(
@@ -35,32 +37,28 @@ export type UploadSourceRepository = {
 
 export type UploadKnowhereClient = {
   jobs: {
-    create(input: {
-      sourceType: "file"
-      fileName: string
-      namespace: string
-    }): Promise<Job>
+    create(
+      input:
+        | {
+            sourceType: "file"
+            fileName: string
+            namespace: string
+          }
+        | {
+            sourceType: "url"
+            sourceUrl: string
+            fileName: string
+            namespace: string
+          },
+    ): Promise<Job>
     upload(job: string | Job, input: { file: string }): Promise<void>
   }
-}
-
-export type UploadSourceBlobStore = {
-  get(pathname: string): Promise<{
-    statusCode: number
-    stream: ReadableStream<Uint8Array> | null
-    blob: {
-      pathname: string
-      contentType: string | null
-      size: number | null
-    }
-  } | null>
-  del(pathname: string): Promise<void>
 }
 
 export type UploadSourceDependencies = {
   repository: UploadSourceRepository
   knowhere: UploadKnowhereClient
-  blobStore?: UploadSourceBlobStore
+  deleteStagedSourceBlob?: (pathname: string) => Promise<void>
 }
 
 /**
@@ -141,62 +139,34 @@ export const uploadSourceBlobToKnowhereEffect = (
       return yield* Effect.die(new Error(validation.message))
     }
 
-    const blobStore = deps.blobStore ?? vercelSourceBlobStore
     const source = yield* Effect.promise(() =>
       deps.repository.createUploadingSource(workspace.id, {
         title: validation.title,
         mimeType: validation.mimeType,
         sizeBytes: input.sizeBytes,
+        stagedBlobPathname: input.pathname,
+        stagedBlobUrl: input.url,
       }),
     )
 
-    return yield* Effect.scoped(
-      Effect.gen(function* () {
-        const blob = yield* Effect.tryPromise(() =>
-          blobStore.get(input.pathname),
-        )
-        if (!blob || blob.statusCode !== 200 || !blob.stream) {
-          return yield* Effect.die(
-            new Error("Uploaded file could not be loaded."),
-          )
-        }
+    return yield* Effect.gen(function* () {
+      const job = yield* Effect.tryPromise(() =>
+        deps.knowhere.jobs.create({
+          sourceType: "url",
+          sourceUrl: input.url,
+          fileName: validation.title,
+          namespace: workspace.namespace,
+        }),
+      )
 
-        if (
-          typeof blob.blob.size === "number" &&
-          blob.blob.size !== input.sizeBytes
-        ) {
-          return yield* Effect.die(
-            new Error("Uploaded file metadata changed before parsing."),
-          )
-        }
-
-        const temp = yield* TempFile
-        const { path } = yield* temp.withStream({
-          name: input.fileName,
-          stream: blob.stream,
-        })
-
-        const job = yield* Effect.tryPromise(() =>
-          deps.knowhere.jobs.create({
-            sourceType: "file",
-            fileName: validation.title,
-            namespace: workspace.namespace,
-          }),
-        )
-        yield* Effect.tryPromise(() =>
-          deps.knowhere.jobs.upload(job, { file: path }),
-        )
-
-        return yield* Effect.promise(() =>
-          deps.repository.markSourceParsing(
-            workspace.id,
-            source.id,
-            job.jobId,
-          ),
-        )
-      }),
-    ).pipe(
-      Effect.provide(tempFileLayer),
+      return yield* Effect.promise(() =>
+        deps.repository.markSourceParsing(
+          workspace.id,
+          source.id,
+          job.jobId,
+        ),
+      )
+    }).pipe(
       Effect.catchAll((err) =>
         Effect.gen(function* () {
           const message = "Knowhere upload failed."
@@ -207,13 +177,13 @@ export const uploadSourceBlobToKnowhereEffect = (
               message,
             ),
           )
+          yield* Effect.promise(() =>
+            (deps.deleteStagedSourceBlob ?? del)(input.pathname).catch(
+              () => undefined,
+            ),
+          )
           return yield* Effect.die(new Error(message, { cause: err }))
         }),
-      ),
-      Effect.ensuring(
-        Effect.promise(() =>
-          blobStore.del(input.pathname).catch(() => undefined),
-        ),
       ),
     )
   })
@@ -237,9 +207,4 @@ export async function uploadSourceBlobToKnowhere(
   return Effect.runPromise(
     uploadSourceBlobToKnowhereEffect(workspace, input, deps),
   )
-}
-
-const vercelSourceBlobStore: UploadSourceBlobStore = {
-  get: (pathname) => get(pathname, { access: "private", useCache: false }),
-  del: (pathname) => del(pathname),
 }

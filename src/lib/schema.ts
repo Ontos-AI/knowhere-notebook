@@ -69,6 +69,8 @@ export type NewWorkspace = typeof workspaces.$inferInsert;
  *   - `knowhere_document_id` — set when parsing completes; the sole handle
  *                              used to fetch chunks and to exclude a source
  *                              from a retrieval query
+ *   - `staged_blob_*` — temporary public Blob staging pointer for large
+ *                       client uploads; cleared after Knowhere parsing
  *   - `deleted_at`   — soft delete timestamp; reads filter it out
  *
  * Indexes:
@@ -90,6 +92,8 @@ export const sources = pgTable(
     failureReason: text("failure_reason"),
     knowhereJobId: text("knowhere_job_id"),
     knowhereDocumentId: text("knowhere_document_id"),
+    stagedBlobPathname: text("staged_blob_pathname"),
+    stagedBlobUrl: text("staged_blob_url"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

@@ -6,7 +6,7 @@ import { getCurrentUser } from "@/lib/auth"
 import {
   isValidSourceBlobPathname,
   parseSourceBlobClientPayload,
-  validateSourceBlobUploadInput,
+  validateSourceBlobUploadMetadata,
 } from "@/lib/source-blob-upload"
 import { MAX_UPLOAD_BYTES } from "@/lib/source-validation"
 
@@ -30,7 +30,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           throw new Error("Invalid upload metadata.")
         }
 
-        const validation = validateSourceBlobUploadInput({
+        const validation = validateSourceBlobUploadMetadata({
           ...input,
           pathname,
         })
