@@ -776,6 +776,7 @@ function WorkspaceShellContent({
               onThreadSelect={isGuest ? undefined : handleSelectChatThread}
               onThreadArchive={isGuest ? undefined : handleArchiveChatThread}
               onCitationClick={handleCitationClick}
+              onLoginClick={isGuest ? redirectToLogin : undefined}
             />
           </div>
         </div>
@@ -847,6 +848,7 @@ function WorkspaceShellContent({
           onNewChat={isGuest ? undefined : handleCreateChatThread}
           onThreadSelect={isGuest ? undefined : handleSelectChatThread}
           onThreadArchive={isGuest ? undefined : handleArchiveChatThread}
+          onLoginClick={isGuest ? redirectToLogin : undefined}
           onCitationClick={(citation, citationId) => {
             setMobilePanel("content")
             handleCitationClick(citation, citationId)

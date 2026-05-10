@@ -52,6 +52,7 @@ export type ChatPanelProps = {
   onThreadSelect?: (threadId: string) => void;
   onThreadArchive?: (threadId: string) => void;
   onCitationClick?: (citation: ChatCitationView, citationId: string) => void;
+  onLoginClick?: () => void;
   sourceCount?: number;
   isSending?: boolean;
   isHistoryLoading?: boolean;
@@ -74,6 +75,7 @@ export function ChatPanel({
   onThreadSelect,
   onThreadArchive,
   onCitationClick,
+  onLoginClick,
   sourceCount = 0,
   isSending = false,
   isHistoryLoading = false,
@@ -235,7 +237,7 @@ export function ChatPanel({
         viewportRef={viewportRef}
       >
         {messages.length === 0 ? (
-          <EmptyChat disabled={isDisabled} />
+          <EmptyChat disabled={isDisabled} needsLogin={Boolean(onLoginClick)} />
         ) : (
           <div
             className="relative mt-auto min-w-0"
@@ -259,46 +261,59 @@ export function ChatPanel({
         data-testid="chat-composer"
         className="shrink-0 border-t border-border/70 bg-background p-3 sm:p-4"
       >
-        <div className="relative rounded-2xl shadow-sm">
-          <Textarea
-            id={CHAT_COMPOSER_ID}
-            name={CHAT_COMPOSER_ID}
-            className="h-[84px] w-full min-w-0 resize-none rounded-2xl border-slate-300 bg-muted/60 p-3 pr-12 text-sm transition-all placeholder:text-muted-foreground hover:border-slate-400 focus-visible:border-primary focus-visible:ring-0 sm:p-3.5"
-            placeholder={
-              isDisabled
-                ? "Upload a document to start asking questions."
-                : "Ask a question about your documents…"
-            }
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            disabled={isDisabled}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey && canSend) {
-                e.preventDefault();
-                handleSend();
-              }
-            }}
-          />
+        {onLoginClick ? (
           <Button
-            variant="default"
-            size="icon"
-            className="absolute bottom-2 right-2"
-            disabled={!canSend}
-            onClick={handleSend}
-            aria-label="Send message"
+            type="button"
+            size="sm"
+            className="w-full"
+            onClick={onLoginClick}
           >
-            {isSending ? (
-              <Spinner className="size-4" />
-            ) : (
-              <Send className="size-4" />
-            )}
+            Log in to start
           </Button>
-        </div>
-        <div className="mt-3 flex items-center justify-end">
-          <span className="text-[10px] font-medium text-muted-foreground">
-            Shift + Enter for a new line
-          </span>
-        </div>
+        ) : (
+          <>
+            <div className="relative rounded-2xl shadow-sm">
+              <Textarea
+                id={CHAT_COMPOSER_ID}
+                name={CHAT_COMPOSER_ID}
+                className="h-[84px] w-full min-w-0 resize-none rounded-2xl border-slate-300 bg-muted/60 p-3 pr-12 text-sm transition-all placeholder:text-muted-foreground hover:border-slate-400 focus-visible:border-primary focus-visible:ring-0 sm:p-3.5"
+                placeholder={
+                  isDisabled
+                    ? "Upload a document to start asking questions."
+                    : "Ask a question about your documents…"
+                }
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                disabled={isDisabled}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey && canSend) {
+                    e.preventDefault();
+                    handleSend();
+                  }
+                }}
+              />
+              <Button
+                variant="default"
+                size="icon"
+                className="absolute bottom-2 right-2"
+                disabled={!canSend}
+                onClick={handleSend}
+                aria-label="Send message"
+              >
+                {isSending ? (
+                  <Spinner className="size-4" />
+                ) : (
+                  <Send className="size-4" />
+                )}
+              </Button>
+            </div>
+            <div className="mt-3 flex items-center justify-end">
+              <span className="text-[10px] font-medium text-muted-foreground">
+                Shift + Enter for a new line
+              </span>
+            </div>
+          </>
+        )}
       </div>
     </section>
   );
@@ -521,7 +536,13 @@ function formatThreadDate(value: string): string {
   });
 }
 
-function EmptyChat({ disabled }: { disabled: boolean }) {
+function EmptyChat({
+  disabled,
+  needsLogin,
+}: {
+  disabled: boolean;
+  needsLogin: boolean;
+}) {
   return (
     <div className="m-auto mt-16 flex h-full w-full max-w-sm flex-col items-center justify-center px-3 pb-8 text-center sm:mt-24 sm:px-4 sm:pb-10">
       <div className="mb-4 flex size-14 items-center justify-center rounded-2xl border border-border/70 bg-background text-primary/50 shadow-xs">
@@ -531,9 +552,11 @@ function EmptyChat({ disabled }: { disabled: boolean }) {
         How may I assist you today?
       </h3>
       <p className="text-[13px] leading-relaxed text-muted-foreground">
-        {disabled
-          ? "Upload a document to start asking questions."
-          : "Ask anything about your sources. Answers include source links when Notebook finds support."}
+        {needsLogin
+          ? "Log in to start asking questions about your sources."
+          : disabled
+            ? "Upload a document to start asking questions."
+            : "Ask anything about your sources. Answers include source links when Notebook finds support."}
       </p>
     </div>
   );

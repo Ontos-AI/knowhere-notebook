@@ -80,6 +80,34 @@ describe("WorkspaceShell", () => {
     );
   });
 
+  it("shows a login CTA instead of the chat composer for guests", () => {
+    render(
+      React.createElement(C, {
+        isGuest: true,
+        loginUrl: "/login",
+        sources: [
+          {
+            id: "source_1",
+            title: "demo.pdf",
+            status: "ready",
+            documentId: "doc_1",
+          },
+        ],
+      }),
+    );
+
+    const desktopChatPanel = within(screen.getByTestId("desktop-chat-panel"));
+
+    expect(
+      desktopChatPanel.queryByPlaceholderText(
+        "Ask a question about your documents…",
+      ),
+    ).toBeNull();
+    expect(
+      desktopChatPanel.getByRole("button", { name: "Log in to start" }),
+    ).toBeTruthy();
+  });
+
   it("reuses loaded chunks when users click another citation from the same source", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
       const path = getRequestPath(input);
