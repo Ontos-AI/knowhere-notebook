@@ -5,6 +5,7 @@ import type { PointerEvent as ReactPointerEvent } from "react"
 import { Effect } from "effect"
 import useSWR, { SWRConfig, unstable_serialize, useSWRConfig } from "swr"
 import type { Cache } from "swr"
+import useSWRInfinite from "swr/infinite"
 import useSWRMutation from "swr/mutation"
 import {
   FetchHttpClient,
@@ -17,7 +18,11 @@ import { ChunksPanel } from "@/components/chunks-panel"
 import { ChatPanel } from "@/components/chat-panel"
 import { MobileTabBar } from "@/components/mobile-tab-bar"
 import { deriveChatThreadTitle } from "@/lib/chat-title"
-import { resolveCitationChunk } from "@/lib/chunks"
+import {
+  resolveChunkConnectionTargets,
+  resolveCitationChunk,
+  type ChunkPagePagination,
+} from "@/lib/chunks"
 import type {
   ChatCitationView,
   ChatMessageView,
@@ -78,6 +83,7 @@ const chatThreadsSWRKey = "/api/chat/threads"
 const chatSWRKey = "/api/chat"
 const archiveSourceSWRKey = "archive-source"
 const archiveChatThreadSWRKey = "archive-chat-thread"
+const sourceChunkPageSize = 100
 
 type DesktopPanelKey = keyof typeof DESKTOP_PANEL_MIN_WIDTHS
 type DesktopPanelWidths = Record<DesktopPanelKey, number>
@@ -116,8 +122,14 @@ type ChatMessageRequest = {
   excludedSourceIds: string[]
 }
 
-type SourceChunksKey = readonly ["source-chunks", string]
+type SourceChunksKey = readonly ["source-chunks", string, number]
 type ChatThreadKey = readonly ["chat-thread", string]
+
+type SourceChunksResponse = {
+  chunks?: ParsedChunkView[]
+  pagination?: ChunkPagePagination
+  message?: string
+}
 
 export type WorkspaceShellProps = {
   user?: {
@@ -183,6 +195,9 @@ function WorkspaceShellContent({
   const [pendingCitationId, setPendingCitationId] = useState<string | null>(
     null,
   )
+  const [prefetchedChunksBySourceId, setPrefetchedChunksBySourceId] = useState<
+    Record<string, ParsedChunkView[]>
+  >({})
   const [mobilePanel, setMobilePanel] = useState<PanelId>(
     isGuest ? "content" : "chat",
   )
@@ -221,24 +236,47 @@ function WorkspaceShellContent({
   )
   const chatThreads = serverChatThreads ?? initialChatThreads ?? []
   const selectedSource = sources.find((source) => source.id === selectedSourceId)
+  const prefetchedSelectedChunks = selectedSourceId
+    ? prefetchedChunksBySourceId[selectedSourceId]
+    : undefined
   const selectedChunkSourceId =
-    selectedSource && selectedSource.status === "ready"
+    selectedSource && selectedSource.status === "ready" && !prefetchedSelectedChunks
       ? selectedSource.id
       : null
-  const selectedChunksKey = selectedChunkSourceId
-    ? getSourceChunksKey(selectedChunkSourceId)
-    : null
-  const { data: selectedChunksData, isLoading: isChunksLoading } = useSWR(
-    selectedChunksKey,
+  const {
+    data: selectedChunkPages,
+    isLoading: isChunksLoading,
+    size: selectedChunkPageCount,
+    setSize: setSelectedChunkPageCount,
+  } = useSWRInfinite<SourceChunksResponse, Error>(
+    (pageIndex: number, previousPageData: SourceChunksResponse | null) =>
+      getSourceChunksKey(selectedChunkSourceId, pageIndex, previousPageData),
     fetchChunksByKey,
     {
       revalidateIfStale: false,
       keepPreviousData: false,
     },
   )
-  const selectedChunks = selectedSourceId ? (selectedChunksData ?? []) : []
+  const pagedSelectedChunks = resolveChunkConnectionTargets(
+    (selectedChunkPages ?? []).flatMap((page) => page.chunks ?? []),
+  )
+  const selectedChunks = selectedSourceId
+    ? (prefetchedSelectedChunks ?? pagedSelectedChunks)
+    : []
+  const hasMoreSelectedChunks =
+    !prefetchedSelectedChunks && hasMoreChunkPages(selectedChunkPages)
+  const isSelectedChunksLoadingMore =
+    !prefetchedSelectedChunks &&
+    Boolean(
+      selectedChunkPageCount > 0 &&
+        selectedChunkPages &&
+        typeof selectedChunkPages[selectedChunkPageCount - 1] === "undefined",
+    )
   const isSelectedChunksLoading =
-    selectedChunkSourceId !== null && !selectedChunksData && isChunksLoading
+    selectedChunkSourceId !== null &&
+    !prefetchedSelectedChunks &&
+    !selectedChunkPages &&
+    isChunksLoading
   const initialChatThreadData = useMemo(
     () =>
       getInitialChatThreadData(
@@ -297,6 +335,11 @@ function WorkspaceShellContent({
       chunkId,
       requestId: current.requestId + 1,
     }))
+  }
+
+  function handleLoadMoreChunks(): void {
+    if (!hasMoreSelectedChunks || isSelectedChunksLoadingMore) return
+    void setSelectedChunkPageCount(selectedChunkPageCount + 1)
   }
 
   function handleDesktopPanelResize(
@@ -507,6 +550,11 @@ function WorkspaceShellContent({
 
   function handleSourceSelected(sourceId: string | null) {
     setSelectedSourceId(sourceId)
+    if (sourceId) {
+      setPrefetchedChunksBySourceId((current) =>
+        removeRecordKey(current, sourceId),
+      )
+    }
     requestChunkFocus(null)
   }
 
@@ -598,19 +646,20 @@ function WorkspaceShellContent({
       )
       if (!source) return
 
-      if (selectedChunkSourceId === source.id && selectedChunksData) {
+      if (selectedSourceId === source.id && selectedChunks.length > 0) {
         const focusedChunk = resolveCitationChunk(citation, selectedChunks)
-        requestChunkFocus(focusedChunk?.chunkId ?? null)
-        return
+        if (focusedChunk) {
+          requestChunkFocus(focusedChunk.chunkId)
+          return
+        }
       }
 
       requestChunkFocus(null)
-      const chunks =
-        (await mutateSWR(
-          getSourceChunksKey(source.id),
-          fetchChunks(source.id),
-          { populateCache: true, revalidate: false },
-        )) ?? []
+      const chunks = await fetchChunks(source.id)
+      setPrefetchedChunksBySourceId((current) => ({
+        ...current,
+        [source.id]: chunks,
+      }))
       const focusedChunk = resolveCitationChunk(citation, chunks)
       setSelectedSourceId(source.id)
       requestChunkFocus(focusedChunk?.chunkId ?? null)
@@ -686,6 +735,9 @@ function WorkspaceShellContent({
               focusedChunkId={focusedChunk.chunkId}
               focusedChunkRequestId={focusedChunk.requestId}
               isLoading={isSelectedChunksLoading}
+              isLoadingMore={isSelectedChunksLoadingMore}
+              hasMoreChunks={hasMoreSelectedChunks}
+              onLoadMore={handleLoadMoreChunks}
             />
           </div>
           <DesktopResizeHandle
@@ -761,6 +813,9 @@ function WorkspaceShellContent({
           focusedChunkId={focusedChunk.chunkId}
           focusedChunkRequestId={focusedChunk.requestId}
           isLoading={isSelectedChunksLoading}
+          isLoadingMore={isSelectedChunksLoadingMore}
+          hasMoreChunks={hasMoreSelectedChunks}
+          onLoadMore={handleLoadMoreChunks}
         />
       </div>
       <div
@@ -822,6 +877,25 @@ async function fetchChunks(sourceId: string): Promise<ParsedChunkView[]> {
   }
 }
 
+async function fetchChunkPage(
+  sourceId: string,
+  page: number,
+): Promise<SourceChunksResponse> {
+  const searchParams = new URLSearchParams({
+    page: String(page),
+    pageSize: String(sourceChunkPageSize),
+  })
+  const body = await getJson<SourceChunksResponse>(
+    `/api/sources/${encodeURIComponent(sourceId)}/chunks?${searchParams.toString()}`,
+  )
+
+  return {
+    chunks: Array.isArray(body.chunks) ? body.chunks : [],
+    pagination: body.pagination,
+    message: body.message,
+  }
+}
+
 async function fetchSources(): Promise<SourceView[]> {
   const body = await getJson<SourcesResponse>(sourcesSWRKey)
   return Array.isArray(body.sources) ? body.sources : []
@@ -832,14 +906,30 @@ async function fetchChatThreads(): Promise<ChatThreadView[]> {
   return Array.isArray(body.threads) ? body.threads : []
 }
 
-function getSourceChunksKey(sourceId: string): SourceChunksKey {
-  return ["source-chunks", sourceId] as const
+function getSourceChunksKey(
+  sourceId: string | null,
+  pageIndex: number,
+  previousPageData: SourceChunksResponse | null,
+): SourceChunksKey | null {
+  if (!sourceId) return null
+  if (previousPageData && !hasMoreChunkPages([previousPageData])) return null
+  return ["source-chunks", sourceId, pageIndex + 1] as const
 }
 
-function fetchChunksByKey([, sourceId]: SourceChunksKey): Promise<
-  ParsedChunkView[]
-> {
-  return fetchChunks(sourceId)
+function fetchChunksByKey([
+  ,
+  sourceId,
+  page,
+]: SourceChunksKey): Promise<SourceChunksResponse> {
+  return fetchChunkPage(sourceId, page)
+}
+
+function hasMoreChunkPages(
+  pages: readonly SourceChunksResponse[] | undefined,
+): boolean {
+  const lastPage = pages?.at(-1)
+  if (!lastPage?.pagination) return false
+  return lastPage.pagination.page < lastPage.pagination.totalPages
 }
 
 function getChatThreadKey(threadId: string): ChatThreadKey {
@@ -941,11 +1031,11 @@ function upsertSource(
   return [source, ...sources.filter((candidate) => candidate.id !== source.id)]
 }
 
-function removeRecordKey(
-  record: Readonly<Record<string, boolean>>,
+function removeRecordKey<T>(
+  record: Readonly<Record<string, T>>,
   key: string,
-): Record<string, boolean> {
-  const remaining: Record<string, boolean> = {}
+): Record<string, T> {
+  const remaining: Record<string, T> = {}
   Object.entries(record).forEach(([recordKey, value]) => {
     if (recordKey !== key) remaining[recordKey] = value
   })

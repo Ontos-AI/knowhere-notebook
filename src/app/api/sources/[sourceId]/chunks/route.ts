@@ -4,7 +4,14 @@ import { Effect } from "effect"
 
 import { ensureApiKeyForWorkspace } from "@/lib/api-key-service"
 import { getCurrentUser } from "@/lib/auth"
-import { loadChunksForSource } from "@/lib/chunks"
+import {
+  getChunkPageParams,
+  loadChunkPageForSource,
+  loadChunksForSource,
+  type ChunkPage,
+  type ChunkPageParams,
+} from "@/lib/chunks"
+import type { ParsedChunkView } from "@/lib/types"
 import { demoData } from "@/lib/demo-data"
 import { makeKnowhereClient } from "@/lib/knowhere"
 import {
@@ -20,10 +27,14 @@ type RouteContext = {
 };
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   context: RouteContext,
 ): Promise<NextResponse> {
   const { sourceId } = await context.params;
+  const shouldLoadAll =
+    !request.nextUrl.searchParams.has("page") &&
+    !request.nextUrl.searchParams.has("pageSize")
+  const pageParams = getChunkPageParams(request.nextUrl.searchParams);
   const user = await getCurrentUser();
 
   if (!user) {
@@ -34,7 +45,9 @@ export async function GET(
         { status: 404 },
       );
     }
-    return NextResponse.json({ chunks });
+    return NextResponse.json(
+      shouldLoadAll ? { chunks } : toChunkPage(chunks, pageParams),
+    );
   }
 
   const workspace = await ensureWorkspace(user.id);
@@ -51,8 +64,35 @@ export async function GET(
     workspace.id,
     source.id,
   )
-  const chunks = await Effect.runPromise(
-    loadChunksForSource(source, client, { assetUrlsByFilePath }),
+  if (shouldLoadAll) {
+    const chunks = await Effect.runPromise(
+      loadChunksForSource(source, client, { assetUrlsByFilePath }),
+    )
+    return NextResponse.json({ chunks })
+  }
+
+  const chunkPage = await Effect.runPromise(
+    loadChunkPageForSource(source, client, pageParams, { assetUrlsByFilePath }),
   )
-  return NextResponse.json({ chunks });
+  return NextResponse.json(chunkPage);
+}
+
+function toChunkPage(
+  chunks: readonly ParsedChunkView[],
+  params: ChunkPageParams,
+): ChunkPage {
+  const start = (params.page - 1) * params.pageSize
+  const pageChunks = chunks.slice(start, start + params.pageSize)
+  const totalPages =
+    chunks.length === 0 ? 0 : Math.ceil(chunks.length / params.pageSize)
+
+  return {
+    chunks: pageChunks,
+    pagination: {
+      page: params.page,
+      pageSize: params.pageSize,
+      total: chunks.length,
+      totalPages,
+    },
+  }
 }

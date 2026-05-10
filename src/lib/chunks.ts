@@ -10,6 +10,8 @@ import type {
 } from "./types"
 
 const documentChunkPageSize = 200
+const defaultChunkPageSize = 100
+const maximumChunkPageSize = 200
 
 export type ChunkKnowhereClient = {
   documents: {
@@ -34,6 +36,37 @@ export type ChunkKnowhereClient = {
 
 export type LoadChunksOptions = {
   assetUrlsByFilePath?: Readonly<Record<string, string>>
+}
+
+export type ChunkPageParams = {
+  page: number
+  pageSize: number
+}
+
+export type ChunkPagePagination = {
+  page: number
+  pageSize: number
+  total: number
+  totalPages: number
+}
+
+export type ChunkPage = {
+  chunks: ParsedChunkView[]
+  pagination: ChunkPagePagination
+}
+
+export function getChunkPageParams(
+  searchParams: URLSearchParams,
+): ChunkPageParams {
+  return {
+    page: normalizePositiveInteger(searchParams.get("page"), 1),
+    pageSize: normalizePageSize(
+      normalizePositiveInteger(
+        searchParams.get("pageSize"),
+        defaultChunkPageSize,
+      ),
+    ),
+  }
 }
 
 export const loadChunksForSource = (
@@ -62,7 +95,7 @@ export const loadChunksForSource = (
       page += 1
     } while (page <= totalPages)
 
-    return resolveConnectionTargets(chunks.map((chunk) =>
+    return resolveChunkConnectionTargets(chunks.map((chunk) =>
       toParsedChunkView(
         chunk,
         source.title,
@@ -70,6 +103,51 @@ export const loadChunksForSource = (
         options,
       ),
     ))
+  })
+
+export const loadChunkPageForSource = (
+  source: Source,
+  client: ChunkKnowhereClient,
+  params: ChunkPageParams,
+  options: LoadChunksOptions = {},
+) =>
+  Effect.gen(function* () {
+    if (source.status !== "ready" || !source.knowhereDocumentId) {
+      return {
+        chunks: [],
+        pagination: {
+          page: params.page,
+          pageSize: params.pageSize,
+          total: 0,
+          totalPages: 0,
+        },
+      }
+    }
+
+    const response = yield* Effect.promise(() =>
+      client.documents.listChunks(source.knowhereDocumentId!, {
+        page: params.page,
+        pageSize: params.pageSize,
+        includeAssetUrls: true,
+      }),
+    )
+    const chunks = response.chunks.map((chunk) =>
+      toParsedChunkView(
+        chunk,
+        source.title,
+        source.knowhereDocumentId ?? undefined,
+        options,
+      ),
+    )
+
+    return {
+      chunks: resolveChunkConnectionTargets(chunks),
+      pagination: normalizeChunkPagination(
+        response.pagination,
+        params,
+        chunks.length,
+      ),
+    }
   })
 
 export function toParsedChunkView(
@@ -139,7 +217,7 @@ function getTotalPages(
     : 1
 }
 
-function resolveConnectionTargets(
+export function resolveChunkConnectionTargets(
   chunks: ParsedChunkView[],
 ): ParsedChunkView[] {
   const chunkIdsByParserChunkId = new Map(
@@ -161,6 +239,54 @@ function resolveConnectionTargets(
       })),
     }
   })
+}
+
+function normalizeChunkPagination(
+  pagination:
+    | {
+        page?: number
+        pageSize?: number
+        total?: number
+        totalPages?: number
+      }
+    | undefined,
+  fallback: ChunkPageParams,
+  chunkCount: number,
+): ChunkPagePagination {
+  const total = getFinitePositiveNumber(pagination?.total, chunkCount)
+  return {
+    page: getFinitePositiveNumber(pagination?.page, fallback.page),
+    pageSize: getFinitePositiveNumber(pagination?.pageSize, fallback.pageSize),
+    total,
+    totalPages: getFinitePositiveNumber(
+      pagination?.totalPages,
+      Math.ceil(total / fallback.pageSize),
+    ),
+  }
+}
+
+function normalizePageSize(value: number): number {
+  return Math.min(Math.max(value, 1), maximumChunkPageSize)
+}
+
+function normalizePositiveInteger(
+  value: string | null,
+  fallback: number,
+): number {
+  if (!value) return fallback
+
+  const parsedValue = Number.parseInt(value, 10)
+  if (!Number.isFinite(parsedValue) || parsedValue < 1) return fallback
+  return parsedValue
+}
+
+function getFinitePositiveNumber(
+  value: number | undefined,
+  fallback: number,
+): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? value
+    : fallback
 }
 
 function getChunkFilePath(chunk: DocumentChunk): string | undefined {

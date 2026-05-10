@@ -28,6 +28,9 @@ export type ChunksPanelProps = {
   focusedChunkId?: string | null;
   focusedChunkRequestId?: number;
   isLoading?: boolean;
+  isLoadingMore?: boolean;
+  hasMoreChunks?: boolean;
+  onLoadMore?: () => void;
 };
 
 type ViewportState = {
@@ -37,6 +40,7 @@ type ViewportState = {
 
 const estimatedChunkCardHeight = 220;
 const virtualListOverscan = 4;
+const infiniteScrollThreshold = 720;
 
 export function ChunksPanel({
   chunks = [],
@@ -44,6 +48,9 @@ export function ChunksPanel({
   focusedChunkId = null,
   focusedChunkRequestId = 0,
   isLoading = false,
+  isLoadingMore = false,
+  hasMoreChunks = false,
+  onLoadMore,
 }: Partial<ChunksPanelProps> = {}) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const measuredHeightsRef = useRef<ReadonlyMap<number, number>>(new Map());
@@ -100,13 +107,6 @@ export function ChunksPanel({
     };
   }, [syncViewportState]);
 
-  const handleViewportScroll = useCallback<UIEventHandler<HTMLDivElement>>(
-    (event) => {
-      syncViewportState(event.currentTarget);
-    },
-    [syncViewportState],
-  );
-
   const handleChunkMeasured = useCallback(
     (index: number, height: number): void => {
       setMeasuredHeights((currentHeights) => {
@@ -120,6 +120,30 @@ export function ChunksPanel({
       });
     },
     [],
+  );
+
+  const requestMoreChunksIfNeeded = useCallback(
+    (viewport: HTMLDivElement): void => {
+      if (!onLoadMore || !hasMoreChunks || isLoading || isLoadingMore) {
+        return;
+      }
+
+      const distanceFromBottom =
+        viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+
+      if (distanceFromBottom <= infiniteScrollThreshold) {
+        onLoadMore();
+      }
+    },
+    [hasMoreChunks, isLoading, isLoadingMore, onLoadMore],
+  );
+
+  const handleViewportScroll = useCallback<UIEventHandler<HTMLDivElement>>(
+    (event) => {
+      syncViewportState(event.currentTarget);
+      requestMoreChunksIfNeeded(event.currentTarget);
+    },
+    [requestMoreChunksIfNeeded, syncViewportState],
   );
 
   const virtualListState = useMemo(
@@ -154,6 +178,16 @@ export function ChunksPanel({
     [focusedChunkIndex, virtualListState.items],
   );
 
+  useEffect(() => {
+    const viewport = viewportRef.current;
+
+    if (!viewport) {
+      return;
+    }
+
+    requestMoreChunksIfNeeded(viewport);
+  }, [chunks.length, requestMoreChunksIfNeeded, virtualListState.totalHeight]);
+
   const scrollToChunkIndex = useCallback((index: number): void => {
     const viewport = viewportRef.current;
 
@@ -171,13 +205,10 @@ export function ChunksPanel({
       focusedOffset - viewport.clientHeight / 2 + estimatedChunkCardHeight / 2,
     );
 
-    viewport.scrollTo({
-      top: centeredScrollTop,
-      behavior: "smooth",
-    });
+    scrollViewportTo(viewport, centeredScrollTop);
   }, []);
 
-  const requestChunkFocus = useCallback(
+  const scrollToChunkId = useCallback(
     (chunkId: string): void => {
       const index = chunks.findIndex((chunk) => chunk.chunkId === chunkId);
 
@@ -185,17 +216,25 @@ export function ChunksPanel({
         return;
       }
 
-      setLocalFocusedChunkId(chunkId);
       scrollToChunkIndex(index);
+      scrollRenderedChunkIntoView(viewportRef.current, chunkId);
     },
     [chunks, scrollToChunkIndex],
   );
 
+  const requestChunkFocus = useCallback(
+    (chunkId: string): void => {
+      setLocalFocusedChunkId(chunkId);
+      scrollToChunkId(chunkId);
+    },
+    [scrollToChunkId],
+  );
+
   useEffect(() => {
     if (focusedChunkId) {
-      requestChunkFocus(focusedChunkId);
+      scrollToChunkId(focusedChunkId);
     }
-  }, [focusedChunkId, focusedChunkRequestId, requestChunkFocus]);
+  }, [focusedChunkId, focusedChunkRequestId, scrollToChunkId]);
 
   useEffect(() => {
     const viewport = viewportRef.current;
@@ -269,6 +308,11 @@ export function ChunksPanel({
                   onReferenceClick={requestChunkFocus}
                 />
               ))}
+            </div>
+          )}
+          {isLoadingMore && (
+            <div className="py-4 text-center text-xs text-muted-foreground">
+              Loading more parsed chunks...
             </div>
           )}
         </div>
@@ -360,6 +404,7 @@ function VirtualChunkRow({
       ref={rowRef}
       style={rowStyle}
       className="w-full min-w-0 pb-3 sm:pb-4"
+      data-chunk-id={chunk.chunkId}
       data-focused-chunk={chunk.chunkId === focusedChunkId ? "true" : undefined}
     >
       <ChunkCard
@@ -369,6 +414,31 @@ function VirtualChunkRow({
       />
     </div>
   );
+}
+
+function scrollViewportTo(viewport: HTMLDivElement, top: number): void {
+  if (typeof viewport.scrollTo === "function") {
+    viewport.scrollTo({ top, behavior: "smooth" });
+    return;
+  }
+
+  viewport.scrollTop = top;
+}
+
+function scrollRenderedChunkIntoView(
+  viewport: HTMLDivElement | null,
+  chunkId: string,
+): void {
+  const chunkElements =
+    viewport?.querySelectorAll<HTMLElement>("[data-chunk-id]") ?? [];
+  const chunkElement = Array.from(chunkElements).find(
+    (element) => element.dataset.chunkId === chunkId,
+  );
+
+  chunkElement?.scrollIntoView({
+    behavior: "smooth",
+    block: "center",
+  });
 }
 
 function ChunkCard({

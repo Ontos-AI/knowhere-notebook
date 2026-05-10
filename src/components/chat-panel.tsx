@@ -198,15 +198,15 @@ export function ChatPanel({
       return;
     }
 
-    viewport.scrollTo({
-      top: getBottomScrollTop({
+    scrollViewportTo(
+      viewport,
+      getBottomScrollTop({
         itemCount: messages.length,
         viewportHeight: viewport.clientHeight,
         estimatedItemHeight: estimatedMessageHeight,
         measuredHeights: measuredHeightsRef.current,
       }),
-      behavior: "smooth",
-    });
+    );
   }, [messages.length]);
 
   function handleSend() {
@@ -465,6 +465,15 @@ function VirtualMessageRow({
       />
     </div>
   );
+}
+
+function scrollViewportTo(viewport: HTMLDivElement, top: number): void {
+  if (typeof viewport.scrollTo === "function") {
+    viewport.scrollTo({ top, behavior: "smooth" });
+    return;
+  }
+
+  viewport.scrollTop = top;
 }
 
 function ChatHistorySheet({
