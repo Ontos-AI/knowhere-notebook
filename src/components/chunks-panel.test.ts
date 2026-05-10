@@ -88,7 +88,7 @@ describe("ChunksPanel", () => {
     );
   });
 
-  it("keeps long chunk title layout while using less-rounded corners", () => {
+  it("omits repeated source titles while keeping compact chunk metadata", () => {
     mockVisibleVirtualViewport();
 
     render(
@@ -99,22 +99,57 @@ describe("ChunksPanel", () => {
             type: "image",
             content: "",
             sourceTitle: "TSLA-Q4-2025-UPDATE.PDF",
+            sectionPath: "images/image-2.jpg",
             summary:
               "IMAGE-2 THE IMAGE IS A LINE GRAPH SHOWING THE GROWTH OF FSD MILES OVER TIME",
           },
         ],
-        selectedSource: "TSLA-Q4-2025-Update.pdf",
       }),
     );
 
-    const titleBadge = screen.getByText(/TSLA-Q4-2025-UPDATE\.PDF/);
+    const sourcePanel = screen.getByTestId("chunk-source-panel-image_1");
 
-    expect(titleBadge.className).toContain("max-w-full");
-    expect(titleBadge.className).toContain("whitespace-normal");
-    expect(titleBadge.className).toContain("rounded-lg");
-    expect(titleBadge.className).not.toContain("inline-block");
-    expect(titleBadge.className).not.toContain("max-w-[calc");
-    expect(titleBadge.className).not.toContain("rounded-full");
+    expect(screen.queryByText("TSLA-Q4-2025-UPDATE.PDF")).toBeNull();
+    expect(sourcePanel.textContent).toContain("Image");
+    expect(sourcePanel.textContent).toContain("images/image-2.jpg");
+  });
+
+  it("renders text chunks with structured source, summary, content, and keyword sections", () => {
+    mockVisibleVirtualViewport();
+
+    render(
+      React.createElement(C, {
+        chunks: [
+          {
+            chunkId: "text_1",
+            type: "text",
+            content: "Tesla is adding Supercharging and AI training capacity.",
+            sourceTitle: "TSLA-Q4-2025-UPDATE.PDF",
+            sectionPath: "Installed Annual Capacity",
+            summary:
+              "Tesla continues to use its North American footprint while adding capacity.",
+            keywords: ["Robotaxi", "Supercharging", "AI training capacity"],
+          },
+        ],
+        selectedSource: "TSLA-Q4-2025-UPDATE.PDF",
+      }),
+    );
+
+    expect(screen.getByTestId("chunk-source-panel-text_1").textContent).toContain(
+      "Installed Annual Capacity",
+    );
+    expect(
+      screen.getByTestId("chunk-source-panel-text_1").textContent,
+    ).not.toContain("TSLA-Q4-2025-UPDATE.PDF");
+    expect(screen.getByTestId("chunk-summary-panel-text_1").textContent).toContain(
+      "Tesla continues to use its North American footprint",
+    );
+    expect(screen.getByTestId("chunk-content-panel-text_1").textContent).toContain(
+      "Tesla is adding Supercharging and AI training capacity.",
+    );
+    expect(screen.getByTestId("chunk-keywords-panel-text_1").textContent).toContain(
+      "AI training capacity",
+    );
   });
 
   it("allows horizontal scrolling for wide chunk content", async () => {

@@ -14,12 +14,13 @@ import {
   useVirtualizer,
   type VirtualItem,
 } from "@tanstack/react-virtual";
-import { ImageIcon, Layers, Table2 } from "lucide-react";
+import { FileText, ImageIcon, Layers, Table2, Tags, TextQuote } from "lucide-react";
 import DOMPurify from "dompurify";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import type { ParsedChunkConnection, ParsedChunkView } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 export type ChunksPanelProps = {
   chunks: ParsedChunkView[];
@@ -244,7 +245,7 @@ function getChunksWithFocusedFirst(
   ];
 }
 
-function EmptyChunks() {
+function EmptyChunks(): ReactNode {
   return (
     <div className="flex flex-col items-center gap-3 px-4 py-14 text-center sm:py-20">
       <div className="flex size-12 items-center justify-center rounded-full bg-muted">
@@ -261,7 +262,7 @@ function EmptyChunks() {
   );
 }
 
-function LoadingChunks() {
+function LoadingChunks(): ReactNode {
   return (
     <div className="flex flex-col items-center gap-3 px-4 py-14 text-center sm:py-20">
       <div className="flex size-12 items-center justify-center rounded-full bg-muted">
@@ -284,7 +285,7 @@ function VirtualChunkRow({
   focusedChunkId: string | null;
   measureElement: (node: HTMLDivElement | null) => void;
   onReferenceClick: (chunkId: string) => void;
-}) {
+}): ReactNode {
   if (!chunk) {
     return null;
   }
@@ -325,7 +326,7 @@ function ChunkCard({
   chunk: ParsedChunkView;
   isFocused: boolean;
   onReferenceClick: (chunkId: string) => void;
-}) {
+}): ReactNode {
   if (chunk.type === "image") {
     return (
       <div
@@ -360,47 +361,149 @@ function ChunkCard({
   );
 }
 
-function ChunkHeader({ chunk }: { chunk: ParsedChunkView }) {
+function ChunkCardFrame({
+  chunk,
+  isFocused,
+  children,
+}: {
+  chunk: ParsedChunkView;
+  isFocused: boolean;
+  children: ReactNode;
+}): ReactNode {
   return (
-    <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-      <Badge
-        variant="secondary"
-        className="max-w-full whitespace-normal rounded-lg border-blue-100 bg-blue-50 px-2.5 py-1 text-left text-[10px] uppercase tracking-tight text-blue-700 hover:bg-blue-50"
-      >
-        {chunk.sourceTitle}
-        {chunk.summary ? ` · ${chunk.summary}` : ""}
-      </Badge>
-      <Badge variant="outline" className="text-[10px]">
-        {chunk.type}
-      </Badge>
-    </div>
+    <Card
+      className={cn(
+        "w-full min-w-0 cursor-default overflow-hidden rounded-lg shadow-xs transition-colors",
+        focusCardClasses(isFocused),
+      )}
+    >
+      <CardContent className="space-y-3 p-3 sm:p-4">
+        <ChunkSourcePanel chunk={chunk} />
+        {children}
+      </CardContent>
+    </Card>
   );
 }
 
-function ChunkKeywords({
-  keywords,
-}: {
-  keywords: ParsedChunkView["keywords"];
-}) {
-  if (!keywords || keywords.length === 0) return null;
+function ChunkSourcePanel({ chunk }: { chunk: ParsedChunkView }): ReactNode {
+  const pageLabel = formatPageNumbers(chunk.pageNums);
+
   return (
-    <div className="mt-3 flex flex-wrap gap-1">
-      {keywords.map((kw) => (
-        <Badge
-          key={kw}
-          variant="secondary"
-          className="px-1.5 py-0 text-[10px]"
+    <section
+      data-testid={`chunk-source-panel-${chunk.chunkId}`}
+      className="rounded-lg border border-border/70 bg-background/80 p-3"
+    >
+      <div className="flex min-w-0 gap-3">
+        <div
+          className={cn(
+            "grid size-9 shrink-0 place-items-center rounded-lg border shadow-inner",
+            getChunkIconClasses(chunk.type),
+          )}
         >
-          {kw}
-        </Badge>
-      ))}
+          {renderChunkIcon(chunk.type)}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Badge
+              variant="outline"
+              className="h-5 rounded-md px-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground"
+            >
+              {getChunkTypeLabel(chunk.type)}
+            </Badge>
+            {pageLabel ? (
+              <Badge
+                variant="secondary"
+                className="h-5 rounded-md px-1.5 text-[10px] font-semibold text-muted-foreground"
+              >
+                {pageLabel}
+              </Badge>
+            ) : null}
+          </div>
+          {chunk.sectionPath ? (
+            <p className="mt-2 break-words text-xs leading-5 text-muted-foreground">
+              {chunk.sectionPath}
+            </p>
+          ) : null}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ChunkSummaryPanel({ chunk }: { chunk: ParsedChunkView }): ReactNode {
+  if (!chunk.summary) return null;
+
+  return (
+    <section
+      data-testid={`chunk-summary-panel-${chunk.chunkId}`}
+      className="rounded-lg border border-border/70 bg-muted/35 p-3"
+    >
+      <SectionLabel icon={<TextQuote className="size-3.5" />} label="Summary" />
+      <p className="mt-2 text-sm leading-6 text-foreground/85">{chunk.summary}</p>
+    </section>
+  );
+}
+
+function ChunkContentPanel({
+  chunk,
+  children,
+}: {
+  chunk: ParsedChunkView;
+  children: ReactNode;
+}): ReactNode {
+  return (
+    <section
+      data-testid={`chunk-content-panel-${chunk.chunkId}`}
+      className="rounded-lg border border-border/70 bg-card p-3"
+    >
+      <SectionLabel icon={<FileText className="size-3.5" />} label="Content" />
+      <div className="mt-2 min-w-0">{children}</div>
+    </section>
+  );
+}
+
+function ChunkKeywords({ chunk }: { chunk: ParsedChunkView }): ReactNode {
+  if (!chunk.keywords || chunk.keywords.length === 0) return null;
+
+  return (
+    <section
+      data-testid={`chunk-keywords-panel-${chunk.chunkId}`}
+      className="rounded-lg border border-border/70 bg-background/70 p-3"
+    >
+      <SectionLabel icon={<Tags className="size-3.5" />} label="Keywords" />
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {chunk.keywords.map((keyword) => (
+          <Badge
+            key={keyword}
+            variant="secondary"
+            className="rounded-md px-2 py-0.5 text-[11px] font-medium text-muted-foreground"
+          >
+            {keyword}
+          </Badge>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function SectionLabel({
+  icon,
+  label,
+}: {
+  icon: ReactNode;
+  label: string;
+}): ReactNode {
+  return (
+    <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
+      <span className="text-primary">{icon}</span>
+      {label}
     </div>
   );
 }
 
 function focusCardClasses(isFocused: boolean): string {
   return isFocused
-    ? "border-primary bg-primary/5 ring-2 ring-primary/40 shadow-md"
+    ? "border-primary/70 bg-primary/5 ring-2 ring-primary/30 shadow-md"
     : "hover:border-primary/30";
 }
 
@@ -412,19 +515,17 @@ function TextChunkCard({
   chunk: ParsedChunkView;
   isFocused: boolean;
   onReferenceClick: (chunkId: string) => void;
-}) {
+}): ReactNode {
   return (
-    <Card
-      className={`w-full min-w-0 overflow-hidden cursor-default shadow-xs transition-colors ${focusCardClasses(isFocused)}`}
-    >
-      <CardContent className="p-4 sm:p-5">
-        <ChunkHeader chunk={chunk} />
+    <ChunkCardFrame chunk={chunk} isFocused={isFocused}>
+      <ChunkSummaryPanel chunk={chunk} />
+      <ChunkContentPanel chunk={chunk}>
         <pre className="whitespace-pre-wrap break-words font-sans text-[13px] leading-relaxed text-foreground sm:text-sm">
           {renderTextChunkContent(chunk, onReferenceClick)}
         </pre>
-        <ChunkKeywords keywords={chunk.keywords} />
-      </CardContent>
-    </Card>
+      </ChunkContentPanel>
+      <ChunkKeywords chunk={chunk} />
+    </ChunkCardFrame>
   );
 }
 
@@ -434,13 +535,11 @@ function ImageChunkCard({
 }: {
   chunk: ParsedChunkView;
   isFocused: boolean;
-}) {
+}): ReactNode {
   return (
-    <Card
-      className={`w-full min-w-0 overflow-hidden cursor-default shadow-xs transition-colors ${focusCardClasses(isFocused)}`}
-    >
-      <CardContent className="p-4 sm:p-5">
-        <ChunkHeader chunk={chunk} />
+    <ChunkCardFrame chunk={chunk} isFocused={isFocused}>
+      <ChunkSummaryPanel chunk={chunk} />
+      <ChunkContentPanel chunk={chunk}>
         {chunk.assetUrl ? (
           <figure className="overflow-hidden rounded-lg border border-border bg-muted/30">
             {/* eslint-disable-next-line @next/next/no-img-element -- Parsed artifact dimensions are not known before render. */}
@@ -463,9 +562,9 @@ function ImageChunkCard({
             </div>
           </div>
         )}
-        <ChunkKeywords keywords={chunk.keywords} />
-      </CardContent>
-    </Card>
+      </ChunkContentPanel>
+      <ChunkKeywords chunk={chunk} />
+    </ChunkCardFrame>
   );
 }
 
@@ -557,7 +656,7 @@ function ChunkReferenceButton({
 }: {
   connection: ParsedChunkConnection;
   onReferenceClick: (chunkId: string) => void;
-}) {
+}): ReactNode {
   const isResolved = typeof connection.targetChunkId === "string";
   const label = getReferenceLabel(connection);
 
@@ -622,7 +721,7 @@ function TableChunkCard({
 }: {
   chunk: ParsedChunkView;
   isFocused: boolean;
-}) {
+}): ReactNode {
   const hasHtml = chunk.content.trim().startsWith("<");
 
   const safeHtml = useMemo(
@@ -648,11 +747,9 @@ function TableChunkCard({
   );
 
   return (
-    <Card
-      className={`w-full min-w-0 overflow-hidden cursor-default shadow-xs transition-colors ${focusCardClasses(isFocused)}`}
-    >
-      <CardContent className="p-4 sm:p-5">
-        <ChunkHeader chunk={chunk} />
+    <ChunkCardFrame chunk={chunk} isFocused={isFocused}>
+      <ChunkSummaryPanel chunk={chunk} />
+      <ChunkContentPanel chunk={chunk}>
         {safeHtml ? (
           <div
             data-testid={`chunk-table-content-${chunk.chunkId}`}
@@ -672,8 +769,43 @@ function TableChunkCard({
             </div>
           </div>
         )}
-        <ChunkKeywords keywords={chunk.keywords} />
-      </CardContent>
-    </Card>
+      </ChunkContentPanel>
+      <ChunkKeywords chunk={chunk} />
+    </ChunkCardFrame>
   );
+}
+
+function renderChunkIcon(type: ParsedChunkView["type"]): ReactNode {
+  if (type === "image") return <ImageIcon className="size-4" />;
+  if (type === "table") return <Table2 className="size-4" />;
+  return <FileText className="size-4" />;
+}
+
+function getChunkIconClasses(type: ParsedChunkView["type"]): string {
+  if (type === "image") {
+    return "border-violet-500/15 bg-violet-500/10 text-violet-600 dark:text-violet-300";
+  }
+  if (type === "table") {
+    return "border-primary/15 bg-primary/10 text-primary";
+  }
+  return "border-border bg-muted/60 text-muted-foreground";
+}
+
+function getChunkTypeLabel(type: ParsedChunkView["type"]): string {
+  if (type === "image") return "Image";
+  if (type === "table") return "Table";
+  return "Text";
+}
+
+function formatPageNumbers(pageNums: ParsedChunkView["pageNums"]): string | null {
+  if (!pageNums || pageNums.length === 0) return null;
+
+  const uniquePageNums = Array.from(new Set(pageNums)).sort(
+    (leftPageNum, rightPageNum) => leftPageNum - rightPageNum,
+  );
+  if (uniquePageNums.length === 1) return `Page ${uniquePageNums[0]}`;
+
+  const visiblePageNums = uniquePageNums.slice(0, 3).join(", ");
+  const suffix = uniquePageNums.length > 3 ? "..." : "";
+  return `Pages ${visiblePageNums}${suffix}`;
 }
