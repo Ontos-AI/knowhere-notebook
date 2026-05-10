@@ -9,13 +9,14 @@ export function useHashFragment(): [
   navigateToChunk: (id: string | null) => void,
 ] {
   const [chunkId, setChunkId] = useState<string | null>(() =>
-    readHash(window.location.hash),
+    typeof window === "undefined" ? null : readHash(window.location.hash),
   );
 
   useEffect(() => {
-    function onHashChange() {
+    function onHashChange(): void {
       setChunkId(readHash(window.location.hash));
     }
+    onHashChange();
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
@@ -24,7 +25,11 @@ export function useHashFragment(): [
     if (id) {
       window.location.hash = `${CHUNK_PREFIX}${id}`;
     } else {
-      history.replaceState(null, "", window.location.pathname + window.location.search);
+      window.history.replaceState(
+        null,
+        "",
+        window.location.pathname + window.location.search,
+      );
       setChunkId(null);
     }
   }, []);

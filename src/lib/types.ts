@@ -75,7 +75,9 @@ export type RetrievalResultView = {
  * `RetrievalResultView.content` so Notebook never stores source chunk text in
  * Postgres; full chunks stay upstream in Knowhere and are fetched on demand.
  */
-export type CitationView = Omit<RetrievalResultView, "content">;
+export type CitationView = Omit<RetrievalResultView, "content"> & {
+  description?: string;
+};
 
 /**
  * UI chat citation. Fresh answers include retrieval `content` so the browser
@@ -83,7 +85,6 @@ export type CitationView = Omit<RetrievalResultView, "content">;
  * `content` is optional here.
  */
 export type ChatCitationView = CitationView & {
-  description?: string;
   content?: string;
 };
 

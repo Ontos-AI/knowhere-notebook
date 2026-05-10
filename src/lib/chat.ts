@@ -4,6 +4,7 @@ import { Effect, Either, Schema } from "effect"
 
 import { CHAT_MODEL } from "./ai"
 import type { Source } from "./schema"
+import type { ChatCitationView } from "./types"
 
 const DEFAULT_TOP_K = 8
 const NO_RESULTS_ANSWER = "I couldn't find that in your sources."
@@ -28,7 +29,7 @@ export type AnswerQuestionInput = {
 
 export type AnswerQuestionResult = {
   answer: string
-  citations: RetrievalResult[]
+  citations: ChatCitationView[]
 }
 
 export type ParsedChatRequest = {
@@ -54,7 +55,7 @@ export const answerQuestionWithRetrieval = (input: AnswerQuestionInput) =>
     )
 
     if (response.results.length === 0) {
-      return { answer: NO_RESULTS_ANSWER, citations: [] as RetrievalResult[] }
+      return { answer: NO_RESULTS_ANSWER, citations: [] as ChatCitationView[] }
     }
 
     const answer = yield* Effect.tryPromise(() =>
@@ -63,7 +64,10 @@ export const answerQuestionWithRetrieval = (input: AnswerQuestionInput) =>
         results: response.results,
       }),
     )
-    return { answer, citations: response.results }
+    return {
+      answer,
+      citations: toChatCitationViews(response.results, answer),
+    }
   })
 
 export const generateGroundedAnswerEffect = (input: {
@@ -124,6 +128,51 @@ export function buildGroundedPrompt(input: {
     "Source excerpts:",
     sources,
   ].join("\n")
+}
+
+function toChatCitationViews(
+  results: readonly RetrievalResult[],
+  answer: string,
+): ChatCitationView[] {
+  const descriptionsBySourceNumber = getCitationDescriptions(answer)
+
+  return results.map((result, index) => {
+    const description = descriptionsBySourceNumber.get(index + 1)
+    return {
+      content: result.content,
+      chunkType: result.chunkType,
+      score: result.score,
+      ...(result.assetUrl ? { assetUrl: result.assetUrl } : {}),
+      ...(description ? { description } : {}),
+      source: {
+        documentId: result.source.documentId,
+        sourceFileName: result.source.sourceFileName,
+        sectionPath: result.source.sectionPath,
+      },
+    }
+  })
+}
+
+function getCitationDescriptions(answer: string): Map<number, string> {
+  const descriptions = new Map<number, string>()
+  const citationPattern = /\[Source\s+(\d+)\s*:\s*([^\]]+)\]/gi
+  let match: RegExpExecArray | null
+
+  while ((match = citationPattern.exec(answer)) !== null) {
+    const sourceNumber = Number(match[1])
+    const description = match[2]?.trim()
+
+    if (
+      Number.isSafeInteger(sourceNumber) &&
+      sourceNumber > 0 &&
+      description &&
+      !descriptions.has(sourceNumber)
+    ) {
+      descriptions.set(sourceNumber, description)
+    }
+  }
+
+  return descriptions
 }
 
 const ChatRequestBody = Schema.Struct({

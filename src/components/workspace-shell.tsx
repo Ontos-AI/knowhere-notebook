@@ -337,21 +337,30 @@ function WorkspaceShellContent({
 
   const [hashChunkId, setHashChunkId] = useHashFragment()
 
+  const requestChunkFocus = useCallback(
+    (chunkId: string | null): void => {
+      setFocusedChunk((current) => ({
+        chunkId,
+        requestId: current.requestId + 1,
+      }))
+      // Push to URL hash so back/forward and deep-linking work.
+      setHashChunkId(chunkId)
+    },
+    [setHashChunkId],
+  )
+
   // Read the initial hash fragment and trigger focus if present.
   useEffect(() => {
-    if (hashChunkId) {
-      requestChunkFocus(hashChunkId)
+    if (!hashChunkId) {
+      return
     }
-  }, [hashChunkId])
 
-  function requestChunkFocus(chunkId: string | null): void {
-    setFocusedChunk((current) => ({
-      chunkId,
-      requestId: current.requestId + 1,
-    }))
-    // Push to URL hash so back/forward and deep-linking work.
-    setHashChunkId(chunkId)
-  }
+    const frameId = window.requestAnimationFrame(() => {
+      requestChunkFocus(hashChunkId)
+    })
+
+    return () => window.cancelAnimationFrame(frameId)
+  }, [hashChunkId, requestChunkFocus])
 
   function handleLoadMoreChunks(): void {
     if (!hasMoreSelectedChunks || isSelectedChunksLoadingMore) return
@@ -649,47 +658,6 @@ function WorkspaceShellContent({
     }
   }
 
-  async function handleDemoCitationClick(
-    citation: ChatCitationView,
-    citationId: string,
-  ) {
-    setPendingCitationId(citationId)
-    try {
-      const source = sources.find(
-        (candidate) => candidate.documentId === citation.source.documentId,
-      )
-      if (!source) return
-      // Load demo chunks from the public static directory.
-      setSelectedSourceId(source.id)
-      const assetDir = source.id.replace(/^demo-/, "")
-      const res = await fetch(
-        `/demo-sources/${assetDir}/chunks.json`,
-        { cache: "force-cache" },
-      )
-      if (!res.ok) return
-      const body = (await res.json()) as unknown
-      const chunks = parseDemoChunks(body, source.id)
-      // Focus the first matching chunk by section path or content.
-      // The demo citations carry `sectionPath` for exact matching.
-      const match = chunks.find(
-        (c) =>
-          c.sectionPath === citation.source.sectionPath ||
-          c.content.includes(citation.content?.slice(0, 30) ?? ""),
-      )
-      if (match) {
-        requestChunkFocus(match.chunkId)
-        return
-      }
-      requestChunkFocus(chunks[0]?.chunkId ?? null)
-    } catch {
-      // Silently fail — the citation target might be malformed.
-    } finally {
-      setPendingCitationId((current) =>
-        current === citationId ? null : current,
-      )
-    }
-  }
-
   async function handleCitationClick(
     citation: ChatCitationView,
     citationId: string,
@@ -828,9 +796,7 @@ function WorkspaceShellContent({
               onNewChat={isGuest ? undefined : handleCreateChatThread}
               onThreadSelect={isGuest ? undefined : handleSelectChatThread}
               onThreadArchive={isGuest ? undefined : handleArchiveChatThread}
-              onCitationClick={
-                isGuest ? handleDemoCitationClick : handleCitationClick
-              }
+              onCitationClick={handleCitationClick}
               onLoginClick={isGuest ? redirectToLogin : undefined}
             />
           </div>
@@ -926,31 +892,6 @@ function WorkspaceShellContent({
       )}
     </div>
   )
-}
-
-/** Minimal parser for demo chunks.json files loaded on the client. */
-function parseDemoChunks(
-  body: unknown,
-  sourceId: string,
-): ParsedChunkView[] {
-  if (!Array.isArray(body)) return []
-  return body
-    .filter(isRecord)
-    .map((raw) => ({
-      chunkId: `${sourceId}:${String(raw.chunk_id ?? "")}`,
-      type: String(raw.type ?? "text") as ParsedChunkView["type"],
-      content: String(raw.content ?? ""),
-      sourceTitle: sourceId,
-      sectionPath: typeof raw.section_path === "string" ? raw.section_path : undefined,
-      summary: typeof raw.summary === "string" ? raw.summary : undefined,
-      keywords: Array.isArray(raw.keywords)
-        ? raw.keywords.map(String)
-        : undefined,
-    }))
-}
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return v !== null && typeof v === "object"
 }
 
 async function fetchChunks(sourceId: string): Promise<ParsedChunkView[]> {

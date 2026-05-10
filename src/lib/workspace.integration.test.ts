@@ -224,6 +224,7 @@ describeIfDb("workspace helpers — integration", () => {
           chunkType: "text",
           score: 0.91,
           assetUrl: "https://assets.example/doc.pdf",
+          description: "intro summary",
           source: {
             documentId: "doc_123",
             sourceFileName: "doc.pdf",
@@ -245,6 +246,7 @@ describeIfDb("workspace helpers — integration", () => {
       chunkType: "text",
       score: 0.91,
       assetUrl: "https://assets.example/doc.pdf",
+      description: "intro summary",
       source: {
         documentId: "doc_123",
         sourceFileName: "doc.pdf",

@@ -59,6 +59,50 @@ describe("answerQuestionWithRetrieval", () => {
     });
   });
 
+  it("attaches citation descriptions from generated source labels", async () => {
+    const firstResult = makeRetrievalResult({
+      source: {
+        documentId: "doc_1",
+        sourceFileName: "notes.txt",
+        sectionPath: "Revenue",
+      },
+    });
+    const secondResult = makeRetrievalResult({
+      content: "Gross margin improved.",
+      source: {
+        documentId: "doc_2",
+        sourceFileName: "notes.txt",
+        sectionPath: "Margin",
+      },
+    });
+    const retrieval = {
+      query: vi.fn().mockResolvedValue({
+        results: [firstResult, secondResult],
+      }),
+    };
+    const generateAnswer = vi
+      .fn()
+      .mockResolvedValue(
+        "Revenue improved [Source 1: revenue growth]. Margins expanded [Source 2: margin expansion].",
+      );
+
+    const answer = await Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "What improved?",
+        namespace: "notebook-workspace",
+        sources: [makeSource()],
+        excludedSourceIds: [],
+        retrieval,
+        generateAnswer,
+      }),
+    );
+
+    expect(answer.citations).toEqual([
+      { ...firstResult, description: "revenue growth" },
+      { ...secondResult, description: "margin expansion" },
+    ]);
+  });
+
   it("returns a deterministic no-results answer without calling the model", async () => {
     const retrieval = {
       query: vi.fn().mockResolvedValue({ results: [] }),

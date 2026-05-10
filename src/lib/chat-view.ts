@@ -1,5 +1,3 @@
-import type { RetrievalResult } from "@ontos-ai/knowhere-sdk"
-
 import { deriveChatThreadTitle } from "./chat-title"
 import type { ChatMessage, ChatThread } from "./schema"
 import type {
@@ -19,11 +17,11 @@ export function toChatThreadView(thread: ChatThread): ChatThreadView {
 
 export function toChatMessageView(
   message: ChatMessage,
-  citations: readonly RetrievalResult[] = [],
+  citations: readonly ChatCitationView[] = [],
 ): ChatMessageView {
   const citationViews =
     citations.length > 0
-      ? citations.map(toRetrievalResultView)
+      ? [...citations]
       : toPersistedCitationViews(message.citations)
 
   return {
@@ -31,20 +29,6 @@ export function toChatMessageView(
     role: message.role === "assistant" ? "assistant" : "user",
     content: message.content,
     citations: citationViews,
-  }
-}
-
-function toRetrievalResultView(result: RetrievalResult): ChatCitationView {
-  return {
-    content: result.content,
-    chunkType: result.chunkType,
-    score: result.score,
-    assetUrl: result.assetUrl,
-    source: {
-      documentId: result.source.documentId,
-      sourceFileName: result.source.sourceFileName,
-      sectionPath: result.source.sectionPath,
-    },
   }
 }
 
@@ -59,6 +43,7 @@ function toPersistedCitationViews(value: unknown): ChatCitationView[] | undefine
         chunkType: getString(item.chunkType) ?? "text",
         score: getNumber(item.score) ?? 0,
         assetUrl: getString(item.assetUrl),
+        description: getString(item.description),
         source: {
           documentId: getString(item.source.documentId),
           sourceFileName: getString(item.source.sourceFileName),

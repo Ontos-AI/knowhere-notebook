@@ -1,4 +1,3 @@
-import type { RetrievalResult } from "@ontos-ai/knowhere-sdk"
 import { Effect, Either } from "effect"
 
 import {
@@ -8,7 +7,7 @@ import {
 } from "./chat"
 import { toChatMessageView } from "./chat-view"
 import type { ChatMessage, ChatThread, Source, Workspace } from "./schema"
-import type { ChatMessageView } from "./types"
+import type { ChatCitationView, ChatMessageView } from "./types"
 
 export type ChatRepository = {
   ensureDefaultChatThread(workspaceId: string): Promise<ChatThread>
@@ -22,7 +21,7 @@ export type ChatRepository = {
       threadId: string
       role: "user" | "assistant"
       content: string
-      citations?: readonly RetrievalResult[] | null
+      citations?: readonly ChatCitationView[] | null
     },
   ): Promise<ChatMessage | null>
 }

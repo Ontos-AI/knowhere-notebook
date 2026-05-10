@@ -499,7 +499,7 @@ function SectionLabel({
 
 function focusCardClasses(isFocused: boolean): string {
   return isFocused
-    ? "border-primary/70 bg-primary/5 ring-2 ring-primary/30 shadow-md"
+    ? "citation-card-highlight border-primary/70 bg-primary/5 ring-2 ring-primary/30 shadow-md"
     : "hover:border-primary/30";
 }
 
