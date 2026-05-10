@@ -3,8 +3,16 @@ import {
   HttpClient,
   HttpClientRequest,
 } from "@effect/platform";
+import { upload as uploadBlob } from "@vercel/blob/client";
 import { Effect } from "effect";
 
+import {
+  createSourceBlobUploadInput,
+  getSourceUploadBlobPathname,
+  shouldStageUploadInBlob,
+  SOURCE_UPLOAD_BLOB_HANDLE_PATH,
+} from "./source-blob-upload";
+import { validateUploadFile } from "./source-validation";
 import type { SourceView } from "./types";
 
 type SourceUploadResponseBody = {
@@ -20,8 +28,50 @@ type SourceUploadResponse = {
 export async function postSourceUpload(
   file: File,
 ): Promise<SourceUploadResponse> {
+  if (shouldStageUploadInBlob(file)) {
+    return postBlobBackedSourceUpload(file);
+  }
+
   return Effect.runPromise(
     postSourceUploadEffect(file).pipe(Effect.provide(FetchHttpClient.layer)),
+  );
+}
+
+async function postBlobBackedSourceUpload(
+  file: File,
+): Promise<SourceUploadResponse> {
+  const validation = validateUploadFile(file);
+  if (!validation.ok) {
+    return {
+      status: 400,
+      body: { message: validation.message },
+    };
+  }
+
+  const pathname = getSourceUploadBlobPathname(file);
+  const blob = await uploadBlob(pathname, file, {
+    access: "private",
+    contentType: validation.mimeType,
+    handleUploadUrl: SOURCE_UPLOAD_BLOB_HANDLE_PATH,
+    multipart: true,
+    clientPayload: JSON.stringify({
+      fileName: validation.title,
+      mimeType: validation.mimeType,
+      sizeBytes: file.size,
+    }),
+  });
+  const input = createSourceBlobUploadInput(file, blob.pathname);
+  if ("message" in input) {
+    return {
+      status: 400,
+      body: { message: input.message },
+    };
+  }
+
+  return Effect.runPromise(
+    postSourceBlobUploadEffect(input).pipe(
+      Effect.provide(FetchHttpClient.layer),
+    ),
   );
 }
 
@@ -36,6 +86,36 @@ const postSourceUploadEffect = Effect.fn("postSourceUpload")(
       HttpClientRequest.bodyFormData(formData),
       HttpClient.execute,
     );
+    const body: unknown = yield* response.json;
+
+    return {
+      status: response.status,
+      body: parseSourceUploadResponseBody(body),
+    };
+  },
+);
+
+const postSourceBlobUploadEffect = Effect.fn("postSourceBlobUpload")(
+  function* (input: {
+    readonly pathname: string;
+    readonly fileName: string;
+    readonly mimeType: string;
+    readonly sizeBytes: number;
+  }) {
+    const request = yield* HttpClientRequest.post(
+      resolveSameOriginUrl("/api/sources"),
+    ).pipe(
+      HttpClientRequest.bodyJson({
+        upload: {
+          type: "blob",
+          pathname: input.pathname,
+          fileName: input.fileName,
+          mimeType: input.mimeType,
+          sizeBytes: input.sizeBytes,
+        },
+      }),
+    );
+    const response = yield* HttpClient.execute(request);
     const body: unknown = yield* response.json;
 
     return {

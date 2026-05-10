@@ -1,0 +1,139 @@
+import {
+  MAX_UPLOAD_BYTES,
+  validateUploadFile,
+  type UploadValidationResult,
+} from "./source-validation";
+
+export const SOURCE_UPLOAD_BLOB_HANDLE_PATH = "/api/source-uploads/blob";
+export const SOURCE_UPLOAD_BLOB_PREFIX = "source-uploads";
+export const SERVER_UPLOAD_BODY_LIMIT_BYTES = 4 * 1024 * 1024;
+
+export type SourceBlobUploadInput = {
+  readonly pathname: string;
+  readonly fileName: string;
+  readonly mimeType: string;
+  readonly sizeBytes: number;
+};
+
+export type SourceBlobUploadMetadata = Omit<SourceBlobUploadInput, "pathname">;
+
+export function shouldStageUploadInBlob(file: File): boolean {
+  return file.size > SERVER_UPLOAD_BODY_LIMIT_BYTES;
+}
+
+export function getSourceUploadBlobPathname(file: File): string {
+  const validation = validateUploadFile(file);
+  const extension = validation.ok ? validation.extension : "bin";
+  const uploadId = getUploadId();
+  return `${SOURCE_UPLOAD_BLOB_PREFIX}/${uploadId}/document.${extension}`;
+}
+
+export function createSourceBlobUploadInput(
+  file: File,
+  pathname: string,
+): SourceBlobUploadInput | { readonly message: string } {
+  const validation = validateUploadFile(file);
+  if (!validation.ok) {
+    return { message: validation.message };
+  }
+
+  return {
+    pathname,
+    fileName: validation.title,
+    mimeType: validation.mimeType,
+    sizeBytes: file.size,
+  };
+}
+
+export function parseSourceBlobUploadBody(
+  body: unknown,
+): SourceBlobUploadInput | null {
+  if (!isRecord(body)) return null;
+  const upload = body.upload;
+  if (!isRecord(upload) || upload.type !== "blob") return null;
+
+  const { pathname, fileName, mimeType, sizeBytes } = upload;
+  if (
+    typeof pathname !== "string" ||
+    typeof fileName !== "string" ||
+    typeof mimeType !== "string" ||
+    typeof sizeBytes !== "number" ||
+    !Number.isFinite(sizeBytes) ||
+    sizeBytes <= 0
+  ) {
+    return null;
+  }
+
+  return { pathname, fileName, mimeType, sizeBytes };
+}
+
+export function parseSourceBlobClientPayload(
+  payload: string | null,
+): SourceBlobUploadMetadata | null {
+  if (!payload) return null;
+
+  try {
+    const body = JSON.parse(payload) as unknown;
+    if (!isRecord(body)) return null;
+    const { fileName, mimeType, sizeBytes } = body;
+    if (
+      typeof fileName !== "string" ||
+      typeof mimeType !== "string" ||
+      typeof sizeBytes !== "number" ||
+      !Number.isFinite(sizeBytes) ||
+      sizeBytes <= 0
+    ) {
+      return null;
+    }
+
+    return { fileName, mimeType, sizeBytes };
+  } catch {
+    return null;
+  }
+}
+
+export function validateSourceBlobUploadInput(
+  input: SourceBlobUploadInput,
+): UploadValidationResult {
+  if (!isValidSourceBlobPathname(input.pathname)) {
+    return {
+      ok: false,
+      message: "Invalid upload path. Choose the document again.",
+    };
+  }
+
+  if (input.sizeBytes > MAX_UPLOAD_BYTES) {
+    return {
+      ok: false,
+      message: "File is too large. Upload a document up to 100 MB.",
+    };
+  }
+
+  return validateUploadFile({
+    name: input.fileName,
+    type: input.mimeType,
+    size: input.sizeBytes,
+  });
+}
+
+function isValidSourceBlobPathname(pathname: string): boolean {
+  if (!pathname.startsWith(`${SOURCE_UPLOAD_BLOB_PREFIX}/`)) return false;
+  if (pathname.includes("\0")) return false;
+
+  const parts = pathname.split("/");
+  if (parts.length !== 3) return false;
+  return parts.every((part) => part.length > 0 && part !== "." && part !== "..");
+}
+
+function getUploadId(): string {
+  const randomUUID = globalThis.crypto?.randomUUID;
+  if (typeof randomUUID === "function") {
+    return randomUUID.call(globalThis.crypto);
+  }
+
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
