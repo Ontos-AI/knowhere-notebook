@@ -168,4 +168,29 @@ describe("ChunksPanel", () => {
     expect(screen.queryByText(/tables\/table-5/)).toBeNull();
     expect(screen.queryByText(/\.html/)).toBeNull();
   });
+
+  it("does not load more chunks from a zero-sized hidden viewport", async () => {
+    const onLoadMore = vi.fn();
+
+    render(
+      React.createElement(C, {
+        chunks: [
+          {
+            chunkId: "chunk_1",
+            type: "text",
+            content: "Already loaded chunk.",
+            sourceTitle: "large.pdf",
+          },
+        ],
+        hasMoreChunks: true,
+        onLoadMore,
+      }),
+    );
+
+    await new Promise<void>((resolve) => {
+      window.setTimeout(resolve, 0);
+    });
+
+    expect(onLoadMore).not.toHaveBeenCalled();
+  });
 });

@@ -187,7 +187,7 @@ export function resolveCitationChunk(
       !citation.source.documentId ||
       chunk.documentId === citation.source.documentId,
   )
-  const byContent = findByContent(documentChunks, citation.content)
+  const byContent = resolveCitationChunkByContent(citation, documentChunks)
   if (byContent) return byContent
 
   const byPath = findUniqueBySectionPath(
@@ -197,6 +197,18 @@ export function resolveCitationChunk(
   if (byPath) return byPath
 
   return null
+}
+
+export function resolveCitationChunkByContent(
+  citation: ChatCitationView,
+  chunks: readonly ParsedChunkView[],
+): ParsedChunkView | null {
+  const documentChunks = chunks.filter(
+    (chunk) =>
+      !citation.source.documentId ||
+      chunk.documentId === citation.source.documentId,
+  )
+  return findByContent(documentChunks, citation.content)
 }
 
 function toChunkType(chunkType: DocumentChunkType): ChunkType {

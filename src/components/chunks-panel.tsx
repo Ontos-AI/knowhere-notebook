@@ -124,7 +124,13 @@ export function ChunksPanel({
 
   const requestMoreChunksIfNeeded = useCallback(
     (viewport: HTMLDivElement): void => {
-      if (!onLoadMore || !hasMoreChunks || isLoading || isLoadingMore) {
+      if (
+        !onLoadMore ||
+        !hasMoreChunks ||
+        isLoading ||
+        isLoadingMore ||
+        !hasVisibleViewportSize(viewport)
+      ) {
         return;
       }
 
@@ -423,6 +429,10 @@ function scrollViewportTo(viewport: HTMLDivElement, top: number): void {
   }
 
   viewport.scrollTop = top;
+}
+
+function hasVisibleViewportSize(viewport: HTMLDivElement): boolean {
+  return viewport.clientHeight > 0 && viewport.scrollHeight > 0;
 }
 
 function scrollRenderedChunkIntoView(

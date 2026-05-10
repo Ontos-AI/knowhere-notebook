@@ -21,6 +21,7 @@ import { deriveChatThreadTitle } from "@/lib/chat-title"
 import {
   resolveChunkConnectionTargets,
   resolveCitationChunk,
+  resolveCitationChunkByContent,
   type ChunkPagePagination,
 } from "@/lib/chunks"
 import type {
@@ -647,7 +648,9 @@ function WorkspaceShellContent({
       if (!source) return
 
       if (selectedSourceId === source.id && selectedChunks.length > 0) {
-        const focusedChunk = resolveCitationChunk(citation, selectedChunks)
+        const focusedChunk = hasMoreSelectedChunks
+          ? resolveCitationChunkByContent(citation, selectedChunks)
+          : resolveCitationChunk(citation, selectedChunks)
         if (focusedChunk) {
           requestChunkFocus(focusedChunk.chunkId)
           return
