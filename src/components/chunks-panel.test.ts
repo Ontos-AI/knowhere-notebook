@@ -222,7 +222,10 @@ describe("ChunksPanel", () => {
       expect(screen.getByTestId("chunk-card-shell-chunk_50")).toBeTruthy();
     });
     await waitFor(() => {
-      expect(scrollIntoView).toHaveBeenCalled();
+      expect(scrollIntoView).toHaveBeenCalledWith({
+        behavior: "smooth",
+        block: "start",
+      });
     });
   });
 

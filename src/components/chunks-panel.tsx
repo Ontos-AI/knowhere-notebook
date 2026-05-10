@@ -125,7 +125,7 @@ export function ChunksPanel({
       return;
     }
 
-    chunkVirtualizer.scrollToIndex(index, { align: "center" });
+    chunkVirtualizer.scrollToIndex(index, { align: "start" });
   }, [chunkVirtualizer]);
 
   const scrollToChunkId = useCallback(
@@ -164,7 +164,7 @@ export function ChunksPanel({
     if (activeFocusedChunkId && focusedElement) {
       focusedElement.scrollIntoView({
         behavior: "smooth",
-        block: "center",
+        block: "start",
       });
     }
   }, [activeFocusedChunkId, focusedChunkRequestId, isFocusedChunkRendered]);
