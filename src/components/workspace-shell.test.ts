@@ -117,6 +117,173 @@ describe("WorkspaceShell", () => {
     ).toBeTruthy();
   });
 
+  it("focuses guest citations on desktop using loaded demo chunks", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
+      const url = getRequestURL(input);
+
+      if (url.pathname === "/api/sources/demo-source/chunks") {
+        return Response.json({
+          chunks: [
+            {
+              chunkId: "demo-source:chunk_1",
+              documentId: "doc_1",
+              sectionPath: "Demo",
+              type: "text",
+              content: "Demo cited section",
+              sourceTitle: "demo.pdf",
+            },
+          ],
+          pagination: {
+            page: Number(url.searchParams.get("page") ?? "1"),
+            pageSize: 100,
+            total: 1,
+            totalPages: 1,
+          },
+        });
+      }
+
+      return Response.json({ message: "Unexpected request" }, { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetch);
+    const user = userEvent.setup();
+
+    render(
+      React.createElement(C, {
+        isGuest: true,
+        sources: [
+          {
+            id: "demo-source",
+            title: "demo.pdf",
+            status: "ready",
+            documentId: "doc_1",
+          },
+        ],
+        chatMessages: [
+          {
+            id: "assistant_1",
+            role: "assistant",
+            content: "Demo answer.",
+            citations: [
+              {
+                content: "Demo cited section",
+                description: "Demo citation",
+                chunkType: "text",
+                score: 0.91,
+                source: {
+                  documentId: "doc_1",
+                  sourceFileName: "demo.pdf",
+                  sectionPath: "Demo",
+                },
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    const desktopChatPanel = within(screen.getByTestId("desktop-chat-panel"));
+    await user.click(
+      desktopChatPanel.getByRole("button", {
+        name: "Open source demo.pdf · Demo citation",
+      }),
+    );
+
+    await waitFor(() => {
+      const topRow = screen
+        .getByTestId("desktop-chunks-panel")
+        .querySelector<HTMLElement>('[data-index="0"]');
+
+      expect(topRow?.getAttribute("data-chunk-id")).toBe("demo-source:chunk_1");
+      expect(topRow?.getAttribute("data-focused-chunk")).toBe("true");
+    });
+    expect(
+      fetch.mock.calls.some(([input]) =>
+        getRequestPath(input).startsWith("/demo-sources/"),
+      ),
+    ).toBe(false);
+  });
+
+  it("focuses guest citations from the mobile chat panel", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
+      const url = getRequestURL(input);
+
+      if (url.pathname === "/api/sources/demo-source/chunks") {
+        return Response.json({
+          chunks: [
+            {
+              chunkId: "demo-source:chunk_1",
+              documentId: "doc_1",
+              sectionPath: "Demo",
+              type: "text",
+              content: "Demo cited section",
+              sourceTitle: "demo.pdf",
+            },
+          ],
+          pagination: {
+            page: Number(url.searchParams.get("page") ?? "1"),
+            pageSize: 100,
+            total: 1,
+            totalPages: 1,
+          },
+        });
+      }
+
+      return Response.json({ message: "Unexpected request" }, { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetch);
+    const user = userEvent.setup();
+
+    render(
+      React.createElement(C, {
+        isGuest: true,
+        sources: [
+          {
+            id: "demo-source",
+            title: "demo.pdf",
+            status: "ready",
+            documentId: "doc_1",
+          },
+        ],
+        chatMessages: [
+          {
+            id: "assistant_1",
+            role: "assistant",
+            content: "Demo answer.",
+            citations: [
+              {
+                content: "Demo cited section",
+                description: "Demo citation",
+                chunkType: "text",
+                score: 0.91,
+                source: {
+                  documentId: "doc_1",
+                  sourceFileName: "demo.pdf",
+                  sectionPath: "Demo",
+                },
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    const mobileChatPanel = within(document.getElementById("panel-chat")!);
+    await user.click(
+      mobileChatPanel.getByRole("button", {
+        name: "Open source demo.pdf · Demo citation",
+      }),
+    );
+
+    await waitFor(() => {
+      const topRow = document
+        .getElementById("panel-content")!
+        .querySelector<HTMLElement>('[data-index="0"]');
+
+      expect(topRow?.getAttribute("data-chunk-id")).toBe("demo-source:chunk_1");
+      expect(topRow?.getAttribute("data-focused-chunk")).toBe("true");
+    });
+  });
+
   it("reuses loaded chunks when users click another citation from the same source", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
       const path = getRequestPath(input);

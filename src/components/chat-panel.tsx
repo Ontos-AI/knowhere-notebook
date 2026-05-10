@@ -625,7 +625,7 @@ function getCitationId(messageId: string, citationIndex: number): string {
 function getCitationLabel(citation: ChatCitationView): string {
   return [
     citation.source.sourceFileName ?? "Section",
-    citation.source.sectionPath,
+    citation.description ?? citation.source.sectionPath,
   ]
     .filter(
       (value): value is string =>

@@ -4,7 +4,11 @@ import { Either } from "effect";
 
 import { ensureApiKeyForWorkspace } from "@/lib/api-key-service";
 import { requireUser } from "@/lib/auth";
-import { generateGroundedAnswer, parseChatRequestBody } from "@/lib/chat";
+import {
+  generateContextualRetrievalQuery,
+  generateGroundedAnswer,
+  parseChatRequestBody,
+} from "@/lib/chat";
 import { handleChatTurn } from "@/lib/chat-service";
 import { makeKnowhereClient } from "@/lib/knowhere";
 import { ensureWorkspace, listSourcesForWorkspace } from "@/lib/workspace";
@@ -12,6 +16,7 @@ import {
   appendMessageToThread,
   ensureDefaultChatThread,
   findChatThreadInWorkspace,
+  listMessagesForThread,
 } from "@/lib/workspace";
 
 export async function POST(request: Request): Promise<NextResponse> {
@@ -35,10 +40,12 @@ export async function POST(request: Request): Promise<NextResponse> {
       threadId: body.value.threadId,
       excludedSourceIds: body.value.excludedSourceIds,
       retrieval: client.retrieval,
+      generateRetrievalQuery: generateContextualRetrievalQuery,
       generateAnswer: generateGroundedAnswer,
       repository: {
         ensureDefaultChatThread,
         findChatThreadInWorkspace,
+        listMessagesForThread,
         appendMessageToThread,
       },
     })
