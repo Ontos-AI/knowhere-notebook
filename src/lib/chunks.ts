@@ -182,12 +182,8 @@ export function resolveCitationChunk(
   citation: ChatCitationView,
   chunks: readonly ParsedChunkView[],
 ): ParsedChunkView | null {
-  const documentChunks = chunks.filter(
-    (chunk) =>
-      !citation.source.documentId ||
-      chunk.documentId === citation.source.documentId,
-  )
-  const byContent = resolveCitationChunkByContent(citation, documentChunks)
+  const documentChunks = getCitationDocumentChunks(citation, chunks)
+  const byContent = findByContent(documentChunks, citation.content)
   if (byContent) return byContent
 
   const byPath = findUniqueBySectionPath(
@@ -203,12 +199,10 @@ export function resolveCitationChunkByContent(
   citation: ChatCitationView,
   chunks: readonly ParsedChunkView[],
 ): ParsedChunkView | null {
-  const documentChunks = chunks.filter(
-    (chunk) =>
-      !citation.source.documentId ||
-      chunk.documentId === citation.source.documentId,
+  return findByContent(
+    getCitationDocumentChunks(citation, chunks),
+    citation.content,
   )
-  return findByContent(documentChunks, citation.content)
 }
 
 function toChunkType(chunkType: DocumentChunkType): ChunkType {
@@ -360,6 +354,14 @@ function findUniqueBySectionPath(
     (chunk) => normalizeText(chunk.sectionPath ?? "") === normalized,
   )
   return matches.length === 1 ? matches[0]! : null
+}
+
+function getCitationDocumentChunks(
+  citation: ChatCitationView,
+  chunks: readonly ParsedChunkView[],
+): readonly ParsedChunkView[] {
+  if (!citation.source.documentId) return chunks
+  return chunks.filter((chunk) => chunk.documentId === citation.source.documentId)
 }
 
 function findByContent(

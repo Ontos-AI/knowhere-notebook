@@ -129,7 +129,6 @@ type ChatThreadKey = readonly ["chat-thread", string]
 type SourceChunksResponse = {
   chunks?: ParsedChunkView[]
   pagination?: ChunkPagePagination
-  message?: string
 }
 
 export type WorkspaceShellProps = {
@@ -370,8 +369,7 @@ function WorkspaceShellContent({
     })
   }
 
-  const selectedSourceTitle =
-    sources.find((source) => source.id === selectedSourceId)?.title ?? null
+  const selectedSourceTitle = selectedSource?.title ?? null
 
   function handleChatThreadLoaded(body: ChatThreadDetailResponse): void {
     const requestedThreadId = body.requestedThreadId
@@ -859,7 +857,7 @@ function WorkspaceShellContent({
       <MobileTabBar
         activePanel={mobilePanel}
         onPanelChange={setMobilePanel}
-        sourceCount={sources.filter((s) => s.status === "ready").length}
+        sourceCount={readySourceCount}
         chunkCount={selectedChunks.length}
         hasMessages={hasMessages}
       />
@@ -899,7 +897,6 @@ async function fetchChunkPage(
   return {
     chunks: Array.isArray(body.chunks) ? body.chunks : [],
     pagination: body.pagination,
-    message: body.message,
   }
 }
 
@@ -919,7 +916,7 @@ function getSourceChunksKey(
   previousPageData: SourceChunksResponse | null,
 ): SourceChunksKey | null {
   if (!sourceId) return null
-  if (previousPageData && !hasMoreChunkPages([previousPageData])) return null
+  if (previousPageData && !hasMoreChunkPage(previousPageData)) return null
   return ["source-chunks", sourceId, pageIndex + 1] as const
 }
 
@@ -935,8 +932,12 @@ function hasMoreChunkPages(
   pages: readonly SourceChunksResponse[] | undefined,
 ): boolean {
   const lastPage = pages?.at(-1)
-  if (!lastPage?.pagination) return false
-  return lastPage.pagination.page < lastPage.pagination.totalPages
+  return lastPage ? hasMoreChunkPage(lastPage) : false
+}
+
+function hasMoreChunkPage(page: SourceChunksResponse): boolean {
+  if (!page.pagination) return false
+  return page.pagination.page < page.pagination.totalPages
 }
 
 function getChatThreadKey(threadId: string): ChatThreadKey {
