@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { PointerEvent as ReactPointerEvent } from "react"
 import { Effect } from "effect"
 import useSWR, { SWRConfig, unstable_serialize, useSWRConfig } from "swr"
@@ -24,6 +24,7 @@ import {
   resolveCitationChunkByContent,
   type ChunkPagePagination,
 } from "@/lib/chunks"
+import { useHashFragment } from "@/lib/use-hash-fragment"
 import type {
   ChatCitationView,
   ChatMessageView,
@@ -334,11 +335,22 @@ function WorkspaceShellContent({
     window.location.href = loginUrl ?? "/login"
   }
 
+  const [hashChunkId, setHashChunkId] = useHashFragment()
+
+  // Read the initial hash fragment and trigger focus if present.
+  useEffect(() => {
+    if (hashChunkId) {
+      requestChunkFocus(hashChunkId)
+    }
+  }, [hashChunkId])
+
   function requestChunkFocus(chunkId: string | null): void {
     setFocusedChunk((current) => ({
       chunkId,
       requestId: current.requestId + 1,
     }))
+    // Push to URL hash so back/forward and deep-linking work.
+    setHashChunkId(chunkId)
   }
 
   function handleLoadMoreChunks(): void {
