@@ -62,17 +62,27 @@ async function postBlobBackedSourceUpload(
   });
   const input = createSourceBlobUploadInput(file, blob.pathname);
   if ("message" in input) {
+    await cleanupSourceBlobUpload(blob.pathname);
     return {
       status: 400,
       body: { message: input.message },
     };
   }
 
-  return Effect.runPromise(
-    postSourceBlobUploadEffect(input).pipe(
-      Effect.provide(FetchHttpClient.layer),
-    ),
-  );
+  try {
+    const response = await Effect.runPromise(
+      postSourceBlobUploadEffect(input).pipe(
+        Effect.provide(FetchHttpClient.layer),
+      ),
+    );
+    if (!isSuccessfulStatus(response.status)) {
+      await cleanupSourceBlobUpload(blob.pathname);
+    }
+    return response;
+  } catch (error) {
+    await cleanupSourceBlobUpload(blob.pathname);
+    throw error;
+  }
 }
 
 const postSourceUploadEffect = Effect.fn("postSourceUpload")(
@@ -136,6 +146,23 @@ function parseSourceUploadResponseBody(
     ? body.source
     : undefined;
   return { message, source };
+}
+
+async function cleanupSourceBlobUpload(pathname: string): Promise<void> {
+  try {
+    const response = await fetch(resolveSameOriginUrl(SOURCE_UPLOAD_BLOB_HANDLE_PATH), {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ pathname }),
+    });
+    await response.body?.cancel();
+  } catch {
+    // Best-effort cleanup only. The user-facing upload error is handled by the caller.
+  }
+}
+
+function isSuccessfulStatus(status: number): boolean {
+  return status >= 200 && status < 300;
 }
 
 function isSourceView(value: unknown): value is SourceView {

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MAX_UPLOAD_BYTES } from "@/lib/source-validation";
 
 const mocks = vi.hoisted(() => ({
+  deleteBlob: vi.fn(),
   getCurrentUser: vi.fn(),
   handleUpload: vi.fn(),
 }));
@@ -12,11 +13,15 @@ vi.mock("@/lib/auth", () => ({
   getCurrentUser: mocks.getCurrentUser,
 }));
 
+vi.mock("@vercel/blob", () => ({
+  del: mocks.deleteBlob,
+}));
+
 vi.mock("@vercel/blob/client", () => ({
   handleUpload: mocks.handleUpload,
 }));
 
-import { POST } from "./route";
+import { DELETE, POST } from "./route";
 
 describe("POST /api/source-uploads/blob", () => {
   beforeEach(() => {
@@ -110,5 +115,24 @@ describe("POST /api/source-uploads/blob", () => {
     });
     expect(response.status).toBe(401);
     expect(mocks.handleUpload).not.toHaveBeenCalled();
+  });
+
+  it("deletes a staged Blob upload for logged-in users", async () => {
+    mocks.deleteBlob.mockResolvedValue(undefined);
+
+    const response = await DELETE(
+      new NextRequest("http://localhost:3001/api/source-uploads/blob", {
+        method: "DELETE",
+        body: JSON.stringify({
+          pathname: "source-uploads/upload_1/document.pdf",
+        }),
+      }),
+    );
+
+    await expect(response.json()).resolves.toEqual({ ok: true });
+    expect(response.status).toBe(200);
+    expect(mocks.deleteBlob).toHaveBeenCalledWith(
+      "source-uploads/upload_1/document.pdf",
+    );
   });
 });

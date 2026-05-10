@@ -127,4 +127,54 @@ describe("postSourceUpload", () => {
       },
     });
   });
+
+  it("cleans up the staged Blob when the metadata handoff fails", async () => {
+    const requestLog: Array<{
+      readonly method: string;
+      readonly path: string;
+      readonly body: unknown;
+    }> = [];
+    const file = new File([new Uint8Array(5 * 1024 * 1024)], "large.pdf", {
+      type: "application/pdf",
+    });
+    const blob = {
+      url: "https://blob.example/source-uploads/upload_1/document.pdf",
+      downloadUrl: "https://blob.example/source-uploads/upload_1/document.pdf?download=1",
+      pathname: "source-uploads/upload_1/document.pdf",
+      contentType: "application/pdf",
+      contentDisposition: 'attachment; filename="document.pdf"',
+      etag: "etag_1",
+    };
+
+    vi.stubGlobal("location", { origin: "http://localhost" });
+    vi.stubGlobal("crypto", { randomUUID: () => "upload_1" });
+    mocks.uploadBlob.mockResolvedValue(blob);
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
+      const request = input instanceof Request
+        ? input
+        : new Request(new URL(String(input), "http://localhost").toString(), init);
+      const path = new URL(request.url).pathname;
+      const contentType = request.headers.get("content-type") ?? "";
+      const body = contentType.includes("application/json")
+        ? await request.json()
+        : null;
+      requestLog.push({ method: request.method, path, body });
+
+      if (request.method === "POST" && path === "/api/sources") {
+        return Response.json({ message: "Upload failed." }, { status: 500 });
+      }
+
+      return Response.json({ ok: true }, { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    const result = await postSourceUpload(file);
+
+    expect(result.status).toBe(500);
+    expect(requestLog).toContainEqual({
+      method: "DELETE",
+      path: "/api/source-uploads/blob",
+      body: { pathname: "source-uploads/upload_1/document.pdf" },
+    });
+  });
 });

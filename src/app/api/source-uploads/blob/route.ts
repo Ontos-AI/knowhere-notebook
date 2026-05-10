@@ -1,8 +1,10 @@
+import { del } from "@vercel/blob"
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client"
 import { NextResponse, type NextRequest } from "next/server"
 
 import { getCurrentUser } from "@/lib/auth"
 import {
+  isValidSourceBlobPathname,
   parseSourceBlobClientPayload,
   validateSourceBlobUploadInput,
 } from "@/lib/source-blob-upload"
@@ -57,4 +59,39 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       : "Could not prepare the upload."
     return NextResponse.json({ message }, { status: 400 })
   }
+}
+
+export async function DELETE(request: NextRequest): Promise<NextResponse> {
+  const user = await getCurrentUser()
+  if (!user) {
+    return NextResponse.json(
+      { message: "Please log in to upload documents." },
+      { status: 401 },
+    )
+  }
+
+  try {
+    const body = (await request.json()) as unknown
+    const pathname = getCleanupPathname(body)
+    if (!pathname || !isValidSourceBlobPathname(pathname)) {
+      return NextResponse.json(
+        { message: "Invalid upload path. Choose the document again." },
+        { status: 400 },
+      )
+    }
+
+    await del(pathname)
+    return NextResponse.json({ ok: true })
+  } catch {
+    return NextResponse.json(
+      { message: "Could not clean up the upload." },
+      { status: 500 },
+    )
+  }
+}
+
+function getCleanupPathname(body: unknown): string | null {
+  if (typeof body !== "object" || body === null) return null
+  const pathname = (body as { readonly pathname?: unknown }).pathname
+  return typeof pathname === "string" ? pathname : null
 }

@@ -116,7 +116,7 @@ export function validateSourceBlobUploadInput(
   });
 }
 
-function isValidSourceBlobPathname(pathname: string): boolean {
+export function isValidSourceBlobPathname(pathname: string): boolean {
   if (!pathname.startsWith(`${SOURCE_UPLOAD_BLOB_PREFIX}/`)) return false;
   if (pathname.includes("\0")) return false;
 
