@@ -105,6 +105,20 @@ export function ChunksPanel({
     [requestMoreChunksIfNeeded],
   );
 
+  const resetFocusedChunkPosition = useCallback((): void => {
+    const viewport = viewportRef.current;
+
+    if (viewport) {
+      viewport.scrollTop = 0;
+      viewport.scrollLeft = 0;
+    }
+
+    chunkVirtualizer.scrollToOffset(0, {
+      align: "start",
+      behavior: "auto",
+    });
+  }, [chunkVirtualizer]);
+
   useEffect(() => {
     const viewport = viewportRef.current;
 
@@ -120,16 +134,16 @@ export function ChunksPanel({
       return;
     }
 
-    const viewport = viewportRef.current;
-    if (viewport) {
-      viewport.scrollTop = 0;
-      viewport.scrollLeft = 0;
-    }
-    chunkVirtualizer.scrollToOffset(0, {
-      align: "start",
-      behavior: "auto",
+    resetFocusedChunkPosition();
+
+    const frameId = window.requestAnimationFrame(() => {
+      resetFocusedChunkPosition();
     });
-  }, [activeFocusedChunkId, chunkVirtualizer, focusedChunkRequestId]);
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [activeFocusedChunkId, focusedChunkRequestId, resetFocusedChunkPosition]);
 
   const requestChunkFocus = useCallback((chunkId: string): void => {
     setLocalFocusedChunkId(chunkId);
