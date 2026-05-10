@@ -24,6 +24,13 @@ export type ItemOffsetInput = {
   measuredHeights: ReadonlyMap<number, number>;
 };
 
+export type BottomScrollInput = {
+  itemCount: number;
+  viewportHeight: number;
+  estimatedItemHeight: number;
+  measuredHeights: ReadonlyMap<number, number>;
+};
+
 function getPositiveHeight(height: number, fallbackHeight: number): number {
   return height > 0 ? height : fallbackHeight;
 }
@@ -51,6 +58,24 @@ export function getItemOffset({
   }
 
   return offset;
+}
+
+export function getBottomScrollTop({
+  itemCount,
+  viewportHeight,
+  estimatedItemHeight,
+  measuredHeights,
+}: BottomScrollInput): number {
+  const state = getVirtualListState({
+    itemCount,
+    scrollTop: 0,
+    viewportHeight,
+    estimatedItemHeight,
+    overscan: 0,
+    measuredHeights,
+  });
+
+  return Math.max(0, state.totalHeight - viewportHeight);
 }
 
 export function getVirtualListState({

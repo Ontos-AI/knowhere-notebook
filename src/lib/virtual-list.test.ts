@@ -1,5 +1,9 @@
 import { describe, expect, test } from "vitest";
-import { getItemOffset, getVirtualListState } from "./virtual-list";
+import {
+  getBottomScrollTop,
+  getItemOffset,
+  getVirtualListState,
+} from "./virtual-list";
 
 describe("getVirtualListState", () => {
   test("renders only the visible chunk window with overscan", () => {
@@ -38,5 +42,16 @@ describe("getVirtualListState", () => {
     expect(
       getItemOffset({ index: 4, estimatedItemHeight: 100, measuredHeights })
     ).toBe(460);
+  });
+
+  test("calculates the bottom scroll position for long chat histories", () => {
+    expect(
+      getBottomScrollTop({
+        itemCount: 500,
+        viewportHeight: 720,
+        estimatedItemHeight: 140,
+        measuredHeights: new Map(),
+      })
+    ).toBe(69_280);
   });
 });

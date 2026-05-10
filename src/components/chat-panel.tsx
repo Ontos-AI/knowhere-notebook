@@ -1,6 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type UIEventHandler,
+} from "react";
 import { History, MessageCircle, Plus, Send, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -34,6 +42,11 @@ import type {
   ChatMessageView,
   ChatThreadView,
 } from "@/lib/types";
+import {
+  getBottomScrollTop,
+  getVirtualListState,
+  type VirtualListItem,
+} from "@/lib/virtual-list";
 
 const CHAT_COMPOSER_ID = "chat-composer";
 
@@ -56,6 +69,14 @@ export type ChatPanelProps = {
   isDisabled?: boolean;
 };
 
+type ViewportState = {
+  scrollTop: number;
+  height: number;
+};
+
+const estimatedMessageHeight = 160;
+const virtualMessageOverscan = 6;
+
 export function ChatPanel({
   messages = [],
   threads = [],
@@ -77,8 +98,116 @@ export function ChatPanel({
   const [input, setInput] = useState("");
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [confirmThreadId, setConfirmThreadId] = useState<string | null>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const measuredHeightsRef = useRef<ReadonlyMap<number, number>>(new Map());
+  const [viewportState, setViewportState] = useState<ViewportState>({
+    scrollTop: 0,
+    height: 0,
+  });
+  const [measuredHeights, setMeasuredHeights] = useState<
+    ReadonlyMap<number, number>
+  >(() => new Map());
   const canSend = !isDisabled && !isSending && input.trim().length > 0;
   const confirmThread = threads.find((thread) => thread.id === confirmThreadId);
+
+  useEffect(() => {
+    measuredHeightsRef.current = measuredHeights;
+  }, [measuredHeights]);
+
+  const syncViewportState = useCallback((viewport: HTMLDivElement): void => {
+    const nextState: ViewportState = {
+      scrollTop: viewport.scrollTop,
+      height: viewport.clientHeight,
+    };
+
+    setViewportState((currentState) =>
+      currentState.scrollTop === nextState.scrollTop &&
+      currentState.height === nextState.height
+        ? currentState
+        : nextState,
+    );
+  }, []);
+
+  useEffect(() => {
+    const viewport = viewportRef.current;
+
+    if (!viewport) {
+      return;
+    }
+
+    syncViewportState(viewport);
+
+    if (typeof ResizeObserver === "undefined") {
+      return;
+    }
+
+    const observer = new ResizeObserver(() => {
+      syncViewportState(viewport);
+    });
+    observer.observe(viewport);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [syncViewportState]);
+
+  const handleViewportScroll = useCallback<UIEventHandler<HTMLDivElement>>(
+    (event) => {
+      syncViewportState(event.currentTarget);
+    },
+    [syncViewportState],
+  );
+
+  const handleMessageMeasured = useCallback(
+    (index: number, height: number): void => {
+      setMeasuredHeights((currentHeights) => {
+        if (currentHeights.get(index) === height) {
+          return currentHeights;
+        }
+
+        const nextHeights = new Map(currentHeights);
+        nextHeights.set(index, height);
+        return nextHeights;
+      });
+    },
+    [],
+  );
+
+  const virtualListState = useMemo(
+    () =>
+      getVirtualListState({
+        itemCount: messages.length,
+        scrollTop: viewportState.scrollTop,
+        viewportHeight: viewportState.height,
+        estimatedItemHeight: estimatedMessageHeight,
+        overscan: virtualMessageOverscan,
+        measuredHeights,
+      }),
+    [
+      measuredHeights,
+      messages.length,
+      viewportState.height,
+      viewportState.scrollTop,
+    ],
+  );
+
+  useEffect(() => {
+    const viewport = viewportRef.current;
+
+    if (!viewport || messages.length === 0) {
+      return;
+    }
+
+    viewport.scrollTo({
+      top: getBottomScrollTop({
+        itemCount: messages.length,
+        viewportHeight: viewport.clientHeight,
+        estimatedItemHeight: estimatedMessageHeight,
+        measuredHeights: measuredHeightsRef.current,
+      }),
+      behavior: "smooth",
+    });
+  }, [messages.length]);
 
   function handleSend() {
     if (!canSend) return;
@@ -204,15 +333,22 @@ export function ChatPanel({
       <ScrollArea
         data-testid="chat-scroll"
         className="flex min-w-0 flex-1 flex-col overflow-x-hidden p-3 sm:p-4"
+        viewportRef={viewportRef}
+        onViewportScroll={handleViewportScroll}
       >
         {messages.length === 0 ? (
           <EmptyChat disabled={isDisabled} />
         ) : (
-          <div className="mt-auto flex min-w-0 flex-col gap-4 sm:gap-5">
-            {messages.map((m) => (
-              <MessageBubble
-                key={m.id}
-                message={m}
+          <div
+            className="relative mt-auto min-w-0"
+            style={{ height: virtualListState.totalHeight }}
+          >
+            {virtualListState.items.map((virtualItem) => (
+              <VirtualMessageRow
+                key={messages[virtualItem.index]?.id ?? virtualItem.index}
+                virtualItem={virtualItem}
+                message={messages[virtualItem.index]}
+                onMeasure={handleMessageMeasured}
                 onCitationClick={onCitationClick}
                 pendingCitationId={pendingCitationId}
               />
@@ -267,6 +403,67 @@ export function ChatPanel({
         </div>
       </div>
     </section>
+  );
+}
+
+function VirtualMessageRow({
+  virtualItem,
+  message,
+  onMeasure,
+  onCitationClick,
+  pendingCitationId,
+}: {
+  virtualItem: VirtualListItem;
+  message: ChatMessageView | undefined;
+  onMeasure: (index: number, height: number) => void;
+  onCitationClick?: (citation: ChatCitationView, citationId: string) => void;
+  pendingCitationId?: string | null;
+}) {
+  const rowRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const row = rowRef.current;
+
+    if (!row) {
+      return;
+    }
+
+    const measureRow = (): void => {
+      onMeasure(virtualItem.index, row.getBoundingClientRect().height);
+    };
+
+    measureRow();
+
+    if (typeof ResizeObserver === "undefined") {
+      return;
+    }
+
+    const observer = new ResizeObserver(measureRow);
+    observer.observe(row);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [onMeasure, virtualItem.index]);
+
+  if (!message) {
+    return null;
+  }
+
+  const rowStyle: CSSProperties = {
+    position: "absolute",
+    transform: `translateY(${virtualItem.top}px)`,
+    width: "100%",
+  };
+
+  return (
+    <div ref={rowRef} style={rowStyle} className="min-w-0 pb-4 sm:pb-5">
+      <MessageBubble
+        message={message}
+        onCitationClick={onCitationClick}
+        pendingCitationId={pendingCitationId}
+      />
+    </div>
   );
 }
 
@@ -434,9 +631,7 @@ function EmptyChatHistory() {
       <div className="mb-3 flex size-10 items-center justify-center rounded-full bg-muted text-muted-foreground">
         <MessageCircle className="size-5" />
       </div>
-      <p className="text-xs font-semibold text-foreground">
-        No chats yet.
-      </p>
+      <p className="text-xs font-semibold text-foreground">No chats yet.</p>
     </div>
   );
 }
