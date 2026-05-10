@@ -13,7 +13,7 @@ import {
   type Source,
 } from "./schema"
 import { deriveChatThreadTitle } from "./chat-title"
-import type { CitationView, RetrievalResultView } from "./types"
+import type { ChatCitationView, CitationView, RetrievalResultView } from "./types"
 
 let _dbRuntime: ManagedRuntime.ManagedRuntime<DbClient, never> | null = null
 function dbRuntime(): ManagedRuntime.ManagedRuntime<DbClient, never> {
@@ -424,7 +424,7 @@ export const appendMessageToThreadEffect = (
     threadId: string
     role: "user" | "assistant"
     content: string
-    citations?: readonly (CitationView | RetrievalResultView)[] | null
+    citations?: readonly (ChatCitationView | CitationView | RetrievalResultView)[] | null
   },
 ) =>
   Effect.gen(function* () {
@@ -578,7 +578,7 @@ export const pingDatabase = () => dbRuntime().runPromise(pingDatabaseEffect)
 
 function normalizeCitations(
   citations:
-    | readonly (CitationView | RetrievalResultView)[]
+    | readonly (ChatCitationView | CitationView | RetrievalResultView)[]
     | null
     | undefined,
 ): CitationView[] | null {
@@ -587,12 +587,13 @@ function normalizeCitations(
 }
 
 function toCitationView(
-  citation: CitationView | RetrievalResultView,
+  citation: ChatCitationView | CitationView | RetrievalResultView,
 ): CitationView {
   return {
     chunkType: citation.chunkType,
     score: citation.score,
     assetUrl: citation.assetUrl,
+    description: "description" in citation ? citation.description : undefined,
     source: {
       documentId: citation.source.documentId,
       sourceFileName: citation.source.sourceFileName,

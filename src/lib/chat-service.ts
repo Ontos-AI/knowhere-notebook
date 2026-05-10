@@ -1,14 +1,15 @@
-import type { RetrievalResult } from "@ontos-ai/knowhere-sdk"
 import { Effect, Either } from "effect"
 
 import {
   answerQuestionWithRetrieval,
+  type ChatHistoryMessage,
   type GenerateAnswer,
+  type GenerateRetrievalQuery,
   type RetrievalClient,
 } from "./chat"
 import { toChatMessageView } from "./chat-view"
 import type { ChatMessage, ChatThread, Source, Workspace } from "./schema"
-import type { ChatMessageView } from "./types"
+import type { ChatCitationView, ChatMessageView } from "./types"
 
 export type ChatRepository = {
   ensureDefaultChatThread(workspaceId: string): Promise<ChatThread>
@@ -16,13 +17,17 @@ export type ChatRepository = {
     workspaceId: string,
     threadId: string,
   ): Promise<ChatThread | null>
+  listMessagesForThread(
+    workspaceId: string,
+    threadId: string,
+  ): Promise<ChatMessage[] | null>
   appendMessageToThread(
     workspaceId: string,
     input: {
       threadId: string
       role: "user" | "assistant"
       content: string
-      citations?: readonly RetrievalResult[] | null
+      citations?: readonly ChatCitationView[] | null
     },
   ): Promise<ChatMessage | null>
 }
@@ -55,6 +60,7 @@ type ChatTurnInput = {
   threadId?: string
   excludedSourceIds: readonly string[]
   retrieval: RetrievalClient
+  generateRetrievalQuery: GenerateRetrievalQuery
   generateAnswer: GenerateAnswer
   repository: ChatRepository
 }
@@ -86,6 +92,14 @@ export const handleChatTurnEffect = (input: ChatTurnInput) =>
       return yield* Effect.fail(threadNotFound)
     }
 
+    const previousMessages = yield* tryPromiseOrDie(() =>
+      input.repository.listMessagesForThread(input.workspace.id, thread.id),
+    )
+    if (!previousMessages) {
+      return yield* Effect.fail(threadNotFound)
+    }
+    const chatHistoryMessages = toChatHistoryMessages(previousMessages)
+
     const userMessage = yield* tryPromiseOrDie(() =>
       input.repository.appendMessageToThread(input.workspace.id, {
         threadId: thread.id,
@@ -103,7 +117,9 @@ export const handleChatTurnEffect = (input: ChatTurnInput) =>
       sources: readySources,
       excludedSourceIds: input.excludedSourceIds,
       retrieval: input.retrieval,
+      generateRetrievalQuery: input.generateRetrievalQuery,
       generateAnswer: input.generateAnswer,
+      messages: chatHistoryMessages,
     }).pipe(Effect.catchAllCause(Effect.die))
 
     const assistantMessage = yield* tryPromiseOrDie(() =>
@@ -135,4 +151,17 @@ export async function handleChatTurn(
   input: ChatTurnInput,
 ): Promise<Either.Either<ChatTurnValue, ChatTurnError>> {
   return Effect.runPromise(Effect.either(handleChatTurnEffect(input)))
+}
+
+function toChatHistoryMessages(
+  messages: readonly ChatMessage[],
+): ChatHistoryMessage[] {
+  return messages.map((message): ChatHistoryMessage => {
+    const view = toChatMessageView(message)
+    return {
+      role: view.role,
+      content: view.content,
+      citations: view.citations,
+    }
+  })
 }

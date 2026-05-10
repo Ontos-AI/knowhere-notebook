@@ -13,6 +13,10 @@ describe("handleChatTurn", () => {
       }),
     };
     const repository = makeRepository();
+    const generateRetrievalQuery = vi
+      .fn()
+      .mockResolvedValue("What does the document say?");
+    const generateAnswer = vi.fn().mockResolvedValue("Grounded answer.");
 
     const result = await handleChatTurn({
       workspace: makeWorkspace(),
@@ -23,7 +27,8 @@ describe("handleChatTurn", () => {
       question: "What does the document say?",
       excludedSourceIds: ["source_excluded"],
       retrieval,
-      generateAnswer: vi.fn().mockResolvedValue("Grounded answer."),
+      generateRetrievalQuery,
+      generateAnswer,
       repository,
     });
 
@@ -46,6 +51,21 @@ describe("handleChatTurn", () => {
       query: "What does the document say?",
       topK: 8,
       excludeDocumentIds: ["doc_excluded"],
+    });
+    expect(generateRetrievalQuery).toHaveBeenCalledWith({
+      question: "What does the document say?",
+      messages: [],
+      sources: [
+        makeSource({ id: "source_included", knowhereDocumentId: "doc_included" }),
+        makeSource({ id: "source_excluded", knowhereDocumentId: "doc_excluded" }),
+      ],
+      excludedSourceIds: ["source_excluded"],
+    });
+    expect(generateAnswer).toHaveBeenCalledWith({
+      question: "What does the document say?",
+      retrievalQuery: "What does the document say?",
+      messages: [],
+      results: [makeRetrievalResult()],
     });
     expect(repository.appendMessageToThread).toHaveBeenNthCalledWith(1, "workspace_1", {
       threadId: "thread_1",
@@ -70,6 +90,7 @@ describe("handleChatTurn", () => {
       question: "Can I ask yet?",
       excludedSourceIds: [],
       retrieval,
+      generateRetrievalQuery: vi.fn(),
       generateAnswer: vi.fn(),
       repository,
     });
@@ -97,6 +118,7 @@ describe("handleChatTurn", () => {
       threadId: "thread_from_other_workspace",
       excludedSourceIds: [],
       retrieval: { query: vi.fn() },
+      generateRetrievalQuery: vi.fn(),
       generateAnswer: vi.fn(),
       repository,
     });
@@ -109,6 +131,90 @@ describe("handleChatTurn", () => {
       });
     }
     expect(repository.appendMessageToThread).not.toHaveBeenCalled();
+  });
+
+  it("passes prior thread messages to the stateless retrieval query planner", async () => {
+    const retrieval = {
+      query: vi.fn().mockResolvedValue({
+        results: [makeRetrievalResult()],
+      }),
+    };
+    const previousMessages = [
+      makeMessage({
+        role: "user",
+        content: "Tell me about the Tesla Q4 2025 Update.",
+      }),
+      makeMessage({
+        role: "assistant",
+        content: "It covers Tesla's Q4 financial summary.",
+        citations: [
+          {
+            chunkType: "text",
+            score: 0.9,
+            source: {
+              documentId: "doc_included",
+              sourceFileName: "TSLA-Q4-2025-Update.pdf",
+              sectionPath: "FINANCIAL SUMMARY",
+            },
+          },
+        ],
+      }),
+    ];
+    const repository = makeRepository({
+      listMessagesForThread: vi.fn().mockResolvedValue(previousMessages),
+    });
+    const generateRetrievalQuery = vi
+      .fn()
+      .mockResolvedValue(
+        "Tesla Q4 2025 Update energy generation and storage deployments",
+      );
+    const generateAnswer = vi.fn().mockResolvedValue("Grounded answer.");
+
+    const result = await handleChatTurn({
+      workspace: makeWorkspace(),
+      sources: [makeSource({ title: "TSLA-Q4-2025-Update.pdf" })],
+      question: "What about energy storage in this document?",
+      threadId: "thread_1",
+      excludedSourceIds: [],
+      retrieval,
+      generateRetrievalQuery,
+      generateAnswer,
+      repository,
+    });
+
+    expect(Either.isRight(result)).toBe(true);
+    expect(generateRetrievalQuery).toHaveBeenCalledWith({
+      question: "What about energy storage in this document?",
+      messages: [
+        {
+          role: "user",
+          content: "Tell me about the Tesla Q4 2025 Update.",
+          citations: undefined,
+        },
+        {
+          role: "assistant",
+          content: "It covers Tesla's Q4 financial summary.",
+          citations: [
+            {
+              chunkType: "text",
+              score: 0.9,
+              source: {
+                documentId: "doc_included",
+                sourceFileName: "TSLA-Q4-2025-Update.pdf",
+                sectionPath: "FINANCIAL SUMMARY",
+              },
+            },
+          ],
+        },
+      ],
+      sources: [makeSource({ title: "TSLA-Q4-2025-Update.pdf" })],
+      excludedSourceIds: [],
+    });
+    expect(retrieval.query).toHaveBeenCalledWith({
+      namespace: "notebook-namespace",
+      query: "Tesla Q4 2025 Update energy generation and storage deployments",
+      topK: 8,
+    });
   });
 });
 
@@ -123,6 +229,7 @@ function makeRepositoryShape() {
   return {
     ensureDefaultChatThread: vi.fn().mockResolvedValue(makeThread()),
     findChatThreadInWorkspace: vi.fn().mockResolvedValue(makeThread()),
+    listMessagesForThread: vi.fn().mockResolvedValue([]),
     appendMessageToThread: vi
       .fn()
       .mockImplementation(async (_workspaceId, input) =>
