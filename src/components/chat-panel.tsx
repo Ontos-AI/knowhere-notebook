@@ -1,14 +1,12 @@
 "use client";
 
 import {
-  useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
   type CSSProperties,
-  type UIEventHandler,
 } from "react";
+import { useVirtualizer, type VirtualItem } from "@tanstack/react-virtual";
 import { History, MessageCircle, Plus, Send, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -42,11 +40,7 @@ import type {
   ChatMessageView,
   ChatThreadView,
 } from "@/lib/types";
-import {
-  getBottomScrollTop,
-  getVirtualListState,
-  type VirtualListItem,
-} from "@/lib/virtual-list";
+import { observeElementRectWithFallback } from "@/lib/virtualizer";
 
 const CHAT_COMPOSER_ID = "chat-composer";
 
@@ -67,11 +61,6 @@ export type ChatPanelProps = {
   archivingThreadIds?: readonly string[];
   pendingCitationId?: string | null;
   isDisabled?: boolean;
-};
-
-type ViewportState = {
-  scrollTop: number;
-  height: number;
 };
 
 const estimatedMessageHeight = 160;
@@ -99,115 +88,27 @@ export function ChatPanel({
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [confirmThreadId, setConfirmThreadId] = useState<string | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
-  const measuredHeightsRef = useRef<ReadonlyMap<number, number>>(new Map());
-  const [viewportState, setViewportState] = useState<ViewportState>({
-    scrollTop: 0,
-    height: 0,
-  });
-  const [measuredHeights, setMeasuredHeights] = useState<
-    ReadonlyMap<number, number>
-  >(() => new Map());
   const canSend = !isDisabled && !isSending && input.trim().length > 0;
   const confirmThread = threads.find((thread) => thread.id === confirmThreadId);
+  // TanStack Virtual owns scroll measurement callbacks; this component is not memoized by React Compiler.
+  // eslint-disable-next-line react-hooks/incompatible-library
+  const messageVirtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
+    count: messages.length,
+    getScrollElement: () => viewportRef.current,
+    estimateSize: () => estimatedMessageHeight,
+    overscan: virtualMessageOverscan,
+    observeElementRect: observeElementRectWithFallback,
+  });
+  const virtualItems = messageVirtualizer.getVirtualItems();
+  const totalHeight = messageVirtualizer.getTotalSize();
 
   useEffect(() => {
-    measuredHeightsRef.current = measuredHeights;
-  }, [measuredHeights]);
-
-  const syncViewportState = useCallback((viewport: HTMLDivElement): void => {
-    const nextState: ViewportState = {
-      scrollTop: viewport.scrollTop,
-      height: viewport.clientHeight,
-    };
-
-    setViewportState((currentState) =>
-      currentState.scrollTop === nextState.scrollTop &&
-      currentState.height === nextState.height
-        ? currentState
-        : nextState,
-    );
-  }, []);
-
-  useEffect(() => {
-    const viewport = viewportRef.current;
-
-    if (!viewport) {
+    if (messages.length === 0) {
       return;
     }
 
-    syncViewportState(viewport);
-
-    if (typeof ResizeObserver === "undefined") {
-      return;
-    }
-
-    const observer = new ResizeObserver(() => {
-      syncViewportState(viewport);
-    });
-    observer.observe(viewport);
-
-    return () => {
-      observer.disconnect();
-    };
-  }, [syncViewportState]);
-
-  const handleViewportScroll = useCallback<UIEventHandler<HTMLDivElement>>(
-    (event) => {
-      syncViewportState(event.currentTarget);
-    },
-    [syncViewportState],
-  );
-
-  const handleMessageMeasured = useCallback(
-    (index: number, height: number): void => {
-      setMeasuredHeights((currentHeights) => {
-        if (currentHeights.get(index) === height) {
-          return currentHeights;
-        }
-
-        const nextHeights = new Map(currentHeights);
-        nextHeights.set(index, height);
-        return nextHeights;
-      });
-    },
-    [],
-  );
-
-  const virtualListState = useMemo(
-    () =>
-      getVirtualListState({
-        itemCount: messages.length,
-        scrollTop: viewportState.scrollTop,
-        viewportHeight: viewportState.height,
-        estimatedItemHeight: estimatedMessageHeight,
-        overscan: virtualMessageOverscan,
-        measuredHeights,
-      }),
-    [
-      measuredHeights,
-      messages.length,
-      viewportState.height,
-      viewportState.scrollTop,
-    ],
-  );
-
-  useEffect(() => {
-    const viewport = viewportRef.current;
-
-    if (!viewport || messages.length === 0) {
-      return;
-    }
-
-    scrollViewportTo(
-      viewport,
-      getBottomScrollTop({
-        itemCount: messages.length,
-        viewportHeight: viewport.clientHeight,
-        estimatedItemHeight: estimatedMessageHeight,
-        measuredHeights: measuredHeightsRef.current,
-      }),
-    );
-  }, [messages.length]);
+    messageVirtualizer.scrollToIndex(messages.length - 1, { align: "end" });
+  }, [messageVirtualizer, messages.length]);
 
   function handleSend() {
     if (!canSend) return;
@@ -334,21 +235,20 @@ export function ChatPanel({
         data-testid="chat-scroll"
         className="flex min-w-0 flex-1 flex-col overflow-x-hidden p-3 sm:p-4"
         viewportRef={viewportRef}
-        onViewportScroll={handleViewportScroll}
       >
         {messages.length === 0 ? (
           <EmptyChat disabled={isDisabled} />
         ) : (
           <div
             className="relative mt-auto min-w-0"
-            style={{ height: virtualListState.totalHeight }}
+            style={{ height: totalHeight }}
           >
-            {virtualListState.items.map((virtualItem) => (
+            {virtualItems.map((virtualItem) => (
               <VirtualMessageRow
-                key={messages[virtualItem.index]?.id ?? virtualItem.index}
+                key={virtualItem.key}
                 virtualItem={virtualItem}
                 message={messages[virtualItem.index]}
-                onMeasure={handleMessageMeasured}
+                measureElement={messageVirtualizer.measureElement}
                 onCitationClick={onCitationClick}
                 pendingCitationId={pendingCitationId}
               />
@@ -409,55 +309,33 @@ export function ChatPanel({
 function VirtualMessageRow({
   virtualItem,
   message,
-  onMeasure,
+  measureElement,
   onCitationClick,
   pendingCitationId,
 }: {
-  virtualItem: VirtualListItem;
+  virtualItem: VirtualItem;
   message: ChatMessageView | undefined;
-  onMeasure: (index: number, height: number) => void;
+  measureElement: (node: HTMLDivElement | null) => void;
   onCitationClick?: (citation: ChatCitationView, citationId: string) => void;
   pendingCitationId?: string | null;
 }) {
-  const rowRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const row = rowRef.current;
-
-    if (!row) {
-      return;
-    }
-
-    const measureRow = (): void => {
-      onMeasure(virtualItem.index, row.getBoundingClientRect().height);
-    };
-
-    measureRow();
-
-    if (typeof ResizeObserver === "undefined") {
-      return;
-    }
-
-    const observer = new ResizeObserver(measureRow);
-    observer.observe(row);
-
-    return () => {
-      observer.disconnect();
-    };
-  }, [onMeasure, virtualItem.index]);
-
   if (!message) {
     return null;
   }
 
   const rowStyle: CSSProperties = {
     position: "absolute",
-    transform: `translateY(${virtualItem.top}px)`,
+    transform: `translateY(${virtualItem.start}px)`,
     width: "100%",
   };
 
   return (
-    <div ref={rowRef} style={rowStyle} className="min-w-0 pb-4 sm:pb-5">
+    <div
+      ref={measureElement}
+      data-index={virtualItem.index}
+      style={rowStyle}
+      className="min-w-0 pb-4 sm:pb-5"
+    >
       <MessageBubble
         message={message}
         onCitationClick={onCitationClick}
@@ -465,15 +343,6 @@ function VirtualMessageRow({
       />
     </div>
   );
-}
-
-function scrollViewportTo(viewport: HTMLDivElement, top: number): void {
-  if (typeof viewport.scrollTo === "function") {
-    viewport.scrollTo({ top, behavior: "smooth" });
-    return;
-  }
-
-  viewport.scrollTop = top;
 }
 
 function ChatHistorySheet({

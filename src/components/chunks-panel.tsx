@@ -10,17 +10,14 @@ import {
   type ReactNode,
   type UIEventHandler,
 } from "react";
+import { useVirtualizer, type VirtualItem } from "@tanstack/react-virtual";
 import { ImageIcon, Layers, Table2 } from "lucide-react";
 import DOMPurify from "dompurify";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { observeElementRectWithFallback } from "@/lib/virtualizer";
 import type { ParsedChunkConnection, ParsedChunkView } from "@/lib/types";
-import {
-  getItemOffset,
-  getVirtualListState,
-  type VirtualListItem,
-} from "@/lib/virtual-list";
 
 export type ChunksPanelProps = {
   chunks: ParsedChunkView[];
@@ -31,11 +28,6 @@ export type ChunksPanelProps = {
   isLoadingMore?: boolean;
   hasMoreChunks?: boolean;
   onLoadMore?: () => void;
-};
-
-type ViewportState = {
-  scrollTop: number;
-  height: number;
 };
 
 const estimatedChunkCardHeight = 220;
@@ -53,74 +45,21 @@ export function ChunksPanel({
   onLoadMore,
 }: Partial<ChunksPanelProps> = {}) {
   const viewportRef = useRef<HTMLDivElement>(null);
-  const measuredHeightsRef = useRef<ReadonlyMap<number, number>>(new Map());
   const [localFocusedChunkId, setLocalFocusedChunkId] = useState<string | null>(
     null,
   );
-  const [viewportState, setViewportState] = useState<ViewportState>({
-    scrollTop: 0,
-    height: 0,
-  });
-  const [measuredHeights, setMeasuredHeights] = useState<
-    ReadonlyMap<number, number>
-  >(() => new Map());
   const activeFocusedChunkId = focusedChunkId ?? localFocusedChunkId;
-
-  useEffect(() => {
-    measuredHeightsRef.current = measuredHeights;
-  }, [measuredHeights]);
-
-  const syncViewportState = useCallback((viewport: HTMLDivElement): void => {
-    const nextState: ViewportState = {
-      scrollTop: viewport.scrollTop,
-      height: viewport.clientHeight,
-    };
-
-    setViewportState((currentState) =>
-      currentState.scrollTop === nextState.scrollTop &&
-      currentState.height === nextState.height
-        ? currentState
-        : nextState,
-    );
-  }, []);
-
-  useEffect(() => {
-    const viewport = viewportRef.current;
-
-    if (!viewport) {
-      return;
-    }
-
-    syncViewportState(viewport);
-
-    if (typeof ResizeObserver === "undefined") {
-      return;
-    }
-
-    const observer = new ResizeObserver(() => {
-      syncViewportState(viewport);
-    });
-    observer.observe(viewport);
-
-    return () => {
-      observer.disconnect();
-    };
-  }, [syncViewportState]);
-
-  const handleChunkMeasured = useCallback(
-    (index: number, height: number): void => {
-      setMeasuredHeights((currentHeights) => {
-        if (currentHeights.get(index) === height) {
-          return currentHeights;
-        }
-
-        const nextHeights = new Map(currentHeights);
-        nextHeights.set(index, height);
-        return nextHeights;
-      });
-    },
-    [],
-  );
+  // TanStack Virtual owns scroll measurement callbacks; this component is not memoized by React Compiler.
+  // eslint-disable-next-line react-hooks/incompatible-library
+  const chunkVirtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
+    count: chunks.length,
+    getScrollElement: () => viewportRef.current,
+    estimateSize: () => estimatedChunkCardHeight,
+    overscan: virtualListOverscan,
+    observeElementRect: observeElementRectWithFallback,
+  });
+  const virtualItems = chunkVirtualizer.getVirtualItems();
+  const totalHeight = chunkVirtualizer.getTotalSize();
 
   const requestMoreChunksIfNeeded = useCallback(
     (viewport: HTMLDivElement): void => {
@@ -146,28 +85,9 @@ export function ChunksPanel({
 
   const handleViewportScroll = useCallback<UIEventHandler<HTMLDivElement>>(
     (event) => {
-      syncViewportState(event.currentTarget);
       requestMoreChunksIfNeeded(event.currentTarget);
     },
-    [requestMoreChunksIfNeeded, syncViewportState],
-  );
-
-  const virtualListState = useMemo(
-    () =>
-      getVirtualListState({
-        itemCount: chunks.length,
-        scrollTop: viewportState.scrollTop,
-        viewportHeight: viewportState.height,
-        estimatedItemHeight: estimatedChunkCardHeight,
-        overscan: virtualListOverscan,
-        measuredHeights,
-      }),
-    [
-      chunks.length,
-      measuredHeights,
-      viewportState.height,
-      viewportState.scrollTop,
-    ],
+    [requestMoreChunksIfNeeded],
   );
 
   const focusedChunkIndex = useMemo(
@@ -180,8 +100,8 @@ export function ChunksPanel({
   const isFocusedChunkRendered = useMemo(
     () =>
       focusedChunkIndex >= 0 &&
-      virtualListState.items.some((item) => item.index === focusedChunkIndex),
-    [focusedChunkIndex, virtualListState.items],
+      virtualItems.some((item) => item.index === focusedChunkIndex),
+    [focusedChunkIndex, virtualItems],
   );
 
   useEffect(() => {
@@ -192,27 +112,15 @@ export function ChunksPanel({
     }
 
     requestMoreChunksIfNeeded(viewport);
-  }, [chunks.length, requestMoreChunksIfNeeded, virtualListState.totalHeight]);
+  }, [chunks.length, requestMoreChunksIfNeeded, totalHeight]);
 
   const scrollToChunkIndex = useCallback((index: number): void => {
-    const viewport = viewportRef.current;
-
-    if (!viewport || index < 0) {
+    if (index < 0) {
       return;
     }
 
-    const focusedOffset = getItemOffset({
-      index,
-      estimatedItemHeight: estimatedChunkCardHeight,
-      measuredHeights: measuredHeightsRef.current,
-    });
-    const centeredScrollTop = Math.max(
-      0,
-      focusedOffset - viewport.clientHeight / 2 + estimatedChunkCardHeight / 2,
-    );
-
-    scrollViewportTo(viewport, centeredScrollTop);
-  }, []);
+    chunkVirtualizer.scrollToIndex(index, { align: "center" });
+  }, [chunkVirtualizer]);
 
   const scrollToChunkId = useCallback(
     (chunkId: string): void => {
@@ -301,16 +209,16 @@ export function ChunksPanel({
           ) : (
             <div
               className="relative w-full min-w-0"
-              style={{ height: virtualListState.totalHeight }}
+              style={{ height: totalHeight }}
               aria-label="Parsed chunks"
             >
-              {virtualListState.items.map((virtualItem) => (
+              {virtualItems.map((virtualItem) => (
                 <VirtualChunkRow
-                  key={chunks[virtualItem.index]?.chunkId ?? virtualItem.index}
+                  key={virtualItem.key}
                   virtualItem={virtualItem}
                   chunk={chunks[virtualItem.index]}
                   focusedChunkId={activeFocusedChunkId}
-                  onMeasure={handleChunkMeasured}
+                  measureElement={chunkVirtualizer.measureElement}
                   onReferenceClick={requestChunkFocus}
                 />
               ))}
@@ -359,55 +267,29 @@ function VirtualChunkRow({
   virtualItem,
   chunk,
   focusedChunkId,
-  onMeasure,
+  measureElement,
   onReferenceClick,
 }: {
-  virtualItem: VirtualListItem;
+  virtualItem: VirtualItem;
   chunk: ParsedChunkView | undefined;
   focusedChunkId: string | null;
-  onMeasure: (index: number, height: number) => void;
+  measureElement: (node: HTMLDivElement | null) => void;
   onReferenceClick: (chunkId: string) => void;
 }) {
-  const rowRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const row = rowRef.current;
-
-    if (!row) {
-      return;
-    }
-
-    const measureRow = (): void => {
-      onMeasure(virtualItem.index, row.getBoundingClientRect().height);
-    };
-
-    measureRow();
-
-    if (typeof ResizeObserver === "undefined") {
-      return;
-    }
-
-    const observer = new ResizeObserver(measureRow);
-    observer.observe(row);
-
-    return () => {
-      observer.disconnect();
-    };
-  }, [onMeasure, virtualItem.index]);
-
   if (!chunk) {
     return null;
   }
 
   const rowStyle: CSSProperties = {
     position: "absolute",
-    transform: `translateY(${virtualItem.top}px)`,
+    transform: `translateY(${virtualItem.start}px)`,
     width: "100%",
   };
 
   return (
     <div
-      ref={rowRef}
+      ref={measureElement}
+      data-index={virtualItem.index}
       style={rowStyle}
       className="w-full min-w-0 pb-3 sm:pb-4"
       data-chunk-id={chunk.chunkId}
@@ -420,15 +302,6 @@ function VirtualChunkRow({
       />
     </div>
   );
-}
-
-function scrollViewportTo(viewport: HTMLDivElement, top: number): void {
-  if (typeof viewport.scrollTo === "function") {
-    viewport.scrollTo({ top, behavior: "smooth" });
-    return;
-  }
-
-  viewport.scrollTop = top;
 }
 
 function hasVisibleViewportSize(viewport: HTMLDivElement): boolean {
