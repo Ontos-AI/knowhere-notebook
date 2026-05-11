@@ -3,9 +3,8 @@ import "server-only";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
+import { parsedChunkNormalization } from "./parsed-chunk-normalization";
 import type {
-  ChunkType,
-  ParsedChunkConnection,
   ParsedChunkView,
   SourceView,
 } from "./types";
@@ -71,7 +70,10 @@ function listSources(): SourceView[] {
     documentId: source.documentId,
     chunkCount: source.chunkCount,
     originalFile: {
-      url: buildDemoAssetURL(source.assetDirectory, source.originalFilePath),
+      url: parsedChunkNormalization.buildDemoAssetURL({
+        assetDirectory: source.assetDirectory,
+        filePath: source.originalFilePath,
+      }),
       mimeType: source.mimeType,
       canDownload: false,
     },
@@ -138,7 +140,7 @@ async function loadChunksForDefinition(
   const body = await readFile(filePath, "utf8");
   const rawChunks = parseRawChunks(JSON.parse(body) as unknown);
 
-  return resolveDemoConnectionTargets(
+  return parsedChunkNormalization.resolveConnectionTargets(
     rawChunks.map((chunk) => toParsedChunkView(source, chunk)),
   );
 }
@@ -165,37 +167,31 @@ function toParsedChunkView(
   chunk: RawDemoChunk,
 ): ParsedChunkView {
   const metadata = chunk.metadata ?? {};
-  const filePath =
-    getStringMetadata(metadata, "file_path") ?? getString(chunk.path);
-  const assetUrl =
-    filePath && (chunk.type === "image" || chunk.type === "table")
-      ? buildDemoAssetURL(source.assetDirectory, filePath)
-      : undefined;
+  const filePathCandidates = [
+    metadata["file_path"],
+    metadata["filePath"],
+    chunk.path,
+  ] as const;
+  const filePath = getFirstString(filePathCandidates);
+  const assetUrl = isChunkAsset(chunk.type) && filePath
+    ? parsedChunkNormalization.buildDemoAssetURL({
+        assetDirectory: source.assetDirectory,
+        filePath,
+      })
+    : undefined;
 
-  return {
+  return parsedChunkNormalization.createParsedChunkView({
     chunkId: `${source.id}:${chunk.chunk_id}`,
     parserChunkId: chunk.chunk_id,
     documentId: source.documentId,
     sectionPath: getString(chunk.path) ?? null,
-    type: toChunkType(chunk.type),
-    content: getString(chunk.content) ?? "",
-    filePath,
+    chunkType: chunk.type,
+    content: chunk.content,
+    metadata,
+    filePathCandidates,
     assetUrl,
-    summary: getStringMetadata(metadata, "summary"),
-    keywords: getStringArrayMetadata(metadata, "keywords"),
-    pageNums: getNumberArrayMetadata(metadata, "page_nums"),
-    connections: getChunkConnections(metadata),
     sourceTitle: source.title,
-  };
-}
-
-function buildDemoAssetURL(assetDirectory: string, filePath: string): string {
-  const encodedPath = filePath
-    .split("/")
-    .map((segment) => encodeURIComponent(segment))
-    .join("/");
-
-  return `/demo-sources/${encodeURIComponent(assetDirectory)}/${encodedPath}`;
+  });
 }
 
 function toDemoSourceSeed(source: DemoSourceDefinition): DemoSourceSeed {
@@ -204,10 +200,10 @@ function toDemoSourceSeed(source: DemoSourceDefinition): DemoSourceSeed {
     documentId: source.documentId,
     title: source.title,
     mimeType: source.mimeType,
-    originalFileUrl: buildDemoAssetURL(
-      source.assetDirectory,
-      source.originalFilePath,
-    ),
+    originalFileUrl: parsedChunkNormalization.buildDemoAssetURL({
+      assetDirectory: source.assetDirectory,
+      filePath: source.originalFilePath,
+    }),
     originalFileSystemPath: path.join(
       demoAssetsDirectoryPath,
       source.assetDirectory,
@@ -219,113 +215,21 @@ function toDemoSourceSeed(source: DemoSourceDefinition): DemoSourceSeed {
   };
 }
 
-function resolveDemoConnectionTargets(
-  chunks: ParsedChunkView[],
-): ParsedChunkView[] {
-  const chunkIdsByParserChunkId = new Map(
-    chunks
-      .filter((chunk) => chunk.parserChunkId)
-      .map((chunk) => [chunk.parserChunkId!, chunk.chunkId]),
+function isChunkAsset(value: string): boolean {
+  return value === "image" || value === "table";
+}
+
+function getFirstString(values: readonly unknown[]): string | undefined {
+  return values.reduce<string | undefined>(
+    (selected, value) => selected ?? getString(value),
+    undefined,
   );
-
-  return chunks.map((chunk) => {
-    if (!chunk.connections || chunk.connections.length === 0) return chunk;
-
-    return {
-      ...chunk,
-      connections: chunk.connections.map((connection) => ({
-        ...connection,
-        targetChunkId:
-          chunkIdsByParserChunkId.get(connection.targetParserChunkId) ??
-          connection.targetChunkId,
-      })),
-    };
-  });
-}
-
-function toChunkType(value: string): ChunkType {
-  if (value === "image" || value === "table") return value;
-  return "text";
-}
-
-function getStringMetadata(
-  metadata: Readonly<Record<string, unknown>>,
-  key: string,
-): string | undefined {
-  return getString(metadata[key]);
 }
 
 function getString(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
-}
-
-function getStringArrayMetadata(
-  metadata: Readonly<Record<string, unknown>>,
-  key: string,
-): string[] | undefined {
-  const value = metadata[key];
-  if (!Array.isArray(value)) return undefined;
-
-  const strings = value.filter(
-    (item): item is string => typeof item === "string" && item.length > 0,
-  );
-  return strings.length > 0 ? strings : undefined;
-}
-
-function getNumberArrayMetadata(
-  metadata: Readonly<Record<string, unknown>>,
-  key: string,
-): number[] | undefined {
-  const value = metadata[key];
-  if (!Array.isArray(value)) return undefined;
-
-  const numbers = value.filter(
-    (item): item is number => typeof item === "number" && Number.isFinite(item),
-  );
-  return numbers.length > 0 ? numbers : undefined;
-}
-
-function getChunkConnections(
-  metadata: Readonly<Record<string, unknown>>,
-): ParsedChunkConnection[] | undefined {
-  const value = metadata["connect_to"] ?? metadata["connectTo"];
-  if (!Array.isArray(value)) return undefined;
-
-  const connections = value.flatMap((item): ParsedChunkConnection[] => {
-    if (!isRecord(item)) return [];
-    const targetParserChunkId = getString(item["target"]);
-    if (!targetParserChunkId) return [];
-
-    return [
-      {
-        targetParserChunkId,
-        relation: getString(item["relation"]) ?? "related",
-        ref: getString(item["ref"]),
-        position: getConnectionPosition(item["position"]),
-      },
-    ];
-  });
-
-  return connections.length > 0 ? connections : undefined;
-}
-
-function getConnectionPosition(
-  value: unknown,
-): ParsedChunkConnection["position"] | undefined {
-  if (!isRecord(value)) return undefined;
-  const start = value["start"];
-  const end = value["end"];
-  if (
-    typeof start !== "number" ||
-    typeof end !== "number" ||
-    !Number.isFinite(start) ||
-    !Number.isFinite(end)
-  ) {
-    return undefined;
-  }
-  return { start, end };
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {

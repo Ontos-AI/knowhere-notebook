@@ -2,27 +2,21 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { PointerEvent as ReactPointerEvent } from "react"
-import { Effect } from "effect"
 import useSWR, { SWRConfig, unstable_serialize, useSWRConfig } from "swr"
 import type { Cache } from "swr"
 import useSWRInfinite from "swr/infinite"
 import useSWRMutation from "swr/mutation"
-import {
-  FetchHttpClient,
-  HttpClient,
-  HttpClientRequest,
-} from "@effect/platform"
 import { TopNav } from "@/components/top-nav"
 import { SourcesPanel } from "@/components/sources-panel"
 import { ChunksPanel } from "@/components/chunks-panel"
 import { ChatPanel } from "@/components/chat-panel"
 import { MobileTabBar } from "@/components/mobile-tab-bar"
 import { deriveChatThreadTitle } from "@/lib/chat-title"
+import { workspaceClient } from "@/lib/workspace-client"
 import {
   resolveChunkConnectionTargets,
   resolveCitationChunk,
   resolveCitationChunkByContent,
-  type ChunkPagePagination,
 } from "@/lib/chunks"
 import { useHashFragment } from "@/lib/use-hash-fragment"
 import type {
@@ -32,38 +26,6 @@ import type {
   ParsedChunkView,
   SourceView,
 } from "@/lib/types"
-
-const getJson = <T,>(url: string) =>
-  Effect.runPromise(
-    Effect.flatMap(
-      HttpClientRequest.get(url).pipe(HttpClient.execute),
-      (res) => res.json,
-    ).pipe(Effect.provide(FetchHttpClient.layer)) as Effect.Effect<T>,
-  )
-
-const postJson = <T,>(url: string, body: unknown) =>
-  Effect.runPromise(
-    Effect.flatMap(
-      HttpClientRequest.post(url).pipe(
-        HttpClientRequest.setHeader("content-type", "application/json"),
-        HttpClientRequest.bodyText(JSON.stringify(body)),
-        HttpClient.execute,
-      ),
-      (res) => res.json,
-    ).pipe(Effect.provide(FetchHttpClient.layer)) as Effect.Effect<T>,
-  )
-
-const patchJson = <T,>(url: string, body: unknown) =>
-  Effect.runPromise(
-    Effect.flatMap(
-      HttpClientRequest.patch(url).pipe(
-        HttpClientRequest.setHeader("content-type", "application/json"),
-        HttpClientRequest.bodyText(JSON.stringify(body)),
-        HttpClient.execute,
-      ),
-      (res) => res.json,
-    ).pipe(Effect.provide(FetchHttpClient.layer)) as Effect.Effect<T>,
-  )
 
 export type PanelId = "sources" | "content" | "chat"
 
@@ -80,12 +42,11 @@ const DESKTOP_PANEL_DEFAULT_WIDTHS = {
   chat: 420,
 } as const
 
-const sourcesSWRKey = "/api/sources"
-const chatThreadsSWRKey = "/api/chat/threads"
-const chatSWRKey = "/api/chat"
-const archiveSourceSWRKey = "archive-source"
-const archiveChatThreadSWRKey = "archive-chat-thread"
-const sourceChunkPageSize = 100
+const sourcesSWRKey = workspaceClient.keys.sources
+const chatThreadsSWRKey = workspaceClient.keys.chatThreads
+const chatSWRKey = workspaceClient.keys.chat
+const archiveSourceSWRKey = workspaceClient.keys.archiveSource
+const archiveChatThreadSWRKey = workspaceClient.keys.archiveChatThread
 
 type DesktopPanelKey = keyof typeof DESKTOP_PANEL_MIN_WIDTHS
 type DesktopPanelWidths = Record<DesktopPanelKey, number>
@@ -110,34 +71,15 @@ type ChatState = {
   error: string | null
 }
 
-type SourcesResponse = {
-  sources?: SourceView[]
-  message?: string
-}
-
-type ChatThreadResponse = {
-  thread?: ChatThreadView
-  messages?: ChatMessageView[]
-  message?: string
-}
-
-type ChatThreadDetailResponse = ChatThreadResponse & {
-  requestedThreadId: string
-}
-
-type ChatMessageRequest = {
-  message: string
-  threadId?: string
-  excludedSourceIds: string[]
-}
-
 type SourceChunksKey = readonly ["source-chunks", string, number]
 type ChatThreadKey = readonly ["chat-thread", string]
-
-type SourceChunksResponse = {
-  chunks?: ParsedChunkView[]
-  pagination?: ChunkPagePagination
-}
+type SourceChunksResponse = Awaited<
+  ReturnType<typeof workspaceClient.fetchChunkPage>
+>
+type ChatThreadDetailResponse = Awaited<
+  ReturnType<typeof workspaceClient.fetchChatThread>
+>
+type ChatMessageRequest = Parameters<typeof workspaceClient.sendChatMessage>[0]
 
 export type WorkspaceShellProps = {
   user?: {
@@ -220,7 +162,7 @@ function WorkspaceShellContent({
   const { cache, mutate: mutateSWR } = useSWRConfig()
   const { data: serverSources, mutate: mutateSources } = useSWR(
     sourcesSWRKey,
-    fetchSources,
+    workspaceClient.fetchSources,
     {
       fallbackData: initialSrcs,
       revalidateIfStale: false,
@@ -242,7 +184,7 @@ function WorkspaceShellContent({
   )
   const { data: serverChatThreads, mutate: mutateChatThreads } = useSWR(
     isGuest ? null : chatThreadsSWRKey,
-    fetchChatThreads,
+    workspaceClient.fetchChatThreads,
     {
       fallbackData: initialChatThreads ?? [],
       revalidateIfStale: false,
@@ -323,18 +265,18 @@ function WorkspaceShellContent({
     },
   )
   const { trigger: createChatThread, isMutating: isCreatingThread } =
-    useSWRMutation(chatThreadsSWRKey, postChatThread)
+    useSWRMutation(chatThreadsSWRKey, createChatThreadMutation)
   const { trigger: sendChatMessage } = useSWRMutation(
     chatSWRKey,
-    postChatMessage,
+    sendChatMessageMutation,
   )
   const { trigger: archiveSource } = useSWRMutation(
     archiveSourceSWRKey,
-    patchArchiveSource,
+    archiveSourceMutation,
   )
   const { trigger: archiveChatThread } = useSWRMutation(
     archiveChatThreadSWRKey,
-    patchArchiveChatThread,
+    archiveChatThreadMutation,
   )
   const [desktopPanelWidths, setDesktopPanelWidths] =
     useState<DesktopPanelWidths>({ ...DESKTOP_PANEL_DEFAULT_WIDTHS })
@@ -980,42 +922,7 @@ function WorkspaceShellContent({
 }
 
 async function fetchChunks(sourceId: string): Promise<ParsedChunkView[]> {
-  try {
-    const body = await getJson<{ chunks?: ParsedChunkView[] }>(
-      `/api/sources/${encodeURIComponent(sourceId)}/chunks`,
-    )
-    return Array.isArray(body.chunks) ? body.chunks : []
-  } catch {
-    return []
-  }
-}
-
-async function fetchChunkPage(
-  sourceId: string,
-  page: number,
-): Promise<SourceChunksResponse> {
-  const searchParams = new URLSearchParams({
-    page: String(page),
-    pageSize: String(sourceChunkPageSize),
-  })
-  const body = await getJson<SourceChunksResponse>(
-    `/api/sources/${encodeURIComponent(sourceId)}/chunks?${searchParams.toString()}`,
-  )
-
-  return {
-    chunks: Array.isArray(body.chunks) ? body.chunks : [],
-    pagination: body.pagination,
-  }
-}
-
-async function fetchSources(): Promise<SourceView[]> {
-  const body = await getJson<SourcesResponse>(sourcesSWRKey)
-  return Array.isArray(body.sources) ? body.sources : []
-}
-
-async function fetchChatThreads(): Promise<ChatThreadView[]> {
-  const body = await getJson<{ threads?: ChatThreadView[] }>(chatThreadsSWRKey)
-  return Array.isArray(body.threads) ? body.threads : []
+  return workspaceClient.fetchChunks(sourceId)
 }
 
 function getSourceChunksKey(
@@ -1033,7 +940,7 @@ function fetchChunksByKey([
   sourceId,
   page,
 ]: SourceChunksKey): Promise<SourceChunksResponse> {
-  return fetchChunkPage(sourceId, page)
+  return workspaceClient.fetchChunkPage(sourceId, page)
 }
 
 function hasMoreChunkPages(
@@ -1085,42 +992,32 @@ function fetchChatThreadByKey([
   ,
   threadId,
 ]: ChatThreadKey): Promise<ChatThreadDetailResponse> {
-  return getJson<ChatThreadResponse>(
-    `/api/chat/threads/${encodeURIComponent(threadId)}`,
-  ).then((body) => ({ ...body, requestedThreadId: threadId }))
+  return workspaceClient.fetchChatThread(threadId)
 }
 
-function postChatThread(): Promise<ChatThreadResponse> {
-  return postJson<ChatThreadResponse>(chatThreadsSWRKey, {})
+function createChatThreadMutation(): ReturnType<typeof workspaceClient.createChatThread> {
+  return workspaceClient.createChatThread()
 }
 
-function postChatMessage(
+function sendChatMessageMutation(
   _key: string,
   { arg }: { arg: ChatMessageRequest },
-): Promise<{
-  threadId?: string
-  messages?: ChatMessageView[]
-  message?: string
-}> {
-  return postJson(chatSWRKey, arg)
+): ReturnType<typeof workspaceClient.sendChatMessage> {
+  return workspaceClient.sendChatMessage(arg)
 }
 
-function patchArchiveSource(
+function archiveSourceMutation(
   _key: string,
   { arg: sourceId }: { arg: string },
-): Promise<{ id?: string; archived?: boolean }> {
-  return patchJson(`/api/sources/${encodeURIComponent(sourceId)}`, {
-    archived: true,
-  })
+): ReturnType<typeof workspaceClient.archiveSource> {
+  return workspaceClient.archiveSource(sourceId)
 }
 
-function patchArchiveChatThread(
+function archiveChatThreadMutation(
   _key: string,
   { arg: threadId }: { arg: string },
-): Promise<{ id?: string; archived?: boolean }> {
-  return patchJson(`/api/chat/threads/${encodeURIComponent(threadId)}`, {
-    archived: true,
-  })
+): ReturnType<typeof workspaceClient.archiveChatThread> {
+  return workspaceClient.archiveChatThread(threadId)
 }
 
 function hasPendingSources(sources: readonly SourceView[]): boolean {

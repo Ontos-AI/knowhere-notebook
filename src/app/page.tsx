@@ -1,17 +1,12 @@
-import { headers } from "next/headers"
 import { Effect } from "effect"
 
-import { ensureApiKeyForWorkspace } from "@/lib/api-key-service"
-import { authURLs } from "@/lib/auth-urls"
-import { getCurrentUser } from "@/lib/auth"
 import { toChatMessageView, toChatThreadView } from "@/lib/chat-view"
 import { DEMO_CHAT_MESSAGES } from "@/lib/demo-chat"
 import { demoData } from "@/lib/demo-data"
-import { makeKnowhereClient } from "@/lib/knowhere"
+import { notebookRequestContext } from "@/lib/notebook-request-context"
 import { sourceViewOptionsBySourceId } from "@/lib/source-counts"
 import { toSourceView } from "@/lib/source-view"
 import {
-  ensureWorkspace,
   ensureDemoWorkspaceContent,
   listChatThreadsForWorkspace,
   listMessagesForThread,
@@ -32,33 +27,24 @@ export const dynamic = "force-dynamic"
  *     ensure workspace + API key, load real sources.
  */
 export default async function Home() {
-  const user = await getCurrentUser()
+  const context = await notebookRequestContext.getOptionalAuthenticated()
 
-  if (!user) {
-    const dashboardOrigin =
-      process.env.DASHBOARD_ORIGIN ?? "http://localhost:3000"
-    const dashboardLoginURL = `${dashboardOrigin}/login`
-    const notebookPublicURL =
-      process.env.NOTEBOOK_PUBLIC_URL ??
-      authURLs.resolveNotebookPublicURLFromHeaders(await headers())
-    const loginUrl = authURLs.buildDashboardLoginURL(
-      dashboardLoginURL,
-      notebookPublicURL,
-    )
+  if (!context) {
+    const guestContext = await notebookRequestContext.getGuest()
     return (
       <WorkspaceShell
         isGuest
         sources={demoData.listSources()}
         chatMessages={[...DEMO_CHAT_MESSAGES]}
-        loginUrl={loginUrl}
+        loginUrl={guestContext.loginUrl}
       />
     )
   }
 
-  const workspace = await ensureWorkspace(user.id)
-  const cookieHeader = (await headers()).get("cookie") ?? ""
-  const apiKey = await ensureApiKeyForWorkspace(workspace.id, cookieHeader)
-  const client = makeKnowhereClient(apiKey)
+  const { user, workspace } = context
+  const { client } = await notebookRequestContext.getClientForWorkspace(
+    workspace,
+  )
   await ensureDemoWorkspaceContent(workspace, client)
   const sources = await listSourcesForWorkspace(workspace.id)
   const chatThreads = await listChatThreadsForWorkspace(workspace.id)

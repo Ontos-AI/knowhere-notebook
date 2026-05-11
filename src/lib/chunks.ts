@@ -1,13 +1,9 @@
 import { Effect } from "effect"
-import type { DocumentChunk, DocumentChunkType } from "@ontos-ai/knowhere-sdk"
+import type { DocumentChunk } from "@ontos-ai/knowhere-sdk"
 
+import { parsedChunkNormalization } from "./parsed-chunk-normalization"
 import type { Source } from "./schema"
-import type {
-  ChatCitationView,
-  ChunkType,
-  ParsedChunkConnection,
-  ParsedChunkView,
-} from "./types"
+import type { ChatCitationView, ParsedChunkView } from "./types"
 
 const documentChunkPageSize = 200
 const defaultChunkPageSize = 100
@@ -156,58 +152,37 @@ export function toParsedChunkView(
   documentId?: string,
   options: LoadChunksOptions = {},
 ): ParsedChunkView {
-  const filePath = getChunkFilePath(chunk)
-  const assetUrl =
-    (filePath ? options.assetUrlsByFilePath?.[filePath] : undefined) ??
-    getString(chunk.assetUrl)
-  const connections = getChunkConnections(chunk.metadata)
-  return {
+  return parsedChunkNormalization.createParsedChunkView({
     chunkId: chunk.id,
     documentId,
-    parserChunkId: getString(chunk.chunkId),
+    parserChunkId: chunk.chunkId,
     sectionPath: chunk.sectionPath,
-    type: toChunkType(chunk.chunkType),
-    content: chunk.content ?? "",
-    filePath,
-    assetUrl,
-    summary: getStringMetadata(chunk.metadata, "summary"),
-    keywords: getStringArrayMetadata(chunk.metadata, "keywords"),
-    pageNums: getNumberArrayMetadata(chunk.metadata, "pageNums"),
-    connections,
+    chunkType: chunk.chunkType,
+    content: chunk.content,
+    metadata: chunk.metadata,
+    filePathCandidates: [
+      chunk.filePath,
+      chunk.metadata["filePath"],
+      chunk.metadata["file_path"],
+    ],
+    assetUrl: chunk.assetUrl,
+    assetUrlsByFilePath: options.assetUrlsByFilePath,
     sourceTitle,
-  }
+  })
 }
 
 export function resolveCitationChunk(
   citation: ChatCitationView,
   chunks: readonly ParsedChunkView[],
 ): ParsedChunkView | null {
-  const documentChunks = getCitationDocumentChunks(citation, chunks)
-  const byContent = findByContent(documentChunks, citation.content)
-  if (byContent) return byContent
-
-  const byPath = findUniqueBySectionPath(
-    documentChunks,
-    citation.source.sectionPath,
-  )
-  if (byPath) return byPath
-
-  return null
+  return parsedChunkNormalization.resolveCitationChunk(citation, chunks)
 }
 
 export function resolveCitationChunkByContent(
   citation: ChatCitationView,
   chunks: readonly ParsedChunkView[],
 ): ParsedChunkView | null {
-  return findByContent(
-    getCitationDocumentChunks(citation, chunks),
-    citation.content,
-  )
-}
-
-function toChunkType(chunkType: DocumentChunkType): ChunkType {
-  if (chunkType === "image" || chunkType === "table") return chunkType
-  return "text"
+  return parsedChunkNormalization.resolveCitationChunkByContent(citation, chunks)
 }
 
 function getTotalPages(
@@ -226,25 +201,7 @@ function getTotalPages(
 export function resolveChunkConnectionTargets(
   chunks: ParsedChunkView[],
 ): ParsedChunkView[] {
-  const chunkIdsByParserChunkId = new Map(
-    chunks
-      .filter((chunk) => chunk.parserChunkId)
-      .map((chunk) => [chunk.parserChunkId!, chunk.chunkId]),
-  )
-
-  return chunks.map((chunk) => {
-    if (!chunk.connections || chunk.connections.length === 0) return chunk
-
-    return {
-      ...chunk,
-      connections: chunk.connections.map((connection) => ({
-        ...connection,
-        targetChunkId:
-          chunkIdsByParserChunkId.get(connection.targetParserChunkId) ??
-          connection.targetChunkId,
-      })),
-    }
-  })
+  return parsedChunkNormalization.resolveConnectionTargets(chunks)
 }
 
 function normalizeChunkPagination(
@@ -293,135 +250,4 @@ function getFinitePositiveNumber(
   return typeof value === "number" && Number.isFinite(value) && value >= 0
     ? value
     : fallback
-}
-
-function getChunkFilePath(chunk: DocumentChunk): string | undefined {
-  return (
-    getString(chunk.filePath) ??
-    getStringMetadata(chunk.metadata, "filePath") ??
-    getStringMetadata(chunk.metadata, "file_path")
-  )
-}
-
-function getChunkConnections(
-  metadata: Record<string, unknown>,
-): ParsedChunkConnection[] | undefined {
-  const value = metadata["connectTo"] ?? metadata["connect_to"]
-  if (!Array.isArray(value)) return undefined
-
-  const connections = value.flatMap((item): ParsedChunkConnection[] => {
-    if (!isRecord(item)) return []
-    const targetParserChunkId = getString(item["target"])
-    if (!targetParserChunkId) return []
-
-    return [
-      {
-        targetParserChunkId,
-        relation: getString(item["relation"]) ?? "related",
-        ref: getString(item["ref"]),
-        position: getConnectionPosition(item["position"]),
-      },
-    ]
-  })
-
-  return connections.length > 0 ? connections : undefined
-}
-
-function getConnectionPosition(
-  value: unknown,
-): ParsedChunkConnection["position"] | undefined {
-  if (!isRecord(value)) return undefined
-  const start = value["start"]
-  const end = value["end"]
-  if (
-    typeof start !== "number" ||
-    typeof end !== "number" ||
-    !Number.isFinite(start) ||
-    !Number.isFinite(end)
-  ) {
-    return undefined
-  }
-  return { start, end }
-}
-
-function findUniqueBySectionPath(
-  chunks: readonly ParsedChunkView[],
-  sectionPath: string | undefined,
-): ParsedChunkView | null {
-  if (!sectionPath) return null
-  const normalized = normalizeText(sectionPath)
-  const matches = chunks.filter(
-    (chunk) => normalizeText(chunk.sectionPath ?? "") === normalized,
-  )
-  return matches.length === 1 ? matches[0]! : null
-}
-
-function getCitationDocumentChunks(
-  citation: ChatCitationView,
-  chunks: readonly ParsedChunkView[],
-): readonly ParsedChunkView[] {
-  if (!citation.source.documentId) return chunks
-  return chunks.filter((chunk) => chunk.documentId === citation.source.documentId)
-}
-
-function findByContent(
-  chunks: readonly ParsedChunkView[],
-  content: string | undefined,
-): ParsedChunkView | null {
-  if (!content) return null
-  const normalizedContent = normalizeText(content)
-  if (normalizedContent.length === 0) return null
-
-  const excerpt = normalizedContent.slice(0, 160)
-  const matches = chunks.filter((chunk) =>
-    normalizeText(chunk.content).includes(excerpt),
-  )
-  return matches.length === 1 ? matches[0]! : null
-}
-
-function normalizeText(value: string): string {
-  return value.replace(/\s+/g, " ").trim().toLowerCase()
-}
-
-function getString(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined
-  const trimmed = value.trim()
-  return trimmed.length > 0 ? trimmed : undefined
-}
-
-function getStringMetadata(
-  metadata: Record<string, unknown>,
-  key: string,
-): string | undefined {
-  return getString(metadata[key])
-}
-
-function getStringArrayMetadata(
-  metadata: Record<string, unknown>,
-  key: string,
-): string[] | undefined {
-  const value = metadata[key]
-  if (!Array.isArray(value)) return undefined
-
-  const strings = value.filter(
-    (item): item is string => typeof item === "string" && item.length > 0,
-  )
-  return strings.length > 0 ? strings : undefined
-}
-
-function getNumberArrayMetadata(
-  metadata: Record<string, unknown>,
-  key: string,
-): number[] | undefined {
-  const value = metadata[key]
-  if (!Array.isArray(value)) return undefined
-
-  const numbers = value.filter(
-    (item): item is number => typeof item === "number" && Number.isFinite(item),
-  )
-  return numbers.length > 0 ? numbers : undefined
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null
 }

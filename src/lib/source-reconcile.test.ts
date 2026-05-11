@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest"
+import type { JobResult } from "@ontos-ai/knowhere-sdk"
 
 import type { Source, Workspace } from "./schema"
+import { applyKnowhereJobToSource } from "./source-lifecycle"
 
 const workspace: Workspace = {
   id: "workspace_1",
@@ -271,5 +273,104 @@ describe("reconcileSourcesForWorkspace", () => {
     expect(markSourceReady).not.toHaveBeenCalled()
     expect(markSourceFailed).not.toHaveBeenCalled()
     expect(result).toEqual([parsing])
+  })
+})
+
+describe("applyKnowhereJobToSource", () => {
+  it("stores completed parsed results before readying the source and then cleans staged blobs", async () => {
+    const parsing = makeSource({
+      id: "source_1",
+      knowhereJobId: "job_1",
+      stagedBlobPathname: "source-uploads/upload_1/document.pdf",
+    })
+    const job: JobResult = {
+      jobId: "job_1",
+      status: "done",
+      sourceType: "file",
+      namespace: workspace.namespace,
+      documentId: "doc_1",
+      createdAt: new Date("2026-05-06T00:00:00Z"),
+      isDone: true,
+      isFailed: false,
+      isTerminal: true,
+    }
+    const calls: string[] = []
+    const parsedAssets = {
+      resultBlobUrl: "https://blob.example/result.zip",
+      assetUrlsByFilePath: {
+        "images/image-1.jpg": "https://blob.example/image-1.jpg",
+      },
+    }
+    const client = {
+      jobs: {
+        load: vi.fn(),
+      },
+    }
+    const repository = {
+      saveSourceParseResult: vi.fn(async () => {
+        calls.push("save")
+      }),
+      markSourceReady: vi.fn(async () => {
+        calls.push("ready")
+      }),
+      markSourceFailed: vi.fn(async () => {
+        calls.push("failed")
+      }),
+      clearSourceStagedBlob: vi.fn(async () => {
+        calls.push("clear-staged")
+      }),
+    }
+    const parsedResultStore = {
+      storeParsedResultAssets: vi.fn(async () => {
+        calls.push("store-assets")
+        return parsedAssets
+      }),
+    }
+    const blobStore = {
+      deleteStagedSourceBlob: vi.fn(async () => {
+        calls.push("delete-staged")
+      }),
+    }
+
+    await applyKnowhereJobToSource({
+      workspaceId: workspace.id,
+      source: parsing,
+      job,
+      client,
+      repository,
+      parsedResultStore,
+      blobStore,
+    })
+
+    expect(parsedResultStore.storeParsedResultAssets).toHaveBeenCalledWith({
+      workspaceId: workspace.id,
+      sourceId: "source_1",
+      job,
+      client,
+    })
+    expect(repository.saveSourceParseResult).toHaveBeenCalledWith(
+      workspace.id,
+      "source_1",
+      parsedAssets,
+    )
+    expect(repository.markSourceReady).toHaveBeenCalledWith(
+      workspace.id,
+      "source_1",
+      "doc_1",
+    )
+    expect(blobStore.deleteStagedSourceBlob).toHaveBeenCalledWith(
+      "source-uploads/upload_1/document.pdf",
+    )
+    expect(repository.clearSourceStagedBlob).toHaveBeenCalledWith(
+      workspace.id,
+      "source_1",
+    )
+    expect(calls).toEqual([
+      "store-assets",
+      "save",
+      "ready",
+      "delete-staged",
+      "clear-staged",
+    ])
   })
 })

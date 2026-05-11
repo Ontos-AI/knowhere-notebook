@@ -10,6 +10,7 @@ import {
   type StoreParsedResultAssetsInput,
   type StoredParsedResultAssets,
 } from "./parsed-result-assets"
+import { applyKnowhereJobToSource } from "./source-lifecycle"
 import {
   clearSourceStagedBlob,
   listSourcesForWorkspace,
@@ -69,49 +70,23 @@ async function updateSourceFromJob(
   client: Knowhere,
   deps: SourceReconcileDependencies,
 ): Promise<void> {
-  if (job.isDone || job.status === "done") {
-    if (job.documentId) {
-      const storeAssets = deps.storeParsedResultAssets ?? storeParsedResultAssets
-      const saveParseResult = deps.saveSourceParseResult ?? saveSourceParseResult
-      const stored = await storeAssets({
-        workspaceId,
-        sourceId: source.id,
-        job,
-        client,
-      })
-      await saveParseResult(workspaceId, source.id, stored)
-      await deleteSourceStagedBlob(workspaceId, source, deps)
-      await markSourceReady(workspaceId, source.id, job.documentId)
-      return
-    }
-    await deleteSourceStagedBlob(workspaceId, source, deps)
-    await markSourceFailed(
-      workspaceId,
-      source.id,
-      "Parsing finished but no document was published.",
-    )
-    return
-  }
-
-  if (job.isFailed || job.status === "failed") {
-    await deleteSourceStagedBlob(workspaceId, source, deps)
-    await markSourceFailed(
-      workspaceId,
-      source.id,
-      job.error?.message ?? "Parsing failed.",
-    )
-  }
-}
-
-async function deleteSourceStagedBlob(
-  workspaceId: string,
-  source: Source,
-  deps: SourceReconcileDependencies,
-): Promise<void> {
-  if (!source.stagedBlobPathname) return
-
-  const deleteBlob = deps.deleteStagedSourceBlob ?? del
-  const clearStagedBlob = deps.clearSourceStagedBlob ?? clearSourceStagedBlob
-  await deleteBlob(source.stagedBlobPathname)
-  await clearStagedBlob(workspaceId, source.id)
+  await applyKnowhereJobToSource({
+    workspaceId,
+    source,
+    job,
+    client,
+    repository: {
+      saveSourceParseResult: deps.saveSourceParseResult ?? saveSourceParseResult,
+      markSourceReady,
+      markSourceFailed,
+      clearSourceStagedBlob: deps.clearSourceStagedBlob ?? clearSourceStagedBlob,
+    },
+    parsedResultStore: {
+      storeParsedResultAssets:
+        deps.storeParsedResultAssets ?? storeParsedResultAssets,
+    },
+    blobStore: {
+      deleteStagedSourceBlob: deps.deleteStagedSourceBlob ?? del,
+    },
+  })
 }

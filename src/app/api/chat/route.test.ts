@@ -3,36 +3,22 @@ import { describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   appendMessageToThread: vi.fn(),
-  ensureApiKeyForWorkspace: vi.fn(),
   ensureDefaultChatThread: vi.fn(),
-  ensureWorkspace: vi.fn(),
   findChatThreadInWorkspace: vi.fn(),
+  getAuthenticatedWithClient: vi.fn(),
   handleChatTurn: vi.fn(),
   listMessagesForThread: vi.fn(),
-  listSourcesForWorkspace: vi.fn(),
-  makeKnowhereClient: vi.fn(),
   reconcileSourcesForWorkspace: vi.fn(),
-  requireUser: vi.fn(),
-}));
-
-vi.mock("next/headers", () => ({
-  headers: vi.fn(async () => new Headers({ cookie: "session=abc" })),
-}));
-
-vi.mock("@/lib/api-key-service", () => ({
-  ensureApiKeyForWorkspace: mocks.ensureApiKeyForWorkspace,
-}));
-
-vi.mock("@/lib/auth", () => ({
-  requireUser: mocks.requireUser,
 }));
 
 vi.mock("@/lib/chat-service", () => ({
   handleChatTurn: mocks.handleChatTurn,
 }));
 
-vi.mock("@/lib/knowhere", () => ({
-  makeKnowhereClient: mocks.makeKnowhereClient,
+vi.mock("@/lib/notebook-request-context", () => ({
+  notebookRequestContext: {
+    getAuthenticatedWithClient: mocks.getAuthenticatedWithClient,
+  },
 }));
 
 vi.mock("@/lib/source-reconcile", () => ({
@@ -42,10 +28,8 @@ vi.mock("@/lib/source-reconcile", () => ({
 vi.mock("@/lib/workspace", () => ({
   appendMessageToThread: mocks.appendMessageToThread,
   ensureDefaultChatThread: mocks.ensureDefaultChatThread,
-  ensureWorkspace: mocks.ensureWorkspace,
   findChatThreadInWorkspace: mocks.findChatThreadInWorkspace,
   listMessagesForThread: mocks.listMessagesForThread,
-  listSourcesForWorkspace: mocks.listSourcesForWorkspace,
 }));
 
 import { POST } from "./route";
@@ -59,21 +43,17 @@ describe("POST /api/chat", () => {
       createdAt: new Date("2026-05-10T00:00:00Z"),
     };
     const client = { retrieval: {} };
-    const parsingSource = {
-      id: "source_1",
-      status: "parsing",
-      knowhereDocumentId: null,
-    };
     const readySource = {
       id: "source_1",
       status: "ready",
       knowhereDocumentId: "doc_ready",
     };
-    mocks.requireUser.mockResolvedValue({ id: "user_1" });
-    mocks.ensureWorkspace.mockResolvedValue(workspace);
-    mocks.ensureApiKeyForWorkspace.mockResolvedValue("jwt_123");
-    mocks.makeKnowhereClient.mockReturnValue(client);
-    mocks.listSourcesForWorkspace.mockResolvedValue([parsingSource]);
+    mocks.getAuthenticatedWithClient.mockResolvedValue({
+      user: { id: "user_1" },
+      workspace,
+      apiKey: "jwt_123",
+      client,
+    });
     mocks.reconcileSourcesForWorkspace.mockResolvedValue([readySource]);
     mocks.handleChatTurn.mockResolvedValue(
       Either.right({
@@ -93,6 +73,7 @@ describe("POST /api/chat", () => {
     );
 
     expect(response.status).toBe(200);
+    expect(mocks.getAuthenticatedWithClient).toHaveBeenCalledOnce();
     expect(mocks.reconcileSourcesForWorkspace).toHaveBeenCalledWith(
       workspace,
       client,

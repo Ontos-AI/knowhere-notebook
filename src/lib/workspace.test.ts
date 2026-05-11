@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { Layer } from "effect"
+import { Effect, Layer } from "effect"
 import type { Db } from "./db"
+import { chatRepository } from "./chat-repository"
 
 /**
  * Unit tests for `ensureWorkspace` with a mocked Drizzle client.
@@ -27,6 +28,28 @@ type InsertBuilder = {
 type DbMock = {
   select: ReturnType<typeof vi.fn>
   insert: ReturnType<typeof vi.fn>
+}
+
+type ChatThreadRow = {
+  id: string
+  workspaceId: string
+  title: string | null
+  demoKey: string | null
+  createdAt: Date
+  updatedAt: Date
+  deletedAt: Date | null
+}
+
+type ChatMessageInsert = {
+  threadId: string
+  role: "user" | "assistant"
+  content: string
+  citations: unknown
+}
+
+type ChatRepositoryDbMock = {
+  select: ReturnType<typeof vi.fn>
+  transaction: ReturnType<typeof vi.fn>
 }
 
 function buildDbMock(storage: { row: Row | null }): DbMock {
@@ -122,5 +145,93 @@ describe("ensureWorkspace", () => {
     expect(a.id).toBe(b.id)
     expect(a.namespace).toBe(b.namespace)
     expect(a.userId).toBe("user_3")
+  })
+})
+
+describe("chatRepository", () => {
+  it("strips retrieval content before persisting message citations", async () => {
+    const insertedValues: ChatMessageInsert[] = []
+    const thread: ChatThreadRow = {
+      id: "thread_1",
+      workspaceId: "workspace_1",
+      title: "Grounded answer",
+      demoKey: null,
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+      deletedAt: null,
+    }
+    const insertedMessage = {
+      id: "message_1",
+      threadId: "thread_1",
+      role: "assistant",
+      content: "The answer is grounded.",
+      citations: null,
+      createdAt: new Date("2026-01-01T00:00:01.000Z"),
+    }
+    const selectBuilder = {
+      from: vi.fn(() => selectBuilder),
+      where: vi.fn(() => selectBuilder),
+      limit: vi.fn(async () => [thread]),
+    }
+    const insertBuilder = {
+      values: vi.fn((values: ChatMessageInsert) => {
+        insertedValues.push(values)
+        return insertBuilder
+      }),
+      returning: vi.fn(async () => [insertedMessage]),
+    }
+    const updateBuilder = {
+      set: vi.fn(() => updateBuilder),
+      where: vi.fn(async () => undefined),
+    }
+    const tx = {
+      insert: vi.fn(() => insertBuilder),
+      update: vi.fn(() => updateBuilder),
+    }
+    const dbMock: ChatRepositoryDbMock = {
+      select: vi.fn(() => selectBuilder),
+      transaction: vi.fn(async (callback) => callback(tx)),
+    }
+    const { DbClient } = await vi.importActual<typeof import("./db")>("./db")
+    const dbLayer = Layer.succeed(DbClient, dbMock as unknown as Db)
+
+    await Effect.runPromise(
+      chatRepository
+        .appendMessageToThreadEffect("workspace_1", {
+          threadId: "thread_1",
+          role: "assistant",
+          content: "The answer is grounded.",
+          citations: [
+            {
+              content: "retrieval text should not reach Postgres",
+              chunkType: "text",
+              score: 0.99,
+              assetUrl: "https://assets.example/doc.pdf",
+              description: "intro",
+              source: {
+                documentId: "doc_1",
+                sourceFileName: "doc.pdf",
+                sectionPath: "1. Introduction",
+              },
+            },
+          ],
+        })
+        .pipe(Effect.provide(dbLayer)),
+    )
+
+    expect(insertedValues).toHaveLength(1)
+    expect(insertedValues[0]!.citations).toEqual([
+      {
+        chunkType: "text",
+        score: 0.99,
+        assetUrl: "https://assets.example/doc.pdf",
+        description: "intro",
+        source: {
+          documentId: "doc_1",
+          sourceFileName: "doc.pdf",
+          sectionPath: "1. Introduction",
+        },
+      },
+    ])
   })
 })

@@ -1,18 +1,14 @@
-import { headers } from "next/headers"
 import { NextResponse } from "next/server";
 import { Either } from "effect";
 
-import { ensureApiKeyForWorkspace } from "@/lib/api-key-service";
-import { requireUser } from "@/lib/auth";
 import {
   generateContextualRetrievalQuery,
   generateGroundedAnswer,
   parseChatRequestBody,
 } from "@/lib/chat";
 import { handleChatTurn } from "@/lib/chat-service";
-import { makeKnowhereClient } from "@/lib/knowhere";
+import { notebookRequestContext } from "@/lib/notebook-request-context";
 import { reconcileSourcesForWorkspace } from "@/lib/source-reconcile";
-import { ensureWorkspace } from "@/lib/workspace";
 import {
   appendMessageToThread,
   ensureDefaultChatThread,
@@ -20,17 +16,17 @@ import {
   listMessagesForThread,
 } from "@/lib/workspace";
 
+type ChatRepositoryMessages = Awaited<ReturnType<typeof listMessagesForThread>>
+type ChatRepositoryMessage = NonNullable<ChatRepositoryMessages>[number]
+
 export async function POST(request: Request): Promise<NextResponse> {
   const body = parseChatRequestBody(await readJson(request))
   if (!body.ok) {
     return NextResponse.json({ message: body.message }, { status: body.status })
   }
 
-  const user = await requireUser()
-  const workspace = await ensureWorkspace(user.id)
-  const cookieHeader = (await headers()).get("cookie") ?? ""
-  const apiKey = await ensureApiKeyForWorkspace(workspace.id, cookieHeader)
-  const client = makeKnowhereClient(apiKey)
+  const { workspace, client } =
+    await notebookRequestContext.getAuthenticatedWithClient()
   const sources = await reconcileSourcesForWorkspace(workspace, client)
 
   try {
@@ -46,7 +42,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       repository: {
         ensureDefaultChatThread,
         findChatThreadInWorkspace,
-        listMessagesForThread,
+        listMessagesForThread: listMutableMessagesForThread,
         appendMessageToThread,
       },
     })
@@ -70,4 +66,14 @@ async function readJson(request: Request): Promise<unknown> {
   } catch {
     return null;
   }
+}
+
+async function listMutableMessagesForThread(
+  workspaceId: string,
+  threadId: string,
+): Promise<ChatRepositoryMessage[] | null> {
+  const messages = await listMessagesForThread(workspaceId, threadId)
+  if (!messages) return null
+
+  return [...messages]
 }

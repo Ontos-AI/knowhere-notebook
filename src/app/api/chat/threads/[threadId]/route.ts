@@ -1,10 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { Schema } from "effect"
 
-import { requireUser } from "@/lib/auth"
 import { toChatMessageView, toChatThreadView } from "@/lib/chat-view"
+import { notebookRequestContext } from "@/lib/notebook-request-context"
 import {
-  ensureWorkspace,
   findChatThreadInWorkspace,
   listMessagesForThread,
   softDeleteChatThread,
@@ -24,8 +23,7 @@ export async function GET(
   _request: NextRequest,
   context: RouteContext,
 ): Promise<NextResponse> {
-  const user = await requireUser()
-  const workspace = await ensureWorkspace(user.id)
+  const { workspace } = await notebookRequestContext.getAuthenticated()
   const { threadId } = await context.params
   const thread = await findChatThreadInWorkspace(workspace.id, threadId)
 
@@ -54,8 +52,7 @@ export async function PATCH(
   request: NextRequest,
   context: RouteContext,
 ): Promise<NextResponse> {
-  const user = await requireUser()
-  const workspace = await ensureWorkspace(user.id)
+  const { workspace } = await notebookRequestContext.getAuthenticated()
   const { threadId } = await context.params
 
   let body: unknown

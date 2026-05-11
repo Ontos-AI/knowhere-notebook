@@ -1,9 +1,6 @@
-import { headers } from "next/headers"
 import { NextResponse, type NextRequest } from "next/server"
 import { Effect } from "effect"
 
-import { ensureApiKeyForWorkspace } from "@/lib/api-key-service"
-import { getCurrentUser } from "@/lib/auth"
 import {
   getChunkPageParams,
   loadChunkPageForSource,
@@ -13,9 +10,8 @@ import {
 } from "@/lib/chunks"
 import type { ParsedChunkView } from "@/lib/types"
 import { demoData } from "@/lib/demo-data"
-import { makeKnowhereClient } from "@/lib/knowhere"
+import { notebookRequestContext } from "@/lib/notebook-request-context"
 import {
-  ensureWorkspace,
   findSourceInWorkspace,
   getSourceParseAssetUrls,
 } from "@/lib/workspace"
@@ -35,9 +31,10 @@ export async function GET(
     !request.nextUrl.searchParams.has("page") &&
     !request.nextUrl.searchParams.has("pageSize")
   const pageParams = getChunkPageParams(request.nextUrl.searchParams);
-  const user = await getCurrentUser();
+  const notebookContext =
+    await notebookRequestContext.getOptionalAuthenticated();
 
-  if (!user) {
+  if (!notebookContext) {
     const chunks = await demoData.loadChunksForSource(sourceId);
     if (!chunks) {
       return NextResponse.json(
@@ -50,7 +47,7 @@ export async function GET(
     );
   }
 
-  const workspace = await ensureWorkspace(user.id);
+  const { workspace } = notebookContext
   const source = await findSourceInWorkspace(workspace.id, sourceId);
 
   if (!source) {
@@ -66,9 +63,9 @@ export async function GET(
     )
   }
 
-  const cookieHeader = (await headers()).get("cookie") ?? ""
-  const apiKey = await ensureApiKeyForWorkspace(workspace.id, cookieHeader)
-  const client = makeKnowhereClient(apiKey)
+  const { client } = await notebookRequestContext.getClientForWorkspace(
+    workspace,
+  )
   const assetUrlsByFilePath = await getSourceParseAssetUrls(
     workspace.id,
     source.id,

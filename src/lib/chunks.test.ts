@@ -99,6 +99,44 @@ describe("toParsedChunkView", () => {
       pageNums: [3],
     });
   });
+
+  it("normalizes parser metadata variants shared with demo chunks", () => {
+    const chunk = makeDocumentChunk({
+      id: "document_chunk_table_1",
+      chunkId: "parser_table_1",
+      chunkType: "table",
+      metadata: {
+        file_path: "tables/table-1.html",
+        page_nums: [7],
+        connect_to: [
+          {
+            target: "parser_image_1",
+            relation: "embeds",
+            ref: "[images/image-1.jpg]",
+          },
+        ],
+      },
+    });
+
+    expect(
+      toParsedChunkView(chunk, "manual.pdf", "doc_123", {
+        assetUrlsByFilePath: {
+          "tables/table-1.html": "https://blob.example/table-1.html",
+        },
+      }),
+    ).toMatchObject({
+      filePath: "tables/table-1.html",
+      assetUrl: "https://blob.example/table-1.html",
+      pageNums: [7],
+      connections: [
+        {
+          targetParserChunkId: "parser_image_1",
+          relation: "embeds",
+          ref: "[images/image-1.jpg]",
+        },
+      ],
+    });
+  });
 });
 
 describe("loadChunksForSource", () => {

@@ -3,33 +3,27 @@ import "server-only"
 import { and, desc, eq, isNull, sql } from "drizzle-orm"
 import { Effect, ManagedRuntime } from "effect"
 
+import { chatRepository } from "./chat-repository"
 import { DbClient, dbLayer, type Db } from "./db"
 import {
-  chatMessages,
-  chatThreads,
   sourceParseResults,
   sources,
   workspaces,
   type Source,
   type Workspace,
 } from "./schema"
-import { deriveChatThreadTitle } from "./chat-title"
-import { DEMO_CHAT_MESSAGES } from "./demo-chat"
 import { demoData } from "./demo-data"
 import {
   ensureDemoSourceUploadEffect,
   type UploadKnowhereClient,
 } from "./source-upload"
-import type { ChatCitationView, CitationView, RetrievalResultView } from "./types"
+import type { CitationView, RetrievalResultView } from "./types"
 
 let _dbRuntime: ManagedRuntime.ManagedRuntime<DbClient, never> | null = null
 function dbRuntime(): ManagedRuntime.ManagedRuntime<DbClient, never> {
   if (!_dbRuntime) _dbRuntime = ManagedRuntime.make(dbLayer)
   return _dbRuntime
 }
-
-const chatThreadListLimit = 50
-const demoChatCreatedAtMs = Date.parse("2026-01-01T00:00:00.000Z")
 
 // ---- Effect functions (canonical) -----------------------------------------
 
@@ -100,71 +94,13 @@ export const ensureDemoWorkspaceContentEffect = (
 
       if (source?.status !== "ready" || !source.knowhereDocumentId) continue
 
-      yield* ensureDemoChatThreadEffect(
+      yield* chatRepository.ensureDemoThreadEffect(
         workspace.id,
         seed.demoKey,
         seed.chatThreadTitle,
         source.knowhereDocumentId,
       )
     }
-  })
-
-const ensureDemoChatThreadEffect = (
-  workspaceId: string,
-  demoKey: string,
-  title: string,
-  documentId: string,
-) =>
-  Effect.gen(function* () {
-    const db = yield* DbClient
-    const existingThread = yield* Effect.promise(() =>
-      db
-        .select({ id: chatThreads.id })
-        .from(chatThreads)
-        .where(
-          and(
-            eq(chatThreads.workspaceId, workspaceId),
-            eq(chatThreads.demoKey, demoKey),
-          ),
-        )
-        .limit(1),
-    )
-
-    if (existingThread[0]) return
-
-    yield* Effect.promise(() =>
-      db.transaction(async (tx) => {
-        const [thread] = await tx
-          .insert(chatThreads)
-          .values({
-            workspaceId,
-            title,
-            demoKey,
-            createdAt: new Date(demoChatCreatedAtMs),
-            updatedAt: new Date(
-              demoChatCreatedAtMs + DEMO_CHAT_MESSAGES.length * 1000,
-            ),
-          })
-          .onConflictDoNothing({
-            target: [chatThreads.workspaceId, chatThreads.demoKey],
-          })
-          .returning()
-
-        if (!thread) return
-
-        await tx.insert(chatMessages).values(
-          DEMO_CHAT_MESSAGES.map((message, index) => ({
-            threadId: thread.id,
-            role: message.role,
-            content: message.content,
-            citations: normalizeCitations(
-              replaceDemoCitationDocumentId(message.citations, documentId),
-            ),
-            createdAt: new Date(demoChatCreatedAtMs + index * 1000),
-          })),
-        )
-      }),
-    )
   })
 
 async function findDemoSourceInWorkspaceWithDb(
@@ -475,106 +411,19 @@ export const getSourceParseAssetUrlsEffect = (
     return row[0]?.assetUrls ?? {}
   })
 
-export const findChatThreadInWorkspaceEffect = (
-  workspaceId: string,
-  threadId: string,
-) =>
-  Effect.gen(function* () {
-    const db = yield* DbClient
-    const row = yield* Effect.promise(() =>
-      db
-        .select()
-        .from(chatThreads)
-        .where(
-          and(
-            eq(chatThreads.id, threadId),
-            eq(chatThreads.workspaceId, workspaceId),
-            isNull(chatThreads.deletedAt),
-          ),
-        )
-        .limit(1),
-    )
-    return row[0] ?? null
-  })
+export const findChatThreadInWorkspaceEffect =
+  chatRepository.findThreadInWorkspaceEffect
 
-export const listChatThreadsForWorkspaceEffect = (workspaceId: string) =>
-  Effect.gen(function* () {
-    const db = yield* DbClient
-    return yield* Effect.promise(() =>
-      db
-        .select()
-        .from(chatThreads)
-        .where(
-          and(
-            eq(chatThreads.workspaceId, workspaceId),
-            isNull(chatThreads.deletedAt),
-          ),
-        )
-        .orderBy(desc(chatThreads.updatedAt))
-        .limit(chatThreadListLimit),
-    )
-  })
+export const listChatThreadsForWorkspaceEffect =
+  chatRepository.listThreadsForWorkspaceEffect
 
-export const createChatThreadEffect = (workspaceId: string) =>
-  Effect.gen(function* () {
-    const db = yield* DbClient
-    const [thread] = yield* Effect.promise(() =>
-      db.insert(chatThreads).values({ workspaceId }).returning(),
-    )
-    if (!thread) {
-      return yield* Effect.die(
-        new Error("createChatThread: insert did not return a row."),
-      )
-    }
-    return thread
-  })
+export const createChatThreadEffect = chatRepository.createThreadEffect
 
-export const ensureDefaultChatThreadEffect = (workspaceId: string) =>
-  Effect.gen(function* () {
-    const db = yield* DbClient
-    const existing = yield* Effect.promise(() =>
-      db
-        .select()
-        .from(chatThreads)
-        .where(
-          and(
-            eq(chatThreads.workspaceId, workspaceId),
-            isNull(chatThreads.deletedAt),
-          ),
-        )
-        .orderBy(desc(chatThreads.updatedAt))
-        .limit(1),
-    )
-    if (existing[0]) return existing[0]
+export const ensureDefaultChatThreadEffect =
+  chatRepository.ensureDefaultThreadEffect
 
-    const [thread] = yield* Effect.promise(() =>
-      db.insert(chatThreads).values({ workspaceId }).returning(),
-    )
-    if (!thread) {
-      return yield* Effect.die(
-        new Error("ensureDefaultChatThread: insert did not return a row."),
-      )
-    }
-    return thread
-  })
-
-export const listMessagesForThreadEffect = (
-  workspaceId: string,
-  threadId: string,
-) =>
-  Effect.gen(function* () {
-    const db = yield* DbClient
-    const thread = yield* findChatThreadInWorkspaceEffect(workspaceId, threadId)
-    if (!thread) return null
-
-    return yield* Effect.promise(() =>
-      db
-        .select()
-        .from(chatMessages)
-        .where(eq(chatMessages.threadId, threadId))
-        .orderBy(chatMessages.createdAt),
-    )
-  })
+export const listMessagesForThreadEffect =
+  chatRepository.listMessagesForThreadEffect
 
 export const softDeleteSourceEffect = (
   workspaceId: string,
@@ -633,69 +482,10 @@ const updateSourceInWorkspaceEffect = (
     return source ?? null
   })
 
-export const softDeleteChatThreadEffect = (
-  workspaceId: string,
-  threadId: string,
-) =>
-  Effect.gen(function* () {
-    const db = yield* DbClient
-    const result = yield* Effect.promise(() =>
-      db
-        .update(chatThreads)
-        .set({ deletedAt: sql`now()`, updatedAt: sql`now()` })
-        .where(
-          and(
-            eq(chatThreads.id, threadId),
-            eq(chatThreads.workspaceId, workspaceId),
-            isNull(chatThreads.deletedAt),
-          ),
-        )
-        .returning({ id: chatThreads.id }),
-    )
-    return result.length > 0
-  })
+export const softDeleteChatThreadEffect = chatRepository.softDeleteThreadEffect
 
-export const appendMessageToThreadEffect = (
-  workspaceId: string,
-  input: {
-    threadId: string
-    role: "user" | "assistant"
-    content: string
-    citations?: readonly (ChatCitationView | CitationView | RetrievalResultView)[] | null
-  },
-) =>
-  Effect.gen(function* () {
-    const db = yield* DbClient
-    const thread = yield* findChatThreadInWorkspaceEffect(
-      workspaceId,
-      input.threadId,
-    )
-    if (!thread) return null
-
-    return yield* Effect.promise(() =>
-      db.transaction(async (tx) => {
-        const [inserted] = await tx
-          .insert(chatMessages)
-          .values({
-            threadId: input.threadId,
-            role: input.role,
-            content: input.content,
-            citations: normalizeCitations(input.citations),
-          })
-          .returning()
-        await tx
-          .update(chatThreads)
-          .set({
-            updatedAt: sql`now()`,
-            ...(input.role === "user" && !thread.title
-              ? { title: deriveChatThreadTitle(input.content) }
-              : {}),
-          })
-          .where(eq(chatThreads.id, input.threadId))
-        return inserted ?? null
-      }),
-    )
-  })
+export const appendMessageToThreadEffect =
+  chatRepository.appendMessageToThreadEffect
 
 export const pingDatabaseEffect = Effect.gen(function* () {
   const db = yield* DbClient
@@ -815,46 +605,3 @@ export const appendMessageToThread = (
 ) => dbRuntime().runPromise(appendMessageToThreadEffect(workspaceId, input))
 
 export const pingDatabase = () => dbRuntime().runPromise(pingDatabaseEffect)
-
-// ---- Helpers ---------------------------------------------------------------
-
-function normalizeCitations(
-  citations:
-    | readonly (ChatCitationView | CitationView | RetrievalResultView)[]
-    | null
-    | undefined,
-): CitationView[] | null {
-  if (!citations || citations.length === 0) return null
-  return citations.map(toCitationView)
-}
-
-function replaceDemoCitationDocumentId(
-  citations: readonly ChatCitationView[] | undefined,
-  documentId: string,
-): ChatCitationView[] | undefined {
-  if (!citations) return undefined
-
-  return citations.map((citation) => ({
-    ...citation,
-    source: {
-      ...citation.source,
-      documentId,
-    },
-  }))
-}
-
-function toCitationView(
-  citation: ChatCitationView | CitationView | RetrievalResultView,
-): CitationView {
-  return {
-    chunkType: citation.chunkType,
-    score: citation.score,
-    assetUrl: citation.assetUrl,
-    description: "description" in citation ? citation.description : undefined,
-    source: {
-      documentId: citation.source.documentId,
-      sourceFileName: citation.source.sourceFileName,
-      sectionPath: citation.source.sectionPath,
-    },
-  }
-}
