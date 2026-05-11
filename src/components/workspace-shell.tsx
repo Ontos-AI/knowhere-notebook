@@ -226,6 +226,15 @@ function WorkspaceShellContent({
     serverSources ?? initialSrcs,
     sourceExclusionById,
   )
+  const sourceTitlesByDocumentId = useMemo<Readonly<Record<string, string>>>(
+    () =>
+      Object.fromEntries(
+        sources.flatMap((source): readonly [string, string][] =>
+          source.documentId ? [[source.documentId, source.title]] : [],
+        ),
+      ),
+    [sources],
+  )
   const { data: serverChatThreads, mutate: mutateChatThreads } = useSWR(
     isGuest ? null : chatThreadsSWRKey,
     fetchChatThreads,
@@ -799,6 +808,7 @@ function WorkspaceShellContent({
               onThreadArchive={isGuest ? undefined : handleArchiveChatThread}
               onCitationClick={handleCitationClick}
               onLoginClick={isGuest ? redirectToLogin : undefined}
+              sourceTitlesByDocumentId={sourceTitlesByDocumentId}
             />
           </div>
         </div>
@@ -872,6 +882,7 @@ function WorkspaceShellContent({
           onThreadSelect={isGuest ? undefined : handleSelectChatThread}
           onThreadArchive={isGuest ? undefined : handleArchiveChatThread}
           onLoginClick={isGuest ? redirectToLogin : undefined}
+          sourceTitlesByDocumentId={sourceTitlesByDocumentId}
           onCitationClick={(citation, citationId) => {
             setMobilePanel("content")
             handleCitationClick(citation, citationId)
