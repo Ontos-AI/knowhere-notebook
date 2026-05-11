@@ -1,17 +1,17 @@
 import { Effect } from "effect"
 
-import { toChatMessageView, toChatThreadView } from "@/lib/chat-view"
-import { DEMO_CHAT_MESSAGES } from "@/lib/demo-chat"
-import { demoData } from "@/lib/demo-data"
-import { notebookRequestContext } from "@/lib/notebook-request-context"
-import { sourceViewOptionsBySourceId } from "@/lib/source-counts"
-import { toSourceView } from "@/lib/source-view"
+import { toChatMessageView, toChatThreadView } from "@/domains/chat/view"
+import { DEMO_CHAT_MESSAGES } from "@/domains/chat/demo"
+import { demoData } from "@/domains/sources/demo-data"
+import { notebookRequestContext } from "@/domains/workspace/request-context"
+import { sourceViewOptionsBySourceId } from "@/domains/sources/counts"
+import { toSourceView } from "@/domains/sources/view"
 import {
   ensureDemoWorkspaceContent,
   listChatThreadsForWorkspace,
   listMessagesForThread,
   listSourcesForWorkspace,
-} from "@/lib/workspace"
+} from "@/domains/workspace"
 import { WorkspaceShell } from "@/components/workspace-shell"
 
 export const dynamic = "force-dynamic"

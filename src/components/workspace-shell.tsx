@@ -11,13 +11,13 @@ import { SourcesPanel } from "@/components/sources-panel"
 import { ChunksPanel } from "@/components/chunks-panel"
 import { ChatPanel } from "@/components/chat-panel"
 import { MobileTabBar } from "@/components/mobile-tab-bar"
-import { deriveChatThreadTitle } from "@/lib/chat-title"
-import { workspaceClient } from "@/lib/workspace-client"
+import { deriveChatThreadTitle } from "@/domains/chat/title"
+import { workspaceClient } from "@/domains/workspace/client"
 import {
   resolveChunkConnectionTargets,
   resolveCitationChunk,
   resolveCitationChunkByContent,
-} from "@/lib/chunks"
+} from "@/domains/chunks"
 import { useHashFragment } from "@/lib/use-hash-fragment"
 import type {
   ChatCitationView,

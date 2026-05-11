@@ -11,7 +11,7 @@ vi.mock("@/lib/auth", () => ({
   requireUser: mocks.requireUser,
 }))
 
-vi.mock("@/lib/workspace", () => ({
+vi.mock("@/domains/workspace", () => ({
   createChatThread: mocks.createChatThread,
   ensureWorkspace: mocks.ensureWorkspace,
   listChatThreadsForWorkspace: mocks.listChatThreadsForWorkspace,

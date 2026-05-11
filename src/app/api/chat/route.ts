@@ -5,16 +5,16 @@ import {
   generateContextualRetrievalQuery,
   generateGroundedAnswer,
   parseChatRequestBody,
-} from "@/lib/chat";
-import { handleChatTurn } from "@/lib/chat-service";
-import { notebookRequestContext } from "@/lib/notebook-request-context";
-import { reconcileSourcesForWorkspace } from "@/lib/source-reconcile";
+} from "@/domains/chat";
+import { handleChatTurn } from "@/domains/chat/service";
+import { notebookRequestContext } from "@/domains/workspace/request-context";
+import { reconcileSourcesForWorkspace } from "@/domains/sources/reconcile";
 import {
   appendMessageToThread,
   ensureDefaultChatThread,
   findChatThreadInWorkspace,
   listMessagesForThread,
-} from "@/lib/workspace";
+} from "@/domains/workspace";
 
 type ChatRepositoryMessages = Awaited<ReturnType<typeof listMessagesForThread>>
 type ChatRepositoryMessage = NonNullable<ChatRepositoryMessages>[number]

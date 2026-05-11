@@ -11,21 +11,21 @@ const mocks = vi.hoisted(() => ({
   reconcileSourcesForWorkspace: vi.fn(),
 }));
 
-vi.mock("@/lib/chat-service", () => ({
+vi.mock("@/domains/chat/service", () => ({
   handleChatTurn: mocks.handleChatTurn,
 }));
 
-vi.mock("@/lib/notebook-request-context", () => ({
+vi.mock("@/domains/workspace/request-context", () => ({
   notebookRequestContext: {
     getAuthenticatedWithClient: mocks.getAuthenticatedWithClient,
   },
 }));
 
-vi.mock("@/lib/source-reconcile", () => ({
+vi.mock("@/domains/sources/reconcile", () => ({
   reconcileSourcesForWorkspace: mocks.reconcileSourcesForWorkspace,
 }));
 
-vi.mock("@/lib/workspace", () => ({
+vi.mock("@/domains/workspace", () => ({
   appendMessageToThread: mocks.appendMessageToThread,
   ensureDefaultChatThread: mocks.ensureDefaultChatThread,
   findChatThreadInWorkspace: mocks.findChatThreadInWorkspace,

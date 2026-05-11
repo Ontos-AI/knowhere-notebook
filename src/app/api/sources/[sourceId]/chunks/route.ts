@@ -7,14 +7,14 @@ import {
   loadChunksForSource,
   type ChunkPage,
   type ChunkPageParams,
-} from "@/lib/chunks"
+} from "@/domains/chunks"
 import type { ParsedChunkView } from "@/lib/types"
-import { demoData } from "@/lib/demo-data"
-import { notebookRequestContext } from "@/lib/notebook-request-context"
+import { demoData } from "@/domains/sources/demo-data"
+import { notebookRequestContext } from "@/domains/workspace/request-context"
 import {
   findSourceInWorkspace,
   getSourceParseAssetUrls,
-} from "@/lib/workspace"
+} from "@/domains/workspace"
 
 type RouteContext = {
   params: Promise<{

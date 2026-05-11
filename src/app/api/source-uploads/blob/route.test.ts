@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { MAX_UPLOAD_BYTES } from "@/lib/source-validation";
+import { MAX_UPLOAD_BYTES } from "@/domains/sources/validation";
 
 const mocks = vi.hoisted(() => ({
   deleteBlob: vi.fn(),

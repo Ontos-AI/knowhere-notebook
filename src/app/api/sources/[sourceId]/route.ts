@@ -5,9 +5,9 @@ import { del } from "@vercel/blob"
 
 import { ensureApiKeyForWorkspace } from "@/lib/api-key-service";
 import { requireUser } from "@/lib/auth";
-import { demoData } from "@/lib/demo-data";
-import { makeKnowhereClient } from "@/lib/knowhere";
-import { ensureWorkspace, findSourceInWorkspace, softDeleteSource } from "@/lib/workspace";
+import { demoData } from "@/domains/sources/demo-data";
+import { makeKnowhereClient } from "@/integrations/knowhere";
+import { ensureWorkspace, findSourceInWorkspace, softDeleteSource } from "@/domains/workspace";
 
 type RouteContext = {
   params: Promise<{

@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server"
 
-import { toChatThreadView } from "@/lib/chat-view"
-import { notebookRequestContext } from "@/lib/notebook-request-context"
+import { toChatThreadView } from "@/domains/chat/view"
+import { notebookRequestContext } from "@/domains/workspace/request-context"
 import {
   createChatThread,
   listChatThreadsForWorkspace,
-} from "@/lib/workspace"
+} from "@/domains/workspace"
 
 export async function GET(): Promise<NextResponse> {
   const { workspace } = await notebookRequestContext.getAuthenticated()

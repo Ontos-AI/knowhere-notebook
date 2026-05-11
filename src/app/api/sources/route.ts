@@ -6,28 +6,19 @@ import { Effect } from "effect"
 import { ensureApiKeyForWorkspace } from "@/lib/api-key-service"
 import { getCurrentUser } from "@/lib/auth"
 import { withApiErrorResponse } from "@/lib/api-error-response"
-import { demoData } from "@/lib/demo-data"
-import { makeKnowhereClient } from "@/lib/knowhere"
-import { sourceViewOptionsBySourceId } from "@/lib/source-counts"
-import {
-  type UploadSourceDependencies,
-  uploadSourceBlobToKnowhere,
-  uploadSourceToKnowhere,
-} from "@/lib/source-upload"
+import { demoData } from "@/domains/sources/demo-data"
+import { makeKnowhereClient } from "@/integrations/knowhere"
+import { sourceViewOptionsBySourceId } from "@/domains/sources/counts"
+import { sourceService } from "@/domains/sources/service"
 import {
   parseSourceBlobUploadBody,
   type SourceBlobUploadInput,
   validateSourceBlobUploadInput,
-} from "@/lib/source-blob-upload"
-import { validateUploadFile } from "@/lib/source-validation"
-import { reconcileSourcesForWorkspace } from "@/lib/source-reconcile"
-import { toSourceView } from "@/lib/source-view"
-import {
-  createUploadingSource,
-  ensureWorkspace,
-  markSourceFailed,
-  markSourceParsing,
-} from "@/lib/workspace"
+} from "@/domains/sources/blob-upload"
+import { validateUploadFile } from "@/domains/sources/validation"
+import { reconcileSourcesForWorkspace } from "@/domains/sources/reconcile"
+import { toSourceView } from "@/domains/sources/view"
+import { ensureWorkspace } from "@/domains/workspace"
 
 export async function GET(): Promise<NextResponse> {
   return withApiErrorResponse("sources:list", async () => {
@@ -83,26 +74,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       const workspace = await ensureWorkspace(user.id)
       const cookieHeader = (await headers()).get("cookie") ?? ""
       const apiKey = await ensureApiKeyForWorkspace(workspace.id, cookieHeader)
-      const uploadDependencies = {
-        repository: {
-          createUploadingSource,
-          markSourceParsing: async (...args) => {
-            const source = await markSourceParsing(...args)
-            if (!source) throw new Error("Source disappeared before parsing.")
-            return source
-          },
-          markSourceFailed: async (...args) => {
-            const source = await markSourceFailed(...args)
-            if (!source) throw new Error("Source disappeared before failure.")
-            return source
-          },
-        },
-        knowhere: makeKnowhereClient(apiKey),
-      } satisfies UploadSourceDependencies
+      const knowhere = makeKnowhereClient(apiKey)
       const source = await (
         upload.type === "file"
-          ? uploadSourceToKnowhere(workspace, upload.file, uploadDependencies)
-          : uploadSourceBlobToKnowhere(workspace, upload.input, uploadDependencies)
+          ? sourceService.uploadSourceToKnowhere(workspace, upload.file, knowhere)
+          : sourceService.uploadSourceBlobToKnowhere(
+              workspace,
+              upload.input,
+              knowhere,
+            )
       ).finally(() => {
         revalidatePath("/")
       })

@@ -1,13 +1,13 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { Schema } from "effect"
 
-import { toChatMessageView, toChatThreadView } from "@/lib/chat-view"
-import { notebookRequestContext } from "@/lib/notebook-request-context"
+import { toChatMessageView, toChatThreadView } from "@/domains/chat/view"
+import { notebookRequestContext } from "@/domains/workspace/request-context"
 import {
   findChatThreadInWorkspace,
   listMessagesForThread,
   softDeleteChatThread,
-} from "@/lib/workspace"
+} from "@/domains/workspace"
 
 type RouteContext = {
   params: Promise<{

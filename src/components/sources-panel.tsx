@@ -32,7 +32,7 @@ import {
 } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
 import type { SourceView } from "@/lib/types";
-import { postSourceUpload } from "@/lib/source-upload-request";
+import { postSourceUpload } from "@/domains/sources/upload-request";
 
 export type SourcesPanelProps = {
   sources: SourceView[];

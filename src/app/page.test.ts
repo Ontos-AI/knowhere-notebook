@@ -26,17 +26,17 @@ vi.mock("@/lib/auth", () => ({
   getCurrentUser: mocks.getCurrentUser,
 }));
 
-vi.mock("@/lib/knowhere", () => ({
+vi.mock("@/integrations/knowhere", () => ({
   makeKnowhereClient: mocks.makeKnowhereClient,
 }));
 
-vi.mock("@/lib/source-counts", () => ({
+vi.mock("@/domains/sources/counts", () => ({
   sourceViewOptionsBySourceId: mocks.sourceViewOptionsBySourceId,
 }));
 
-vi.mock("@/lib/workspace", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/workspace")>(
-    "@/lib/workspace",
+vi.mock("@/domains/workspace", async () => {
+  const actual = await vi.importActual<typeof import("@/domains/workspace")>(
+    "@/domains/workspace",
   );
   return {
     ...actual,

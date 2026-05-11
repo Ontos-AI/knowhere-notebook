@@ -7,8 +7,8 @@ import {
   isValidSourceBlobPathname,
   parseSourceBlobClientPayload,
   validateSourceBlobUploadMetadata,
-} from "@/lib/source-blob-upload"
-import { MAX_UPLOAD_BYTES } from "@/lib/source-validation"
+} from "@/domains/sources/blob-upload"
+import { MAX_UPLOAD_BYTES } from "@/domains/sources/validation"
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const user = await getCurrentUser()

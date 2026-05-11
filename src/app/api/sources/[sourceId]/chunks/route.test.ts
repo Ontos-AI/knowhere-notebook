@@ -22,11 +22,11 @@ vi.mock("@/lib/auth", () => ({
   getCurrentUser: mocks.getCurrentUser,
 }));
 
-vi.mock("@/lib/knowhere", () => ({
+vi.mock("@/integrations/knowhere", () => ({
   makeKnowhereClient: mocks.makeKnowhereClient,
 }));
 
-vi.mock("@/lib/workspace", () => ({
+vi.mock("@/domains/workspace", () => ({
   ensureWorkspace: mocks.ensureWorkspace,
   findSourceInWorkspace: mocks.findSourceInWorkspace,
   getSourceParseAssetUrls: mocks.getSourceParseAssetUrls,
