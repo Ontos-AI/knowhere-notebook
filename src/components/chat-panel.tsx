@@ -93,10 +93,13 @@ export function ChatPanel({
   const viewportRef = useRef<HTMLDivElement>(null);
   const canSend = !isDisabled && !isSending && input.trim().length > 0;
   const confirmThread = threads.find((thread) => thread.id === confirmThreadId);
+  const shouldShowThinkingProgress = isSending && messages.length > 0;
+  const messageRowCount =
+    messages.length + (shouldShowThinkingProgress ? 1 : 0);
   // TanStack Virtual owns scroll measurement callbacks; this component is not memoized by React Compiler.
   // eslint-disable-next-line react-hooks/incompatible-library
   const messageVirtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
-    count: messages.length,
+    count: messageRowCount,
     getScrollElement: () => viewportRef.current,
     estimateSize: () => estimatedMessageHeight,
     overscan: virtualMessageOverscan,
@@ -105,12 +108,12 @@ export function ChatPanel({
   const totalHeight = messageVirtualizer.getTotalSize();
 
   useEffect(() => {
-    if (messages.length === 0) {
+    if (messageRowCount === 0) {
       return;
     }
 
-    messageVirtualizer.scrollToIndex(messages.length - 1, { align: "end" });
-  }, [messageVirtualizer, messages.length]);
+    messageVirtualizer.scrollToIndex(messageRowCount - 1, { align: "end" });
+  }, [messageVirtualizer, messageRowCount]);
 
   function handleSend() {
     if (!canSend) return;
@@ -238,24 +241,33 @@ export function ChatPanel({
         className="flex min-w-0 flex-1 flex-col overflow-x-hidden p-3 sm:p-4"
         viewportRef={viewportRef}
       >
-        {messages.length === 0 ? (
+        {messageRowCount === 0 ? (
           <EmptyChat disabled={isDisabled} needsLogin={Boolean(onLoginClick)} />
         ) : (
           <div
             className="relative mt-auto min-w-0"
             style={{ height: totalHeight }}
           >
-            {virtualItems.map((virtualItem) => (
-              <VirtualMessageRow
-                key={virtualItem.key}
-                virtualItem={virtualItem}
-                message={messages[virtualItem.index]}
-                measureElement={messageVirtualizer.measureElement}
-                onCitationClick={onCitationClick}
-                pendingCitationId={pendingCitationId}
-                sourceTitlesByDocumentId={sourceTitlesByDocumentId}
-              />
-            ))}
+            {virtualItems.map((virtualItem) =>
+              shouldShowThinkingProgress &&
+              virtualItem.index === messages.length ? (
+                <VirtualThinkingRow
+                  key={virtualItem.key}
+                  virtualItem={virtualItem}
+                  measureElement={messageVirtualizer.measureElement}
+                />
+              ) : (
+                <VirtualMessageRow
+                  key={virtualItem.key}
+                  virtualItem={virtualItem}
+                  message={messages[virtualItem.index]}
+                  measureElement={messageVirtualizer.measureElement}
+                  onCitationClick={onCitationClick}
+                  pendingCitationId={pendingCitationId}
+                  sourceTitlesByDocumentId={sourceTitlesByDocumentId}
+                />
+              ),
+            )}
           </div>
         )}
       </ScrollArea>
@@ -275,11 +287,11 @@ export function ChatPanel({
           </Button>
         ) : (
           <>
-            <div className="relative rounded-2xl shadow-sm">
+            <div className="rounded-2xl shadow-sm">
               <Textarea
                 id={CHAT_COMPOSER_ID}
                 name={CHAT_COMPOSER_ID}
-                className="h-[84px] w-full min-w-0 resize-none rounded-2xl border-slate-300 bg-muted/60 p-3 pr-12 text-sm transition-all placeholder:text-muted-foreground hover:border-slate-400 focus-visible:border-primary focus-visible:ring-0 sm:p-3.5"
+                className="h-[84px] w-full min-w-0 resize-none rounded-2xl border-slate-300 bg-muted/60 p-3 text-sm transition-all placeholder:text-muted-foreground hover:border-slate-400 focus-visible:border-primary focus-visible:ring-0 sm:p-3.5"
                 placeholder={
                   isDisabled
                     ? "Upload a document to start asking questions."
@@ -295,10 +307,16 @@ export function ChatPanel({
                   }
                 }}
               />
+            </div>
+            <div className="mt-3 flex items-center justify-between gap-3">
+              <span className="hidden text-[10px] font-medium text-muted-foreground sm:inline">
+                Shift + Enter for a new line
+              </span>
               <Button
+                type="button"
                 variant="default"
-                size="icon"
-                className="absolute bottom-2 right-2"
+                size="sm"
+                className="ml-auto gap-1.5 px-4"
                 disabled={!canSend}
                 onClick={handleSend}
                 aria-label="Send message"
@@ -308,17 +326,57 @@ export function ChatPanel({
                 ) : (
                   <Send className="size-4" />
                 )}
+                <span>{isSending ? "Sending" : "Send"}</span>
               </Button>
-            </div>
-            <div className="mt-3 flex items-center justify-end">
-              <span className="text-[10px] font-medium text-muted-foreground">
-                Shift + Enter for a new line
-              </span>
             </div>
           </>
         )}
       </div>
     </section>
+  );
+}
+
+function VirtualThinkingRow({
+  virtualItem,
+  measureElement,
+}: {
+  virtualItem: VirtualItem;
+  measureElement: (node: HTMLDivElement | null) => void;
+}) {
+  const rowStyle: CSSProperties = {
+    position: "absolute",
+    transform: `translateY(${virtualItem.start}px)`,
+    width: "100%",
+  };
+
+  return (
+    <div
+      ref={measureElement}
+      data-index={virtualItem.index}
+      style={rowStyle}
+      className="min-w-0 pb-4 sm:pb-5"
+    >
+      <ThinkingProgressBubble />
+    </div>
+  );
+}
+
+function ThinkingProgressBubble() {
+  return (
+    <div className="flex min-w-0 flex-col items-start">
+      <div
+        role="status"
+        aria-label="Thinking"
+        className="inline-flex max-w-[92%] items-center gap-2 rounded-2xl rounded-tl-sm border border-border/70 bg-card px-3 py-2.5 text-sm text-muted-foreground shadow-xs sm:max-w-[90%] sm:px-4 sm:py-3"
+      >
+        <span className="font-medium text-foreground">Thinking</span>
+        <span aria-hidden="true" className="inline-flex items-center gap-1">
+          <span className="size-1.5 rounded-full bg-primary/60 animate-pulse" />
+          <span className="size-1.5 rounded-full bg-primary/60 animate-pulse [animation-delay:150ms]" />
+          <span className="size-1.5 rounded-full bg-primary/60 animate-pulse [animation-delay:300ms]" />
+        </span>
+      </div>
+    </div>
   );
 }
 

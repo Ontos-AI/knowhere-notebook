@@ -236,6 +236,44 @@ describe("ChatPanel", () => {
     ).toBeTruthy();
   });
 
+  it("shows assistant thinking progress while a response is pending", () => {
+    render(
+      React.createElement(C, {
+        isSending: true,
+        messages: [
+          {
+            id: "user_1",
+            role: "user",
+            content: "What changed in Q4?",
+          },
+        ],
+      }),
+    );
+
+    expect(screen.getByRole("status", { name: "Thinking" })).toBeTruthy();
+    expect(screen.getByText("Thinking")).toBeTruthy();
+  });
+
+  it("shows a visible send button label for mobile chat input", async () => {
+    const user = userEvent.setup();
+
+    render(
+      React.createElement(C, {
+        onSend: vi.fn(),
+      }),
+    );
+
+    await user.type(
+      screen.getByPlaceholderText("Ask a question about your documents…"),
+      "Summarize this document",
+    );
+
+    const sendButton = screen.getByRole("button", { name: "Send message" });
+
+    expect(within(sendButton).getByText("Send")).toBeTruthy();
+    expect(sendButton.className).not.toContain("absolute");
+  });
+
   it("replaces the disabled guest composer with a login button", async () => {
     const onLoginClick = vi.fn();
     const user = userEvent.setup();
