@@ -19,6 +19,7 @@ export function toSourceView(
         url: source.originalBlobUrl,
         mimeType: source.mimeType,
         sizeBytes: source.sizeBytes,
+        ...(source.demoKey ? { canDownload: false } : {}),
       }
     : undefined
 

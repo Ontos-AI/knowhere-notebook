@@ -16,8 +16,21 @@ type DemoSourceDefinition = {
   readonly title: string;
   readonly mimeType: string;
   readonly originalFilePath: string;
+  readonly originalSizeBytes: number;
   readonly assetDirectory: string;
   readonly chunkCount: number;
+  readonly chatThreadTitle: string;
+};
+
+export type DemoSourceSeed = {
+  readonly demoKey: string;
+  readonly documentId: string;
+  readonly title: string;
+  readonly mimeType: string;
+  readonly originalFileUrl: string;
+  readonly originalSizeBytes: number;
+  readonly chunkCount: number;
+  readonly chatThreadTitle: string;
 };
 
 type RawDemoChunk = {
@@ -35,8 +48,10 @@ const demoSourceDefinitions: readonly DemoSourceDefinition[] = [
     title: "TSLA-Q4-2025-Update.pdf",
     mimeType: "application/pdf",
     originalFilePath: "original.pdf",
+    originalSizeBytes: 5648867,
     assetDirectory: "tsla-q4-2025",
     chunkCount: 71,
+    chatThreadTitle: "TSLA demo conversation",
   },
 ] as const;
 
@@ -62,14 +77,58 @@ function listSources(): SourceView[] {
   }));
 }
 
+function listSourceSeeds(): DemoSourceSeed[] {
+  return demoSourceDefinitions.map(toDemoSourceSeed);
+}
+
+function getSourceSeedByDemoKey(
+  demoKey: string | null | undefined,
+): DemoSourceSeed | null {
+  if (!demoKey) return null;
+  const source = demoSourceDefinitions.find(
+    (candidate) => candidate.id === demoKey,
+  );
+  return source ? toDemoSourceSeed(source) : null;
+}
+
+function getSourceSeedByDocumentId(
+  documentId: string | null | undefined,
+): DemoSourceSeed | null {
+  if (!documentId) return null;
+  const source = demoSourceDefinitions.find(
+    (candidate) => candidate.documentId === documentId,
+  );
+  return source ? toDemoSourceSeed(source) : null;
+}
+
+function getChunkCountForDocumentId(
+  documentId: string | null | undefined,
+): number | undefined {
+  return getSourceSeedByDocumentId(documentId)?.chunkCount;
+}
+
 async function loadChunksForSource(
   sourceId: string,
 ): Promise<ParsedChunkView[] | null> {
   const source = demoSourceDefinitions.find(
     (candidate) => candidate.id === sourceId,
   );
-  if (!source) return null;
+  return source ? loadChunksForDefinition(source) : null;
+}
 
+async function loadChunksForDocumentId(
+  documentId: string | null | undefined,
+): Promise<ParsedChunkView[] | null> {
+  if (!documentId) return null;
+  const source = demoSourceDefinitions.find(
+    (candidate) => candidate.documentId === documentId,
+  );
+  return source ? loadChunksForDefinition(source) : null;
+}
+
+async function loadChunksForDefinition(
+  source: DemoSourceDefinition,
+): Promise<ParsedChunkView[]> {
   const filePath = path.join(
     demoAssetsDirectoryPath,
     source.assetDirectory,
@@ -136,6 +195,22 @@ function buildDemoAssetURL(assetDirectory: string, filePath: string): string {
     .join("/");
 
   return `/demo-sources/${encodeURIComponent(assetDirectory)}/${encodedPath}`;
+}
+
+function toDemoSourceSeed(source: DemoSourceDefinition): DemoSourceSeed {
+  return {
+    demoKey: source.id,
+    documentId: source.documentId,
+    title: source.title,
+    mimeType: source.mimeType,
+    originalFileUrl: buildDemoAssetURL(
+      source.assetDirectory,
+      source.originalFilePath,
+    ),
+    originalSizeBytes: source.originalSizeBytes,
+    chunkCount: source.chunkCount,
+    chatThreadTitle: source.chatThreadTitle,
+  };
 }
 
 function resolveDemoConnectionTargets(
@@ -252,6 +327,11 @@ function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
 }
 
 export const demoData = {
+  getChunkCountForDocumentId,
+  getSourceSeedByDemoKey,
+  getSourceSeedByDocumentId,
+  listSourceSeeds,
   listSources,
+  loadChunksForDocumentId,
   loadChunksForSource,
 } as const;
