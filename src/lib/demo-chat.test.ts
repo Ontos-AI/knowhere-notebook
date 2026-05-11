@@ -27,17 +27,6 @@ describe("DEMO_CHAT_MESSAGES", () => {
       expect(resolveCitationChunk(citation, chunks)?.chunkId).toBeTruthy();
     }
   });
-
-  it("keeps assistant examples aligned with single-result demo retrieval", () => {
-    const assistantMessages = DEMO_CHAT_MESSAGES.filter(
-      (message) => message.role === "assistant",
-    );
-
-    expect(assistantMessages).toHaveLength(3);
-    for (const message of assistantMessages) {
-      expect(message.citations).toHaveLength(1);
-    }
-  });
 });
 
 function loadTslaDemoChunks(): ParsedChunkView[] {

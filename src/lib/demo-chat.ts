@@ -16,21 +16,34 @@ export const DEMO_CHAT_MESSAGES: readonly ChatMessageView[] = [
   {
     id: "demo-user-1",
     role: "user",
-    content: "What does the document say about Tesla's xAI investment?",
+    content: "What were the key financial highlights from Tesla's latest quarter?",
   },
   {
     id: "demo-asst-1",
     role: "assistant",
     content: [
-      "Tesla entered an agreement on January 16, 2026 to invest approximately $2 billion in xAI Series E Preferred Stock.",
-      "The document also says Tesla and xAI entered a framework agreement to evaluate AI collaboration, with the investment expected to close in Q1 2026 subject to customary regulatory conditions.",
+      "Tesla reported quarterly revenue of $24.9 billion, down 3% year-over-year.",
+      "Quarterly operating income was $1.4 billion, with a 5.7% operating margin.",
+      "Cash, cash equivalents, and investments ended the quarter at $44.1 billion.",
     ].join("\n\n"),
     citations: [
       makeCitation("demo-doc-tsla-q4-2025", {
         sourceFileName: "TSLA-Q4-2025-Update.pdf",
-        sectionPath: "Default_Root/TSLA-Q4-2025-Update.pdf-->OTHER UPDATES",
-        description: "xAI investment",
-        content: "On January 16, 2026, Tesla entered into an agreement to invest approximately $2 billion to acquire shares of Series E Preferred Stock of xAI.",
+        sectionPath: "Default_Root/TSLA-Q4-2025-Update.pdf-->GIGAFACTORY NEVADA - 6 MILLIONTH DRIVE UNIT PRODUCED-->Revenue",
+        description: "Q4 revenue",
+        content: "Total quarterly revenue decreased $3 \\%$ YoY to $\\$ 24.9$ B.",
+      }),
+      makeCitation("demo-doc-tsla-q4-2025", {
+        sourceFileName: "TSLA-Q4-2025-Update.pdf",
+        sectionPath: "Default_Root/TSLA-Q4-2025-Update.pdf-->GIGAFACTORY NEVADA - 6 MILLIONTH DRIVE UNIT PRODUCED-->Profitability",
+        description: "Operating income",
+        content: "Our quarterly operating income decreased $11 \\%$ YoY to $\\$ 1.4$ B, resulting in a $5.7 \\%$ operating margin.",
+      }),
+      makeCitation("demo-doc-tsla-q4-2025", {
+        sourceFileName: "TSLA-Q4-2025-Update.pdf",
+        sectionPath: "Default_Root/TSLA-Q4-2025-Update.pdf-->Cash",
+        description: "Cash position",
+        content: "Quarter-end cash, cash equivalents and investments was $44.1B.",
       }),
     ],
   },
@@ -59,21 +72,34 @@ export const DEMO_CHAT_MESSAGES: readonly ChatMessageView[] = [
   {
     id: "demo-user-3",
     role: "user",
-    content: "What production plans does Tesla mention for 2026?",
+    content: "Are there any manufacturing updates?",
   },
   {
     id: "demo-asst-3",
     role: "assistant",
     content: [
-      "Tesla says Cybercab, Tesla Semi, and Megapack 3 are on schedule for volume production starting in 2026.",
-      "The same product update also notes that first-generation Optimus production lines are being installed before volume production.",
+      "The document highlights a Gigafactory Shanghai milestone for Tesla's 9 millionth vehicle produced globally.",
+      "It also shows Gigafactory Nevada celebrating its 6 millionth drive unit produced.",
+      "For robotics, Tesla says preparations are underway for the first Optimus production line, with start of production planned before the end of 2026.",
     ].join("\n\n"),
     citations: [
       makeCitation("demo-doc-tsla-q4-2025", {
         sourceFileName: "TSLA-Q4-2025-Update.pdf",
-        sectionPath: "Default_Root/TSLA-Q4-2025-Update.pdf-->Product",
-        description: "2026 production plans",
-        content: "Cybercab, Tesla Semi and Megapack 3 are on schedule for volume production starting in 2026.",
+        sectionPath: "Default_Root/TSLA-Q4-2025-Update.pdf-->Product-->GIGAFACTORY SHANGHAI - 9 MILLIONTH VEHICLE PRODUCED (GLOBALLY)",
+        description: "Shanghai vehicle milestone",
+        content: "A large group of people, many wearing safety vests and hard hats, are gathered in a factory setting for a group photo.",
+      }),
+      makeCitation("demo-doc-tsla-q4-2025", {
+        sourceFileName: "TSLA-Q4-2025-Update.pdf",
+        sectionPath: "Default_Root/TSLA-Q4-2025-Update.pdf-->GIGAFACTORY NEVADA - 6 MILLIONTH DRIVE UNIT PRODUCED",
+        description: "Nevada drive unit milestone",
+        content: "A large group of people is gathered inside a factory, holding large golden balloons that spell out \"6000000.\"",
+      }),
+      makeCitation("demo-doc-tsla-q4-2025", {
+        sourceFileName: "TSLA-Q4-2025-Update.pdf",
+        sectionPath: "Default_Root/TSLA-Q4-2025-Update.pdf-->OPERATIONAL SUMMARY-->Robotics",
+        description: "Optimus production line",
+        content: "Preparations are underway for the first production line, including supply chain readiness, with start of production planned before the end of 2026.",
       }),
     ],
   },
