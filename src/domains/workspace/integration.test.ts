@@ -7,6 +7,7 @@ import * as schema from "@/infrastructure/db/schema";
 import {
   chatMessages,
   chatThreads,
+  sourceParseResults,
   sources,
   workspaces,
 } from "@/infrastructure/db/schema";
@@ -86,6 +87,24 @@ describeIfDb("workspace helpers — integration", () => {
       sourceId: string,
       reason: string,
     ) => Promise<schema.Source | null>
+    readonly saveSourceParseResult: (
+      workspaceId: string,
+      sourceId: string,
+      input: Parameters<
+        typeof import("../sources/service").sourceService.saveParseResult
+      >[2],
+    ) => Promise<schema.SourceParseResult | null>
+    readonly getParseAssetUrls: (
+      workspaceId: string,
+      sourceId: string,
+    ) => Promise<Readonly<Record<string, string>>>
+    readonly createDemoUploadRepository: (
+      db: Parameters<
+        typeof import("../sources/repository").sourceRepository.createDemoUploadRepository
+      >[0],
+    ) => ReturnType<
+      typeof import("../sources/repository").sourceRepository.createDemoUploadRepository
+    >
   };
 
   beforeEach(async () => {
@@ -96,11 +115,16 @@ describeIfDb("workspace helpers — integration", () => {
     const { vi } = await import("vitest");
     vi.resetModules();
     vi.doMock("./db", () => ({ db: testDb }));
-    const [{ workspaceService }, { sourceService }, { chatThreadService }] =
-      await Promise.all([
+    const [
+      { workspaceService },
+      { sourceService },
+      { chatThreadService },
+      { sourceRepository },
+    ] = await Promise.all([
         import("./service"),
         import("../sources/service"),
         import("../chat/thread-service"),
+        import("../sources/repository"),
       ]);
     workspaceHelpers = {
       ensureWorkspace: workspaceService.ensureWorkspace,
@@ -115,11 +139,15 @@ describeIfDb("workspace helpers — integration", () => {
       markSourceParsing: sourceService.markParsing,
       markSourceReady: sourceService.markReady,
       markSourceFailed: sourceService.markFailed,
+      saveSourceParseResult: sourceService.saveParseResult,
+      getParseAssetUrls: sourceService.getParseAssetUrls,
+      createDemoUploadRepository: sourceRepository.createDemoUploadRepository,
     };
 
     // Clean slate on the tables these tests touch. Order respects FK.
     await testDb.delete(chatMessages);
     await testDb.delete(chatThreads);
+    await testDb.delete(sourceParseResults);
     await testDb.delete(sources);
     await testDb.delete(workspaces);
   });
@@ -432,6 +460,10 @@ describeIfDb("workspace helpers — integration", () => {
       title: "lecture.pdf",
       mimeType: "application/pdf",
       sizeBytes: 2048,
+      stagedBlobPathname: "source-uploads/staged/lecture.pdf",
+      stagedBlobUrl: "https://blob.example/staged/lecture.pdf",
+      originalBlobPathname: "source-uploads/original/lecture.pdf",
+      originalBlobUrl: "https://blob.example/original/lecture.pdf",
     });
     await workspaceHelpers.createUploadingSource(otherWs.id, {
       title: "private.pdf",
@@ -447,6 +479,10 @@ describeIfDb("workspace helpers — integration", () => {
       status: "uploading",
       knowhereJobId: null,
       knowhereDocumentId: null,
+      stagedBlobPathname: "source-uploads/staged/lecture.pdf",
+      stagedBlobUrl: "https://blob.example/staged/lecture.pdf",
+      originalBlobPathname: "source-uploads/original/lecture.pdf",
+      originalBlobUrl: "https://blob.example/original/lecture.pdf",
     });
 
     const list = await workspaceHelpers.listSourcesForWorkspace(ws.id);
@@ -499,6 +535,98 @@ describeIfDb("workspace helpers — integration", () => {
     expect(failed).toMatchObject({
       status: "failed",
       failureReason: "Parsing failed.",
+    });
+  });
+
+  it("source parse results upsert asset urls inside the source workspace", async () => {
+    const ws = await workspaceHelpers.ensureWorkspace("user_1");
+    const otherWs = await workspaceHelpers.ensureWorkspace("user_2");
+    const source = await workspaceHelpers.createUploadingSource(ws.id, {
+      title: "lecture.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 2048,
+    });
+
+    const first = await workspaceHelpers.saveSourceParseResult(ws.id, source.id, {
+      resultBlobUrl: "https://blob.example/result-v1.zip",
+      assetUrlsByFilePath: {
+        "images/image-1.png": "https://blob.example/image-1.png",
+      },
+    });
+    const second = await workspaceHelpers.saveSourceParseResult(
+      ws.id,
+      source.id,
+      {
+        resultBlobUrl: "https://blob.example/result-v2.zip",
+        assetUrlsByFilePath: {
+          "images/image-2.png": "https://blob.example/image-2.png",
+        },
+      },
+    );
+    const crossWorkspace = await workspaceHelpers.saveSourceParseResult(
+      otherWs.id,
+      source.id,
+      {
+        resultBlobUrl: "https://blob.example/private.zip",
+        assetUrlsByFilePath: {},
+      },
+    );
+
+    expect(first?.id).toBe(second?.id);
+    expect(crossWorkspace).toBeNull();
+    await expect(
+      workspaceHelpers.getParseAssetUrls(ws.id, source.id),
+    ).resolves.toEqual({
+      "images/image-2.png": "https://blob.example/image-2.png",
+    });
+    await expect(
+      workspaceHelpers.getParseAssetUrls(otherWs.id, source.id),
+    ).resolves.toEqual({});
+  });
+
+  it("demo source upload repository is idempotent by workspace demo key", async () => {
+    const ws = await workspaceHelpers.ensureWorkspace("user_1");
+    const repository = workspaceHelpers.createDemoUploadRepository(
+      testDb as unknown as Parameters<
+        typeof workspaceHelpers.createDemoUploadRepository
+      >[0],
+    );
+
+    const first = await repository.createDemoUploadingSource(ws.id, {
+      demoKey: "demo-intro",
+      title: "intro.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 128,
+      originalBlobUrl: "https://demo.example/intro.pdf",
+    });
+    const duplicate = await repository.createDemoUploadingSource(ws.id, {
+      demoKey: "demo-intro",
+      title: "intro-copy.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 256,
+      originalBlobUrl: "https://demo.example/intro-copy.pdf",
+    });
+
+    expect(first).not.toBeNull();
+    expect(duplicate).toBeNull();
+
+    await repository.markSourceFailed(ws.id, first!.id, "Previous failure.");
+    await repository.markSourceParsing(ws.id, first!.id, "job_old");
+    const reupload = await repository.markDemoSourceUploading(ws.id, first!.id, {
+      title: "intro-updated.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 512,
+      originalBlobUrl: "https://demo.example/intro-updated.pdf",
+    });
+
+    expect(reupload).toMatchObject({
+      title: "intro-updated.pdf",
+      sizeBytes: 512,
+      status: "uploading",
+      failureReason: null,
+      knowhereJobId: null,
+      knowhereDocumentId: null,
+      originalBlobUrl: "https://demo.example/intro-updated.pdf",
     });
   });
 });

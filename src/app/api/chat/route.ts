@@ -1,28 +1,13 @@
-import { NextResponse } from "next/server";
+import type { NextResponse } from "next/server"
 
-import { chatRouteService } from "@/domains/chat/route-service";
-
-type RouteServiceResponse = {
-  readonly status: number
-  readonly body: unknown
-}
+import { chatRouteService } from "@/domains/chat/route-service"
+import { nextRouteResponse } from "@/lib/next-route-response"
+import { routeResult } from "@/lib/route-result"
 
 export async function POST(request: Request): Promise<NextResponse> {
   const result = await chatRouteService.answerChat({
-    body: await readJson(request),
+    body: await routeResult.readJsonOrNull(request),
   })
 
-  return toNextResponse(result)
-}
-
-async function readJson(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch {
-    return null;
-  }
-}
-
-function toNextResponse(result: RouteServiceResponse): NextResponse {
-  return NextResponse.json(result.body, { status: result.status })
+  return nextRouteResponse.toNextResponse(result)
 }

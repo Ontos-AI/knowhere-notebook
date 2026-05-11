@@ -14,13 +14,9 @@ import { toChatMessageView, toChatThreadView } from "@/domains/chat/view"
 import { reconcileSourcesForWorkspace } from "@/domains/sources/reconcile"
 import { notebookRequestContext } from "@/domains/workspace/request-context"
 import type { ChatMessageView, ChatThreadView } from "@/domains/chat/types"
+import { routeResult, type RouteResult } from "@/lib/route-result"
 
-type RouteStatus = 200 | 400 | 401 | 404 | 409
-
-type RouteResponse<TBody> = {
-  readonly status: RouteStatus
-  readonly body: TBody
-}
+type RouteResponse<TBody> = RouteResult<TBody>
 
 type MessageBody = {
   readonly message: string
@@ -70,7 +66,7 @@ async function answerChat(
 ): Promise<RouteResponse<ChatTurnValue | MessageBody>> {
   const body = parseChatRequestBody(input.body)
   if (!body.ok) {
-    return createErrorResponse(body.status, body.message)
+    return routeResult.error(body.status, body.message)
   }
 
   const { workspace, client } =
@@ -97,11 +93,11 @@ async function answerChat(
 
     return Either.match(result, {
       onLeft: (error): RouteResponse<MessageBody> =>
-        createErrorResponse(error.status, error.message),
-      onRight: (value): RouteResponse<ChatTurnValue> => createOkResponse(value),
+        routeResult.error(error.status, error.message),
+      onRight: (value): RouteResponse<ChatTurnValue> => routeResult.ok(value),
     })
   } catch {
-    return createErrorResponse(
+    return routeResult.error(
       401,
       "Your session may have expired. Please refresh the page.",
     )
@@ -112,7 +108,7 @@ async function listThreads(): Promise<RouteResponse<ListThreadsBody>> {
   const { workspace } = await notebookRequestContext.getAuthenticated()
   const threads = await chatThreadService.listForWorkspace(workspace.id)
 
-  return createOkResponse({
+  return routeResult.ok({
     threads: threads.map(toChatThreadView),
   })
 }
@@ -121,7 +117,7 @@ async function createThread(): Promise<RouteResponse<CreateThreadBody>> {
   const { workspace } = await notebookRequestContext.getAuthenticated()
   const thread = await chatThreadService.create(workspace.id)
 
-  return createOkResponse({
+  return routeResult.ok({
     thread: toChatThreadView(thread),
     messages: [],
   })
@@ -137,7 +133,7 @@ async function getThread(
   )
 
   if (!thread) {
-    return createErrorResponse(404, "Chat thread not found.")
+    return routeResult.error(404, "Chat thread not found.")
   }
 
   const messages = await chatThreadService.listMessages(
@@ -145,10 +141,10 @@ async function getThread(
     input.threadId,
   )
   if (!messages) {
-    return createErrorResponse(404, "Chat thread not found.")
+    return routeResult.error(404, "Chat thread not found.")
   }
 
-  return createOkResponse({
+  return routeResult.ok({
     thread: toChatThreadView(thread),
     messages: messages.map((message): ChatMessageView =>
       toChatMessageView(message),
@@ -160,8 +156,7 @@ async function archiveThread(
   input: ArchiveThreadInput,
 ): Promise<RouteResponse<ArchiveThreadBody | MessageBody>> {
   if (Either.isLeft(Schema.decodeUnknownEither(ArchiveRequest)(input.body))) {
-    return createErrorResponse(
-      400,
+    return routeResult.badRequest(
       "Request body must include `archived: true`.",
     )
   }
@@ -172,10 +167,10 @@ async function archiveThread(
     input.threadId,
   )
   if (!archived) {
-    return createErrorResponse(404, "Chat thread not found.")
+    return routeResult.error(404, "Chat thread not found.")
   }
 
-  return createOkResponse({ id: input.threadId, archived: true })
+  return routeResult.ok({ id: input.threadId, archived: true })
 }
 
 async function listMutableMessagesForThread(
@@ -186,20 +181,6 @@ async function listMutableMessagesForThread(
   if (!messages) return null
 
   return [...messages]
-}
-
-function createOkResponse<TBody>(body: TBody): RouteResponse<TBody> {
-  return { status: 200, body }
-}
-
-function createErrorResponse(
-  status: Exclude<RouteStatus, 200>,
-  message: string,
-): RouteResponse<MessageBody> {
-  return {
-    status,
-    body: { message },
-  }
 }
 
 export const chatRouteService = {

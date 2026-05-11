@@ -1,0 +1,152 @@
+import "server-only"
+
+import { Effect } from "effect"
+
+import type { Source, Workspace } from "@/infrastructure/db/schema"
+import {
+  type SourceBlobUploadInput,
+  validateSourceBlobUploadInput,
+} from "./blob-upload"
+import type { UploadSourceDependencies } from "./source-upload-contracts"
+import { validateUploadFile } from "./validation"
+import { TempFile, tempFileLayer } from "@/lib/temp-files"
+
+/**
+ * Upload a browser file to Knowhere for parsing.
+ *
+ * Uses `Effect.scoped` + `TempFile.withFile` so the temp file is guaranteed
+ * to be cleaned up even if the upload fails mid-flight.
+ */
+export const uploadSourceToKnowhereEffect = (
+  workspace: Workspace,
+  file: File,
+  deps: UploadSourceDependencies,
+) =>
+  Effect.gen(function* () {
+    const validation = validateUploadFile(file)
+    if (!validation.ok) {
+      return yield* Effect.die(new Error(validation.message))
+    }
+
+    const source = yield* Effect.promise(() =>
+      deps.repository.createUploadingSource(workspace.id, {
+        title: validation.title,
+        mimeType: validation.mimeType,
+        sizeBytes: file.size,
+      }),
+    )
+
+    return yield* Effect.scoped(
+      Effect.gen(function* () {
+        const temp = yield* TempFile
+        const { path } = yield* temp.withFile(file)
+
+        const job = yield* Effect.tryPromise(() =>
+          deps.knowhere.jobs.create({
+            sourceType: "file",
+            fileName: validation.title,
+            namespace: workspace.namespace,
+          }),
+        )
+        yield* Effect.tryPromise(() =>
+          deps.knowhere.jobs.upload(job, { file: path }),
+        )
+
+        return yield* Effect.promise(() =>
+          deps.repository.markSourceParsing(
+            workspace.id,
+            source.id,
+            job.jobId,
+          ),
+        )
+      }),
+    ).pipe(
+      Effect.provide(tempFileLayer),
+      Effect.catchAll((err) =>
+        Effect.gen(function* () {
+          const message = "Knowhere upload failed."
+          yield* Effect.promise(() =>
+            deps.repository.markSourceFailed(
+              workspace.id,
+              source.id,
+              message,
+            ),
+          )
+          return yield* Effect.die(new Error(message, { cause: err }))
+        }),
+      ),
+    )
+  })
+
+export const uploadSourceBlobToKnowhereEffect = (
+  workspace: Workspace,
+  input: SourceBlobUploadInput,
+  deps: UploadSourceDependencies,
+) =>
+  Effect.gen(function* () {
+    const validation = validateSourceBlobUploadInput(input)
+    if (!validation.ok) {
+      return yield* Effect.die(new Error(validation.message))
+    }
+
+    const source = yield* Effect.promise(() =>
+      deps.repository.createUploadingSource(workspace.id, {
+        title: validation.title,
+        mimeType: validation.mimeType,
+        sizeBytes: input.sizeBytes,
+        originalBlobPathname: input.pathname,
+        originalBlobUrl: input.url,
+      }),
+    )
+
+    return yield* Effect.gen(function* () {
+      const job = yield* Effect.tryPromise(() =>
+        deps.knowhere.jobs.create({
+          sourceType: "url",
+          sourceUrl: input.url,
+          fileName: validation.title,
+          namespace: workspace.namespace,
+        }),
+      )
+
+      return yield* Effect.promise(() =>
+        deps.repository.markSourceParsing(
+          workspace.id,
+          source.id,
+          job.jobId,
+        ),
+      )
+    }).pipe(
+      Effect.catchAll(() =>
+        Effect.gen(function* () {
+          const message = "Knowhere upload failed."
+          const failedSource = yield* Effect.promise(() =>
+            deps.repository.markSourceFailed(
+              workspace.id,
+              source.id,
+              message,
+            ),
+          )
+          return failedSource
+        }),
+      ),
+    )
+  })
+
+export async function uploadSourceToKnowhere(
+  workspace: Workspace,
+  file: File,
+  deps: UploadSourceDependencies,
+): Promise<Source> {
+  return Effect.runPromise(uploadSourceToKnowhereEffect(workspace, file, deps))
+}
+
+export async function uploadSourceBlobToKnowhere(
+  workspace: Workspace,
+  input: SourceBlobUploadInput,
+  deps: UploadSourceDependencies,
+): Promise<Source> {
+  return Effect.runPromise(
+    uploadSourceBlobToKnowhereEffect(workspace, input, deps),
+  )
+}

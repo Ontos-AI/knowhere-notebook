@@ -125,16 +125,25 @@ function parseSourceUploadResponseBody(
 
 async function cleanupSourceBlobUpload(pathname: string): Promise<void> {
   try {
-    const response = await fetch(resolveSameOriginUrl(SOURCE_UPLOAD_BLOB_HANDLE_PATH), {
-      method: "DELETE",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ pathname }),
-    });
-    await response.body?.cancel();
+    await Effect.runPromise(
+      deleteSourceBlobUploadEffect(pathname).pipe(
+        Effect.provide(FetchHttpClient.layer),
+      ),
+    );
   } catch {
     // Best-effort cleanup only. The user-facing upload error is handled by the caller.
   }
 }
+
+const deleteSourceBlobUploadEffect = Effect.fn("deleteSourceBlobUpload")(
+  function* (pathname: string) {
+    const request = yield* HttpClientRequest.del(
+      resolveSameOriginUrl(SOURCE_UPLOAD_BLOB_HANDLE_PATH),
+    ).pipe(HttpClientRequest.bodyJson({ pathname }));
+    const response = yield* HttpClient.execute(request);
+    yield* response.text;
+  },
+);
 
 function isSuccessfulStatus(status: number): boolean {
   return status >= 200 && status < 300;

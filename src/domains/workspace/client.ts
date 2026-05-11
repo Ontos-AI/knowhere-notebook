@@ -1,16 +1,10 @@
-import {
-  FetchHttpClient,
-  HttpClient,
-  HttpClientRequest,
-} from "@effect/platform"
-import { Effect } from "effect"
-
 import type {
   ChatMessageView,
   ChatThreadView,
 } from "@/domains/chat/types"
 import type { ParsedChunkView } from "@/domains/chunks/types"
 import type { SourceView } from "@/domains/sources/types"
+import { workspaceRouteClient } from "./route-client"
 
 const workspaceClientKeys = {
   sources: "/api/sources",
@@ -84,7 +78,9 @@ export const workspaceClient = {
 
 async function fetchChunks(sourceId: string): Promise<ParsedChunkView[]> {
   try {
-    const body = await getJson<{ chunks?: ParsedChunkView[] }>(
+    const body = await workspaceRouteClient.getJson<{
+      chunks?: ParsedChunkView[]
+    }>(
       `/api/sources/${encodeURIComponent(sourceId)}/chunks`,
     )
     return Array.isArray(body.chunks) ? body.chunks : []
@@ -101,7 +97,7 @@ async function fetchChunkPage(
     page: String(page),
     pageSize: String(workspaceClientConfig.sourceChunkPageSize),
   })
-  const body = await getJson<SourceChunksResponse>(
+  const body = await workspaceRouteClient.getJson<SourceChunksResponse>(
     `/api/sources/${encodeURIComponent(sourceId)}/chunks?${searchParams.toString()}`,
   )
 
@@ -112,12 +108,14 @@ async function fetchChunkPage(
 }
 
 async function fetchSources(): Promise<SourceView[]> {
-  const body = await getJson<SourcesResponse>(workspaceClientKeys.sources)
+  const body = await workspaceRouteClient.getJson<SourcesResponse>(
+    workspaceClientKeys.sources,
+  )
   return Array.isArray(body.sources) ? body.sources : []
 }
 
 async function fetchChatThreads(): Promise<ChatThreadView[]> {
-  const body = await getJson<ChatThreadsResponse>(
+  const body = await workspaceRouteClient.getJson<ChatThreadsResponse>(
     workspaceClientKeys.chatThreads,
   )
   return Array.isArray(body.threads) ? body.threads : []
@@ -126,65 +124,42 @@ async function fetchChatThreads(): Promise<ChatThreadView[]> {
 async function fetchChatThread(
   threadId: string,
 ): Promise<ChatThreadDetailResponse> {
-  const body = await getJson<ChatThreadResponse>(
+  const body = await workspaceRouteClient.getJson<ChatThreadResponse>(
     `/api/chat/threads/${encodeURIComponent(threadId)}`,
   )
   return { ...body, requestedThreadId: threadId }
 }
 
 function createChatThread(): Promise<ChatThreadResponse> {
-  return postJson<ChatThreadResponse>(workspaceClientKeys.chatThreads, {})
+  return workspaceRouteClient.postJson<ChatThreadResponse>(
+    workspaceClientKeys.chatThreads,
+    {},
+  )
 }
 
 function sendChatMessage(
   input: ChatMessageRequest,
 ): Promise<ChatMessageResponse> {
-  return postJson<ChatMessageResponse>(workspaceClientKeys.chat, input)
+  return workspaceRouteClient.postJson<ChatMessageResponse>(
+    workspaceClientKeys.chat,
+    input,
+  )
 }
 
 function archiveSource(sourceId: string): Promise<ArchiveResponse> {
-  return patchJson(`/api/sources/${encodeURIComponent(sourceId)}`, {
-    archived: true,
-  })
+  return workspaceRouteClient.patchJson(
+    `/api/sources/${encodeURIComponent(sourceId)}`,
+    {
+      archived: true,
+    },
+  )
 }
 
 function archiveChatThread(threadId: string): Promise<ArchiveResponse> {
-  return patchJson(`/api/chat/threads/${encodeURIComponent(threadId)}`, {
-    archived: true,
-  })
-}
-
-const getJson = <T,>(url: string): Promise<T> =>
-  Effect.runPromise(
-    Effect.flatMap(
-      HttpClientRequest.get(resolveSameOriginUrl(url)).pipe(HttpClient.execute),
-      (response) => response.json,
-    ).pipe(Effect.provide(FetchHttpClient.layer)) as Effect.Effect<T>,
+  return workspaceRouteClient.patchJson(
+    `/api/chat/threads/${encodeURIComponent(threadId)}`,
+    {
+      archived: true,
+    },
   )
-
-const postJson = <T,>(url: string, body: unknown): Promise<T> =>
-  Effect.runPromise(
-    Effect.gen(function* () {
-      const request = yield* HttpClientRequest.post(
-        resolveSameOriginUrl(url),
-      ).pipe(HttpClientRequest.bodyJson(body))
-      const response = yield* HttpClient.execute(request)
-      return yield* response.json
-    }).pipe(Effect.provide(FetchHttpClient.layer)) as Effect.Effect<T>,
-  )
-
-const patchJson = <T,>(url: string, body: unknown): Promise<T> =>
-  Effect.runPromise(
-    Effect.gen(function* () {
-      const request = yield* HttpClientRequest.patch(
-        resolveSameOriginUrl(url),
-      ).pipe(HttpClientRequest.bodyJson(body))
-      const response = yield* HttpClient.execute(request)
-      return yield* response.json
-    }).pipe(Effect.provide(FetchHttpClient.layer)) as Effect.Effect<T>,
-  )
-
-function resolveSameOriginUrl(path: string): string {
-  const origin = globalThis.location?.origin
-  return new URL(path, origin ?? "http://localhost").toString()
 }

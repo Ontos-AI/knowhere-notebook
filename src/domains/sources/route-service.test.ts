@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
+import { Effect } from "effect";
 import type { Job } from "@ontos-ai/knowhere-sdk";
 
 import type { Source, Workspace } from "@/infrastructure/db/schema";
+import { createRouteListing } from "./route-listing";
 import { createSourceRouteService } from "./route-service";
 
 const workspace: Workspace = {
@@ -32,6 +34,72 @@ const source: Source = {
 };
 
 describe("source route service", () => {
+  it("reconciles authenticated sources through the listing route workflow", async () => {
+    const knowhereClient = {
+      documents: {
+        archive: vi.fn(async () => undefined),
+        listChunks: vi.fn(async () => ({
+          chunks: [],
+          pagination: {
+            page: 1,
+            pageSize: 1,
+            total: 0,
+            totalPages: 0,
+          },
+        })),
+      },
+      jobs: {
+        create: vi.fn(),
+        upload: vi.fn(),
+      },
+    };
+    const ensureApiKeyForWorkspace = vi.fn(async () => "jwt_123");
+    const getSourceViewOptionsBySourceId = vi.fn(() =>
+      Effect.succeed(new Map([[source.id, { chunkCount: 8 }]])),
+    );
+    const reconcileSourcesForWorkspace = vi.fn(async () => [source]);
+    const listing = createRouteListing({
+      demoData: {
+        listSources: vi.fn(() => []),
+      },
+      ensureApiKeyForWorkspace,
+      ensureWorkspace: vi.fn(async () => workspace),
+      getCurrentUser: vi.fn(async () => ({
+        id: "user_1",
+        email: null,
+        name: null,
+      })),
+      getSourceViewOptionsBySourceId,
+      makeKnowhereClient: vi.fn(() => knowhereClient),
+      reconcileSourcesForWorkspace,
+    });
+
+    const result = await listing.listSources({ cookieHeader: "session=abc" });
+
+    expect(result).toEqual({
+      status: 200,
+      body: {
+        sources: [
+          {
+            id: "source_1",
+            title: "notes.pdf",
+            status: "parsing",
+            mimeType: "application/pdf",
+            chunkCount: 8,
+          },
+        ],
+      },
+    });
+    expect(ensureApiKeyForWorkspace).toHaveBeenCalledWith(
+      workspace.id,
+      "session=abc",
+    );
+    expect(reconcileSourcesForWorkspace).toHaveBeenCalledWith(
+      workspace,
+      knowhereClient,
+    );
+  });
+
   it("lists bundled demo sources for anonymous users", async () => {
     const demoSource = {
       id: "demo_source_1",

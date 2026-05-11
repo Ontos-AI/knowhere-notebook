@@ -1,6 +1,6 @@
 import { del } from "@vercel/blob"
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client"
-import { NextResponse, type NextRequest } from "next/server"
+import type { NextRequest, NextResponse } from "next/server"
 
 import { getCurrentUser } from "@/infrastructure/auth"
 import {
@@ -9,13 +9,14 @@ import {
   validateSourceBlobUploadMetadata,
 } from "@/domains/sources/blob-upload"
 import { MAX_UPLOAD_BYTES } from "@/domains/sources/validation"
+import { nextRouteResponse } from "@/lib/next-route-response"
+import { routeResult } from "@/lib/route-result"
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const user = await getCurrentUser()
   if (!user) {
-    return NextResponse.json(
-      { message: "Please log in to upload documents." },
-      { status: 401 },
+    return nextRouteResponse.toNextResponse(
+      routeResult.error(401, "Please log in to upload documents."),
     )
   }
 
@@ -52,21 +53,20 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       },
     })
 
-    return NextResponse.json(response)
+    return nextRouteResponse.toNextResponse(routeResult.ok(response))
   } catch (error) {
     const message = error instanceof Error
       ? error.message
       : "Could not prepare the upload."
-    return NextResponse.json({ message }, { status: 400 })
+    return nextRouteResponse.toNextResponse(routeResult.badRequest(message))
   }
 }
 
 export async function DELETE(request: NextRequest): Promise<NextResponse> {
   const user = await getCurrentUser()
   if (!user) {
-    return NextResponse.json(
-      { message: "Please log in to upload documents." },
-      { status: 401 },
+    return nextRouteResponse.toNextResponse(
+      routeResult.error(401, "Please log in to upload documents."),
     )
   }
 
@@ -74,18 +74,18 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
     const body = (await request.json()) as unknown
     const pathname = getCleanupPathname(body)
     if (!pathname || !isValidSourceBlobPathname(pathname)) {
-      return NextResponse.json(
-        { message: "Invalid upload path. Choose the document again." },
-        { status: 400 },
+      return nextRouteResponse.toNextResponse(
+        routeResult.badRequest(
+          "Invalid upload path. Choose the document again.",
+        ),
       )
     }
 
     await del(pathname)
-    return NextResponse.json({ ok: true })
+    return nextRouteResponse.toNextResponse(routeResult.ok({ ok: true }))
   } catch {
-    return NextResponse.json(
-      { message: "Could not clean up the upload." },
-      { status: 500 },
+    return nextRouteResponse.toNextResponse(
+      routeResult.error(500, "Could not clean up the upload."),
     )
   }
 }
