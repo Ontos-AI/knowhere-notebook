@@ -74,6 +74,7 @@ type LazyPdfPageProps = {
 
 const pdfPageAspectRatio = 1.414;
 const pdfCanvasDevicePixelRatio = 2;
+const pdfPageMaxWidth = 1600;
 const pdfPageObserverRootMargin = "600px 0px";
 const TEXT_PREVIEW_BYTE_LIMIT = 1024 * 1024;
 const DOCX_PREVIEW_BYTE_LIMIT = 10 * 1024 * 1024;
@@ -99,7 +100,7 @@ export function SourceOriginalPreview({
   const canDownload = file.canDownload !== false;
 
   return (
-    <div className="mx-auto flex w-full min-w-0 max-w-[100vw] flex-col gap-3 p-3 sm:max-w-5xl sm:p-6">
+    <div className="mx-auto flex w-[90%] min-w-0 max-w-[1600px] flex-col gap-3 p-3 sm:p-6">
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/70 bg-background/80 p-3">
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-foreground">
@@ -494,6 +495,7 @@ function DocxPreview({ file }: { file: SourceOriginalFileView }): ReactNode {
         if (!isCurrent) return;
         await module.renderAsync(data, containerElement, undefined, {
           ignoreFonts: true,
+          ignoreWidth: true,
           renderAltChunks: false,
           useBase64URL: true,
         });
@@ -528,7 +530,7 @@ function DocxPreview({ file }: { file: SourceOriginalFileView }): ReactNode {
       <div
         key={file.url}
         ref={containerRef}
-        className="mx-auto max-w-full overflow-auto rounded-lg bg-background text-foreground"
+        className="original-docx-preview mx-auto max-w-full overflow-auto rounded-lg bg-background text-foreground"
       />
     </div>
   );
@@ -658,8 +660,8 @@ function getExtension(title: string): string | null {
 
 function getPdfPageWidth(containerWidth: number): number {
   const horizontalPadding = 32;
-  const availableWidth = containerWidth - horizontalPadding;
-  return Math.max(280, Math.min(1100, availableWidth));
+  const availableWidth = Math.max(1, containerWidth - horizontalPadding);
+  return Math.min(pdfPageMaxWidth, availableWidth);
 }
 
 function getPdfPagePlaceholderHeight(
@@ -712,7 +714,7 @@ function getSafePdfPageAspectRatio(width: number, height: number): number {
 
 function getInitialPdfPageWidth(): number {
   if (typeof window === "undefined") return 640;
-  return Math.max(280, Math.min(640, window.innerWidth - 48));
+  return Math.max(1, Math.min(640, window.innerWidth - 48));
 }
 
 function getOriginalDownloadUrl(url: string): string {
