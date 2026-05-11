@@ -150,6 +150,16 @@ describe("ChunksPanel", () => {
     );
   });
 
+  it("lets parsed chunks use most of the middle panel width", () => {
+    render(React.createElement(C, { chunks: [] }));
+
+    const scrollContentClassName =
+      screen.getByTestId("chunks-scroll-content").className;
+
+    expect(scrollContentClassName).toContain("w-[90%]");
+    expect(scrollContentClassName).not.toContain("max-w-4xl");
+  });
+
   it("keeps demo table chunks within the responsive chunk column", () => {
     mockVisibleVirtualViewport();
 

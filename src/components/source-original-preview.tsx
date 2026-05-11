@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import DOMPurify from "dompurify";
 import { Download, FileText, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -40,6 +41,14 @@ type UrlLoadState<T> = {
 type UrlValue<T> = {
   readonly url: string;
   readonly value: T;
+};
+
+type MammothConverter = {
+  readonly convertToHtml: (input: {
+    readonly arrayBuffer: ArrayBuffer;
+  }) => Promise<{
+    readonly value: string;
+  }>;
 };
 
 type PdfPageComponent = typeof import("react-pdf")["Page"];
@@ -74,6 +83,7 @@ type LazyPdfPageProps = {
 
 const pdfPageAspectRatio = 1.414;
 const pdfCanvasDevicePixelRatio = 2;
+const pdfPageMaxWidth = 1600;
 const pdfPageObserverRootMargin = "600px 0px";
 const TEXT_PREVIEW_BYTE_LIMIT = 1024 * 1024;
 const DOCX_PREVIEW_BYTE_LIMIT = 10 * 1024 * 1024;
@@ -99,7 +109,7 @@ export function SourceOriginalPreview({
   const canDownload = file.canDownload !== false;
 
   return (
-    <div className="mx-auto flex w-full min-w-0 max-w-[100vw] flex-col gap-3 p-3 sm:max-w-5xl sm:p-6">
+    <div className="mx-auto flex w-[90%] min-w-0 max-w-[1600px] flex-col gap-3 p-3 sm:p-6">
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/70 bg-background/80 p-3">
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-foreground">
@@ -447,7 +457,9 @@ function MarkdownPreview({ file }: { file: SourceOriginalFileView }): ReactNode 
 
   return (
     <div className="prose prose-sm max-w-none text-foreground prose-pre:whitespace-pre-wrap prose-pre:break-words">
-      <ReactMarkdown skipHtml>{state.value}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml>
+        {normalizeMarkdownPreviewText(state.value)}
+      </ReactMarkdown>
     </div>
   );
 }
@@ -492,11 +504,18 @@ function DocxPreview({ file }: { file: SourceOriginalFileView }): ReactNode {
         if (!response.ok) throw new Error("DOCX download failed.");
         const data = await response.arrayBuffer();
         if (!isCurrent) return;
-        await module.renderAsync(data, containerElement, undefined, {
-          ignoreFonts: true,
-          renderAltChunks: false,
-          useBase64URL: true,
-        });
+        try {
+          await module.renderAsync(data, containerElement, undefined, {
+            ignoreFonts: true,
+            ignoreWidth: true,
+            renderAltChunks: false,
+            useBase64URL: true,
+          });
+        } catch {
+          if (!isCurrent) return;
+          containerElement.replaceChildren();
+          await renderDocxHtmlFallback(data, containerElement);
+        }
         if (!isCurrent) return;
         DOMPurify.sanitize(containerElement, { IN_PLACE: true });
         if (isCurrent) {
@@ -528,10 +547,41 @@ function DocxPreview({ file }: { file: SourceOriginalFileView }): ReactNode {
       <div
         key={file.url}
         ref={containerRef}
-        className="mx-auto max-w-full overflow-auto rounded-lg bg-background text-foreground"
+        className="original-docx-preview mx-auto max-w-full overflow-auto rounded-lg bg-background text-foreground"
       />
     </div>
   );
+}
+
+async function renderDocxHtmlFallback(
+  data: ArrayBuffer,
+  containerElement: HTMLElement,
+): Promise<void> {
+  const mammothModule = await import("mammoth");
+  const converter = getMammothConverter(mammothModule);
+  const result = await converter.convertToHtml({ arrayBuffer: data });
+  containerElement.innerHTML = DOMPurify.sanitize(result.value);
+}
+
+function getMammothConverter(moduleValue: unknown): MammothConverter {
+  const moduleRecord = moduleValue as {
+    readonly default?: unknown;
+    readonly convertToHtml?: unknown;
+  };
+
+  if (isMammothConverter(moduleRecord.default)) {
+    return moduleRecord.default;
+  }
+  if (isMammothConverter(moduleRecord)) {
+    return moduleRecord;
+  }
+
+  throw new Error("Mammoth DOCX converter is unavailable.");
+}
+
+function isMammothConverter(value: unknown): value is MammothConverter {
+  if (typeof value !== "object" || value === null) return false;
+  return typeof (value as { readonly convertToHtml?: unknown }).convertToHtml === "function";
 }
 
 function LoadingPreview(): ReactNode {
@@ -656,10 +706,14 @@ function getExtension(title: string): string | null {
   return title.slice(index + 1).toLowerCase();
 }
 
+function normalizeMarkdownPreviewText(value: string): string {
+  return value.replace(/(?:<br\s*\/?>|&lt;br\s*\/?&gt;)/gi, "\n");
+}
+
 function getPdfPageWidth(containerWidth: number): number {
   const horizontalPadding = 32;
-  const availableWidth = containerWidth - horizontalPadding;
-  return Math.max(280, Math.min(1100, availableWidth));
+  const availableWidth = Math.max(1, containerWidth - horizontalPadding);
+  return Math.min(pdfPageMaxWidth, availableWidth);
 }
 
 function getPdfPagePlaceholderHeight(
@@ -712,7 +766,7 @@ function getSafePdfPageAspectRatio(width: number, height: number): number {
 
 function getInitialPdfPageWidth(): number {
   if (typeof window === "undefined") return 640;
-  return Math.max(280, Math.min(640, window.innerWidth - 48));
+  return Math.max(1, Math.min(640, window.innerWidth - 48));
 }
 
 function getOriginalDownloadUrl(url: string): string {

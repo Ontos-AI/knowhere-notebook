@@ -244,7 +244,7 @@ export function ChunksPanel({
         >
           <div
             data-testid="chunks-scroll-content"
-            className="mx-auto flex w-full min-w-0 max-w-4xl flex-col items-center p-3 sm:p-6"
+            className="mx-auto flex w-[90%] min-w-0 max-w-[1600px] flex-col items-center p-3 sm:p-6"
           >
             {isLoading ? (
               <LoadingChunks />
