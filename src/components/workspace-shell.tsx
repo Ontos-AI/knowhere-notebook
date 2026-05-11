@@ -75,7 +75,7 @@ export const DESKTOP_PANEL_MIN_WIDTHS = {
 } as const
 
 const DESKTOP_PANEL_DEFAULT_WIDTHS = {
-  sources: 320,
+  sources: 350,
   chunks: 720,
   chat: 420,
 } as const

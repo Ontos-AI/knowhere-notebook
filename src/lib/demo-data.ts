@@ -38,15 +38,6 @@ const demoSourceDefinitions: readonly DemoSourceDefinition[] = [
     assetDirectory: "tsla-q4-2025",
     chunkCount: 71,
   },
-  {
-    id: "demo-epstein-flight-logs",
-    documentId: "demo-doc-epstein-flight-logs",
-    title: "EPSTEIN FLIGHT LOGS UNREDACTED.pdf",
-    mimeType: "application/pdf",
-    originalFilePath: "original.pdf",
-    assetDirectory: "epstein-flight-logs",
-    chunkCount: 117,
-  },
 ] as const;
 
 const demoAssetsDirectoryPath = path.join(
