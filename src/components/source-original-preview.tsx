@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import DOMPurify from "dompurify";
 import { Download, FileText, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -40,6 +41,14 @@ type UrlLoadState<T> = {
 type UrlValue<T> = {
   readonly url: string;
   readonly value: T;
+};
+
+type MammothConverter = {
+  readonly convertToHtml: (input: {
+    readonly arrayBuffer: ArrayBuffer;
+  }) => Promise<{
+    readonly value: string;
+  }>;
 };
 
 type PdfPageComponent = typeof import("react-pdf")["Page"];
@@ -448,7 +457,9 @@ function MarkdownPreview({ file }: { file: SourceOriginalFileView }): ReactNode 
 
   return (
     <div className="prose prose-sm max-w-none text-foreground prose-pre:whitespace-pre-wrap prose-pre:break-words">
-      <ReactMarkdown skipHtml>{state.value}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml>
+        {normalizeMarkdownPreviewText(state.value)}
+      </ReactMarkdown>
     </div>
   );
 }
@@ -493,12 +504,18 @@ function DocxPreview({ file }: { file: SourceOriginalFileView }): ReactNode {
         if (!response.ok) throw new Error("DOCX download failed.");
         const data = await response.arrayBuffer();
         if (!isCurrent) return;
-        await module.renderAsync(data, containerElement, undefined, {
-          ignoreFonts: true,
-          ignoreWidth: true,
-          renderAltChunks: false,
-          useBase64URL: true,
-        });
+        try {
+          await module.renderAsync(data, containerElement, undefined, {
+            ignoreFonts: true,
+            ignoreWidth: true,
+            renderAltChunks: false,
+            useBase64URL: true,
+          });
+        } catch {
+          if (!isCurrent) return;
+          containerElement.replaceChildren();
+          await renderDocxHtmlFallback(data, containerElement);
+        }
         if (!isCurrent) return;
         DOMPurify.sanitize(containerElement, { IN_PLACE: true });
         if (isCurrent) {
@@ -534,6 +551,37 @@ function DocxPreview({ file }: { file: SourceOriginalFileView }): ReactNode {
       />
     </div>
   );
+}
+
+async function renderDocxHtmlFallback(
+  data: ArrayBuffer,
+  containerElement: HTMLElement,
+): Promise<void> {
+  const mammothModule = await import("mammoth");
+  const converter = getMammothConverter(mammothModule);
+  const result = await converter.convertToHtml({ arrayBuffer: data });
+  containerElement.innerHTML = DOMPurify.sanitize(result.value);
+}
+
+function getMammothConverter(moduleValue: unknown): MammothConverter {
+  const moduleRecord = moduleValue as {
+    readonly default?: unknown;
+    readonly convertToHtml?: unknown;
+  };
+
+  if (isMammothConverter(moduleRecord.default)) {
+    return moduleRecord.default;
+  }
+  if (isMammothConverter(moduleRecord)) {
+    return moduleRecord;
+  }
+
+  throw new Error("Mammoth DOCX converter is unavailable.");
+}
+
+function isMammothConverter(value: unknown): value is MammothConverter {
+  if (typeof value !== "object" || value === null) return false;
+  return typeof (value as { readonly convertToHtml?: unknown }).convertToHtml === "function";
 }
 
 function LoadingPreview(): ReactNode {
@@ -656,6 +704,10 @@ function getExtension(title: string): string | null {
   const index = title.lastIndexOf(".");
   if (index < 0 || index === title.length - 1) return null;
   return title.slice(index + 1).toLowerCase();
+}
+
+function normalizeMarkdownPreviewText(value: string): string {
+  return value.replace(/(?:<br\s*\/?>|&lt;br\s*\/?&gt;)/gi, "\n");
 }
 
 function getPdfPageWidth(containerWidth: number): number {
