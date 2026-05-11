@@ -3,7 +3,7 @@ import "server-only"
 import { and, desc, eq, isNull, sql } from "drizzle-orm"
 import { Effect, ManagedRuntime } from "effect"
 
-import { DbClient, dbLayer } from "./db"
+import { DbClient, dbLayer, type Db } from "./db"
 import {
   chatMessages,
   chatThreads,
@@ -11,10 +11,15 @@ import {
   sources,
   workspaces,
   type Source,
+  type Workspace,
 } from "./schema"
 import { deriveChatThreadTitle } from "./chat-title"
 import { DEMO_CHAT_MESSAGES } from "./demo-chat"
 import { demoData } from "./demo-data"
+import {
+  ensureDemoSourceUploadEffect,
+  type UploadKnowhereClient,
+} from "./source-upload"
 import type { ChatCitationView, CitationView, RetrievalResultView } from "./types"
 
 let _dbRuntime: ManagedRuntime.ManagedRuntime<DbClient, never> | null = null
@@ -69,92 +74,234 @@ export const ensureWorkspaceEffect = (userId: string) =>
     return row[0]
   })
 
-export const ensureDemoWorkspaceContentEffect = (workspaceId: string) =>
+export const ensureDemoWorkspaceContentEffect = (
+  workspace: Workspace,
+  knowhere: UploadKnowhereClient,
+) =>
   Effect.gen(function* () {
     const db = yield* DbClient
 
     for (const seed of demoData.listSourceSeeds()) {
-      const existingSource = yield* Effect.promise(() =>
-        db
-          .select({ id: sources.id })
-          .from(sources)
-          .where(
-            and(
-              eq(sources.workspaceId, workspaceId),
-              eq(sources.demoKey, seed.demoKey),
-            ),
-          )
-          .limit(1),
-      )
+      const source = yield* ensureDemoSourceUploadEffect(workspace, seed, {
+        knowhere,
+        repository: {
+          findSourceByDemoKey: (workspaceId, demoKey) =>
+            findDemoSourceInWorkspaceWithDb(db, workspaceId, demoKey),
+          createDemoUploadingSource: (workspaceId, input) =>
+            createDemoUploadingSourceWithDb(db, workspaceId, input),
+          markDemoSourceUploading: (workspaceId, sourceId, input) =>
+            markDemoSourceUploadingWithDb(db, workspaceId, sourceId, input),
+          markSourceParsing: (workspaceId, sourceId, jobId) =>
+            markSourceParsingWithDb(db, workspaceId, sourceId, jobId),
+          markSourceFailed: (workspaceId, sourceId, reason) =>
+            markSourceFailedWithDb(db, workspaceId, sourceId, reason),
+        },
+      })
 
-      if (!existingSource[0]) {
-        yield* Effect.promise(() =>
-          db
-            .insert(sources)
-            .values({
-              workspaceId,
-              title: seed.title,
-              mimeType: seed.mimeType,
-              sizeBytes: seed.originalSizeBytes,
-              status: "ready",
-              knowhereDocumentId: seed.documentId,
-              originalBlobUrl: seed.originalFileUrl,
-              demoKey: seed.demoKey,
-            })
-            .onConflictDoNothing({
-              target: [sources.workspaceId, sources.demoKey],
-            }),
-        )
-      }
+      if (source?.status !== "ready" || !source.knowhereDocumentId) continue
 
-      const existingThread = yield* Effect.promise(() =>
-        db
-          .select({ id: chatThreads.id })
-          .from(chatThreads)
-          .where(
-            and(
-              eq(chatThreads.workspaceId, workspaceId),
-              eq(chatThreads.demoKey, seed.demoKey),
-            ),
-          )
-          .limit(1),
-      )
-
-      if (existingThread[0]) continue
-
-      yield* Effect.promise(() =>
-        db.transaction(async (tx) => {
-          const [thread] = await tx
-            .insert(chatThreads)
-            .values({
-              workspaceId,
-              title: seed.chatThreadTitle,
-              demoKey: seed.demoKey,
-              createdAt: new Date(demoChatCreatedAtMs),
-              updatedAt: new Date(
-                demoChatCreatedAtMs + DEMO_CHAT_MESSAGES.length * 1000,
-              ),
-            })
-            .onConflictDoNothing({
-              target: [chatThreads.workspaceId, chatThreads.demoKey],
-            })
-            .returning()
-
-          if (!thread) return
-
-          await tx.insert(chatMessages).values(
-            DEMO_CHAT_MESSAGES.map((message, index) => ({
-              threadId: thread.id,
-              role: message.role,
-              content: message.content,
-              citations: normalizeCitations(message.citations),
-              createdAt: new Date(demoChatCreatedAtMs + index * 1000),
-            })),
-          )
-        }),
+      yield* ensureDemoChatThreadEffect(
+        workspace.id,
+        seed.demoKey,
+        seed.chatThreadTitle,
+        source.knowhereDocumentId,
       )
     }
   })
+
+const ensureDemoChatThreadEffect = (
+  workspaceId: string,
+  demoKey: string,
+  title: string,
+  documentId: string,
+) =>
+  Effect.gen(function* () {
+    const db = yield* DbClient
+    const existingThread = yield* Effect.promise(() =>
+      db
+        .select({ id: chatThreads.id })
+        .from(chatThreads)
+        .where(
+          and(
+            eq(chatThreads.workspaceId, workspaceId),
+            eq(chatThreads.demoKey, demoKey),
+          ),
+        )
+        .limit(1),
+    )
+
+    if (existingThread[0]) return
+
+    yield* Effect.promise(() =>
+      db.transaction(async (tx) => {
+        const [thread] = await tx
+          .insert(chatThreads)
+          .values({
+            workspaceId,
+            title,
+            demoKey,
+            createdAt: new Date(demoChatCreatedAtMs),
+            updatedAt: new Date(
+              demoChatCreatedAtMs + DEMO_CHAT_MESSAGES.length * 1000,
+            ),
+          })
+          .onConflictDoNothing({
+            target: [chatThreads.workspaceId, chatThreads.demoKey],
+          })
+          .returning()
+
+        if (!thread) return
+
+        await tx.insert(chatMessages).values(
+          DEMO_CHAT_MESSAGES.map((message, index) => ({
+            threadId: thread.id,
+            role: message.role,
+            content: message.content,
+            citations: normalizeCitations(
+              replaceDemoCitationDocumentId(message.citations, documentId),
+            ),
+            createdAt: new Date(demoChatCreatedAtMs + index * 1000),
+          })),
+        )
+      }),
+    )
+  })
+
+async function findDemoSourceInWorkspaceWithDb(
+  db: Db,
+  workspaceId: string,
+  demoKey: string,
+): Promise<Source | null> {
+  const rows = await db
+    .select()
+    .from(sources)
+    .where(
+      and(eq(sources.workspaceId, workspaceId), eq(sources.demoKey, demoKey)),
+    )
+    .limit(1)
+
+  return rows[0] ?? null
+}
+
+async function createDemoUploadingSourceWithDb(
+  db: Db,
+  workspaceId: string,
+  input: {
+    demoKey: string
+    title: string
+    mimeType: string
+    sizeBytes: number
+    originalBlobUrl: string
+  },
+): Promise<Source | null> {
+  const [source] = await db
+    .insert(sources)
+    .values({
+      workspaceId,
+      title: input.title,
+      mimeType: input.mimeType,
+      sizeBytes: input.sizeBytes,
+      status: "uploading",
+      originalBlobUrl: input.originalBlobUrl,
+      demoKey: input.demoKey,
+    })
+    .onConflictDoNothing({
+      target: [sources.workspaceId, sources.demoKey],
+    })
+    .returning()
+
+  return source ?? null
+}
+
+async function markSourceParsingWithDb(
+  db: Db,
+  workspaceId: string,
+  sourceId: string,
+  jobId: string,
+): Promise<Source> {
+  const [source] = await db
+    .update(sources)
+    .set({
+      status: "parsing",
+      knowhereJobId: jobId,
+      failureReason: null,
+      updatedAt: sql`now()`,
+    })
+    .where(
+      and(
+        eq(sources.id, sourceId),
+        eq(sources.workspaceId, workspaceId),
+        isNull(sources.deletedAt),
+      ),
+    )
+    .returning()
+
+  if (!source) throw new Error("Source disappeared before parsing.")
+  return source
+}
+
+async function markDemoSourceUploadingWithDb(
+  db: Db,
+  workspaceId: string,
+  sourceId: string,
+  input: {
+    title: string
+    mimeType: string
+    sizeBytes: number
+    originalBlobUrl: string
+  },
+): Promise<Source> {
+  const [source] = await db
+    .update(sources)
+    .set({
+      title: input.title,
+      mimeType: input.mimeType,
+      sizeBytes: input.sizeBytes,
+      status: "uploading",
+      failureReason: null,
+      knowhereJobId: null,
+      knowhereDocumentId: null,
+      originalBlobUrl: input.originalBlobUrl,
+      updatedAt: sql`now()`,
+    })
+    .where(
+      and(
+        eq(sources.id, sourceId),
+        eq(sources.workspaceId, workspaceId),
+        isNull(sources.deletedAt),
+      ),
+    )
+    .returning()
+
+  if (!source) throw new Error("Source disappeared before demo upload.")
+  return source
+}
+
+async function markSourceFailedWithDb(
+  db: Db,
+  workspaceId: string,
+  sourceId: string,
+  reason: string,
+): Promise<Source> {
+  const [source] = await db
+    .update(sources)
+    .set({
+      status: "failed",
+      failureReason: reason,
+      updatedAt: sql`now()`,
+    })
+    .where(
+      and(
+        eq(sources.id, sourceId),
+        eq(sources.workspaceId, workspaceId),
+        isNull(sources.deletedAt),
+      ),
+    )
+    .returning()
+
+  if (!source) throw new Error("Source disappeared before failure.")
+  return source
+}
 
 export const findSourceInWorkspaceEffect = (
   workspaceId: string,
@@ -560,8 +707,10 @@ export const pingDatabaseEffect = Effect.gen(function* () {
 export const ensureWorkspace = (userId: string) =>
   dbRuntime().runPromise(ensureWorkspaceEffect(userId))
 
-export const ensureDemoWorkspaceContent = (workspaceId: string) =>
-  dbRuntime().runPromise(ensureDemoWorkspaceContentEffect(workspaceId))
+export const ensureDemoWorkspaceContent = (
+  workspace: Workspace,
+  knowhere: UploadKnowhereClient,
+) => dbRuntime().runPromise(ensureDemoWorkspaceContentEffect(workspace, knowhere))
 
 export const findSourceInWorkspace = (workspaceId: string, sourceId: string) =>
   dbRuntime().runPromise(findSourceInWorkspaceEffect(workspaceId, sourceId))
@@ -677,6 +826,21 @@ function normalizeCitations(
 ): CitationView[] | null {
   if (!citations || citations.length === 0) return null
   return citations.map(toCitationView)
+}
+
+function replaceDemoCitationDocumentId(
+  citations: readonly ChatCitationView[] | undefined,
+  documentId: string,
+): ChatCitationView[] | undefined {
+  if (!citations) return undefined
+
+  return citations.map((citation) => ({
+    ...citation,
+    source: {
+      ...citation.source,
+      documentId,
+    },
+  }))
 }
 
 function toCitationView(

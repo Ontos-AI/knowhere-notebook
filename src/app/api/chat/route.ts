@@ -11,7 +11,8 @@ import {
 } from "@/lib/chat";
 import { handleChatTurn } from "@/lib/chat-service";
 import { makeKnowhereClient } from "@/lib/knowhere";
-import { ensureWorkspace, listSourcesForWorkspace } from "@/lib/workspace";
+import { reconcileSourcesForWorkspace } from "@/lib/source-reconcile";
+import { ensureWorkspace } from "@/lib/workspace";
 import {
   appendMessageToThread,
   ensureDefaultChatThread,
@@ -27,10 +28,10 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   const user = await requireUser()
   const workspace = await ensureWorkspace(user.id)
-  const sources = await listSourcesForWorkspace(workspace.id)
   const cookieHeader = (await headers()).get("cookie") ?? ""
   const apiKey = await ensureApiKeyForWorkspace(workspace.id, cookieHeader)
   const client = makeKnowhereClient(apiKey)
+  const sources = await reconcileSourcesForWorkspace(workspace, client)
 
   try {
     const result = await handleChatTurn({
