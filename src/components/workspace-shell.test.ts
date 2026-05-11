@@ -813,6 +813,56 @@ describe("WorkspaceShell", () => {
     expect(countFetches(fetch, "/api/sources")).toBeGreaterThanOrEqual(2);
   });
 
+  it("keeps remaining initial sources visible after deleting one source", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
+      const request = input instanceof Request
+        ? input
+        : new Request(new URL(String(input), "http://localhost").toString(), init);
+      const path = getRequestPath(request);
+
+      if (path === "/api/sources/source_1" && request.method === "PATCH") {
+        return Response.json({ id: "source_1", archived: true });
+      }
+
+      return Response.json({ message: "Unexpected request" }, { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetch);
+    const user = userEvent.setup();
+
+    render(
+      React.createElement(C, {
+        sources: [
+          {
+            id: "source_1",
+            title: "first.pdf",
+            status: "ready",
+            documentId: "doc_1",
+          },
+          {
+            id: "source_2",
+            title: "second.pdf",
+            status: "ready",
+            documentId: "doc_2",
+          },
+        ],
+      }),
+    );
+
+    const desktopSourcesPanel = within(
+      screen.getByTestId("desktop-sources-panel"),
+    );
+    await user.click(
+      desktopSourcesPanel.getByRole("button", { name: "Delete first.pdf" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => {
+      expect(desktopSourcesPanel.queryByText("first.pdf")).toBeNull();
+    });
+    expect(desktopSourcesPanel.getByText("second.pdf")).toBeTruthy();
+    expect(desktopSourcesPanel.queryByText("No sources yet.")).toBeNull();
+  });
+
   it("uses cached chat data when reopening a previously loaded thread", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
       const path = getRequestPath(input);
