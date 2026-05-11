@@ -1,12 +1,7 @@
 "use client";
 
 import {
-  type DragEvent,
-  type FormEvent,
-  useEffect,
   useId,
-  useRef,
-  useState,
   type ReactElement,
 } from "react";
 import { Plus, Upload } from "lucide-react";
@@ -20,14 +15,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useSourceUploadDialogWorkflow } from "@/components/source-upload-dialog-workflow";
 import type { SourceView } from "@/domains/sources/types";
-import { postSourceUpload } from "@/domains/sources/upload-request";
-
-type UploadDialogState = {
-  readonly ok: boolean;
-  readonly message: string | null;
-  readonly source?: SourceView;
-};
 
 export type SourceUploadDialogProps = {
   readonly onSourceUploaded?: (source: SourceView) => void;
@@ -36,96 +25,29 @@ export type SourceUploadDialogProps = {
 export function SourceUploadDialog({
   onSourceUploaded,
 }: SourceUploadDialogProps): ReactElement {
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [state, setState] = useState<UploadDialogState>({
-    ok: true,
-    message: null,
-  });
-  const [isUploading, setIsUploading] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const lastUploadedSourceIdRef = useRef<string | null>(null);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
+  const {
+    inputRef,
+    isDialogOpen,
+    isUploading,
+    message,
+    selectedFileName,
+    handleDialogDragOver,
+    handleDialogDrop,
+    handleDialogOpenChange,
+    handleFileInputChange,
+    handleSubmit,
+    handleUploadDialogOpen,
+  } = useSourceUploadDialogWorkflow({ onSourceUploaded });
   const fileInputId = useId();
 
-  useEffect(() => {
-    if (
-      state.ok &&
-      state.source &&
-      state.source.id !== lastUploadedSourceIdRef.current
-    ) {
-      if (inputRef.current) inputRef.current.value = "";
-      setSelectedFile(null);
-      setSelectedFileName(null);
-      lastUploadedSourceIdRef.current = state.source.id;
-      onSourceUploaded?.(state.source);
-      setIsDialogOpen(false);
-    }
-  }, [state, onSourceUploaded]);
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
-    event.preventDefault();
-    if (isUploading) return;
-
-    const file = selectedFile ?? inputRef.current?.files?.[0] ?? null;
-    if (!file || file.size === 0) {
-      setState({ ok: false, message: "Choose a document to upload." });
-      return;
-    }
-
-    setIsUploading(true);
-    setState({ ok: true, message: null });
-
-    try {
-      const response = await postSourceUpload(file);
-      const { body } = response;
-
-      if (!isSuccessfulStatus(response.status) || !body.source) {
-        setState({
-          ok: false,
-          message:
-            body.message ?? "Upload failed. Try again or choose another file.",
-        });
-        return;
-      }
-
-      setState({ ok: true, message: null, source: body.source });
-    } catch {
-      setState({
-        ok: false,
-        message: "Upload failed. Try again or choose another file.",
-      });
-    } finally {
-      setIsUploading(false);
-    }
-  }
-
-  function handleDialogDragOver(event: DragEvent<HTMLDivElement>): void {
-    if (!hasDraggedFiles(event)) return;
-    event.preventDefault();
-    event.stopPropagation();
-  }
-
-  function handleDialogDrop(event: DragEvent<HTMLDivElement>): void {
-    if (!hasDraggedFiles(event)) return;
-    event.preventDefault();
-    event.stopPropagation();
-
-    if (isUploading) return;
-
-    const file = event.dataTransfer.files.item(0);
-    if (!file) return;
-
-    setSelectedFile(file);
-    setSelectedFileName(file.name);
-    setState({ ok: true, message: null });
-  }
-
   return (
-    <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+    <Dialog
+      open={isDialogOpen}
+      onOpenChange={handleDialogOpenChange}
+    >
       <Button
         type="button"
-        onClick={() => setIsDialogOpen(true)}
+        onClick={handleUploadDialogOpen}
         size="sm"
         className="flex w-full items-center justify-center gap-2 shadow-xs"
       >
@@ -144,7 +66,10 @@ export function SourceUploadDialog({
             TXT, MD, XLS, XLSX, PPTX, images, and more files up to 100 MB.
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+        <form
+          onSubmit={handleSubmit}
+          className="flex min-h-0 flex-1 flex-col"
+        >
           <div className="min-h-0 overflow-y-auto px-6 py-4">
             <label
               htmlFor={fileInputId}
@@ -188,22 +113,18 @@ export function SourceUploadDialog({
                 className="hidden"
                 accept=".pdf,.doc,.docx,.txt,.md,.xls,.xlsx,.pptx,.jpg,.jpeg,.png"
                 disabled={isUploading}
-                onChange={(event) => {
-                  const file = event.target.files?.[0] ?? null;
-                  setSelectedFile(file);
-                  setSelectedFileName(file?.name ?? null);
-                }}
+                onChange={handleFileInputChange}
               />
             </label>
-            {state.message && (
+            {message && (
               <p
                 className={`mt-4 rounded-md border px-3 py-2 text-xs ${
-                  state.ok
+                  message.isSuccess
                     ? "border-green-200 bg-green-50 text-green-700"
                     : "border-destructive/30 bg-destructive/10 text-destructive"
                 }`}
               >
-                {state.message}
+                {message.text}
               </p>
             )}
           </div>
@@ -221,12 +142,4 @@ export function SourceUploadDialog({
       </DialogContent>
     </Dialog>
   );
-}
-
-function isSuccessfulStatus(status: number): boolean {
-  return status >= 200 && status < 300;
-}
-
-function hasDraggedFiles(event: DragEvent<HTMLElement>): boolean {
-  return Array.from(event.dataTransfer.types).includes("Files");
 }

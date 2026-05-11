@@ -51,8 +51,8 @@ async function loadReconcile({
   storeParsedResultAssets?: ReturnType<typeof vi.fn>
 }): Promise<typeof import("./reconcile")> {
   vi.resetModules()
-  vi.doMock("./service", () => ({
-    sourceService: {
+  vi.doMock("./workflow-runtime", () => ({
+    sourceWorkflowRuntime: {
       listForWorkspace: listSourcesForWorkspace,
       markFailed: markSourceFailed,
       markReady: markSourceReady,

@@ -1,8 +1,8 @@
 import type { NextRequest, NextResponse } from "next/server"
 
-import { chatRouteService } from "@/domains/chat/route-service"
+import { chatRouteRequest } from "@/domains/chat/route-request"
+import { chatThreadRouteService } from "@/domains/chat/route-threads"
 import { nextRouteResponse } from "@/lib/next-route-response"
-import { routeResult } from "@/lib/route-result"
 
 type RouteContext = {
   params: Promise<{
@@ -17,7 +17,7 @@ export async function GET(
   const { threadId } = await context.params
 
   return nextRouteResponse.toNextResponse(
-    await chatRouteService.getThread({
+    await chatThreadRouteService.getThread({
       threadId,
     }),
   )
@@ -28,17 +28,15 @@ export async function PATCH(
   context: RouteContext,
 ): Promise<NextResponse> {
   const { threadId } = await context.params
-  const body = await routeResult.readJson(request)
-  if (!body.ok) {
-    return nextRouteResponse.toNextResponse(
-      routeResult.badRequest("Invalid request body."),
-    )
+  const archiveRequest = await chatRouteRequest.readArchiveThread({
+    request,
+    threadId,
+  })
+  if (!archiveRequest.ok) {
+    return nextRouteResponse.toNextResponse(archiveRequest.result)
   }
 
   return nextRouteResponse.toNextResponse(
-    await chatRouteService.archiveThread({
-      threadId,
-      body: body.value,
-    }),
+    await chatThreadRouteService.archiveThread(archiveRequest.input),
   )
 }

@@ -1,23 +1,14 @@
 "use client";
 
 import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
   type CSSProperties,
   type ReactNode,
-  type UIEventHandler,
 } from "react";
-import {
-  useVirtualizer,
-  type VirtualItem,
-} from "@tanstack/react-virtual";
+import { type VirtualItem } from "@tanstack/react-virtual";
 import { Layers } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SourceOriginalPreview } from "@/components/source-original-preview";
-import { chunksPanelState } from "@/components/chunks-panel-state";
+import { useChunksPanelWorkflow } from "@/components/chunks-panel-workflow";
 import { ParsedChunkCard } from "@/components/parsed-chunk-card";
 import type { ParsedChunkView } from "@/domains/chunks/types";
 import type { SourceOriginalFileView } from "@/domains/sources/types";
@@ -35,9 +26,6 @@ export type ChunksPanelProps = {
   onLoadMore?: () => void;
 };
 
-const estimatedChunkCardHeight = 220;
-const virtualListOverscan = 4;
-const infiniteScrollThreshold = 720;
 export function ChunksPanel({
   chunks = [],
   selectedSource = null,
@@ -49,110 +37,32 @@ export function ChunksPanel({
   hasMoreChunks = false,
   onLoadMore,
 }: Partial<ChunksPanelProps> = {}) {
-  const viewportRef = useRef<HTMLDivElement>(null);
-  const [activeView, setActiveView] = useState<"parsed" | "original">("parsed");
-  const [localFocusedChunkId, setLocalFocusedChunkId] = useState<string | null>(
-    null,
-  );
-  const activeFocusedChunkId = focusedChunkId ?? localFocusedChunkId;
-  const visibleChunks = useMemo(
-    () => chunksPanelState.getChunksWithFocusedFirst(chunks, activeFocusedChunkId),
-    [activeFocusedChunkId, chunks],
-  );
-  const getVirtualChunkKey = useCallback(
-    (index: number): string | number => visibleChunks[index]?.chunkId ?? index,
-    [visibleChunks],
-  );
-  const measureVirtualChunkElement = useCallback(
-    (element: HTMLDivElement): number => element.offsetHeight,
-    [],
-  );
-  // TanStack Virtual owns scroll measurement callbacks; this component is not memoized by React Compiler.
-  // eslint-disable-next-line react-hooks/incompatible-library
-  const chunkVirtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
-    count: visibleChunks.length,
-    getScrollElement: () => viewportRef.current,
-    getItemKey: getVirtualChunkKey,
-    estimateSize: () => estimatedChunkCardHeight,
-    measureElement: measureVirtualChunkElement,
-    overscan: virtualListOverscan,
+  const {
+    activeFocusedChunkId,
+    handleOriginalViewSelected,
+    handleParsedViewSelected,
+    handleViewportScroll,
+    hasOriginalFile,
+    measureVirtualChunkElement,
+    requestChunkFocus,
+    totalHeight,
+    viewportRef,
+    virtualItems,
+    visibleChunks,
+    visibleView,
+  } = useChunksPanelWorkflow({
+    chunks,
+    selectedSource,
+    selectedSourceFile,
+    focusedChunkId,
+    focusedChunkRequestId,
+    hasMoreChunks,
+    isLoading,
+    isLoadingMore,
+    onLoadMore,
   });
-  const virtualItems = chunkVirtualizer.getVirtualItems();
-  const totalHeight = chunkVirtualizer.getTotalSize();
-
-  const requestMoreChunksIfNeeded = useCallback(
-    (viewport: HTMLDivElement): void => {
-      if (
-        !onLoadMore ||
-        !hasMoreChunks ||
-        isLoading ||
-        isLoadingMore ||
-        !hasVisibleViewportSize(viewport)
-      ) {
-        return;
-      }
-
-      const distanceFromBottom =
-        viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
-
-      if (distanceFromBottom <= infiniteScrollThreshold) {
-        onLoadMore();
-      }
-    },
-    [hasMoreChunks, isLoading, isLoadingMore, onLoadMore],
-  );
-
-  const handleViewportScroll = useCallback<UIEventHandler<HTMLDivElement>>(
-    (event) => {
-      requestMoreChunksIfNeeded(event.currentTarget);
-    },
-    [requestMoreChunksIfNeeded],
-  );
-
-  const scrollToFocusedChunk = useCallback((): void => {
-    if (!activeFocusedChunkId) return;
-    // getChunksWithFocusedFirst moves the focused chunk to index 0 in
-    // visibleChunks, so the virtual list renders it at position 0 in
-    // the reordered array.  scrollToOffset(0) and scrollToIndex(0)
-    // both land on the focused chunk.
-    chunkVirtualizer.scrollToOffset(0, {
-      align: "start",
-      behavior: "auto",
-    });
-    requestAnimationFrame(() => {
-      chunkVirtualizer.scrollToOffset(0, {
-        align: "start",
-        behavior: "smooth",
-      });
-    });
-  }, [activeFocusedChunkId, chunkVirtualizer]);
-
-  useEffect(() => {
-    const viewport = viewportRef.current;
-
-    if (!viewport) {
-      return;
-    }
-
-    requestMoreChunksIfNeeded(viewport);
-  }, [requestMoreChunksIfNeeded, totalHeight, visibleChunks.length]);
-
-  useEffect(() => {
-    if (!activeFocusedChunkId) {
-      return;
-    }
-
-    scrollToFocusedChunk();
-  }, [activeFocusedChunkId, focusedChunkRequestId, scrollToFocusedChunk]);
-
-  const requestChunkFocus = useCallback((chunkId: string): void => {
-    setLocalFocusedChunkId(chunkId);
-  }, []);
 
   const headerTitle = focusedChunkId ? "Referenced Chunks" : "Parsed Chunks";
-  const hasOriginalFile = selectedSource !== null && selectedSourceFile !== null;
-  const visibleView = hasOriginalFile ? activeView : "parsed";
-
   const headerSubtitle = visibleView === "original" ? (
     selectedSource ? (
       <>
@@ -177,14 +87,6 @@ export function ChunksPanel({
     "Select a source to see its parsed chunks."
   );
 
-  useEffect(() => {
-    if (!hasOriginalFile) setActiveView("parsed");
-  }, [hasOriginalFile]);
-
-  useEffect(() => {
-    if (focusedChunkId) setActiveView("parsed");
-  }, [focusedChunkId, focusedChunkRequestId]);
-
   return (
     <main
       data-testid="chunks-panel"
@@ -203,14 +105,14 @@ export function ChunksPanel({
           <div className="flex shrink-0 rounded-lg border border-border bg-muted/40 p-0.5">
             <button
               type="button"
-              onClick={() => setActiveView("parsed")}
+              onClick={handleParsedViewSelected}
               className={viewToggleClassName(visibleView === "parsed")}
             >
               Parsed
             </button>
             <button
               type="button"
-              onClick={() => setActiveView("original")}
+              onClick={handleOriginalViewSelected}
               className={viewToggleClassName(visibleView === "original")}
             >
               Original
@@ -253,7 +155,7 @@ export function ChunksPanel({
                     virtualItem={virtualItem}
                     chunk={visibleChunks[virtualItem.index]}
                     focusedChunkId={activeFocusedChunkId}
-                    measureElement={chunkVirtualizer.measureElement}
+                    measureElement={measureVirtualChunkElement}
                     onReferenceClick={requestChunkFocus}
                   />
                 ))}
@@ -347,8 +249,4 @@ function VirtualChunkRow({
       />
     </div>
   );
-}
-
-function hasVisibleViewportSize(viewport: HTMLDivElement): boolean {
-  return viewport.clientHeight > 0 && viewport.scrollHeight > 0;
 }

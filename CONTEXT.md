@@ -33,6 +33,12 @@ Workspace Desktop Panels is the hook that owns browser measurements and resize
 drag state for the three desktop panels. Pure resize math stays in Workspace
 Shell State.
 
+## Workspace Resize Handle Workflow
+
+Workspace Resize Handle Workflow owns desktop resize-handle pointer lifecycle:
+starting drag gestures, tracking pointermove deltas, and cleaning up window
+listeners on pointerup.
+
 ## Workspace Selected Chunks
 
 Workspace Selected Chunks is the hook that owns selected Source chunk paging,
@@ -70,8 +76,15 @@ selection, status display, and local archive affordances for that one Source.
 
 ## Source Upload Dialog
 
-The Source Upload Dialog is the upload UI for authenticated users. It owns file
-selection, drag-and-drop selection, upload submission state, and upload errors.
+The Source Upload Dialog is the upload UI for authenticated users. It renders
+the upload controls and delegates file selection, drag-and-drop selection,
+submission state, and upload errors to the Source Upload Dialog Workflow.
+
+## Source Upload Dialog Workflow
+
+Source Upload Dialog Workflow owns browser upload dialog behavior: open state,
+selected file state, drag-and-drop selection, upload submission, friendly error
+messages, duplicate-submit prevention, and post-upload cleanup.
 
 ## Demo Source
 
@@ -85,6 +98,24 @@ Source Original Preview is the browser-side read-only view for a Source's
 original file. Its model owns file classification, preview limits, download URL
 rules, and PDF sizing math; request helpers own file reads so the component
 can stay focused on rendering.
+
+## Source Original PDF Workflow
+
+Source Original PDF Workflow owns browser PDF preview behavior: loading the
+`react-pdf` module, setting the PDF worker, measuring page width, loading page
+aspect ratios, and tracking visible pages for lazy rendering.
+
+## Source Original DOCX Workflow
+
+Source Original DOCX Workflow owns browser DOCX preview behavior: loading the
+source bytes, importing the DOCX renderer, falling back to Mammoth HTML
+conversion, sanitizing rendered output, and cleaning up in-flight work.
+
+## Source Original Text Workflow
+
+Source Original Text Workflow owns browser text and Markdown preview behavior:
+loading source text, tracking URL-scoped load state, and cleaning up in-flight
+text requests.
 
 ## Parsed Chunk
 
@@ -103,6 +134,12 @@ table HTML for that card only.
 A Chat Thread is a persisted Notebook conversation within one Workspace. Chat
 threads are soft-deleted without deleting their messages.
 
+## Chat Panel Workflow
+
+Chat Panel Workflow owns browser chat panel behavior: chat history sheet open
+state, new-chat actions, delete confirmation state, and archive confirmation
+callbacks.
+
 ## Chat Repository
 
 The Chat Repository is a stable facade over Chat Thread lifecycle, Chat Message
@@ -113,6 +150,12 @@ persistence, Demo Chat seeding, and Citation persistence normalization.
 A Chat Message is a persisted user or assistant message in a Chat Thread.
 Assistant messages can store citation metadata, but should not persist full
 source chunk text.
+
+## Chat Message List Workflow
+
+Chat Message List Workflow owns browser message-list behavior: virtual row
+counts, thinking-progress row placement, viewport measurement, and automatic
+scrolling to the latest row.
 
 ## Citation
 

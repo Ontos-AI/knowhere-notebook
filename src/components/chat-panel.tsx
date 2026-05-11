@@ -1,13 +1,13 @@
 "use client";
 
 import {
-  useState,
   type ReactElement,
 } from "react";
 import { History, Plus } from "lucide-react";
 import { ChatComposer } from "@/components/chat-composer";
 import { ChatHistorySheet } from "@/components/chat-history-sheet";
 import { ChatMessageList } from "@/components/chat-message-list";
+import { useChatPanelWorkflow } from "@/components/chat-panel-workflow";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import {
@@ -73,15 +73,21 @@ export function ChatPanel({
   pendingCitationId = null,
   isDisabled = false,
 }: Partial<ChatPanelProps> = {}): ReactElement {
-  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
-  const [confirmThreadId, setConfirmThreadId] = useState<string | null>(null);
-  const confirmThread = threads.find((thread) => thread.id === confirmThreadId);
-
-  function handleNewChat() {
-    if (isCreatingThread) return;
-    onNewChat?.();
-    setIsHistoryOpen(false);
-  }
+  const {
+    confirmThread,
+    confirmThreadId,
+    isHistoryOpen,
+    handleArchiveConfirm,
+    handleArchiveDialogOpenChange,
+    handleHistoryOpenChange,
+    handleNewChat,
+    handleThreadArchiveRequest,
+  } = useChatPanelWorkflow({
+    isCreatingThread,
+    onNewChat,
+    onThreadArchive,
+    threads,
+  });
 
   return (
     <section
@@ -90,9 +96,7 @@ export function ChatPanel({
     >
       <AlertDialog
         open={confirmThreadId !== null}
-        onOpenChange={(open) => {
-          if (!open) setConfirmThreadId(null);
-        }}
+        onOpenChange={handleArchiveDialogOpenChange}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -105,14 +109,7 @@ export function ChatPanel({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                if (confirmThreadId) {
-                  onThreadArchive?.(confirmThreadId);
-                  setConfirmThreadId(null);
-                }
-              }}
-            >
+            <AlertDialogAction onClick={handleArchiveConfirm}>
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -143,7 +140,7 @@ export function ChatPanel({
                         variant="outline"
                         size="icon"
                         aria-label="Open chat history"
-                        onClick={() => setIsHistoryOpen(true)}
+                        onClick={() => handleHistoryOpenChange(true)}
                       >
                         <History className="size-4" />
                       </Button>
@@ -186,10 +183,12 @@ export function ChatPanel({
         isCreatingThread={isCreatingThread}
         loadingThreadId={loadingThreadId}
         archivingThreadIds={archivingThreadIds}
-        onOpenChange={setIsHistoryOpen}
+        onOpenChange={handleHistoryOpenChange}
         onNewChat={onNewChat ? handleNewChat : undefined}
         onThreadSelect={onThreadSelect}
-        onThreadArchive={onThreadArchive ? setConfirmThreadId : undefined}
+        onThreadArchive={
+          onThreadArchive ? handleThreadArchiveRequest : undefined
+        }
       />
 
       <ChatMessageList

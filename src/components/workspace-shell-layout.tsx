@@ -1,13 +1,11 @@
-import type {
-  PointerEvent as ReactPointerEvent,
-  ReactElement,
-} from "react"
+import type { ReactElement } from "react"
 
 import { ChatPanel } from "@/components/chat-panel"
 import { ChunksPanel } from "@/components/chunks-panel"
 import { MobileTabBar } from "@/components/mobile-tab-bar"
 import { SourcesPanel } from "@/components/sources-panel"
 import { TopNav } from "@/components/top-nav"
+import { useWorkspaceResizeHandleWorkflow } from "@/components/workspace-resize-handle-workflow"
 import { workspaceShellState } from "@/components/workspace-shell-state"
 import type {
   ChatCitationView,
@@ -343,27 +341,11 @@ function DesktopResizeHandle({
   readonly onResizeEnd?: () => void
   readonly onResizeStart?: () => void
 }): ReactElement {
-  function handlePointerDown(
-    event: ReactPointerEvent<HTMLButtonElement>,
-  ): void {
-    event.preventDefault()
-    const startClientX = event.clientX
-    onResizeStart?.()
-
-    function handlePointerMove(moveEvent: PointerEvent): void {
-      const deltaX = moveEvent.clientX - startClientX
-      onResize(deltaX)
-    }
-
-    function handlePointerUp(): void {
-      window.removeEventListener("pointermove", handlePointerMove)
-      window.removeEventListener("pointerup", handlePointerUp)
-      onResizeEnd?.()
-    }
-
-    window.addEventListener("pointermove", handlePointerMove)
-    window.addEventListener("pointerup", handlePointerUp)
-  }
+  const { handlePointerDown } = useWorkspaceResizeHandleWorkflow({
+    onResize,
+    onResizeEnd,
+    onResizeStart,
+  })
 
   return (
     <button

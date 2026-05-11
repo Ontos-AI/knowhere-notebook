@@ -1,23 +1,13 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import { FileText, Loader2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { sourceOriginalPreviewModel } from "@/components/source-original-preview-model";
-import { sourceOriginalPreviewRequest } from "@/components/source-original-preview-request";
+import { useSourceOriginalTextWorkflow } from "@/components/source-original-text-workflow";
 import type { SourceOriginalFileView } from "@/domains/sources/types";
-
-type LoadState<T> =
-  | { readonly status: "loading" }
-  | { readonly status: "ready"; readonly value: T }
-  | { readonly status: "failed" };
-
-type UrlLoadState<T> = {
-  readonly url: string;
-  readonly state: LoadState<T>;
-};
 
 export type SourceOriginalTextPreviewProps = {
   readonly file: SourceOriginalFileView;
@@ -28,7 +18,7 @@ export function SourceOriginalTextPreview({
   file,
   variant,
 }: SourceOriginalTextPreviewProps): ReactNode {
-  const state = useTextFile(file.url);
+  const state = useSourceOriginalTextWorkflow({ file });
 
   if (state.status === "loading") return <LoadingPreview />;
   if (state.status === "failed") return <UnsupportedPreview />;
@@ -48,43 +38,6 @@ export function SourceOriginalTextPreview({
       {state.value}
     </pre>
   );
-}
-
-function useTextFile(url: string): LoadState<string> {
-  const [loadState, setLoadState] = useState<UrlLoadState<string>>({
-    url,
-    state: { status: "loading" },
-  });
-
-  useEffect(() => {
-    let isCurrent = true;
-    const controller = new AbortController();
-
-    async function loadText(): Promise<void> {
-      try {
-        const value = await sourceOriginalPreviewRequest.getText(
-          url,
-          controller.signal,
-        );
-        if (isCurrent) {
-          setLoadState({ url, state: { status: "ready", value } });
-        }
-      } catch {
-        if (isCurrent) {
-          setLoadState({ url, state: { status: "failed" } });
-        }
-      }
-    }
-
-    void loadText();
-
-    return () => {
-      isCurrent = false;
-      controller.abort();
-    };
-  }, [url]);
-
-  return loadState.url === url ? loadState.state : { status: "loading" };
 }
 
 function LoadingPreview(): ReactNode {

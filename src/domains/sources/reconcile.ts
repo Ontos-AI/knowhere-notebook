@@ -11,7 +11,7 @@ import {
   type StoredParsedResultAssets,
 } from "./parsed-result-assets"
 import { applyKnowhereJobToSource } from "./lifecycle"
-import { sourceService } from "./service"
+import { sourceWorkflowRuntime } from "./workflow-runtime"
 
 type SourceReconcileDependencies = {
   storeParsedResultAssets?: (
@@ -34,7 +34,7 @@ export async function reconcileSourcesForWorkspace(
   client: Knowhere,
   deps: SourceReconcileDependencies = {},
 ): Promise<Source[]> {
-  const rows = await sourceService.listForWorkspace(workspace.id)
+  const rows = await sourceWorkflowRuntime.listForWorkspace(workspace.id)
   const parsing = rows.filter(
     (row) => row.status === "parsing" && row.knowhereJobId,
   )
@@ -54,7 +54,7 @@ export async function reconcileSourcesForWorkspace(
     }),
   )
 
-  return await sourceService.listForWorkspace(workspace.id)
+  return await sourceWorkflowRuntime.listForWorkspace(workspace.id)
 }
 
 async function updateSourceFromJob(
@@ -71,11 +71,11 @@ async function updateSourceFromJob(
     client,
     repository: {
       saveSourceParseResult:
-        deps.saveSourceParseResult ?? sourceService.saveParseResult,
-      markSourceReady: sourceService.markReady,
-      markSourceFailed: sourceService.markFailed,
+        deps.saveSourceParseResult ?? sourceWorkflowRuntime.saveParseResult,
+      markSourceReady: sourceWorkflowRuntime.markReady,
+      markSourceFailed: sourceWorkflowRuntime.markFailed,
       clearSourceStagedBlob:
-        deps.clearSourceStagedBlob ?? sourceService.clearStagedBlob,
+        deps.clearSourceStagedBlob ?? sourceWorkflowRuntime.clearStagedBlob,
     },
     parsedResultStore: {
       storeParsedResultAssets:

@@ -1,14 +1,10 @@
 "use client";
 
-import {
-  useEffect,
-  useRef,
-  type CSSProperties,
-  type ReactElement,
-} from "react";
-import { useVirtualizer, type VirtualItem } from "@tanstack/react-virtual";
+import { type CSSProperties, type ReactElement } from "react";
+import { type VirtualItem } from "@tanstack/react-virtual";
 import { MessageCircle } from "lucide-react";
 
+import { useChatMessageListWorkflow } from "@/components/chat-message-list-workflow";
 import { chatPanelModel } from "@/components/chat-panel-model";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
@@ -16,9 +12,6 @@ import type {
   ChatCitationView,
   ChatMessageView,
 } from "@/domains/chat/types";
-
-const estimatedMessageHeight = 160;
-const virtualMessageOverscan = 6;
 
 export type ChatMessageListProps = {
   readonly isDisabled?: boolean;
@@ -42,28 +35,15 @@ export function ChatMessageList({
   pendingCitationId = null,
   sourceTitlesByDocumentId = {},
 }: ChatMessageListProps): ReactElement {
-  const viewportRef = useRef<HTMLDivElement>(null);
-  const shouldShowThinkingProgress = isSending && messages.length > 0;
-  const messageRowCount =
-    messages.length + (shouldShowThinkingProgress ? 1 : 0);
-  // TanStack Virtual owns scroll measurement callbacks; this component is not memoized by React Compiler.
-  // eslint-disable-next-line react-hooks/incompatible-library
-  const messageVirtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
-    count: messageRowCount,
-    getScrollElement: () => viewportRef.current,
-    estimateSize: () => estimatedMessageHeight,
-    overscan: virtualMessageOverscan,
-  });
-  const virtualItems = messageVirtualizer.getVirtualItems();
-  const totalHeight = messageVirtualizer.getTotalSize();
-
-  useEffect(() => {
-    if (messageRowCount === 0) {
-      return;
-    }
-
-    messageVirtualizer.scrollToIndex(messageRowCount - 1, { align: "end" });
-  }, [messageVirtualizer, messageRowCount]);
+  const {
+    getVirtualMessage,
+    isThinkingVirtualItem,
+    measureElement,
+    messageRowCount,
+    totalHeight,
+    viewportRef,
+    virtualItems,
+  } = useChatMessageListWorkflow({ isSending, messages });
 
   return (
     <ScrollArea
@@ -76,19 +56,18 @@ export function ChatMessageList({
       ) : (
         <div className="relative mt-auto min-w-0" style={{ height: totalHeight }}>
           {virtualItems.map((virtualItem) =>
-            shouldShowThinkingProgress &&
-            virtualItem.index === messages.length ? (
+            isThinkingVirtualItem(virtualItem) ? (
               <VirtualThinkingRow
                 key={virtualItem.key}
                 virtualItem={virtualItem}
-                measureElement={messageVirtualizer.measureElement}
+                measureElement={measureElement}
               />
             ) : (
               <VirtualMessageRow
                 key={virtualItem.key}
                 virtualItem={virtualItem}
-                message={messages[virtualItem.index]}
-                measureElement={messageVirtualizer.measureElement}
+                message={getVirtualMessage(virtualItem)}
+                measureElement={measureElement}
                 onCitationClick={onCitationClick}
                 pendingCitationId={pendingCitationId}
                 sourceTitlesByDocumentId={sourceTitlesByDocumentId}

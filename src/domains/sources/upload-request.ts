@@ -1,18 +1,12 @@
-import {
-  FetchHttpClient,
-  HttpClient,
-  HttpClientRequest,
-} from "@effect/platform";
 import { upload as uploadBlob } from "@vercel/blob/client";
-import { Effect } from "effect";
 
 import {
-  createSourceBlobUploadInput,
   getSourceUploadBlobPathname,
   SOURCE_UPLOAD_BLOB_HANDLE_PATH,
 } from "./blob-upload";
-import { validateUploadFile } from "./validation";
+import { stagedUploadWorkflow } from "./staged-upload-workflow";
 import type { SourceView } from "@/domains/sources/types";
+import { workspaceRouteClient } from "@/domains/workspace/route-client";
 
 type SourceUploadResponseBody = {
   readonly message?: string;
@@ -33,146 +27,67 @@ export async function postSourceUpload(
 async function postBlobBackedSourceUpload(
   file: File,
 ): Promise<SourceUploadResponse> {
-  const validation = validateUploadFile(file);
-  if (!validation.ok) {
-    return {
-      status: 400,
-      body: { message: validation.message },
-    };
-  }
+  return stagedUploadWorkflow.upload(file, {
+    cleanupBlob: cleanupSourceBlobUpload,
+    getPathname: getSourceUploadBlobPathname,
+    postMetadata: postSourceBlobUpload,
+    uploadBlob: uploadSourceBlob,
+  });
+}
 
-  const pathname = getSourceUploadBlobPathname(file);
-  const blob = await uploadBlob(pathname, file, {
+async function uploadSourceBlob(input: {
+  readonly file: File;
+  readonly fileName: string;
+  readonly mimeType: string;
+  readonly pathname: string;
+  readonly sizeBytes: number;
+}): Promise<{ readonly pathname: string; readonly url: string }> {
+  const blob = await uploadBlob(input.pathname, input.file, {
     access: "public",
-    contentType: validation.mimeType,
+    contentType: input.mimeType,
     handleUploadUrl: SOURCE_UPLOAD_BLOB_HANDLE_PATH,
     multipart: true,
     clientPayload: JSON.stringify({
-      fileName: validation.title,
-      mimeType: validation.mimeType,
-      sizeBytes: file.size,
+      fileName: input.fileName,
+      mimeType: input.mimeType,
+      sizeBytes: input.sizeBytes,
     }),
   });
-  const input = createSourceBlobUploadInput(file, blob.pathname, blob.url);
-  if ("message" in input) {
-    await cleanupSourceBlobUpload(blob.pathname);
-    return {
-      status: 400,
-      body: { message: input.message },
-    };
-  }
 
-  try {
-    const response = await Effect.runPromise(
-      postSourceBlobUploadEffect(input).pipe(
-        Effect.provide(FetchHttpClient.layer),
-      ),
-    );
-    if (!isSuccessfulStatus(response.status)) {
-      await cleanupSourceBlobUpload(blob.pathname);
-    }
-    return response;
-  } catch (error) {
-    await cleanupSourceBlobUpload(blob.pathname);
-    throw error;
-  }
+  return {
+    pathname: blob.pathname,
+    url: blob.url,
+  };
 }
 
-const postSourceBlobUploadEffect = Effect.fn("postSourceBlobUpload")(
-  function* (input: {
-    readonly pathname: string;
-    readonly url: string;
-    readonly fileName: string;
-    readonly mimeType: string;
-    readonly sizeBytes: number;
-  }) {
-    const request = yield* HttpClientRequest.post(
-      resolveSameOriginUrl("/api/sources"),
-    ).pipe(
-      HttpClientRequest.bodyJson({
-        upload: {
-          type: "blob",
-          pathname: input.pathname,
-          url: input.url,
-          fileName: input.fileName,
-          mimeType: input.mimeType,
-          sizeBytes: input.sizeBytes,
-        },
-      }),
-    );
-    const response = yield* HttpClient.execute(request);
-    const body: unknown = yield* response.json;
-
-    return {
-      status: response.status,
-      body: parseSourceUploadResponseBody(body),
-    };
-  },
-);
-
-function parseSourceUploadResponseBody(
-  body: unknown,
-): SourceUploadResponseBody {
-  if (!isRecord(body)) return {};
-
-  const message: string | undefined =
-    typeof body.message === "string" ? body.message : undefined;
-  const source: SourceView | undefined = isSourceView(body.source)
-    ? body.source
-    : undefined;
-  return { message, source };
+async function postSourceBlobUpload(input: {
+  readonly pathname: string;
+  readonly url: string;
+  readonly fileName: string;
+  readonly mimeType: string;
+  readonly sizeBytes: number;
+}): Promise<SourceUploadResponse> {
+  return workspaceRouteClient.postJsonWithStatus<SourceUploadResponseBody>(
+    "/api/sources",
+    {
+      upload: {
+        type: "blob",
+        pathname: input.pathname,
+        url: input.url,
+        fileName: input.fileName,
+        mimeType: input.mimeType,
+        sizeBytes: input.sizeBytes,
+      },
+    },
+  );
 }
 
 async function cleanupSourceBlobUpload(pathname: string): Promise<void> {
   try {
-    await Effect.runPromise(
-      deleteSourceBlobUploadEffect(pathname).pipe(
-        Effect.provide(FetchHttpClient.layer),
-      ),
-    );
+    await workspaceRouteClient.deleteJson(SOURCE_UPLOAD_BLOB_HANDLE_PATH, {
+      pathname,
+    });
   } catch {
     // Best-effort cleanup only. The user-facing upload error is handled by the caller.
   }
-}
-
-const deleteSourceBlobUploadEffect = Effect.fn("deleteSourceBlobUpload")(
-  function* (pathname: string) {
-    const request = yield* HttpClientRequest.del(
-      resolveSameOriginUrl(SOURCE_UPLOAD_BLOB_HANDLE_PATH),
-    ).pipe(HttpClientRequest.bodyJson({ pathname }));
-    const response = yield* HttpClient.execute(request);
-    yield* response.text;
-  },
-);
-
-function isSuccessfulStatus(status: number): boolean {
-  return status >= 200 && status < 300;
-}
-
-function isSourceView(value: unknown): value is SourceView {
-  if (!isRecord(value)) return false;
-  return (
-    typeof value.id === "string" &&
-    typeof value.title === "string" &&
-    isSourceStatus(value.status)
-  );
-}
-
-function isSourceStatus(value: unknown): value is SourceView["status"] {
-  return (
-    value === "uploading" ||
-    value === "parsing" ||
-    value === "ready" ||
-    value === "failed"
-  );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function resolveSameOriginUrl(path: string): string {
-  const origin: string | undefined = globalThis.location?.origin;
-  if (!origin) return path;
-  return new URL(path, origin).toString();
 }

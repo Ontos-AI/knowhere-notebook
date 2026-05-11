@@ -6,8 +6,8 @@ const mocks = vi.hoisted(() => ({
   getThread: vi.fn(),
 }))
 
-vi.mock("@/domains/chat/route-service", () => ({
-  chatRouteService: {
+vi.mock("@/domains/chat/route-threads", () => ({
+  chatThreadRouteService: {
     archiveThread: mocks.archiveThread,
     getThread: mocks.getThread,
   },
@@ -126,7 +126,6 @@ describe("/api/chat/threads/[threadId]", () => {
     })
     expect(mocks.archiveThread).toHaveBeenCalledWith({
       threadId: "thread_1",
-      body: { archived: true },
     })
   })
 

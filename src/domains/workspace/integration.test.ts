@@ -66,7 +66,7 @@ describeIfDb("workspace helpers — integration", () => {
     readonly createUploadingSource: (
       workspaceId: string,
       input: Parameters<
-        typeof import("../sources/service").sourceService.createUploading
+        typeof import("../sources/workflow-runtime").sourceWorkflowRuntime.createUploading
       >[1],
     ) => Promise<schema.Source>
     readonly listSourcesForWorkspace: (
@@ -91,7 +91,7 @@ describeIfDb("workspace helpers — integration", () => {
       workspaceId: string,
       sourceId: string,
       input: Parameters<
-        typeof import("../sources/service").sourceService.saveParseResult
+        typeof import("../sources/workflow-runtime").sourceWorkflowRuntime.saveParseResult
       >[2],
     ) => Promise<schema.SourceParseResult | null>
     readonly getParseAssetUrls: (
@@ -118,11 +118,13 @@ describeIfDb("workspace helpers — integration", () => {
     const [
       { workspaceService },
       { sourceService },
+      { sourceWorkflowRuntime },
       { chatThreadService },
       { sourceRepository },
     ] = await Promise.all([
         import("./service"),
         import("../sources/service"),
+        import("../sources/workflow-runtime"),
         import("../chat/thread-service"),
         import("../sources/repository"),
       ]);
@@ -134,12 +136,12 @@ describeIfDb("workspace helpers — integration", () => {
       ensureDefaultChatThread: chatThreadService.ensureDefault,
       listMessagesForThread: chatThreadService.listMessages,
       softDeleteChatThread: chatThreadService.softDelete,
-      createUploadingSource: sourceService.createUploading,
-      listSourcesForWorkspace: sourceService.listForWorkspace,
-      markSourceParsing: sourceService.markParsing,
-      markSourceReady: sourceService.markReady,
-      markSourceFailed: sourceService.markFailed,
-      saveSourceParseResult: sourceService.saveParseResult,
+      createUploadingSource: sourceWorkflowRuntime.createUploading,
+      listSourcesForWorkspace: sourceWorkflowRuntime.listForWorkspace,
+      markSourceParsing: sourceWorkflowRuntime.markParsing,
+      markSourceReady: sourceWorkflowRuntime.markReady,
+      markSourceFailed: sourceWorkflowRuntime.markFailed,
+      saveSourceParseResult: sourceWorkflowRuntime.saveParseResult,
       getParseAssetUrls: sourceService.getParseAssetUrls,
       createDemoUploadRepository: sourceRepository.createDemoUploadRepository,
     };

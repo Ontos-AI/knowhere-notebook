@@ -2,21 +2,21 @@
 
 import { useMemo, type ReactNode } from "react";
 import { FileText, ImageIcon, Table2, Tags, TextQuote } from "lucide-react";
-import DOMPurify from "dompurify";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { chunksPanelState } from "@/components/chunks-panel-state";
-import type {
-  ParsedChunkConnection,
-  ParsedChunkView,
-} from "@/domains/chunks/types";
+import { parsedChunkCardModel } from "@/components/parsed-chunk-card-model";
+import type { ParsedChunkView } from "@/domains/chunks/types";
 import { cn } from "@/lib/utils";
 
 const keywordPanelClassName =
   "rounded-lg border border-emerald-200/70 bg-emerald-50/70 p-3 shadow-[0_1px_0_rgba(16,185,129,0.08)] dark:border-emerald-400/20 dark:bg-emerald-950/20";
 const keywordBadgeClassName =
   "rounded-md border border-emerald-200/80 bg-emerald-100/90 px-2 py-0.5 text-[11px] font-semibold text-emerald-800 shadow-[0_1px_0_rgba(16,185,129,0.10)] hover:bg-emerald-100 dark:border-emerald-400/25 dark:bg-emerald-400/10 dark:text-emerald-200";
+type TextChunkReferencePart = Extract<
+  ReturnType<typeof parsedChunkCardModel.getTextContentParts>[number],
+  { readonly type: "reference" }
+>;
 
 export function ParsedChunkCard({
   chunk,
@@ -74,7 +74,7 @@ function ChunkCardFrame({
     <Card
       className={cn(
         "w-full min-w-0 cursor-default overflow-hidden rounded-lg shadow-xs transition-colors",
-        focusCardClasses(isFocused),
+        parsedChunkCardModel.getFocusCardClasses(isFocused),
       )}
     >
       <CardContent className="space-y-3 p-3 sm:p-4">
@@ -90,10 +90,7 @@ function ChunkSourcePanel({
 }: {
   readonly chunk: ParsedChunkView;
 }): ReactNode {
-  const pageLabel: string | null = formatPageNumbers(chunk.pageNums);
-  const sectionLabel: string | null = chunksPanelState.formatChunkSectionPath(
-    chunk.sectionPath,
-  );
+  const sourceMetadata = parsedChunkCardModel.getSourceMetadata(chunk);
 
   return (
     <section
@@ -115,20 +112,20 @@ function ChunkSourcePanel({
               variant="outline"
               className="h-5 rounded-md px-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground"
             >
-              {getChunkTypeLabel(chunk.type)}
+              {sourceMetadata.typeLabel}
             </Badge>
-            {pageLabel ? (
+            {sourceMetadata.pageLabel ? (
               <Badge
                 variant="secondary"
                 className="h-5 rounded-md px-1.5 text-[10px] font-semibold text-muted-foreground"
               >
-                {pageLabel}
+                {sourceMetadata.pageLabel}
               </Badge>
             ) : null}
           </div>
-          {sectionLabel ? (
+          {sourceMetadata.sectionLabel ? (
             <p className="mt-2 break-words text-xs leading-5 text-muted-foreground">
-              {sectionLabel}
+              {sourceMetadata.sectionLabel}
             </p>
           ) : null}
         </div>
@@ -230,12 +227,6 @@ function SectionLabel({
   );
 }
 
-function focusCardClasses(isFocused: boolean): string {
-  return isFocused
-    ? "citation-card-highlight border-primary/70 bg-primary/5 ring-2 ring-primary/30 shadow-md"
-    : "hover:border-primary/30";
-}
-
 function TextChunkCard({
   chunk,
   isFocused,
@@ -301,54 +292,40 @@ function renderTextChunkContent(
   chunk: ParsedChunkView,
   onReferenceClick: (chunkId: string) => void,
 ): ReactNode {
-  const references = chunksPanelState.getRenderableReferences(chunk);
-  if (references.length === 0) return chunk.content;
+  const parts = parsedChunkCardModel.getTextContentParts(chunk);
+  if (parts.length === 1 && parts[0]?.type === "text") return parts[0].text;
 
-  const nodes: ReactNode[] = [];
-  let cursor = 0;
+  return parts.map((part) => {
+    if (part.type === "text") return part.text;
 
-  references.forEach((reference, index) => {
-    if (reference.start > cursor) {
-      nodes.push(chunk.content.slice(cursor, reference.start));
-    }
-    nodes.push(
+    return (
       <ChunkReferenceButton
-        key={`${reference.connection.ref ?? "ref"}-${index}`}
-        connection={reference.connection}
+        key={part.key}
+        reference={part}
         onReferenceClick={onReferenceClick}
-      />,
+      />
     );
-    cursor = reference.end;
   });
-
-  if (cursor < chunk.content.length) {
-    nodes.push(chunk.content.slice(cursor));
-  }
-
-  return nodes;
 }
 
 function ChunkReferenceButton({
-  connection,
+  reference,
   onReferenceClick,
 }: {
-  readonly connection: ParsedChunkConnection;
+  readonly reference: TextChunkReferencePart;
   readonly onReferenceClick: (chunkId: string) => void;
 }): ReactNode {
-  const isResolved = typeof connection.targetChunkId === "string";
-  const label = chunksPanelState.getReferenceLabel(connection);
-
   return (
     <button
       type="button"
-      disabled={!isResolved}
-      aria-disabled={!isResolved}
+      disabled={!reference.isResolved}
+      aria-disabled={!reference.isResolved}
       className="mx-0.5 inline-flex max-w-full items-center rounded border border-primary/25 bg-primary/10 px-1.5 py-0.5 text-[12px] font-medium leading-5 text-primary hover:bg-primary/15 disabled:cursor-not-allowed disabled:border-border disabled:bg-muted disabled:text-muted-foreground"
       onClick={() => {
-        if (connection.targetChunkId) onReferenceClick(connection.targetChunkId);
+        if (reference.targetChunkId) onReferenceClick(reference.targetChunkId);
       }}
     >
-      {label}
+      {reference.label}
     </button>
   );
 }
@@ -360,28 +337,9 @@ function TableChunkCard({
   readonly chunk: ParsedChunkView;
   readonly isFocused: boolean;
 }): ReactNode {
-  const hasHtml = chunk.content.trim().startsWith("<");
-
   const safeHtml = useMemo(
-    () =>
-      hasHtml
-        ? DOMPurify.sanitize(chunk.content, {
-            ALLOWED_TAGS: [
-              "table",
-              "thead",
-              "tbody",
-              "tfoot",
-              "tr",
-              "th",
-              "td",
-              "caption",
-              "colgroup",
-              "col",
-            ],
-            ALLOWED_ATTR: ["colspan", "rowspan", "scope", "align"],
-          })
-        : null,
-    [chunk.content, hasHtml],
+    () => parsedChunkCardModel.getSanitizedTableHtml(chunk.content),
+    [chunk.content],
   );
 
   return (
@@ -427,25 +385,4 @@ function getChunkIconClasses(type: ParsedChunkView["type"]): string {
     return "border-primary/15 bg-primary/10 text-primary";
   }
   return "border-border bg-muted/60 text-muted-foreground";
-}
-
-function getChunkTypeLabel(type: ParsedChunkView["type"]): string {
-  if (type === "image") return "Image";
-  if (type === "table") return "Table";
-  return "Text";
-}
-
-function formatPageNumbers(
-  pageNums: ParsedChunkView["pageNums"],
-): string | null {
-  if (!pageNums || pageNums.length === 0) return null;
-
-  const uniquePageNums = Array.from(new Set(pageNums)).sort(
-    (leftPageNum, rightPageNum) => leftPageNum - rightPageNum,
-  );
-  if (uniquePageNums.length === 1) return `Page ${uniquePageNums[0]}`;
-
-  const visiblePageNums = uniquePageNums.slice(0, 3).join(", ");
-  const suffix = uniquePageNums.length > 3 ? "..." : "";
-  return `Pages ${visiblePageNums}${suffix}`;
 }

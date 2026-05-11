@@ -5,8 +5,8 @@ const mocks = vi.hoisted(() => ({
   listThreads: vi.fn(),
 }))
 
-vi.mock("@/domains/chat/route-service", () => ({
-  chatRouteService: {
+vi.mock("@/domains/chat/route-threads", () => ({
+  chatThreadRouteService: {
     createThread: mocks.createThread,
     listThreads: mocks.listThreads,
   },

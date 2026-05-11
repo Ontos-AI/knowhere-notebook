@@ -4,8 +4,8 @@ const mocks = vi.hoisted(() => ({
   answerChat: vi.fn(),
 }));
 
-vi.mock("@/domains/chat/route-service", () => ({
-  chatRouteService: {
+vi.mock("@/domains/chat/route-answer", () => ({
+  chatAnswerRouteService: {
     answerChat: mocks.answerChat,
   },
 }));

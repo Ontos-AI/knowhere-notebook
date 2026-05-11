@@ -3,10 +3,12 @@
 import { useMemo } from "react"
 import useSWRInfinite from "swr/infinite"
 
+import { workspaceClient } from "@/domains/workspace/client"
 import {
-  workspaceShellClient,
+  workspaceClientCache,
+  type SourceChunksKey,
   type SourceChunksResponse,
-} from "@/components/workspace-shell-client"
+} from "@/domains/workspace/client-cache"
 import { resolveChunkConnectionTargets } from "@/domains/chunks"
 import type { ParsedChunkView } from "@/domains/chunks/types"
 import type { SourceView } from "@/domains/sources/types"
@@ -46,12 +48,12 @@ export function useWorkspaceSelectedChunks({
     setSize: setSelectedChunkPageCount,
   } = useSWRInfinite<SourceChunksResponse, Error>(
     (pageIndex: number, previousPageData: SourceChunksResponse | null) =>
-      workspaceShellClient.getSourceChunksKey(
+      workspaceClientCache.getSourceChunksKey(
         selectedChunkSourceId,
         pageIndex,
         previousPageData,
       ),
-    workspaceShellClient.fetchChunksByKey,
+    fetchChunksByKey,
     {
       revalidateIfStale: false,
       keepPreviousData: false,
@@ -69,7 +71,7 @@ export function useWorkspaceSelectedChunks({
     : []
   const hasMoreSelectedChunks =
     !prefetchedSelectedChunks &&
-    workspaceShellClient.hasMoreChunkPages(selectedChunkPages)
+    workspaceClientCache.hasMoreChunkPages(selectedChunkPages)
   const isSelectedChunksLoadingMore =
     !prefetchedSelectedChunks &&
     Boolean(
@@ -96,4 +98,12 @@ export function useWorkspaceSelectedChunks({
     selectedChunks,
     selectedSource,
   }
+}
+
+function fetchChunksByKey([
+  ,
+  sourceId,
+  page,
+]: SourceChunksKey): Promise<SourceChunksResponse> {
+  return workspaceClient.fetchChunkPage(sourceId, page)
 }

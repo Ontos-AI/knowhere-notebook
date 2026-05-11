@@ -55,9 +55,10 @@ vi.mock("@/domains/chat/thread-service", () => ({
   },
 }))
 
-import { chatRouteService } from "./route-service"
+import { chatAnswerRouteService } from "./route-answer"
+import { chatThreadRouteService } from "./route-threads"
 
-describe("chatRouteService", () => {
+describe("chat route services", () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
@@ -83,7 +84,7 @@ describe("chatRouteService", () => {
       }),
     )
 
-    const result = await chatRouteService.answerChat({
+    const result = await chatAnswerRouteService.answerChat({
       body: {
         message: " Summarize it ",
         threadId: "thread_1",
@@ -132,7 +133,7 @@ describe("chatRouteService", () => {
       makeThread({ id: "thread_1", title: null }),
     ])
 
-    const result = await chatRouteService.listThreads()
+    const result = await chatThreadRouteService.listThreads()
 
     expect(result).toEqual({
       status: 200,
@@ -164,7 +165,7 @@ describe("chatRouteService", () => {
       makeThread({ id: "thread_new", title: null }),
     )
 
-    const result = await chatRouteService.createThread()
+    const result = await chatThreadRouteService.createThread()
 
     expect(result).toEqual({
       status: 200,
@@ -191,7 +192,7 @@ describe("chatRouteService", () => {
       makeMessage({ id: "message_2", role: "assistant", content: "Answer" }),
     ])
 
-    const result = await chatRouteService.getThread({
+    const result = await chatThreadRouteService.getThread({
       threadId: "thread_1",
     })
 
@@ -226,9 +227,8 @@ describe("chatRouteService", () => {
     mocks.getAuthenticated.mockResolvedValue({ workspace: makeWorkspace() })
     mocks.softDeleteChatThread.mockResolvedValue(true)
 
-    const result = await chatRouteService.archiveThread({
+    const result = await chatThreadRouteService.archiveThread({
       threadId: "thread_1",
-      body: { archived: true },
     })
 
     expect(result).toEqual({

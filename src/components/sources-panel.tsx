@@ -18,6 +18,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Spinner } from "@/components/ui/spinner";
+import { sourcePanelState } from "@/components/source-panel-state";
 import { SourceRow } from "@/components/source-row";
 import { SourceUploadDialog } from "@/components/source-upload-dialog";
 import type { SourceView } from "@/domains/sources/types";
@@ -45,10 +46,15 @@ export function SourcesPanel({
   onLoginClick,
 }: Partial<SourcesPanelProps> = {}): ReactElement {
   const [confirmSourceId, setConfirmSourceId] = useState<string | null>(null);
-  const confirmSource = sources.find((s) => s.id === confirmSourceId) ?? null;
-  const archivingSourceIdSet: ReadonlySet<string> = new Set(archivingSourceIds);
-  const isConfirmSourceArchiving =
-    confirmSourceId !== null && archivingSourceIdSet.has(confirmSourceId);
+  const {
+    archivingSourceIdSet,
+    confirmSource,
+    isConfirmSourceArchiving,
+  } = sourcePanelState.getArchiveConfirmationState({
+    archivingSourceIds,
+    confirmSourceId,
+    sources,
+  });
 
   return (
     <aside className="z-10 flex h-full w-full shrink-0 flex-col border-r border-border/70 bg-background">
@@ -74,7 +80,12 @@ export function SourcesPanel({
               onClick={() => {
                 if (confirmSourceId) {
                   onArchiveSource?.(confirmSourceId);
-                  if (!archivingSourceIdSet.has(confirmSourceId)) {
+                  if (
+                    sourcePanelState.shouldCloseArchiveConfirmation(
+                      confirmSourceId,
+                      archivingSourceIdSet,
+                    )
+                  ) {
                     setConfirmSourceId(null);
                   }
                 }
@@ -124,7 +135,10 @@ export function SourcesPanel({
                   isSelected={source.id === selectedSourceId}
                   onSelect={() =>
                     onSelectSource?.(
-                      source.id === selectedSourceId ? null : source.id
+                      sourcePanelState.getNextSelectedSourceId({
+                        sourceId: source.id,
+                        selectedSourceId,
+                      }),
                     )
                   }
                   onToggleIncluded={onToggleIncluded}
