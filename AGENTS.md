@@ -36,4 +36,4 @@ details when the documentation isn't enough.
 
 ## UI & Design
 
-The notebook should reuse the existing design units from the dashboard(~/github.com/ontosAI/knowhere-dashboard), like theme, styles, buttons, form elements, etc. For any new design units, please refer to the dashboard's design system and maintain consistency in terms of spacing, typography, and color usage.
+The notebook should reuse the existing design units from the dashboard(github.com/ontosAI/knowhere-dashboard), like theme, styles, buttons, form elements, etc. For any new design units, please refer to the dashboard's design system and maintain consistency in terms of spacing, typography, and color usage.
