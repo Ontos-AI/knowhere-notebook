@@ -42,25 +42,17 @@ When using Effect's `HttpClientRequest.bodyText`, pass
 response instead of the RPC envelope, and Notebook will log a 200
 `schema mismatch` followed by `no valid session`.
 
-Use `setEmptyJsonBody` from `src/lib/dashboard-orpc-request.ts` for empty
+Use `setEmptyJsonBody` from `src/integrations/dashboard/orpc-request.ts` for empty
 Dashboard oRPC POST bodies.
 
 ## Project Structure
 
 ```
 src/
-├── app/              # Next.js App Router pages
-│   ├── layout.tsx    # Root layout
-│   ├── page.tsx      # Main three-panel view
-│   └── globals.css   # Theme and global styles
-├── components/       # React components
-│   ├── app-header.tsx
-│   ├── sources-panel.tsx
-│   ├── chunks-panel.tsx
-│   ├── chat-panel.tsx
-│   └── ui/           # shadcn/ui primitives
-└── lib/              # Shared utilities
-    ├── ai.ts         # AI provider config
-    ├── knowhere.ts   # Knowhere SDK client
-    └── utils.ts      # Tailwind merge helper
+├── app/              # Next.js App Router pages and route handlers
+├── components/       # React components and shadcn/ui primitives
+├── domains/          # Product domains: chat, chunks, sources, workspace
+├── infrastructure/   # Owned platform concerns: auth and database access
+├── integrations/     # External systems: Dashboard and Knowhere
+└── lib/              # Small cross-cutting utilities
 ```

@@ -35,7 +35,58 @@ describeIfDb("workspace helpers — integration", () => {
 
   let testDb: ReturnType<typeof drizzle<typeof schema>>;
   let testClient: ReturnType<typeof postgres>;
-  let workspaceHelpers: typeof import("./index");
+  let workspaceHelpers: {
+    readonly ensureWorkspace: (userId: string) => Promise<schema.Workspace>
+    readonly findSourceInWorkspace: (
+      workspaceId: string,
+      sourceId: string,
+    ) => Promise<schema.Source | null>
+    readonly softDeleteSource: (
+      workspaceId: string,
+      sourceId: string,
+    ) => Promise<boolean>
+    readonly appendMessageToThread: (
+      workspaceId: string,
+      input: Parameters<
+        typeof import("../chat/thread-service").chatThreadService.appendMessage
+      >[1],
+    ) => Promise<schema.ChatMessage | null>
+    readonly ensureDefaultChatThread: (
+      workspaceId: string,
+    ) => Promise<schema.ChatThread>
+    readonly listMessagesForThread: (
+      workspaceId: string,
+      threadId: string,
+    ) => Promise<schema.ChatMessage[] | null>
+    readonly softDeleteChatThread: (
+      workspaceId: string,
+      threadId: string,
+    ) => Promise<boolean>
+    readonly createUploadingSource: (
+      workspaceId: string,
+      input: Parameters<
+        typeof import("../sources/service").sourceService.createUploading
+      >[1],
+    ) => Promise<schema.Source>
+    readonly listSourcesForWorkspace: (
+      workspaceId: string,
+    ) => Promise<schema.Source[]>
+    readonly markSourceParsing: (
+      workspaceId: string,
+      sourceId: string,
+      jobId: string,
+    ) => Promise<schema.Source | null>
+    readonly markSourceReady: (
+      workspaceId: string,
+      sourceId: string,
+      documentId: string,
+    ) => Promise<schema.Source | null>
+    readonly markSourceFailed: (
+      workspaceId: string,
+      sourceId: string,
+      reason: string,
+    ) => Promise<schema.Source | null>
+  };
 
   beforeEach(async () => {
     testClient = postgres(TEST_DATABASE_URL!, { prepare: false });
@@ -45,7 +96,26 @@ describeIfDb("workspace helpers — integration", () => {
     const { vi } = await import("vitest");
     vi.resetModules();
     vi.doMock("./db", () => ({ db: testDb }));
-    workspaceHelpers = await import("./index");
+    const [{ workspaceService }, { sourceService }, { chatThreadService }] =
+      await Promise.all([
+        import("./service"),
+        import("../sources/service"),
+        import("../chat/thread-service"),
+      ]);
+    workspaceHelpers = {
+      ensureWorkspace: workspaceService.ensureWorkspace,
+      findSourceInWorkspace: sourceService.findInWorkspace,
+      softDeleteSource: sourceService.softDelete,
+      appendMessageToThread: chatThreadService.appendMessage,
+      ensureDefaultChatThread: chatThreadService.ensureDefault,
+      listMessagesForThread: chatThreadService.listMessages,
+      softDeleteChatThread: chatThreadService.softDelete,
+      createUploadingSource: sourceService.createUploading,
+      listSourcesForWorkspace: sourceService.listForWorkspace,
+      markSourceParsing: sourceService.markParsing,
+      markSourceReady: sourceService.markReady,
+      markSourceFailed: sourceService.markFailed,
+    };
 
     // Clean slate on the tables these tests touch. Order respects FK.
     await testDb.delete(chatMessages);

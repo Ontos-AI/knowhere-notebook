@@ -3,7 +3,8 @@ import type { DocumentChunk } from "@ontos-ai/knowhere-sdk"
 
 import { parsedChunkNormalization } from "./normalization"
 import type { Source } from "@/infrastructure/db/schema"
-import type { ChatCitationView, ParsedChunkView } from "@/lib/types"
+import type { ChatCitationView } from "@/domains/chat/types"
+import type { ParsedChunkView } from "@/domains/chunks/types"
 
 const documentChunkPageSize = 200
 const defaultChunkPageSize = 100

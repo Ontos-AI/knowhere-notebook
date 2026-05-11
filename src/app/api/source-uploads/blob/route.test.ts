@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
   handleUpload: vi.fn(),
 }));
 
-vi.mock("@/lib/auth", () => ({
+vi.mock("@/infrastructure/auth", () => ({
   getCurrentUser: mocks.getCurrentUser,
 }));
 

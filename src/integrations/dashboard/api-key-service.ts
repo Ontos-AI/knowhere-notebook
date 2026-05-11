@@ -6,9 +6,9 @@ import {
   HttpClient,
   HttpClientRequest,
 } from "@effect/platform"
-import { logger } from "./logger"
-import { setEmptyJsonBody } from "./dashboard-orpc-request"
-import { formatUnknownForLog } from "./format-log-value"
+import { logger } from "@/lib/logger"
+import { setEmptyJsonBody } from "./orpc-request"
+import { formatUnknownForLog } from "@/lib/format-log-value"
 
 /**
  * Shape of the Dashboard JWT issuance response (oRPC envelope).

@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => {
     getCurrentUser: vi.fn(),
     makeKnowhereClient: vi.fn(),
     revalidatePath: vi.fn(),
+    requireUser: vi.fn(),
     uploadSourceBlobToKnowhere: vi.fn(),
     uploadSourceToKnowhere: vi.fn(),
     ensureWorkspace: vi.fn(),
@@ -23,12 +24,13 @@ vi.mock("next/headers", () => ({
   headers: vi.fn(async () => new Headers({ cookie: "session=abc" })),
 }));
 
-vi.mock("@/lib/api-key-service", () => ({
+vi.mock("@/integrations/dashboard/api-key-service", () => ({
   ensureApiKeyForWorkspace: mocks.ensureApiKeyForWorkspace,
 }));
 
-vi.mock("@/lib/auth", () => ({
+vi.mock("@/infrastructure/auth", () => ({
   getCurrentUser: mocks.getCurrentUser,
+  requireUser: mocks.requireUser,
 }));
 
 vi.mock("@/integrations/knowhere", () => ({
@@ -42,15 +44,11 @@ vi.mock("@/domains/sources/service", () => ({
   },
 }));
 
-vi.mock("@/domains/workspace", async () => {
-  const actual = await vi.importActual<typeof import("@/domains/workspace")>(
-    "@/domains/workspace",
-  );
-  return {
-    ...actual,
+vi.mock("@/domains/workspace/service", () => ({
+  workspaceService: {
     ensureWorkspace: mocks.ensureWorkspace,
-  };
-});
+  },
+}));
 
 import { POST } from "./route";
 

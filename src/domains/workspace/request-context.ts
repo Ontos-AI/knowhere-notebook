@@ -2,11 +2,11 @@ import "server-only"
 
 import { headers } from "next/headers"
 
-import { ensureApiKeyForWorkspace } from "@/lib/api-key-service"
-import { authURLs } from "@/lib/auth-urls"
-import { getCurrentUser, requireUser, type AuthUser } from "@/lib/auth"
+import { ensureApiKeyForWorkspace } from "@/integrations/dashboard/api-key-service"
+import { authURLs } from "@/infrastructure/auth/urls"
+import { getCurrentUser, requireUser, type AuthUser } from "@/infrastructure/auth"
 import { makeKnowhereClient } from "@/integrations/knowhere"
-import { ensureWorkspace } from "@/domains/workspace"
+import { workspaceService } from "@/domains/workspace/service"
 import type { Workspace } from "@/infrastructure/db/schema"
 
 type NotebookClient = ReturnType<typeof makeKnowhereClient>
@@ -27,7 +27,7 @@ type GuestNotebookContext = {
 
 async function getAuthenticated(): Promise<AuthenticatedNotebookContext> {
   const user = await requireUser()
-  const workspace = await ensureWorkspace(user.id)
+  const workspace = await workspaceService.ensureWorkspace(user.id)
 
   return { user, workspace }
 }
@@ -36,7 +36,7 @@ async function getOptionalAuthenticated(): Promise<AuthenticatedNotebookContext 
   const user = await getCurrentUser()
   if (!user) return null
 
-  const workspace = await ensureWorkspace(user.id)
+  const workspace = await workspaceService.ensureWorkspace(user.id)
   return { user, workspace }
 }
 

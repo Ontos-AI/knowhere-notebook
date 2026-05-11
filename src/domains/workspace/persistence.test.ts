@@ -84,7 +84,7 @@ function buildDbMock(storage: { row: Row | null }): DbMock {
   }
 }
 
-async function loadWorkspace(dbMock: DbMock) {
+async function loadWorkspaceService(dbMock: DbMock) {
   vi.resetModules()
   const { DbClient } = await vi.importActual<typeof import("@/infrastructure/db")>("@/infrastructure/db")
   const mockDbLayer = Layer.succeed(DbClient, dbMock as unknown as Db)
@@ -95,14 +95,14 @@ async function loadWorkspace(dbMock: DbMock) {
       dbLayer: mockDbLayer,
     }))
   })
-  return await import("./index")
+  return await import("./service")
 }
 
 afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe("ensureWorkspace", () => {
+describe("workspaceService.ensureWorkspace", () => {
   it("returns the existing workspace on a warm call without inserting", async () => {
     const existing: Row = {
       id: "ws_1",
@@ -113,8 +113,8 @@ describe("ensureWorkspace", () => {
     const storage = { row: existing }
     const dbMock = buildDbMock(storage)
 
-    const { ensureWorkspace } = await loadWorkspace(dbMock)
-    const got = await ensureWorkspace("user_1")
+    const { workspaceService } = await loadWorkspaceService(dbMock)
+    const got = await workspaceService.ensureWorkspace("user_1")
 
     expect(got).toEqual(existing)
     expect(dbMock.insert).not.toHaveBeenCalled()
@@ -124,8 +124,8 @@ describe("ensureWorkspace", () => {
     const storage: { row: Row | null } = { row: null }
     const dbMock = buildDbMock(storage)
 
-    const { ensureWorkspace } = await loadWorkspace(dbMock)
-    const got = await ensureWorkspace("user_2")
+    const { workspaceService } = await loadWorkspaceService(dbMock)
+    const got = await workspaceService.ensureWorkspace("user_2")
 
     expect(dbMock.insert).toHaveBeenCalledOnce()
     expect(got.userId).toBe("user_2")
@@ -136,10 +136,10 @@ describe("ensureWorkspace", () => {
     const storage: { row: Row | null } = { row: null }
     const dbMock = buildDbMock(storage)
 
-    const { ensureWorkspace } = await loadWorkspace(dbMock)
+    const { workspaceService } = await loadWorkspaceService(dbMock)
     const [a, b] = await Promise.all([
-      ensureWorkspace("user_3"),
-      ensureWorkspace("user_3"),
+      workspaceService.ensureWorkspace("user_3"),
+      workspaceService.ensureWorkspace("user_3"),
     ])
 
     expect(a.id).toBe(b.id)

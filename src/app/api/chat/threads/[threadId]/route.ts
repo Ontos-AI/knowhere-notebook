@@ -1,13 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server"
-import { Schema } from "effect"
 
-import { toChatMessageView, toChatThreadView } from "@/domains/chat/view"
-import { notebookRequestContext } from "@/domains/workspace/request-context"
-import {
-  findChatThreadInWorkspace,
-  listMessagesForThread,
-  softDeleteChatThread,
-} from "@/domains/workspace"
+import { chatRouteService } from "@/domains/chat/route-service"
 
 type RouteContext = {
   params: Promise<{
@@ -15,70 +8,53 @@ type RouteContext = {
   }>
 }
 
-const ArchiveRequest = Schema.Struct({
-  archived: Schema.Literal(true),
-})
+type RouteServiceResponse = {
+  readonly status: number
+  readonly body: unknown
+}
+
+type ReadJsonResult =
+  | { readonly ok: true; readonly value: unknown }
+  | { readonly ok: false }
 
 export async function GET(
   _request: NextRequest,
   context: RouteContext,
 ): Promise<NextResponse> {
-  const { workspace } = await notebookRequestContext.getAuthenticated()
   const { threadId } = await context.params
-  const thread = await findChatThreadInWorkspace(workspace.id, threadId)
 
-  if (!thread) {
-    return NextResponse.json(
-      { message: "Chat thread not found." },
-      { status: 404 },
-    )
-  }
-
-  const messages = await listMessagesForThread(workspace.id, threadId)
-  if (!messages) {
-    return NextResponse.json(
-      { message: "Chat thread not found." },
-      { status: 404 },
-    )
-  }
-
-  return NextResponse.json({
-    thread: toChatThreadView(thread),
-    messages: messages.map((message) => toChatMessageView(message)),
-  })
+  return toNextResponse(await chatRouteService.getThread({
+    threadId,
+  }))
 }
 
 export async function PATCH(
   request: NextRequest,
   context: RouteContext,
 ): Promise<NextResponse> {
-  const { workspace } = await notebookRequestContext.getAuthenticated()
   const { threadId } = await context.params
-
-  let body: unknown
-  try {
-    body = await request.json()
-  } catch {
+  const body = await readJson(request)
+  if (!body.ok) {
     return NextResponse.json(
       { message: "Invalid request body." },
       { status: 400 },
     )
   }
 
-  if (Schema.decodeUnknownEither(ArchiveRequest)(body)._tag === "Left") {
-    return NextResponse.json(
-      { message: "Request body must include `archived: true`." },
-      { status: 400 },
-    )
-  }
+  return toNextResponse(await chatRouteService.archiveThread({
+    threadId,
+    body: body.value,
+  }))
+}
 
-  const archived = await softDeleteChatThread(workspace.id, threadId)
-  if (!archived) {
-    return NextResponse.json(
-      { message: "Chat thread not found." },
-      { status: 404 },
-    )
+async function readJson(request: Request): Promise<ReadJsonResult> {
+  try {
+    return { ok: true, value: await request.json() }
+  } catch {
+    return { ok: false }
   }
+}
 
-  return NextResponse.json({ id: threadId, archived: true })
+function toNextResponse(result: RouteServiceResponse): NextResponse {
+  return NextResponse.json(result.body, { status: result.status })
 }

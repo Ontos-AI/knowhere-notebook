@@ -31,7 +31,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
-import type { SourceView } from "@/lib/types";
+import type { SourceView } from "@/domains/sources/types";
 import { postSourceUpload } from "@/domains/sources/upload-request";
 
 export type SourcesPanelProps = {

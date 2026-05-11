@@ -4,7 +4,7 @@ import { Effect, Either, Schema } from "effect"
 
 import { CHAT_MODEL } from "@/lib/ai"
 import type { Source } from "@/infrastructure/db/schema"
-import type { ChatCitationView } from "@/lib/types"
+import type { ChatCitationView } from "@/domains/chat/types"
 
 const DEFAULT_TOP_K = 8
 const NO_RESULTS_ANSWER = "I couldn't find that in your sources."

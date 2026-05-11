@@ -11,7 +11,7 @@ import {
   resolveCitationChunk,
   toParsedChunkView,
 } from "."
-import type { ChatCitationView } from "@/lib/types"
+import type { ChatCitationView } from "@/domains/chat/types"
 
 describe("toParsedChunkView", () => {
   it("maps Knowhere document chunks to the parsed-content view shape", () => {

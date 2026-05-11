@@ -9,7 +9,7 @@ import {
 } from "."
 import { toChatMessageView } from "./view"
 import type { ChatMessage, ChatThread, Source, Workspace } from "@/infrastructure/db/schema"
-import type { ChatCitationView, ChatMessageView } from "@/lib/types"
+import type { ChatCitationView, ChatMessageView } from "@/domains/chat/types"
 
 export type ChatRepository = {
   ensureDefaultChatThread(workspaceId: string): Promise<ChatThread>

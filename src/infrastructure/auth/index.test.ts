@@ -17,7 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
  * Playwright flow added in a later PR.
  */
 
-import { extractUser, sessionCookieNames } from "./auth"
+import { extractUser, sessionCookieNames } from "."
 
 const SESSION_PATH = "/api/orpc/users/getCurrentUser"
 
@@ -162,7 +162,7 @@ describe("getCurrentUser", () => {
       headers: async () => new Headers({ cookie: cookieHeader }),
       cookies: async () => ({ get: () => undefined }),
     }))
-    return await import("./auth")
+    return await import(".")
   }
 
   it("returns null when no Cookie header is present (no roundtrip)", async () => {

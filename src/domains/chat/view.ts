@@ -4,7 +4,7 @@ import type {
   ChatCitationView,
   ChatMessageView,
   ChatThreadView,
-} from "@/lib/types"
+} from "@/domains/chat/types"
 
 export function toChatThreadView(thread: ChatThread): ChatThreadView {
   return {

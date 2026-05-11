@@ -1,63 +1,18 @@
 import { NextResponse } from "next/server";
-import { Either } from "effect";
 
-import {
-  generateContextualRetrievalQuery,
-  generateGroundedAnswer,
-  parseChatRequestBody,
-} from "@/domains/chat";
-import { handleChatTurn } from "@/domains/chat/service";
-import { notebookRequestContext } from "@/domains/workspace/request-context";
-import { reconcileSourcesForWorkspace } from "@/domains/sources/reconcile";
-import {
-  appendMessageToThread,
-  ensureDefaultChatThread,
-  findChatThreadInWorkspace,
-  listMessagesForThread,
-} from "@/domains/workspace";
+import { chatRouteService } from "@/domains/chat/route-service";
 
-type ChatRepositoryMessages = Awaited<ReturnType<typeof listMessagesForThread>>
-type ChatRepositoryMessage = NonNullable<ChatRepositoryMessages>[number]
+type RouteServiceResponse = {
+  readonly status: number
+  readonly body: unknown
+}
 
 export async function POST(request: Request): Promise<NextResponse> {
-  const body = parseChatRequestBody(await readJson(request))
-  if (!body.ok) {
-    return NextResponse.json({ message: body.message }, { status: body.status })
-  }
+  const result = await chatRouteService.answerChat({
+    body: await readJson(request),
+  })
 
-  const { workspace, client } =
-    await notebookRequestContext.getAuthenticatedWithClient()
-  const sources = await reconcileSourcesForWorkspace(workspace, client)
-
-  try {
-    const result = await handleChatTurn({
-      workspace,
-      sources,
-      question: body.value.question,
-      threadId: body.value.threadId,
-      excludedSourceIds: body.value.excludedSourceIds,
-      retrieval: client.retrieval,
-      generateRetrievalQuery: generateContextualRetrievalQuery,
-      generateAnswer: generateGroundedAnswer,
-      repository: {
-        ensureDefaultChatThread,
-        findChatThreadInWorkspace,
-        listMessagesForThread: listMutableMessagesForThread,
-        appendMessageToThread,
-      },
-    })
-
-    return Either.match(result, {
-      onLeft: (error) =>
-        NextResponse.json({ message: error.message }, { status: error.status }),
-      onRight: (value) => NextResponse.json(value),
-    })
-  } catch {
-    return NextResponse.json(
-      { message: "Your session may have expired. Please refresh the page." },
-      { status: 401 },
-    )
-  }
+  return toNextResponse(result)
 }
 
 async function readJson(request: Request): Promise<unknown> {
@@ -68,12 +23,6 @@ async function readJson(request: Request): Promise<unknown> {
   }
 }
 
-async function listMutableMessagesForThread(
-  workspaceId: string,
-  threadId: string,
-): Promise<ChatRepositoryMessage[] | null> {
-  const messages = await listMessagesForThread(workspaceId, threadId)
-  if (!messages) return null
-
-  return [...messages]
+function toNextResponse(result: RouteServiceResponse): NextResponse {
+  return NextResponse.json(result.body, { status: result.status })
 }

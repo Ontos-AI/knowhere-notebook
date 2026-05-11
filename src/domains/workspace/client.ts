@@ -8,9 +8,9 @@ import { Effect } from "effect"
 import type {
   ChatMessageView,
   ChatThreadView,
-  ParsedChunkView,
-  SourceView,
-} from "@/lib/types"
+} from "@/domains/chat/types"
+import type { ParsedChunkView } from "@/domains/chunks/types"
+import type { SourceView } from "@/domains/sources/types"
 
 const workspaceClientKeys = {
   sources: "/api/sources",

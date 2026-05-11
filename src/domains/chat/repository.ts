@@ -12,7 +12,7 @@ import {
   type ChatMessage,
   type ChatThread,
 } from "@/infrastructure/db/schema"
-import type { ChatCitationView, CitationView, RetrievalResultView } from "@/lib/types"
+import type { ChatCitationView, CitationView, RetrievalResultView } from "@/domains/chat/types"
 
 type AppendChatMessageInput = {
   threadId: string

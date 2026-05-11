@@ -1,7 +1,7 @@
 import { Schema } from "effect";
 
 import type { Source } from "@/infrastructure/db/schema";
-import type { SourceView } from "@/lib/types";
+import type { SourceView } from "@/domains/sources/types";
 
 const SourceStatus = Schema.Literal(
   "uploading",
@@ -23,23 +23,17 @@ export function toSourceView(
       }
     : undefined
 
-  const view: SourceView = {
+  return {
     id: source.id,
     title: source.title,
     mimeType: source.mimeType,
     status: toSourceStatus(source.status),
     documentId: source.knowhereDocumentId ?? undefined,
+    ...(originalFile ? { originalFile } : {}),
+    ...(options.chunkCount !== undefined
+      ? { chunkCount: options.chunkCount }
+      : {}),
   };
-
-  if (originalFile) {
-    view.originalFile = originalFile;
-  }
-
-  if (options.chunkCount !== undefined) {
-    view.chunkCount = options.chunkCount;
-  }
-
-  return view;
 }
 
 function toSourceStatus(status: string): SourceView["status"] {

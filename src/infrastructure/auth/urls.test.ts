@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { authURLs } from "./auth-urls";
+import { authURLs } from "./urls";
 
 describe("buildDashboardLoginURL", () => {
   it("adds the Notebook callbackURL to the Dashboard login URL", () => {

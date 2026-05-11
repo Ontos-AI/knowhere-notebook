@@ -4,10 +4,8 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 import { parsedChunkNormalization } from "../chunks/normalization";
-import type {
-  ParsedChunkView,
-  SourceView,
-} from "@/lib/types";
+import type { ParsedChunkView } from "@/domains/chunks/types";
+import type { SourceView } from "@/domains/sources/types";
 
 type DemoSourceDefinition = {
   readonly id: string;

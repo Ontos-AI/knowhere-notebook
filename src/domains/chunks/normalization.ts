@@ -1,9 +1,9 @@
+import type { ChatCitationView } from "@/domains/chat/types"
 import type {
-  ChatCitationView,
   ChunkType,
   ParsedChunkConnection,
   ParsedChunkView,
-} from "@/lib/types"
+} from "@/domains/chunks/types"
 
 type ParsedChunkNormalizationInput = {
   readonly chunkId: string

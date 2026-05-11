@@ -23,8 +23,8 @@ import { SourceOriginalPreview } from "@/components/source-original-preview";
 import type {
   ParsedChunkConnection,
   ParsedChunkView,
-  SourceOriginalFileView,
-} from "@/lib/types";
+} from "@/domains/chunks/types";
+import type { SourceOriginalFileView } from "@/domains/sources/types";
 import { cn } from "@/lib/utils";
 
 export type ChunksPanelProps = {

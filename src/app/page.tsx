@@ -6,12 +6,9 @@ import { demoData } from "@/domains/sources/demo-data"
 import { notebookRequestContext } from "@/domains/workspace/request-context"
 import { sourceViewOptionsBySourceId } from "@/domains/sources/counts"
 import { toSourceView } from "@/domains/sources/view"
-import {
-  ensureDemoWorkspaceContent,
-  listChatThreadsForWorkspace,
-  listMessagesForThread,
-  listSourcesForWorkspace,
-} from "@/domains/workspace"
+import { chatThreadService } from "@/domains/chat/thread-service"
+import { sourceService } from "@/domains/sources/service"
+import { workspaceService } from "@/domains/workspace/service"
 import { WorkspaceShell } from "@/components/workspace-shell"
 
 export const dynamic = "force-dynamic"
@@ -45,12 +42,12 @@ export default async function Home() {
   const { client } = await notebookRequestContext.getClientForWorkspace(
     workspace,
   )
-  await ensureDemoWorkspaceContent(workspace, client)
-  const sources = await listSourcesForWorkspace(workspace.id)
-  const chatThreads = await listChatThreadsForWorkspace(workspace.id)
+  await workspaceService.ensureDemoWorkspaceContent(workspace, client)
+  const sources = await sourceService.listForWorkspace(workspace.id)
+  const chatThreads = await chatThreadService.listForWorkspace(workspace.id)
   const activeChatThread = chatThreads[0] ?? null
   const chatMessages = activeChatThread
-    ? await listMessagesForThread(workspace.id, activeChatThread.id)
+    ? await chatThreadService.listMessages(workspace.id, activeChatThread.id)
     : []
   const sourceOptions = await Effect.runPromise(
     sourceViewOptionsBySourceId(sources, client),

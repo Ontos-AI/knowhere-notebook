@@ -2,7 +2,7 @@ import Link from "next/link";
 import { NotebookLogoMark } from "@/components/notebook-logo-mark";
 import { headers } from "next/headers";
 import { Card, CardContent } from "@/components/ui/card";
-import { authURLs } from "@/lib/auth-urls";
+import { authURLs } from "@/infrastructure/auth/urls";
 
 /**
  * Login gate preview for the MVP shell. The real auth redirect is handled by

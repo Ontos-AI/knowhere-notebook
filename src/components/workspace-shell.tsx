@@ -11,6 +11,7 @@ import { SourcesPanel } from "@/components/sources-panel"
 import { ChunksPanel } from "@/components/chunks-panel"
 import { ChatPanel } from "@/components/chat-panel"
 import { MobileTabBar } from "@/components/mobile-tab-bar"
+import { workspaceShellState } from "@/components/workspace-shell-state"
 import { deriveChatThreadTitle } from "@/domains/chat/title"
 import { workspaceClient } from "@/domains/workspace/client"
 import {
@@ -23,24 +24,16 @@ import type {
   ChatCitationView,
   ChatMessageView,
   ChatThreadView,
-  ParsedChunkView,
-  SourceView,
-} from "@/lib/types"
+} from "@/domains/chat/types"
+import type { ParsedChunkView } from "@/domains/chunks/types"
+import type { SourceView } from "@/domains/sources/types"
 
 export type PanelId = "sources" | "content" | "chat"
 
-export const DESKTOP_PANEL_GUTTER_WIDTH = 8
-export const DESKTOP_PANEL_MIN_WIDTHS = {
-  sources: 260,
-  chunks: 480,
-  chat: 360,
-} as const
-
-const DESKTOP_PANEL_DEFAULT_WIDTHS = {
-  sources: 350,
-  chunks: 720,
-  chat: 420,
-} as const
+export const DESKTOP_PANEL_GUTTER_WIDTH =
+  workspaceShellState.desktopPanelGutterWidth
+export const DESKTOP_PANEL_MIN_WIDTHS =
+  workspaceShellState.minimumDesktopPanelWidths
 
 const sourcesSWRKey = workspaceClient.keys.sources
 const chatThreadsSWRKey = workspaceClient.keys.chatThreads
@@ -279,7 +272,9 @@ function WorkspaceShellContent({
     archiveChatThreadMutation,
   )
   const [desktopPanelWidths, setDesktopPanelWidths] =
-    useState<DesktopPanelWidths>({ ...DESKTOP_PANEL_DEFAULT_WIDTHS })
+    useState<DesktopPanelWidths>({
+      ...workspaceShellState.defaultDesktopPanelWidths,
+    })
   const desktopPanelElements = useRef<Record<DesktopPanelKey, HTMLDivElement | null>>({
     sources: null,
     chunks: null,
@@ -288,10 +283,7 @@ function WorkspaceShellContent({
   const desktopPanelResizeDrag = useRef<DesktopPanelResizeDrag | null>(null)
 
   const minimumDesktopPanelWidth =
-    DESKTOP_PANEL_MIN_WIDTHS.sources +
-    DESKTOP_PANEL_MIN_WIDTHS.chunks +
-    DESKTOP_PANEL_MIN_WIDTHS.chat +
-    DESKTOP_PANEL_GUTTER_WIDTH * 2
+    workspaceShellState.getMinimumDesktopPanelWidth()
 
   function redirectToLogin() {
     window.location.href = loginUrl ?? "/login"
@@ -344,20 +336,13 @@ function WorkspaceShellContent({
         drag?.leftPanel === leftPanel && drag.rightPanel === rightPanel
           ? drag.rightWidth
           : getRenderedDesktopPanelWidth(rightPanel, current[rightPanel])
-      const totalWidth = leftCurrentWidth + rightCurrentWidth
-      const leftMinimumWidth = DESKTOP_PANEL_MIN_WIDTHS[leftPanel]
-      const rightMinimumWidth = DESKTOP_PANEL_MIN_WIDTHS[rightPanel]
-      const leftWidth = clamp(
-        leftCurrentWidth + deltaX,
-        leftMinimumWidth,
-        totalWidth - rightMinimumWidth,
-      )
-
-      return {
-        ...current,
-        [leftPanel]: leftWidth,
-        [rightPanel]: totalWidth - leftWidth,
-      }
+      return workspaceShellState.resizeDesktopPanelWidths(current, {
+        leftPanel,
+        rightPanel,
+        deltaX,
+        leftWidth: leftCurrentWidth,
+        rightWidth: rightCurrentWidth,
+      })
     })
   }
 
@@ -1165,8 +1150,4 @@ function DesktopResizeHandle({
       <span className="h-10 w-0.5 rounded-full bg-muted-foreground/35 group-hover:bg-primary/60" />
     </button>
   )
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max)
 }

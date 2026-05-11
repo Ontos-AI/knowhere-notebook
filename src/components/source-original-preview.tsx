@@ -13,7 +13,7 @@ import remarkGfm from "remark-gfm";
 import DOMPurify from "dompurify";
 import { Download, FileText, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { SourceOriginalFileView } from "@/lib/types";
+import type { SourceOriginalFileView } from "@/domains/sources/types";
 
 type SourceOriginalPreviewProps = {
   sourceTitle: string;

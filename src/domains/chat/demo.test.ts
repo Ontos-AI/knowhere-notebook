@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import { resolveCitationChunk } from "../chunks";
 import { DEMO_CHAT_MESSAGES } from "./demo";
-import type { ParsedChunkView } from "@/lib/types";
+import type { ParsedChunkView } from "@/domains/chunks/types";
 
 type RawDemoChunk = {
   readonly chunk_id: string;

@@ -39,7 +39,7 @@ import type {
   ChatCitationView,
   ChatMessageView,
   ChatThreadView,
-} from "@/lib/types";
+} from "@/domains/chat/types";
 
 const CHAT_COMPOSER_ID = "chat-composer";
 

@@ -1,27 +1,20 @@
 import { NextResponse } from "next/server"
 
-import { toChatThreadView } from "@/domains/chat/view"
-import { notebookRequestContext } from "@/domains/workspace/request-context"
-import {
-  createChatThread,
-  listChatThreadsForWorkspace,
-} from "@/domains/workspace"
+import { chatRouteService } from "@/domains/chat/route-service"
+
+type RouteServiceResponse = {
+  readonly status: number
+  readonly body: unknown
+}
 
 export async function GET(): Promise<NextResponse> {
-  const { workspace } = await notebookRequestContext.getAuthenticated()
-  const threads = await listChatThreadsForWorkspace(workspace.id)
-
-  return NextResponse.json({
-    threads: threads.map(toChatThreadView),
-  })
+  return toNextResponse(await chatRouteService.listThreads())
 }
 
 export async function POST(): Promise<NextResponse> {
-  const { workspace } = await notebookRequestContext.getAuthenticated()
-  const thread = await createChatThread(workspace.id)
+  return toNextResponse(await chatRouteService.createThread())
+}
 
-  return NextResponse.json({
-    thread: toChatThreadView(thread),
-    messages: [],
-  })
+function toNextResponse(result: RouteServiceResponse): NextResponse {
+  return NextResponse.json(result.body, { status: result.status })
 }

@@ -12,7 +12,7 @@ import {
   SOURCE_UPLOAD_BLOB_HANDLE_PATH,
 } from "./blob-upload";
 import { validateUploadFile } from "./validation";
-import type { SourceView } from "@/lib/types";
+import type { SourceView } from "@/domains/sources/types";
 
 type SourceUploadResponseBody = {
   readonly message?: string;

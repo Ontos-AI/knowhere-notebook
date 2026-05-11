@@ -1,10 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-vi.mock("./db", () => ({
-  DbClient: {},
-  dbLayer: {},
-}))
-
 import { fetchKnowhereJwt, isAuthError } from "./api-key-service"
 
 function getHeaderValue(headers: HeadersInit | undefined, name: string): string | null {

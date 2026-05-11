@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import type { ParsedChunkView, SourceView } from "@/lib/types";
+import type { ParsedChunkView } from "@/domains/chunks/types";
+import type { SourceView } from "@/domains/sources/types";
 
 type DemoDataModule = {
   readonly demoData?: {

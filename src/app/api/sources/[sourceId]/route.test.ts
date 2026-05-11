@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => {
     ensureApiKeyForWorkspace: vi.fn(),
     ensureWorkspace: vi.fn(),
     findSourceInWorkspace: vi.fn(),
+    getCurrentUser: vi.fn(),
     makeKnowhereClient: vi.fn(),
     requireUser: vi.fn(),
     softDeleteSource: vi.fn(),
@@ -23,11 +24,12 @@ vi.mock("@vercel/blob", () => ({
   del: mocks.deleteBlob,
 }));
 
-vi.mock("@/lib/api-key-service", () => ({
+vi.mock("@/integrations/dashboard/api-key-service", () => ({
   ensureApiKeyForWorkspace: mocks.ensureApiKeyForWorkspace,
 }));
 
-vi.mock("@/lib/auth", () => ({
+vi.mock("@/infrastructure/auth", () => ({
+  getCurrentUser: mocks.getCurrentUser,
   requireUser: mocks.requireUser,
 }));
 
@@ -35,10 +37,17 @@ vi.mock("@/integrations/knowhere", () => ({
   makeKnowhereClient: mocks.makeKnowhereClient,
 }));
 
-vi.mock("@/domains/workspace", () => ({
-  ensureWorkspace: mocks.ensureWorkspace,
-  findSourceInWorkspace: mocks.findSourceInWorkspace,
-  softDeleteSource: mocks.softDeleteSource,
+vi.mock("@/domains/sources/service", () => ({
+  sourceService: {
+    findInWorkspace: mocks.findSourceInWorkspace,
+    softDelete: mocks.softDeleteSource,
+  },
+}));
+
+vi.mock("@/domains/workspace/service", () => ({
+  workspaceService: {
+    ensureWorkspace: mocks.ensureWorkspace,
+  },
 }));
 
 import { PATCH } from "./route";

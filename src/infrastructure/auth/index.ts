@@ -8,11 +8,11 @@ import {
   HttpClient,
   HttpClientRequest,
 } from "@effect/platform"
-import { authURLs } from "./auth-urls"
+import { authURLs } from "./urls"
 import { sessionCookieNames } from "./session-cookie-names"
-import { logger } from "./logger"
-import { setEmptyJsonBody } from "./dashboard-orpc-request"
-import { formatUnknownForLog } from "./format-log-value"
+import { logger } from "@/lib/logger"
+import { setEmptyJsonBody } from "@/integrations/dashboard/orpc-request"
+import { formatUnknownForLog } from "@/lib/format-log-value"
 
 export { sessionCookieNames }
 

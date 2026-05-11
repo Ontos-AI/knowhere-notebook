@@ -2,7 +2,7 @@ import { del } from "@vercel/blob"
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client"
 import { NextResponse, type NextRequest } from "next/server"
 
-import { getCurrentUser } from "@/lib/auth"
+import { getCurrentUser } from "@/infrastructure/auth"
 import {
   isValidSourceBlobPathname,
   parseSourceBlobClientPayload,

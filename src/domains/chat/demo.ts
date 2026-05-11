@@ -1,4 +1,4 @@
-import type { ChatCitationView, ChatMessageView } from "@/lib/types";
+import type { ChatCitationView, ChatMessageView } from "@/domains/chat/types";
 
 /**
  * Static demo chat messages with citations that reference demo sources.
