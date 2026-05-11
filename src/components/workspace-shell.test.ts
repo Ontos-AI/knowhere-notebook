@@ -89,6 +89,46 @@ describe("WorkspaceShell", () => {
     );
   });
 
+  it("lets desktop users expand the chat panel by shrinking parsed chunks further", () => {
+    render(React.createElement(C, { sources: [] }));
+
+    const secondHandle = screen.getByRole("separator", {
+      name: "Resize parsed chunks and chat",
+    });
+    const chunksPanel = screen.getByTestId("desktop-chunks-panel");
+    const chatPanel = screen.getByTestId("desktop-chat-panel");
+
+    fireEvent.pointerDown(secondHandle, { clientX: 0 });
+    fireEvent.pointerMove(window, { clientX: -500 });
+    fireEvent.pointerUp(window);
+
+    expect(chunksPanel.style.width).toBe("480px");
+    expect(chatPanel.style.width).toBe("660px");
+  });
+
+  it("uses rendered panel widths when resizing the flex-grown middle panel", () => {
+    render(React.createElement(C, { sources: [] }));
+
+    const secondHandle = screen.getByRole("separator", {
+      name: "Resize parsed chunks and chat",
+    });
+    const chunksPanel = screen.getByTestId("desktop-chunks-panel");
+    const chatPanel = screen.getByTestId("desktop-chat-panel");
+    vi.spyOn(chunksPanel, "getBoundingClientRect").mockReturnValue(
+      createElementRect(1100),
+    );
+    vi.spyOn(chatPanel, "getBoundingClientRect").mockReturnValue(
+      createElementRect(420),
+    );
+
+    fireEvent.pointerDown(secondHandle, { clientX: 0 });
+    fireEvent.pointerMove(window, { clientX: -900 });
+    fireEvent.pointerUp(window);
+
+    expect(chunksPanel.style.width).toBe("480px");
+    expect(chatPanel.style.width).toBe("1040px");
+  });
+
   it("shows a login CTA instead of the chat composer for guests", () => {
     render(
       React.createElement(C, {
@@ -386,9 +426,23 @@ describe("WorkspaceShell", () => {
         countFetches(fetch, "/api/sources/source_1/chunks"),
       ).toBeGreaterThan(0);
     });
+    await waitFor(() => {
+      const topRow = screen
+        .getByTestId("desktop-chunks-panel")
+        .querySelector<HTMLElement>('[data-index="0"]');
+
+      expect(topRow?.getAttribute("data-chunk-id")).toBe("chunk_1");
+      expect(topRow?.getAttribute("data-focused-chunk")).toBe("true");
+    });
     expect(countFetches(fetch, "/api/sources/source_1/chunks")).toBe(1);
 
-    await user.click(desktopChatPanel.getByText("doc.pdf · Second"));
+    const secondCitation = desktopChatPanel
+      .getByText("doc.pdf · Second")
+      .closest("button");
+    await waitFor(() => {
+      expect(secondCitation?.disabled).toBe(false);
+    });
+    await user.click(secondCitation!);
 
     await waitFor(() => {
       const topRow = screen
@@ -1004,6 +1058,20 @@ function countFetchesWithSearch(
     const url = getRequestURL(input);
     return url.pathname === path && url.search === search;
   }).length;
+}
+
+function createElementRect(width: number): DOMRect {
+  return {
+    bottom: 0,
+    height: 0,
+    left: 0,
+    right: width,
+    top: 0,
+    width,
+    x: 0,
+    y: 0,
+    toJSON: () => ({}),
+  };
 }
 
 function makeUploadedBlob(): {
