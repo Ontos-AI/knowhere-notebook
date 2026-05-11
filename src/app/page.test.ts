@@ -51,7 +51,8 @@ vi.mock("@/lib/workspace", async () => {
 import Home from "./page";
 
 describe("Home", () => {
-  it("seeds the bundled demo content before rendering a logged-in workspace", async () => {
+  it("uploads bundled demo content into the logged-in workspace before rendering", async () => {
+    const client = {};
     mocks.getCurrentUser.mockResolvedValue({
       id: "user_1",
       name: "Ada",
@@ -62,7 +63,7 @@ describe("Home", () => {
       namespace: "notebook-workspace_1",
     });
     mocks.ensureApiKeyForWorkspace.mockResolvedValue("jwt_123");
-    mocks.makeKnowhereClient.mockReturnValue({});
+    mocks.makeKnowhereClient.mockReturnValue(client);
     mocks.listSourcesForWorkspace.mockResolvedValue([]);
     mocks.listChatThreadsForWorkspace.mockResolvedValue([]);
     mocks.sourceViewOptionsBySourceId.mockReturnValue(Effect.succeed(new Map()));
@@ -71,8 +72,15 @@ describe("Home", () => {
 
     expect(React.isValidElement(element)).toBe(true);
     expect(mocks.ensureDemoWorkspaceContent).toHaveBeenCalledWith(
-      "workspace_1",
+      {
+        id: "workspace_1",
+        namespace: "notebook-workspace_1",
+      },
+      client,
     );
+    expect(
+      mocks.ensureDemoWorkspaceContent.mock.invocationCallOrder[0],
+    ).toBeGreaterThan(mocks.makeKnowhereClient.mock.invocationCallOrder[0]);
     expect(
       mocks.ensureDemoWorkspaceContent.mock.invocationCallOrder[0],
     ).toBeLessThan(mocks.listSourcesForWorkspace.mock.invocationCallOrder[0]);

@@ -28,6 +28,7 @@ export type DemoSourceSeed = {
   readonly title: string;
   readonly mimeType: string;
   readonly originalFileUrl: string;
+  readonly originalFileSystemPath: string;
   readonly originalSizeBytes: number;
   readonly chunkCount: number;
   readonly chatThreadTitle: string;
@@ -204,6 +205,11 @@ function toDemoSourceSeed(source: DemoSourceDefinition): DemoSourceSeed {
     title: source.title,
     mimeType: source.mimeType,
     originalFileUrl: buildDemoAssetURL(
+      source.assetDirectory,
+      source.originalFilePath,
+    ),
+    originalFileSystemPath: path.join(
+      demoAssetsDirectoryPath,
       source.assetDirectory,
       source.originalFilePath,
     ),

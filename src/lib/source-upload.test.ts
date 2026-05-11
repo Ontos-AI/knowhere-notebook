@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  ensureDemoSourceUpload,
   uploadSourceBlobToKnowhere,
   uploadSourceToKnowhere,
 } from "./source-upload";
@@ -267,5 +268,172 @@ describe("uploadSourceToKnowhere", () => {
       uploadingSource.id,
       "Knowhere upload failed.",
     );
+  });
+});
+
+describe("ensureDemoSourceUpload", () => {
+  const demoInput = {
+    demoKey: "demo-tsla-q4-2025",
+    documentId: "demo-doc-tsla-q4-2025",
+    title: "TSLA-Q4-2025-Update.pdf",
+    mimeType: "application/pdf",
+    originalSizeBytes: 5,
+    originalFileUrl: "/demo-sources/tsla-q4-2025/original.pdf",
+    originalFileSystemPath: "/repo/public/demo-sources/tsla-q4-2025/original.pdf",
+  } as const;
+
+  it("uploads a bundled demo file into the workspace namespace", async () => {
+    const uploadingSource = makeSource({
+      demoKey: demoInput.demoKey,
+      title: demoInput.title,
+      sizeBytes: demoInput.originalSizeBytes,
+      originalBlobUrl: demoInput.originalFileUrl,
+    });
+    const parsingSource = makeSource({
+      ...uploadingSource,
+      status: "parsing",
+      knowhereJobId: "job_demo",
+    });
+    const deps = {
+      repository: {
+        findSourceByDemoKey: vi.fn().mockResolvedValue(null),
+        createDemoUploadingSource: vi.fn().mockResolvedValue(uploadingSource),
+        markDemoSourceUploading: vi.fn(),
+        markSourceParsing: vi.fn().mockResolvedValue(parsingSource),
+        markSourceFailed: vi.fn(),
+      },
+      knowhere: {
+        jobs: {
+          create: vi.fn().mockResolvedValue({
+            jobId: "job_demo",
+            status: "waiting-file",
+            sourceType: "file",
+            createdAt: new Date("2026-05-06T00:00:00Z"),
+          }),
+          upload: vi.fn().mockResolvedValue(undefined),
+        },
+      },
+    };
+
+    const result = await ensureDemoSourceUpload(workspace, demoInput, deps);
+
+    expect(deps.repository.findSourceByDemoKey).toHaveBeenCalledWith(
+      workspace.id,
+      demoInput.demoKey,
+    );
+    expect(deps.repository.createDemoUploadingSource).toHaveBeenCalledWith(
+      workspace.id,
+      {
+        demoKey: demoInput.demoKey,
+        title: demoInput.title,
+        mimeType: demoInput.mimeType,
+        sizeBytes: demoInput.originalSizeBytes,
+        originalBlobUrl: demoInput.originalFileUrl,
+      },
+    );
+    expect(deps.knowhere.jobs.create).toHaveBeenCalledWith({
+      sourceType: "file",
+      fileName: demoInput.title,
+      namespace: workspace.namespace,
+    });
+    expect(deps.knowhere.jobs.upload).toHaveBeenCalledWith(
+      expect.objectContaining({ jobId: "job_demo" }),
+      { file: demoInput.originalFileSystemPath },
+    );
+    expect(deps.repository.markSourceParsing).toHaveBeenCalledWith(
+      workspace.id,
+      uploadingSource.id,
+      "job_demo",
+    );
+    expect(result).toBe(parsingSource);
+  });
+
+  it("does not upload the bundled demo file again when the workspace already has it", async () => {
+    const existingSource = makeSource({
+      demoKey: demoInput.demoKey,
+      status: "parsing",
+      knowhereJobId: "job_existing",
+    });
+    const deps = {
+      repository: {
+        findSourceByDemoKey: vi.fn().mockResolvedValue(existingSource),
+        createDemoUploadingSource: vi.fn(),
+        markDemoSourceUploading: vi.fn(),
+        markSourceParsing: vi.fn(),
+        markSourceFailed: vi.fn(),
+      },
+      knowhere: {
+        jobs: {
+          create: vi.fn(),
+          upload: vi.fn(),
+        },
+      },
+    };
+
+    const result = await ensureDemoSourceUpload(workspace, demoInput, deps);
+
+    expect(result).toBe(existingSource);
+    expect(deps.repository.createDemoUploadingSource).not.toHaveBeenCalled();
+    expect(deps.knowhere.jobs.create).not.toHaveBeenCalled();
+    expect(deps.knowhere.jobs.upload).not.toHaveBeenCalled();
+  });
+
+  it("uploads once for legacy static demo rows that were never sent to Knowhere", async () => {
+    const legacySource = makeSource({
+      demoKey: demoInput.demoKey,
+      status: "ready",
+      knowhereDocumentId: demoInput.documentId,
+      knowhereJobId: null,
+    });
+    const uploadingSource = makeSource({
+      ...legacySource,
+      status: "uploading",
+      knowhereDocumentId: null,
+    });
+    const parsingSource = makeSource({
+      ...uploadingSource,
+      status: "parsing",
+      knowhereJobId: "job_demo",
+    });
+    const deps = {
+      repository: {
+        findSourceByDemoKey: vi.fn().mockResolvedValue(legacySource),
+        createDemoUploadingSource: vi.fn(),
+        markDemoSourceUploading: vi.fn().mockResolvedValue(uploadingSource),
+        markSourceParsing: vi.fn().mockResolvedValue(parsingSource),
+        markSourceFailed: vi.fn(),
+      },
+      knowhere: {
+        jobs: {
+          create: vi.fn().mockResolvedValue({
+            jobId: "job_demo",
+            status: "waiting-file",
+            sourceType: "file",
+            createdAt: new Date("2026-05-06T00:00:00Z"),
+          }),
+          upload: vi.fn().mockResolvedValue(undefined),
+        },
+      },
+    };
+
+    const result = await ensureDemoSourceUpload(workspace, demoInput, deps);
+
+    expect(deps.repository.createDemoUploadingSource).not.toHaveBeenCalled();
+    expect(deps.repository.markDemoSourceUploading).toHaveBeenCalledWith(
+      workspace.id,
+      legacySource.id,
+      {
+        title: demoInput.title,
+        mimeType: demoInput.mimeType,
+        sizeBytes: demoInput.originalSizeBytes,
+        originalBlobUrl: demoInput.originalFileUrl,
+      },
+    );
+    expect(deps.knowhere.jobs.create).toHaveBeenCalledWith({
+      sourceType: "file",
+      fileName: demoInput.title,
+      namespace: workspace.namespace,
+    });
+    expect(result).toBe(parsingSource);
   });
 });
