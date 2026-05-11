@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import React from "react";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -295,6 +296,65 @@ describe("SourcesPanel", () => {
     );
   });
 
+  it("accepts dropped files in the upload dialog without browser navigation", async () => {
+    const user = userEvent.setup();
+    const uploadedSource = {
+      id: "source_1",
+      title: "drop.pdf",
+      status: "parsing",
+      mimeType: "application/pdf",
+    };
+    let requestBody: unknown = null;
+    mocks.uploadBlob.mockResolvedValue(makeUploadedBlob());
+    vi.stubGlobal("crypto", { randomUUID: () => "upload_1" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof globalThis.fetch>(async (input, init) => {
+        const request = input instanceof Request
+          ? input
+          : new Request(new URL(String(input), "http://localhost").toString(), init);
+        expect(getRequestPath(request)).toBe("/api/sources");
+        requestBody = await request.json();
+        return Response.json({ source: uploadedSource }, { status: 201 });
+      }),
+    );
+    const onSourceUploaded = vi.fn();
+
+    render(React.createElement(C, { sources: [], onSourceUploaded }));
+
+    await user.click(screen.getByRole("button", { name: "Upload Document" }));
+    const dialog = screen.getByRole("dialog");
+    const file = new File(["hello"], "drop.pdf", { type: "application/pdf" });
+    const dropEvent = createFileDropEvent(file);
+
+    await act(async () => {
+      dialog.dispatchEvent(dropEvent);
+    });
+
+    expect(dropEvent.defaultPrevented).toBe(true);
+    expect(await screen.findByText("Selected: drop.pdf")).toBeTruthy();
+
+    const form = document.querySelector("form");
+    if (!(form instanceof HTMLFormElement)) {
+      throw new Error("Upload form was not rendered.");
+    }
+    fireEvent.submit(form);
+
+    await waitFor(() =>
+      expect(onSourceUploaded).toHaveBeenCalledWith(uploadedSource),
+    );
+    expect(requestBody).toEqual({
+      upload: {
+        type: "blob",
+        pathname: "source-uploads/upload_1/document.pdf",
+        url: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
+        fileName: "drop.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 5,
+      },
+    });
+  });
+
   it("shows upload API failures inside the upload dialog", async () => {
     const user = userEvent.setup();
     mocks.uploadBlob.mockResolvedValue(makeUploadedBlob());
@@ -372,4 +432,20 @@ function makeUploadedBlob(): {
     contentDisposition: 'attachment; filename="document.pdf"',
     etag: "etag_1",
   };
+}
+
+function createFileDropEvent(file: File): Event {
+  const event = new Event("drop", { bubbles: true, cancelable: true });
+  const files: Pick<FileList, "length" | "item"> & { readonly 0: File } = {
+    0: file,
+    length: 1,
+    item: (index: number): File | null => (index === 0 ? file : null),
+  };
+  Object.defineProperty(event, "dataTransfer", {
+    value: {
+      files,
+      types: ["Files"],
+    },
+  });
+  return event;
 }

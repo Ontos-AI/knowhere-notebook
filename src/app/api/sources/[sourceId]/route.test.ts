@@ -122,4 +122,37 @@ describe("PATCH /api/sources/[sourceId]", () => {
       "source-uploads/upload_1/document.pdf",
     );
   });
+
+  it("soft deletes demo sources without calling Knowhere archive or Blob cleanup", async () => {
+    mocks.requireUser.mockResolvedValue({ id: "user_1" });
+    mocks.ensureWorkspace.mockResolvedValue({ id: "workspace_1" });
+    mocks.findSourceInWorkspace.mockResolvedValue({
+      id: "source_demo",
+      demoKey: "demo-tsla-q4-2025",
+      knowhereDocumentId: "demo-doc-tsla-q4-2025",
+      originalBlobPathname: null,
+    });
+    mocks.softDeleteSource.mockResolvedValue(true);
+
+    const response = await PATCH(
+      new NextRequest("http://localhost:3001/api/sources/source_demo", {
+        method: "PATCH",
+        body: JSON.stringify({ archived: true }),
+      }),
+      { params: Promise.resolve({ sourceId: "source_demo" }) },
+    );
+
+    await expect(response.json()).resolves.toEqual({
+      id: "source_demo",
+      archived: true,
+    });
+    expect(response.status).toBe(200);
+    expect(mocks.ensureApiKeyForWorkspace).not.toHaveBeenCalled();
+    expect(mocks.archive).not.toHaveBeenCalled();
+    expect(mocks.deleteBlob).not.toHaveBeenCalled();
+    expect(mocks.softDeleteSource).toHaveBeenCalledWith(
+      "workspace_1",
+      "source_demo",
+    );
+  });
 });

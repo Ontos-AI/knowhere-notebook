@@ -12,7 +12,7 @@ type DemoDataModule = {
 };
 
 describe("demoData", () => {
-  it("exposes the fixed guest sources with real chunk counts", async () => {
+  it("exposes only the TSLA guest source with its real chunk count", async () => {
     const demoModule: DemoDataModule = await import("./demo-data");
     const sources = demoModule.demoData?.listSources();
 
@@ -30,19 +30,6 @@ describe("demoData", () => {
           canDownload: false,
         },
       },
-      {
-        id: "demo-epstein-flight-logs",
-        title: "EPSTEIN FLIGHT LOGS UNREDACTED.pdf",
-        mimeType: "application/pdf",
-        status: "ready",
-        documentId: "demo-doc-epstein-flight-logs",
-        chunkCount: 117,
-        originalFile: {
-          url: "/demo-sources/epstein-flight-logs/original.pdf",
-          mimeType: "application/pdf",
-          canDownload: false,
-        },
-      },
     ]);
   });
 
@@ -52,9 +39,6 @@ describe("demoData", () => {
 
     const tslaChunks = await demoModule.demoData!.loadChunksForSource(
       "demo-tsla-q4-2025",
-    );
-    const epsteinChunks = await demoModule.demoData!.loadChunksForSource(
-      "demo-epstein-flight-logs",
     );
 
     expect(tslaChunks).toHaveLength(71);
@@ -68,17 +52,6 @@ describe("demoData", () => {
     });
     expect(tslaChunks?.[0]?.content).toContain("<table>");
     expect(tslaChunks?.[0]?.summary).toContain("Tesla reported 2025");
-
-    expect(epsteinChunks).toHaveLength(117);
-    expect(epsteinChunks?.[1]).toMatchObject({
-      chunkId: "demo-epstein-flight-logs:cb11d193-e9a2-b62e-fe97-e9351b7c0b53",
-      documentId: "demo-doc-epstein-flight-logs",
-      sectionPath: "tables/Flight Log 11_17_1995 - 1_28_1996.html",
-      type: "table",
-      sourceTitle: "EPSTEIN FLIGHT LOGS UNREDACTED.pdf",
-      pageNums: [1],
-    });
-    expect(epsteinChunks?.[1]?.keywords).toContain("PBI");
   });
 
   it("encodes static asset urls so reserved filename characters stay in the path", async () => {

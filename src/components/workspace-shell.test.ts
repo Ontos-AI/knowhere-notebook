@@ -49,6 +49,7 @@ describe("WorkspaceShell", () => {
 
     const layout = screen.getByTestId("desktop-panel-layout");
     const panels = screen.getByTestId("desktop-resizable-panels");
+    const sourcesPanel = screen.getByTestId("desktop-sources-panel");
     const chunksPanel = screen.getByTestId("desktop-chunks-panel");
 
     const minimumTotalWidth =
@@ -59,6 +60,7 @@ describe("WorkspaceShell", () => {
 
     expect(layout.className).toContain("overflow-x-auto");
     expect(panels.style.minWidth).toBe(`${minimumTotalWidth}px`);
+    expect(sourcesPanel.style.width).toBe("350px");
     expect(chunksPanel.style.minWidth).toBe(
       `${DESKTOP_PANEL_MIN_WIDTHS.chunks}px`,
     );
@@ -77,7 +79,7 @@ describe("WorkspaceShell", () => {
     fireEvent.pointerMove(window, { clientX: 120 });
     fireEvent.pointerUp(window);
 
-    expect(sourcesPanel.style.width).toBe("440px");
+    expect(sourcesPanel.style.width).toBe("470px");
     expect(chunksPanel.style.width).toBe("600px");
 
     fireEvent.pointerDown(firstHandle, { clientX: 120 });

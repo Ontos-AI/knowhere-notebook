@@ -6,6 +6,7 @@ import {
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -73,6 +74,8 @@ export type NewWorkspace = typeof workspaces.$inferInsert;
  *                         and download path
  *   - `staged_blob_*`   — legacy temporary Blob staging pointer retained for
  *                         older rows during the PR #28 transition
+ *   - `demo_key`    — bundled demo source identifier when this row is seeded
+ *                     into a logged-in workspace
  *   - `deleted_at`   — soft delete timestamp; reads filter it out
  *
  * Indexes:
@@ -98,6 +101,7 @@ export const sources = pgTable(
     stagedBlobUrl: text("staged_blob_url"),
     originalBlobPathname: text("original_blob_pathname"),
     originalBlobUrl: text("original_blob_url"),
+    demoKey: text("demo_key"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -115,6 +119,7 @@ export const sources = pgTable(
     // Reconcile sweep picks up anything still in `uploading` or
     // `parsing`. Small cardinality, small index.
     index("sources_workspace_status_idx").on(t.workspaceId, t.status),
+    uniqueIndex("sources_workspace_demo_key_idx").on(t.workspaceId, t.demoKey),
   ],
 );
 
@@ -155,8 +160,8 @@ export type SourceParseResult = typeof sourceParseResults.$inferSelect;
 export type NewSourceParseResult = typeof sourceParseResults.$inferInsert;
 
 /**
- * A chat thread is a conversation within a workspace. Title is optional
- * for the MVP — we don't auto-title yet.
+ * A chat thread is a conversation within a workspace. `demo_key` is set only
+ * for bundled demo conversations seeded into a logged-in workspace.
  */
 export const chatThreads = pgTable(
   "chat_threads",
@@ -166,6 +171,7 @@ export const chatThreads = pgTable(
       .notNull()
       .references(() => workspaces.id, { onDelete: "cascade" }),
     title: text("title"),
+    demoKey: text("demo_key"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -181,6 +187,10 @@ export const chatThreads = pgTable(
     index("chat_threads_workspace_updated_idx")
       .on(t.workspaceId, t.updatedAt.desc())
       .where(sql`deleted_at IS NULL`),
+    uniqueIndex("chat_threads_workspace_demo_key_idx").on(
+      t.workspaceId,
+      t.demoKey,
+    ),
   ],
 );
 

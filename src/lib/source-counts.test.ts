@@ -5,7 +5,7 @@ import type Knowhere from "@ontos-ai/knowhere-sdk"
 
 import type { Source } from "./schema"
 
-function makeSource(overrides: Partial<Source>): Source {
+function makeSource(overrides: Partial<Source> = {}): Source {
   return {
     id: "source_1",
     workspaceId: "workspace_1",
@@ -20,6 +20,7 @@ function makeSource(overrides: Partial<Source>): Source {
     stagedBlobUrl: null,
     originalBlobPathname: null,
     originalBlobUrl: null,
+    demoKey: null,
     createdAt: new Date("2026-05-06T00:00:00Z"),
     updatedAt: new Date("2026-05-06T00:00:00Z"),
     deletedAt: null,
@@ -73,5 +74,30 @@ describe("countChunksBySourceId", () => {
     )
 
     expect(counts.size).toBe(0)
+  })
+
+  it("uses bundled counts for persisted demo sources without calling Knowhere", async () => {
+    const listChunks = vi.fn()
+    const mockClient = {
+      documents: { listChunks },
+    } as unknown as Knowhere
+
+    const { countChunksBySourceId } = await import("./source-counts")
+
+    const counts = await Effect.runPromise(
+      countChunksBySourceId(
+        [
+          makeSource({
+            id: "source_demo",
+            demoKey: "demo-tsla-q4-2025",
+            knowhereDocumentId: "demo-doc-tsla-q4-2025",
+          }),
+        ],
+        mockClient,
+      ),
+    )
+
+    expect(listChunks).not.toHaveBeenCalled()
+    expect(counts).toEqual(new Map([["source_demo", 71]]))
   })
 })

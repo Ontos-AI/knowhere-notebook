@@ -522,6 +522,7 @@ describe("SourceOriginalPreview", () => {
     await waitFor(() => {
       expect(screen.getByRole("table")).toBeTruthy();
     });
+    expect(screen.getByRole("table").closest(".original-markdown-preview")).toBeTruthy();
     expect(screen.queryByText(/<br>/)).toBeNull();
   });
 

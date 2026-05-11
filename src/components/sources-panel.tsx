@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  type DragEvent,
   type FormEvent,
   useEffect,
   useId,
@@ -172,6 +173,7 @@ function UploadDialog({
   const [isUploading, setIsUploading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const lastUploadedSourceIdRef = useRef<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
   const fileInputId = useId();
 
@@ -182,6 +184,7 @@ function UploadDialog({
       state.source.id !== lastUploadedSourceIdRef.current
     ) {
       if (inputRef.current) inputRef.current.value = "";
+      setSelectedFile(null);
       setSelectedFileName(null);
       lastUploadedSourceIdRef.current = state.source.id;
       onSourceUploaded?.(state.source);
@@ -193,7 +196,7 @@ function UploadDialog({
     event.preventDefault();
     if (isUploading) return;
 
-    const file = inputRef.current?.files?.[0] ?? null;
+    const file = selectedFile ?? inputRef.current?.files?.[0] ?? null;
     if (!file || file.size === 0) {
       setState({ ok: false, message: "Choose a document to upload." });
       return;
@@ -226,6 +229,27 @@ function UploadDialog({
     }
   }
 
+  function handleDialogDragOver(event: DragEvent<HTMLDivElement>): void {
+    if (!hasDraggedFiles(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  function handleDialogDrop(event: DragEvent<HTMLDivElement>): void {
+    if (!hasDraggedFiles(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (isUploading) return;
+
+    const file = event.dataTransfer.files.item(0);
+    if (!file) return;
+
+    setSelectedFile(file);
+    setSelectedFileName(file.name);
+    setState({ ok: true, message: null });
+  }
+
   return (
     <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
       <Button
@@ -237,7 +261,11 @@ function UploadDialog({
         <Plus className="size-4" />
         Upload Document
       </Button>
-      <DialogContent className="flex max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] flex-col overflow-hidden p-0 sm:max-w-[425px]">
+      <DialogContent
+        className="flex max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] flex-col overflow-hidden p-0 sm:max-w-[425px]"
+        onDragOver={handleDialogDragOver}
+        onDrop={handleDialogDrop}
+      >
         <DialogHeader className="shrink-0 px-6 pt-6">
           <DialogTitle>Add source</DialogTitle>
           <DialogDescription>
@@ -290,7 +318,9 @@ function UploadDialog({
                 accept=".pdf,.doc,.docx,.txt,.md,.xls,.xlsx,.pptx,.jpg,.jpeg,.png"
                 disabled={isUploading}
                 onChange={(e) => {
-                  setSelectedFileName(e.target.files?.[0]?.name ?? null);
+                  const file = e.target.files?.[0] ?? null;
+                  setSelectedFile(file);
+                  setSelectedFileName(file?.name ?? null);
                 }}
               />
             </label>
@@ -324,6 +354,10 @@ function UploadDialog({
 
 function isSuccessfulStatus(status: number): boolean {
   return status >= 200 && status < 300;
+}
+
+function hasDraggedFiles(event: DragEvent<HTMLElement>): boolean {
+  return Array.from(event.dataTransfer.types).includes("Files");
 }
 
 function EmptySourcesState() {

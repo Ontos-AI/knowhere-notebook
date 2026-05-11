@@ -480,6 +480,7 @@ function makeSource(overrides: Partial<Source> = {}): Source {
     stagedBlobUrl: null,
     originalBlobPathname: null,
     originalBlobUrl: null,
+    demoKey: null,
     createdAt: new Date("2026-05-06T00:00:00Z"),
     updatedAt: new Date("2026-05-06T00:00:00Z"),
     deletedAt: null,

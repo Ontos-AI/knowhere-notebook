@@ -57,6 +57,15 @@ export async function GET(
     return NextResponse.json({ message: "Source not found." }, { status: 404 });
   }
 
+  const demoChunks = await demoData.loadChunksForDocumentId(
+    source.knowhereDocumentId,
+  )
+  if (demoChunks) {
+    return NextResponse.json(
+      shouldLoadAll ? { chunks: demoChunks } : toChunkPage(demoChunks, pageParams),
+    )
+  }
+
   const cookieHeader = (await headers()).get("cookie") ?? ""
   const apiKey = await ensureApiKeyForWorkspace(workspace.id, cookieHeader)
   const client = makeKnowhereClient(apiKey)

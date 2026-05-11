@@ -13,6 +13,8 @@ import {
   type Source,
 } from "./schema"
 import { deriveChatThreadTitle } from "./chat-title"
+import { DEMO_CHAT_MESSAGES } from "./demo-chat"
+import { demoData } from "./demo-data"
 import type { ChatCitationView, CitationView, RetrievalResultView } from "./types"
 
 let _dbRuntime: ManagedRuntime.ManagedRuntime<DbClient, never> | null = null
@@ -22,6 +24,7 @@ function dbRuntime(): ManagedRuntime.ManagedRuntime<DbClient, never> {
 }
 
 const chatThreadListLimit = 50
+const demoChatCreatedAtMs = Date.parse("2026-01-01T00:00:00.000Z")
 
 // ---- Effect functions (canonical) -----------------------------------------
 
@@ -64,6 +67,93 @@ export const ensureWorkspaceEffect = (userId: string) =>
     }
 
     return row[0]
+  })
+
+export const ensureDemoWorkspaceContentEffect = (workspaceId: string) =>
+  Effect.gen(function* () {
+    const db = yield* DbClient
+
+    for (const seed of demoData.listSourceSeeds()) {
+      const existingSource = yield* Effect.promise(() =>
+        db
+          .select({ id: sources.id })
+          .from(sources)
+          .where(
+            and(
+              eq(sources.workspaceId, workspaceId),
+              eq(sources.demoKey, seed.demoKey),
+            ),
+          )
+          .limit(1),
+      )
+
+      if (!existingSource[0]) {
+        yield* Effect.promise(() =>
+          db
+            .insert(sources)
+            .values({
+              workspaceId,
+              title: seed.title,
+              mimeType: seed.mimeType,
+              sizeBytes: seed.originalSizeBytes,
+              status: "ready",
+              knowhereDocumentId: seed.documentId,
+              originalBlobUrl: seed.originalFileUrl,
+              demoKey: seed.demoKey,
+            })
+            .onConflictDoNothing({
+              target: [sources.workspaceId, sources.demoKey],
+            }),
+        )
+      }
+
+      const existingThread = yield* Effect.promise(() =>
+        db
+          .select({ id: chatThreads.id })
+          .from(chatThreads)
+          .where(
+            and(
+              eq(chatThreads.workspaceId, workspaceId),
+              eq(chatThreads.demoKey, seed.demoKey),
+            ),
+          )
+          .limit(1),
+      )
+
+      if (existingThread[0]) continue
+
+      yield* Effect.promise(() =>
+        db.transaction(async (tx) => {
+          const [thread] = await tx
+            .insert(chatThreads)
+            .values({
+              workspaceId,
+              title: seed.chatThreadTitle,
+              demoKey: seed.demoKey,
+              createdAt: new Date(demoChatCreatedAtMs),
+              updatedAt: new Date(
+                demoChatCreatedAtMs + DEMO_CHAT_MESSAGES.length * 1000,
+              ),
+            })
+            .onConflictDoNothing({
+              target: [chatThreads.workspaceId, chatThreads.demoKey],
+            })
+            .returning()
+
+          if (!thread) return
+
+          await tx.insert(chatMessages).values(
+            DEMO_CHAT_MESSAGES.map((message, index) => ({
+              threadId: thread.id,
+              role: message.role,
+              content: message.content,
+              citations: normalizeCitations(message.citations),
+              createdAt: new Date(demoChatCreatedAtMs + index * 1000),
+            })),
+          )
+        }),
+      )
+    }
   })
 
 export const findSourceInWorkspaceEffect = (
@@ -469,6 +559,9 @@ export const pingDatabaseEffect = Effect.gen(function* () {
 
 export const ensureWorkspace = (userId: string) =>
   dbRuntime().runPromise(ensureWorkspaceEffect(userId))
+
+export const ensureDemoWorkspaceContent = (workspaceId: string) =>
+  dbRuntime().runPromise(ensureDemoWorkspaceContentEffect(workspaceId))
 
 export const findSourceInWorkspace = (workspaceId: string, sourceId: string) =>
   dbRuntime().runPromise(findSourceInWorkspaceEffect(workspaceId, sourceId))
