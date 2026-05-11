@@ -222,10 +222,8 @@ function WorkspaceShellContent({
         hasPendingSources(currentSources ?? []) ? 3000 : 0,
     },
   )
-  const sources = applySourceQueryState(
-    serverSources ?? initialSrcs,
-    sourceExclusionById,
-  )
+  const sourceRows = serverSources ?? initialSrcs
+  const sources = applySourceQueryState(sourceRows, sourceExclusionById)
   const sourceTitlesByDocumentId = useMemo<Readonly<Record<string, string>>>(
     () =>
       Object.fromEntries(
@@ -445,9 +443,10 @@ function WorkspaceShellContent({
   }
 
   function handleSourceUploaded(source: SourceView) {
-    void mutateSources((current = []) => upsertSource(current, source), {
-      revalidate: false,
-    })
+    void mutateSources(
+      (current) => upsertSource(current ?? sourceRows, source),
+      { revalidate: false },
+    )
     void mutateSources()
   }
 
@@ -463,8 +462,8 @@ function WorkspaceShellContent({
     try {
       await archiveSource(sourceId)
       void mutateSources(
-        (current = []) =>
-          current.filter((source) => source.id !== sourceId),
+        (current) =>
+          (current ?? sourceRows).filter((source) => source.id !== sourceId),
         { revalidate: false },
       )
       setSelectedSourceId((current) =>
