@@ -63,6 +63,44 @@ describe("ChatPanel", () => {
     expect(screen.queryByText("Citations")).toBeNull();
   });
 
+  it("uses Notebook source titles for generated Knowhere citation filenames", () => {
+    const { container } = render(
+      React.createElement(C, {
+        sourceTitlesByDocumentId: {
+          doc_1: "TSLA-Q4-2025-Update.pdf",
+        },
+        messages: [
+          {
+            id: "assistant_1",
+            role: "assistant",
+            content: "Tesla invested in xAI.",
+            citations: [
+              {
+                chunkType: "text",
+                score: 0.9,
+                description: "document-CFxAaNTRUliEnWOokpI66xfj7JJkad.pdf",
+                source: {
+                  documentId: "doc_1",
+                  sourceFileName: "document-CFxAaNTRUliEnWOokpI66xfj7JJkad.pdf",
+                  sectionPath: "Root",
+                },
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(
+      screen.getByRole("button", {
+        name: "Open source TSLA-Q4-2025-Update.pdf",
+      }),
+    ).toBeTruthy();
+    expect(container.textContent).not.toContain(
+      "document-CFxAaNTRUliEnWOokpI66xfj7JJkad.pdf",
+    );
+  });
+
   it("renders citation links as buttons with per-citation loading feedback", async () => {
     const user = userEvent.setup();
     const onCitationClick = vi.fn();

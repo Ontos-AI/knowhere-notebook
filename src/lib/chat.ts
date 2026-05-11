@@ -88,17 +88,18 @@ export const answerQuestionWithRetrieval = (input: AnswerQuestionInput) =>
       return { answer: NO_RESULTS_ANSWER, citations: [] as ChatCitationView[] }
     }
 
+    const results = useNotebookSourceTitles(response.results, input.sources)
     const answer = yield* Effect.tryPromise(() =>
       input.generateAnswer({
         question,
         retrievalQuery: query,
         messages: input.messages,
-        results: response.results,
+        results,
       }),
     )
     return {
       answer,
-      citations: toChatCitationViews(response.results, answer),
+      citations: toChatCitationViews(results, answer),
     }
   })
 
@@ -264,6 +265,35 @@ function toChatCitationViews(
         documentId: result.source.documentId,
         sourceFileName: result.source.sourceFileName,
         sectionPath: result.source.sectionPath,
+      },
+    }
+  })
+}
+
+function useNotebookSourceTitles(
+  results: readonly RetrievalResult[],
+  sources: readonly Source[],
+): RetrievalResult[] {
+  const sourceTitlesByDocumentId = new Map(
+    sources.flatMap((source): readonly [string, string][] =>
+      source.knowhereDocumentId
+        ? [[source.knowhereDocumentId, source.title]]
+        : [],
+    ),
+  )
+
+  return results.map((result): RetrievalResult => {
+    const documentId = result.source.documentId
+    const sourceTitle = documentId
+      ? sourceTitlesByDocumentId.get(documentId)
+      : undefined
+    if (!sourceTitle) return result
+
+    return {
+      ...result,
+      source: {
+        ...result.source,
+        sourceFileName: sourceTitle,
       },
     }
   })

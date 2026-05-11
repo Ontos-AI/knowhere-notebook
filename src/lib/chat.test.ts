@@ -115,6 +115,58 @@ describe("answerQuestionWithRetrieval", () => {
     ]);
   });
 
+  it("uses Notebook source titles instead of generated Knowhere filenames", async () => {
+    const result = makeRetrievalResult({
+      source: {
+        documentId: "doc_tesla",
+        sourceFileName: "document-CFxAaNTRUliEnWOokpI66xfj7JJkad.pdf",
+        sectionPath: "Root",
+      },
+    });
+    const retrieval = {
+      query: vi.fn().mockResolvedValue({ results: [result] }),
+    };
+    const generateAnswer = vi
+      .fn()
+      .mockResolvedValue("Tesla invested in xAI [Source 1: xAI investment].");
+    const generateRetrievalQuery = vi.fn().mockResolvedValue("Tesla xAI investment");
+
+    const answer = await Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "What does the document say about xAI?",
+        namespace: "notebook-workspace",
+        sources: [
+          makeSource({
+            title: "TSLA-Q4-2025-Update.pdf",
+            knowhereDocumentId: "doc_tesla",
+          }),
+        ],
+        excludedSourceIds: [],
+        retrieval,
+        generateRetrievalQuery,
+        generateAnswer,
+        messages: [],
+      }),
+    );
+
+    const expectedResult = {
+      ...result,
+      source: {
+        ...result.source,
+        sourceFileName: "TSLA-Q4-2025-Update.pdf",
+      },
+    };
+    expect(generateAnswer).toHaveBeenCalledWith({
+      question: "What does the document say about xAI?",
+      retrievalQuery: "Tesla xAI investment",
+      messages: [],
+      results: [expectedResult],
+    });
+    expect(answer.citations).toEqual([
+      { ...expectedResult, description: "xAI investment" },
+    ]);
+  });
+
   it("returns a deterministic no-results answer without calling the model", async () => {
     const retrieval = {
       query: vi.fn().mockResolvedValue({ results: [] }),
@@ -188,7 +240,15 @@ describe("answerQuestionWithRetrieval", () => {
       retrievalQuery:
         "Tesla Q4 2025 Update energy generation and storage deployments",
       messages,
-      results: [makeRetrievalResult()],
+      results: [
+        makeRetrievalResult({
+          source: {
+            documentId: "doc_included",
+            sourceFileName: "TSLA-Q4-2025-Update.pdf",
+            sectionPath: "Intro",
+          },
+        }),
+      ],
     });
   });
 });
