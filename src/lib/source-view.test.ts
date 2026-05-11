@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { Source } from "./schema";
 import { toSourceView } from "./source-view";
 
-function makeSource(overrides: Partial<Source>): Source {
+function makeSource(overrides: Partial<Source> = {}): Source {
   return {
     id: "source_1",
     workspaceId: "workspace_1",
@@ -18,6 +18,7 @@ function makeSource(overrides: Partial<Source>): Source {
     stagedBlobUrl: null,
     originalBlobPathname: null,
     originalBlobUrl: null,
+    demoKey: null,
     createdAt: new Date("2026-05-06T00:00:00Z"),
     updatedAt: new Date("2026-05-06T00:00:00Z"),
     deletedAt: null,
@@ -66,6 +67,30 @@ describe("toSourceView", () => {
       mimeType: "application/pdf",
       status: "parsing",
       documentId: undefined,
+    });
+  });
+
+  it("hides the download action for persisted demo originals", () => {
+    expect(
+      toSourceView(
+        makeSource({
+          demoKey: "demo-tsla-q4-2025",
+          title: "TSLA-Q4-2025-Update.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 5648867,
+          knowhereDocumentId: "demo-doc-tsla-q4-2025",
+          originalBlobUrl: "/demo-sources/tsla-q4-2025/original.pdf",
+        }),
+        { chunkCount: 71 },
+      ),
+    ).toMatchObject({
+      title: "TSLA-Q4-2025-Update.pdf",
+      documentId: "demo-doc-tsla-q4-2025",
+      chunkCount: 71,
+      originalFile: {
+        url: "/demo-sources/tsla-q4-2025/original.pdf",
+        canDownload: false,
+      },
     });
   });
 });

@@ -456,7 +456,7 @@ function MarkdownPreview({ file }: { file: SourceOriginalFileView }): ReactNode 
   if (state.status === "failed") return <UnsupportedPreview />;
 
   return (
-    <div className="prose prose-sm max-w-none text-foreground prose-pre:whitespace-pre-wrap prose-pre:break-words">
+    <div className="original-markdown-preview min-w-0 max-w-full overflow-x-auto">
       <ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml>
         {normalizeMarkdownPreviewText(state.value)}
       </ReactMarkdown>

@@ -12,6 +12,7 @@ import { sourceViewOptionsBySourceId } from "@/lib/source-counts"
 import { toSourceView } from "@/lib/source-view"
 import {
   ensureWorkspace,
+  ensureDemoWorkspaceContent,
   listChatThreadsForWorkspace,
   listMessagesForThread,
   listSourcesForWorkspace,
@@ -58,6 +59,7 @@ export default async function Home() {
   const cookieHeader = (await headers()).get("cookie") ?? ""
   const apiKey = await ensureApiKeyForWorkspace(workspace.id, cookieHeader)
   const client = makeKnowhereClient(apiKey)
+  await ensureDemoWorkspaceContent(workspace, client)
   const sources = await listSourcesForWorkspace(workspace.id)
   const chatThreads = await listChatThreadsForWorkspace(workspace.id)
   const activeChatThread = chatThreads[0] ?? null

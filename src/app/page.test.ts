@@ -1,0 +1,88 @@
+import React from "react";
+import { Effect } from "effect";
+import { describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  ensureApiKeyForWorkspace: vi.fn(),
+  ensureDemoWorkspaceContent: vi.fn(),
+  ensureWorkspace: vi.fn(),
+  getCurrentUser: vi.fn(),
+  listChatThreadsForWorkspace: vi.fn(),
+  listMessagesForThread: vi.fn(),
+  listSourcesForWorkspace: vi.fn(),
+  makeKnowhereClient: vi.fn(),
+  sourceViewOptionsBySourceId: vi.fn(),
+}));
+
+vi.mock("next/headers", () => ({
+  headers: vi.fn(async () => new Headers({ cookie: "session=abc" })),
+}));
+
+vi.mock("@/lib/api-key-service", () => ({
+  ensureApiKeyForWorkspace: mocks.ensureApiKeyForWorkspace,
+}));
+
+vi.mock("@/lib/auth", () => ({
+  getCurrentUser: mocks.getCurrentUser,
+}));
+
+vi.mock("@/lib/knowhere", () => ({
+  makeKnowhereClient: mocks.makeKnowhereClient,
+}));
+
+vi.mock("@/lib/source-counts", () => ({
+  sourceViewOptionsBySourceId: mocks.sourceViewOptionsBySourceId,
+}));
+
+vi.mock("@/lib/workspace", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/workspace")>(
+    "@/lib/workspace",
+  );
+  return {
+    ...actual,
+    ensureDemoWorkspaceContent: mocks.ensureDemoWorkspaceContent,
+    ensureWorkspace: mocks.ensureWorkspace,
+    listChatThreadsForWorkspace: mocks.listChatThreadsForWorkspace,
+    listMessagesForThread: mocks.listMessagesForThread,
+    listSourcesForWorkspace: mocks.listSourcesForWorkspace,
+  };
+});
+
+import Home from "./page";
+
+describe("Home", () => {
+  it("uploads bundled demo content into the logged-in workspace before rendering", async () => {
+    const client = {};
+    mocks.getCurrentUser.mockResolvedValue({
+      id: "user_1",
+      name: "Ada",
+      email: "ada@example.com",
+    });
+    mocks.ensureWorkspace.mockResolvedValue({
+      id: "workspace_1",
+      namespace: "notebook-workspace_1",
+    });
+    mocks.ensureApiKeyForWorkspace.mockResolvedValue("jwt_123");
+    mocks.makeKnowhereClient.mockReturnValue(client);
+    mocks.listSourcesForWorkspace.mockResolvedValue([]);
+    mocks.listChatThreadsForWorkspace.mockResolvedValue([]);
+    mocks.sourceViewOptionsBySourceId.mockReturnValue(Effect.succeed(new Map()));
+
+    const element = await Home();
+
+    expect(React.isValidElement(element)).toBe(true);
+    expect(mocks.ensureDemoWorkspaceContent).toHaveBeenCalledWith(
+      {
+        id: "workspace_1",
+        namespace: "notebook-workspace_1",
+      },
+      client,
+    );
+    expect(
+      mocks.ensureDemoWorkspaceContent.mock.invocationCallOrder[0],
+    ).toBeGreaterThan(mocks.makeKnowhereClient.mock.invocationCallOrder[0]);
+    expect(
+      mocks.ensureDemoWorkspaceContent.mock.invocationCallOrder[0],
+    ).toBeLessThan(mocks.listSourcesForWorkspace.mock.invocationCallOrder[0]);
+  });
+});

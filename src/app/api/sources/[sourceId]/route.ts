@@ -5,6 +5,7 @@ import { del } from "@vercel/blob"
 
 import { ensureApiKeyForWorkspace } from "@/lib/api-key-service";
 import { requireUser } from "@/lib/auth";
+import { demoData } from "@/lib/demo-data";
 import { makeKnowhereClient } from "@/lib/knowhere";
 import { ensureWorkspace, findSourceInWorkspace, softDeleteSource } from "@/lib/workspace";
 
@@ -51,7 +52,11 @@ export async function PATCH(
     );
   }
 
-  if (source.knowhereDocumentId) {
+  const isDemoSource = Boolean(
+    source.demoKey && demoData.getSourceSeedByDemoKey(source.demoKey),
+  )
+
+  if (!isDemoSource && source.knowhereDocumentId) {
     const cookieHeader = (await headers()).get("cookie") ?? ""
     const apiKey = await ensureApiKeyForWorkspace(workspace.id, cookieHeader)
     const client = makeKnowhereClient(apiKey)
@@ -59,7 +64,7 @@ export async function PATCH(
   }
 
   await softDeleteSource(workspace.id, sourceId);
-  if (source.originalBlobPathname) {
+  if (!isDemoSource && source.originalBlobPathname) {
     try {
       await del(source.originalBlobPathname)
     } catch {
