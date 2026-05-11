@@ -70,7 +70,7 @@ export type PanelId = "sources" | "content" | "chat"
 export const DESKTOP_PANEL_GUTTER_WIDTH = 8
 export const DESKTOP_PANEL_MIN_WIDTHS = {
   sources: 260,
-  chunks: 600,
+  chunks: 480,
   chat: 360,
 } as const
 
@@ -89,6 +89,13 @@ const sourceChunkPageSize = 100
 
 type DesktopPanelKey = keyof typeof DESKTOP_PANEL_MIN_WIDTHS
 type DesktopPanelWidths = Record<DesktopPanelKey, number>
+
+type DesktopPanelResizeDrag = {
+  leftPanel: DesktopPanelKey
+  rightPanel: DesktopPanelKey
+  leftWidth: number
+  rightWidth: number
+}
 
 type FocusedChunkState = {
   chunkId: string | null
@@ -331,6 +338,12 @@ function WorkspaceShellContent({
   )
   const [desktopPanelWidths, setDesktopPanelWidths] =
     useState<DesktopPanelWidths>({ ...DESKTOP_PANEL_DEFAULT_WIDTHS })
+  const desktopPanelElements = useRef<Record<DesktopPanelKey, HTMLDivElement | null>>({
+    sources: null,
+    chunks: null,
+    chat: null,
+  })
+  const desktopPanelResizeDrag = useRef<DesktopPanelResizeDrag | null>(null)
 
   const minimumDesktopPanelWidth =
     DESKTOP_PANEL_MIN_WIDTHS.sources +
@@ -380,11 +393,20 @@ function WorkspaceShellContent({
     deltaX: number,
   ): void {
     setDesktopPanelWidths((current) => {
-      const totalWidth = current[leftPanel] + current[rightPanel]
+      const drag = desktopPanelResizeDrag.current
+      const leftCurrentWidth =
+        drag?.leftPanel === leftPanel && drag.rightPanel === rightPanel
+          ? drag.leftWidth
+          : getRenderedDesktopPanelWidth(leftPanel, current[leftPanel])
+      const rightCurrentWidth =
+        drag?.leftPanel === leftPanel && drag.rightPanel === rightPanel
+          ? drag.rightWidth
+          : getRenderedDesktopPanelWidth(rightPanel, current[rightPanel])
+      const totalWidth = leftCurrentWidth + rightCurrentWidth
       const leftMinimumWidth = DESKTOP_PANEL_MIN_WIDTHS[leftPanel]
       const rightMinimumWidth = DESKTOP_PANEL_MIN_WIDTHS[rightPanel]
       const leftWidth = clamp(
-        current[leftPanel] + deltaX,
+        leftCurrentWidth + deltaX,
         leftMinimumWidth,
         totalWidth - rightMinimumWidth,
       )
@@ -395,6 +417,40 @@ function WorkspaceShellContent({
         [rightPanel]: totalWidth - leftWidth,
       }
     })
+  }
+
+  function handleDesktopPanelResizeStart(
+    leftPanel: DesktopPanelKey,
+    rightPanel: DesktopPanelKey,
+  ): void {
+    desktopPanelResizeDrag.current = {
+      leftPanel,
+      rightPanel,
+      leftWidth: getRenderedDesktopPanelWidth(
+        leftPanel,
+        desktopPanelWidths[leftPanel],
+      ),
+      rightWidth: getRenderedDesktopPanelWidth(
+        rightPanel,
+        desktopPanelWidths[rightPanel],
+      ),
+    }
+  }
+
+  function handleDesktopPanelResizeEnd(): void {
+    desktopPanelResizeDrag.current = null
+  }
+
+  function getRenderedDesktopPanelWidth(
+    panel: DesktopPanelKey,
+    fallbackWidth: number,
+  ): number {
+    const renderedWidth =
+      desktopPanelElements.current[panel]?.getBoundingClientRect().width
+
+    return renderedWidth && Number.isFinite(renderedWidth) && renderedWidth > 0
+      ? renderedWidth
+      : fallbackWidth
   }
 
   const selectedSourceTitle = selectedSource?.title ?? null
@@ -732,6 +788,9 @@ function WorkspaceShellContent({
         >
           <div
             data-testid="desktop-sources-panel"
+            ref={(element) => {
+              desktopPanelElements.current.sources = element
+            }}
             className="h-full shrink-0"
             style={{
               minWidth: `${DESKTOP_PANEL_MIN_WIDTHS.sources}px`,
@@ -751,12 +810,19 @@ function WorkspaceShellContent({
           </div>
           <DesktopResizeHandle
             label="Resize sources and parsed chunks"
+            onResizeStart={() =>
+              handleDesktopPanelResizeStart("sources", "chunks")
+            }
             onResize={(deltaX) =>
               handleDesktopPanelResize("sources", "chunks", deltaX)
             }
+            onResizeEnd={handleDesktopPanelResizeEnd}
           />
           <div
             data-testid="desktop-chunks-panel"
+            ref={(element) => {
+              desktopPanelElements.current.chunks = element
+            }}
             className="h-full min-w-0 shrink-0 grow"
             style={{
               minWidth: `${DESKTOP_PANEL_MIN_WIDTHS.chunks}px`,
@@ -777,12 +843,19 @@ function WorkspaceShellContent({
           </div>
           <DesktopResizeHandle
             label="Resize parsed chunks and chat"
+            onResizeStart={() =>
+              handleDesktopPanelResizeStart("chunks", "chat")
+            }
             onResize={(deltaX) =>
               handleDesktopPanelResize("chunks", "chat", deltaX)
             }
+            onResizeEnd={handleDesktopPanelResizeEnd}
           />
           <div
             data-testid="desktop-chat-panel"
+            ref={(element) => {
+              desktopPanelElements.current.chat = element
+            }}
             className="h-full shrink-0"
             style={{
               minWidth: `${DESKTOP_PANEL_MIN_WIDTHS.chat}px`,
@@ -1152,25 +1225,30 @@ function initialsOf(user: WorkspaceShellProps["user"]): string {
 function DesktopResizeHandle({
   label,
   onResize,
+  onResizeEnd,
+  onResizeStart,
 }: {
   label: string
   onResize: (deltaX: number) => void
+  onResizeEnd?: () => void
+  onResizeStart?: () => void
 }) {
   function handlePointerDown(
     event: ReactPointerEvent<HTMLButtonElement>,
   ): void {
     event.preventDefault()
-    let lastClientX = event.clientX
+    const startClientX = event.clientX
+    onResizeStart?.()
 
     function handlePointerMove(moveEvent: PointerEvent): void {
-      const deltaX = moveEvent.clientX - lastClientX
-      lastClientX = moveEvent.clientX
+      const deltaX = moveEvent.clientX - startClientX
       onResize(deltaX)
     }
 
     function handlePointerUp(): void {
       window.removeEventListener("pointermove", handlePointerMove)
       window.removeEventListener("pointerup", handlePointerUp)
+      onResizeEnd?.()
     }
 
     window.addEventListener("pointermove", handlePointerMove)
