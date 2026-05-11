@@ -1,14 +1,5 @@
-import { Context } from "effect"
 import Knowhere from "@ontos-ai/knowhere-sdk"
 import { logger } from "@/lib/logger"
-
-/**
- * Server-side Knowhere client Effect service.
- */
-export class KnowhereClient extends Context.Tag("@knowhere/KnowhereClient")<
-  KnowhereClient,
-  Knowhere
->() { }
 
 /**
  * Create a Knowhere client with the given API key.
