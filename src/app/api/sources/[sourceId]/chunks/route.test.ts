@@ -66,13 +66,13 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
       chunks: [
         {
           documentId: "demo-doc-tsla-q4-2025",
-          sourceTitle: "TSLA-Q4-2025-Update.pdf",
+          sourceTitle: "TSLA-Q4-2025-Update(1).pdf",
         },
       ],
       pagination: {
         page: 1,
         pageSize: 1,
-        total: 71,
+        total: 70,
       },
     });
     expect(response.status).toBe(200);

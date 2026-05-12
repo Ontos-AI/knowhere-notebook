@@ -34,11 +34,14 @@ type ChunksPanelWorkflowInput = {
 
 type ChunksPanelWorkflow = {
   readonly activeFocusedChunkId: string | null
+  readonly handleChunkSelected: (chunk: ParsedChunkView) => void
   readonly handleOriginalViewSelected: () => void
   readonly handleParsedViewSelected: () => void
   readonly handleViewportScroll: UIEventHandler<HTMLDivElement>
   readonly hasOriginalFile: boolean
   readonly measureVirtualChunkElement: (node: HTMLDivElement | null) => void
+  readonly originalTargetPageNumber: number | null
+  readonly originalTargetPageRequestId: number
   readonly requestChunkFocus: (chunkId: string) => void
   readonly totalHeight: number
   readonly viewportRef: RefObject<HTMLDivElement | null>
@@ -67,6 +70,13 @@ export function useChunksPanelWorkflow({
   const [localFocusedChunkId, setLocalFocusedChunkId] = useState<string | null>(
     null,
   )
+  const [originalTargetPage, setOriginalTargetPage] = useState<{
+    readonly pageNumber: number | null
+    readonly requestId: number
+  }>({
+    pageNumber: null,
+    requestId: 0,
+  })
   const activeFocusedChunkId = focusedChunkId ?? localFocusedChunkId
   const hasOriginalFile = selectedSource !== null && selectedSourceFile !== null
   const visibleView = hasOriginalFile ? activeView : "parsed"
@@ -150,6 +160,20 @@ export function useChunksPanelWorkflow({
     setLocalFocusedChunkId(chunkId)
   }, [])
 
+  const handleChunkSelected = useCallback(
+    (chunk: ParsedChunkView): void => {
+      if (!hasOriginalFile) return
+
+      const pageNumber = getFirstChunkPageNumber(chunk)
+      setOriginalTargetPage((current) => ({
+        pageNumber,
+        requestId: current.requestId + 1,
+      }))
+      setActiveView("original")
+    },
+    [hasOriginalFile],
+  )
+
   const handleParsedViewSelected = useCallback((): void => {
     setActiveView("parsed")
   }, [])
@@ -186,11 +210,14 @@ export function useChunksPanelWorkflow({
 
   return {
     activeFocusedChunkId,
+    handleChunkSelected,
     handleOriginalViewSelected,
     handleParsedViewSelected,
     handleViewportScroll,
     hasOriginalFile,
     measureVirtualChunkElement,
+    originalTargetPageNumber: originalTargetPage.pageNumber,
+    originalTargetPageRequestId: originalTargetPage.requestId,
     requestChunkFocus,
     totalHeight,
     viewportRef,
@@ -202,4 +229,13 @@ export function useChunksPanelWorkflow({
 
 function hasVisibleViewportSize(viewport: HTMLDivElement): boolean {
   return viewport.clientHeight > 0 && viewport.scrollHeight > 0
+}
+
+function getFirstChunkPageNumber(chunk: ParsedChunkView): number | null {
+  const pageNumbers = chunk.pageNums ?? []
+  const validPageNumbers = pageNumbers.filter(
+    (pageNumber) => Number.isFinite(pageNumber) && pageNumber > 0,
+  )
+  if (validPageNumbers.length === 0) return null
+  return Math.min(...validPageNumbers)
 }

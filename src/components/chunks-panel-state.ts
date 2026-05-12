@@ -28,19 +28,52 @@ function getChunksWithFocusedFirst(
   chunks: readonly ParsedChunkView[],
   focusedChunkId: string | null,
 ): readonly ParsedChunkView[] {
-  if (!focusedChunkId) return chunks
+  const orderedChunks = getChunksOrderedByPageNumber(chunks)
+  if (!focusedChunkId) return orderedChunks
 
-  const focusedIndex = chunks.findIndex(
+  const focusedIndex = orderedChunks.findIndex(
     (chunk) => chunk.chunkId === focusedChunkId,
   )
-  if (focusedIndex <= 0) return chunks
+  if (focusedIndex <= 0) return orderedChunks
 
-  const focusedChunk = chunks[focusedIndex]!
+  const focusedChunk = orderedChunks[focusedIndex]!
   return [
     focusedChunk,
-    ...chunks.slice(0, focusedIndex),
-    ...chunks.slice(focusedIndex + 1),
+    ...orderedChunks.slice(0, focusedIndex),
+    ...orderedChunks.slice(focusedIndex + 1),
   ]
+}
+
+function getChunksOrderedByPageNumber(
+  chunks: readonly ParsedChunkView[],
+): readonly ParsedChunkView[] {
+  return chunks
+    .map((chunk, index) => ({
+      chunk,
+      index,
+      firstPageNumber: getFirstPageNumber(chunk),
+    }))
+    .sort((left, right) => {
+      if (left.firstPageNumber === null && right.firstPageNumber === null) {
+        return left.index - right.index
+      }
+      if (left.firstPageNumber === null) return 1
+      if (right.firstPageNumber === null) return -1
+      if (left.firstPageNumber !== right.firstPageNumber) {
+        return left.firstPageNumber - right.firstPageNumber
+      }
+      return left.index - right.index
+    })
+    .map(({ chunk }) => chunk)
+}
+
+function getFirstPageNumber(chunk: ParsedChunkView): number | null {
+  const pageNumbers = chunk.pageNums ?? []
+  const finitePageNumbers = pageNumbers.filter(
+    (pageNumber) => Number.isFinite(pageNumber) && pageNumber >= 0,
+  )
+  if (finitePageNumbers.length === 0) return null
+  return Math.min(...finitePageNumbers)
 }
 
 function formatChunkSectionPath(

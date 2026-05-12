@@ -275,7 +275,7 @@ describe("ensureDemoSourceUpload", () => {
   const demoInput = {
     demoKey: "demo-tsla-q4-2025",
     documentId: "demo-doc-tsla-q4-2025",
-    title: "TSLA-Q4-2025-Update.pdf",
+    title: "TSLA-Q4-2025-Update(1).pdf",
     mimeType: "application/pdf",
     originalSizeBytes: 5,
     originalFileUrl: "/demo-sources/tsla-q4-2025/original.pdf",

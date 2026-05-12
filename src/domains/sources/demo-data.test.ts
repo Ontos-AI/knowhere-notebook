@@ -20,11 +20,11 @@ describe("demoData", () => {
     expect(sources).toEqual([
       {
         id: "demo-tsla-q4-2025",
-        title: "TSLA-Q4-2025-Update.pdf",
+        title: "TSLA-Q4-2025-Update(1).pdf",
         mimeType: "application/pdf",
         status: "ready",
         documentId: "demo-doc-tsla-q4-2025",
-        chunkCount: 71,
+        chunkCount: 70,
         originalFile: {
           url: "/demo-sources/tsla-q4-2025/original.pdf",
           mimeType: "application/pdf",
@@ -42,17 +42,39 @@ describe("demoData", () => {
       "demo-tsla-q4-2025",
     );
 
-    expect(tslaChunks).toHaveLength(71);
+    expect(tslaChunks).toHaveLength(70);
     expect(tslaChunks?.[0]).toMatchObject({
-      chunkId: "demo-tsla-q4-2025:53f41a6a-259f-596d-92eb-0e6b7141e849",
+      chunkId: "demo-tsla-q4-2025:15bcc860-b8d0-50c6-a627-66dbae67acd4",
       documentId: "demo-doc-tsla-q4-2025",
-      sectionPath:
-        "tables/table-1 Profitability $4.4B GAAP operating... 2025 marked a critic....html",
+      sectionPath: "tables/table-0 Tesla 2025 Results.html",
       type: "table",
-      sourceTitle: "TSLA-Q4-2025-Update.pdf",
+      sourceTitle: "TSLA-Q4-2025-Update(1).pdf",
     });
     expect(tslaChunks?.[0]?.content).toContain("<table>");
-    expect(tslaChunks?.[0]?.summary).toContain("Tesla reported 2025");
+    expect(tslaChunks?.[0]?.summary).toContain("Tesla reported strong 2025");
+  });
+
+  it("loads page numbers from the static guest chunks", async () => {
+    const demoModule: DemoDataModule = await import("./demo-data");
+    const tslaChunks = await demoModule.demoData!.loadChunksForSource(
+      "demo-tsla-q4-2025",
+    );
+
+    expect(tslaChunks?.every((chunk) => chunk.pageNums?.length)).toBe(true);
+    expect(tslaChunks?.[0]?.pageNums).toEqual([11]);
+    expect(
+      tslaChunks?.find(
+        (chunk) =>
+          chunk.sectionPath ===
+          "Default_Root/TSLA-Q4-2025-Update(1).pdf-->SUMMARY-->Automotive",
+      )?.pageNums,
+    ).toEqual([8]);
+    expect(
+      tslaChunks?.find(
+        (chunk) => chunk.filePath === "images/image-5-Tesla Model Y Driving.jpg",
+      )?.pageNums,
+    ).toEqual([15]);
+    expect(tslaChunks?.at(-1)?.pageNums).toEqual([34]);
   });
 
   it("encodes static asset urls so reserved filename characters stay in the path", async () => {
@@ -61,12 +83,12 @@ describe("demoData", () => {
       "demo-tsla-q4-2025",
     );
 
-    const productImageChunk = tslaChunks?.find(
-      (chunk) => chunk.filePath === "images/image-5-# Product .jpg",
+    const modelYImageChunk = tslaChunks?.find(
+      (chunk) => chunk.filePath === "images/image-5-Tesla Model Y Driving.jpg",
     );
 
-    expect(productImageChunk?.assetUrl).toBe(
-      "/demo-sources/tsla-q4-2025/images/image-5-%23%20Product%20.jpg",
+    expect(modelYImageChunk?.assetUrl).toBe(
+      "/demo-sources/tsla-q4-2025/images/image-5-Tesla%20Model%20Y%20Driving.jpg",
     );
   });
 

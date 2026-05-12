@@ -43,12 +43,12 @@ const demoSourceDefinitions: readonly DemoSourceDefinition[] = [
   {
     id: "demo-tsla-q4-2025",
     documentId: "demo-doc-tsla-q4-2025",
-    title: "TSLA-Q4-2025-Update.pdf",
+    title: "TSLA-Q4-2025-Update(1).pdf",
     mimeType: "application/pdf",
     originalFilePath: "original.pdf",
     originalSizeBytes: 5648867,
     assetDirectory: "tsla-q4-2025",
-    chunkCount: 71,
+    chunkCount: 70,
     chatThreadTitle: "TSLA demo conversation",
   },
 ] as const;

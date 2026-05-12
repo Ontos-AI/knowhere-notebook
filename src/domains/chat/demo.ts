@@ -27,10 +27,10 @@ export const DEMO_CHAT_MESSAGES: readonly ChatMessageView[] = [
     ].join("\n\n"),
     citations: [
       makeCitation("demo-doc-tsla-q4-2025", {
-        sourceFileName: "TSLA-Q4-2025-Update.pdf",
-        sectionPath: "Default_Root/TSLA-Q4-2025-Update.pdf-->OTHER UPDATES",
+        sourceFileName: "TSLA-Q4-2025-Update(1).pdf",
+        sectionPath: "Default_Root/TSLA-Q4-2025-Update(1).pdf-->OTHER UPDATES",
         description: "xAI investment",
-        content: "On January 16, 2026, Tesla entered into an agreement to invest approximately $2 billion to acquire shares of Series E Preferred Stock of xAI.",
+        content: "On January 16, 2026, Tesla entered into an agreement to invest approximately",
       }),
     ],
   },
@@ -49,8 +49,8 @@ export const DEMO_CHAT_MESSAGES: readonly ChatMessageView[] = [
     ].join("\n\n"),
     citations: [
       makeCitation("demo-doc-tsla-q4-2025", {
-        sourceFileName: "TSLA-Q4-2025-Update.pdf",
-        sectionPath: "Default_Root/TSLA-Q4-2025-Update.pdf-->OPERATIONAL SUMMARY-->Energy generation and storage",
+        sourceFileName: "TSLA-Q4-2025-Update(1).pdf",
+        sectionPath: "Default_Root/TSLA-Q4-2025-Update(1).pdf-->SUMMARY-->Energy generation and storage",
         description: "Storage deployment growth",
         content: "We achieved our highest quarterly energy storage deployments, driven by record Megapack deployments.",
       }),
@@ -70,8 +70,8 @@ export const DEMO_CHAT_MESSAGES: readonly ChatMessageView[] = [
     ].join("\n\n"),
     citations: [
       makeCitation("demo-doc-tsla-q4-2025", {
-        sourceFileName: "TSLA-Q4-2025-Update.pdf",
-        sectionPath: "Default_Root/TSLA-Q4-2025-Update.pdf-->Product",
+        sourceFileName: "TSLA-Q4-2025-Update(1).pdf",
+        sectionPath: "Default_Root/TSLA-Q4-2025-Update(1).pdf-->OUTLOOK-->Product",
         description: "2026 production plans",
         content: "Cybercab, Tesla Semi and Megapack 3 are on schedule for volume production starting in 2026.",
       }),

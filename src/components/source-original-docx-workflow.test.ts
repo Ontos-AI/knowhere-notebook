@@ -4,6 +4,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import type { SourceOriginalFileView } from "@/domains/sources/types"
+import { sourceOriginalPreviewRequest } from "./source-original-preview-request"
 import { useSourceOriginalDocxWorkflow } from "./source-original-docx-workflow"
 
 const docxRenderOptionsLog: unknown[] = []
@@ -42,6 +43,7 @@ vi.mock("mammoth", () => ({
 describe("useSourceOriginalDocxWorkflow", () => {
   afterEach(() => {
     cleanup()
+    sourceOriginalPreviewRequest.clearCacheForTests()
     vi.unstubAllGlobals()
     shouldRejectDocxPreviewRender = false
     docxRenderOptionsLog.length = 0

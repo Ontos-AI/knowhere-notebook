@@ -4,6 +4,59 @@ import { chunksPanelState } from "./chunks-panel-state"
 import type { ParsedChunkView } from "@/domains/chunks/types"
 
 describe("chunksPanelState", () => {
+  it("orders chunks by their first page number before applying focus", () => {
+    const chunks: ParsedChunkView[] = [
+      {
+        chunkId: "chunk_without_page",
+        type: "text",
+        content: "Appendix",
+        sourceTitle: "notes.pdf",
+      },
+      {
+        chunkId: "chunk_page_7",
+        type: "text",
+        content: "Later page",
+        sourceTitle: "notes.pdf",
+        pageNums: [7],
+      },
+      {
+        chunkId: "chunk_page_2",
+        type: "text",
+        content: "Earlier page",
+        sourceTitle: "notes.pdf",
+        pageNums: [2, 3],
+      },
+      {
+        chunkId: "chunk_page_7_second",
+        type: "text",
+        content: "Same page",
+        sourceTitle: "notes.pdf",
+        pageNums: [7],
+      },
+    ]
+
+    expect(
+      chunksPanelState
+        .getChunksWithFocusedFirst(chunks, null)
+        .map((chunk) => chunk.chunkId),
+    ).toEqual([
+      "chunk_page_2",
+      "chunk_page_7",
+      "chunk_page_7_second",
+      "chunk_without_page",
+    ])
+    expect(
+      chunksPanelState
+        .getChunksWithFocusedFirst(chunks, "chunk_page_7")
+        .map((chunk) => chunk.chunkId),
+    ).toEqual([
+      "chunk_page_7",
+      "chunk_page_2",
+      "chunk_page_7_second",
+      "chunk_without_page",
+    ])
+  })
+
   it("moves a focused Parsed Chunk to the front without mutating the input", () => {
     const chunks: ParsedChunkView[] = [
       {

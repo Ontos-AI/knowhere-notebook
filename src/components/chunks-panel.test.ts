@@ -12,8 +12,19 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ChunksPanel } from "./chunks-panel";
+import { sourceOriginalPreviewRequest } from "./source-original-preview-request";
 
 const C = ChunksPanel as React.FC<Record<string, unknown>>;
+
+vi.mock("react-pdf", () => ({
+  pdfjs: {
+    GlobalWorkerOptions: {
+      workerSrc: "",
+    },
+  },
+  Document: () => React.createElement("div", { "data-testid": "pdf-document" }),
+  Page: () => React.createElement("div", { "data-testid": "pdf-page" }),
+}));
 
 describe("ChunksPanel", () => {
   beforeEach(() => {
@@ -26,6 +37,8 @@ describe("ChunksPanel", () => {
 
   afterEach(() => {
     cleanup();
+    sourceOriginalPreviewRequest.clearCacheForTests();
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
@@ -94,6 +107,94 @@ describe("ChunksPanel", () => {
     const image = screen.getByRole("img", { name: "diagram.png" });
     expect(image.getAttribute("src")).toBe(
       "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.png",
+    );
+  });
+
+  it("opens the original PDF preview at the clicked chunk page", async () => {
+    mockVisibleVirtualViewport();
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof globalThis.fetch>(() =>
+        Promise.resolve(
+          new Response(new Uint8Array([1, 2, 3]).buffer, { status: 200 }),
+        ),
+      ),
+    );
+
+    render(
+      React.createElement(C, {
+        chunks: [
+          {
+            chunkId: "chunk_1",
+            type: "text",
+            content: "Revenue details live on the second page.",
+            sourceTitle: "report.pdf",
+            pageNums: [2],
+          },
+        ],
+        selectedSource: "report.pdf",
+        selectedSourceFile: {
+          url: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/report.pdf",
+          mimeType: "application/pdf",
+        },
+      }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Open page 2" }));
+
+    expect(screen.getByRole("heading", { name: "Original File" })).toBeTruthy();
+    expect(screen.getByTestId("source-original-preview").getAttribute(
+      "data-target-page",
+    )).toBe("2");
+  });
+
+  it("keeps the original PDF preview mounted when switching back to parsed chunks", async () => {
+    mockVisibleVirtualViewport();
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof globalThis.fetch>(() =>
+        Promise.resolve(
+          new Response(new Uint8Array([1, 2, 3]).buffer, { status: 200 }),
+        ),
+      ),
+    );
+
+    render(
+      React.createElement(C, {
+        chunks: [
+          {
+            chunkId: "chunk_1",
+            type: "text",
+            content: "Revenue details live on the second page.",
+            sourceTitle: "report.pdf",
+            pageNums: [2],
+          },
+        ],
+        selectedSource: "report.pdf",
+        selectedSourceFile: {
+          url: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/report.pdf",
+          mimeType: "application/pdf",
+        },
+      }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Open page 2" }));
+
+    const mountedOriginalPreview = screen.getByTestId("source-original-preview");
+
+    await user.click(screen.getByRole("button", { name: "Parsed" }));
+
+    expect(screen.getByRole("heading", { name: "Parsed Chunks" })).toBeTruthy();
+    expect(screen.getByTestId("source-original-preview")).toBe(
+      mountedOriginalPreview,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Original" }));
+
+    expect(screen.getByTestId("source-original-preview")).toBe(
+      mountedOriginalPreview,
     );
   });
 

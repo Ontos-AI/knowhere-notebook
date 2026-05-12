@@ -10,6 +10,7 @@ type PreviewKind =
 
 const pdfPageAspectRatio = 1.414;
 const pdfPageMaxWidth = 1600;
+const pdfCanvasMaxDevicePixelRatio = 1.5;
 const textPreviewByteLimit = 1024 * 1024;
 const docxPreviewByteLimit = 10 * 1024 * 1024;
 
@@ -17,6 +18,7 @@ export const sourceOriginalPreviewModel = {
   pdfPageAspectRatio,
   getInitialPdfPageWidth,
   getOriginalDownloadUrl,
+  getPdfCanvasDevicePixelRatio,
   getPdfPageAspectRatio,
   getPdfPagePlaceholderHeight,
   getPdfPageWidth,
@@ -120,6 +122,14 @@ function getSafePdfPageAspectRatio(width: number, height: number): number {
 function getInitialPdfPageWidth(): number {
   if (typeof window === "undefined") return 640;
   return Math.max(1, Math.min(640, window.innerWidth - 48));
+}
+
+function getPdfCanvasDevicePixelRatio(): number {
+  if (typeof window === "undefined") return 1;
+
+  const devicePixelRatio = window.devicePixelRatio;
+  if (!Number.isFinite(devicePixelRatio) || devicePixelRatio <= 0) return 1;
+  return Math.min(pdfCanvasMaxDevicePixelRatio, Math.max(1, devicePixelRatio));
 }
 
 function getOriginalDownloadUrl(url: string): string {
