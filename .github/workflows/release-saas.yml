@@ -1,0 +1,86 @@
+name: Release Notebook deployment
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-notebook-deployment-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Create deployment release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out released source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Choose date release tag
+        id: release-tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --tags --force
+
+          base_tag="$(date -u +'%Y.%m.%d')"
+          last_number="$(
+            git tag --list "${base_tag}.*" \
+              | sed -E "s/^${base_tag}\\.([0-9]+)$/\\1/" \
+              | grep -E '^[0-9]+$' \
+              | sort -n \
+              | tail -1 \
+              || true
+          )"
+
+          if [ -z "${last_number}" ]; then
+            next_number=1
+          else
+            next_number=$((last_number + 1))
+          fi
+
+          release_tag="${base_tag}.${next_number}"
+          echo "release_tag=${release_tag}" >> "${GITHUB_OUTPUT}"
+
+      - name: Create source archive
+        env:
+          RELEASE_TAG: ${{ steps.release-tag.outputs.release_tag }}
+          RELEASED_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          git archive --format=zip --output="release-assets/knowhere-notebook-${RELEASE_TAG}-source.zip" "${RELEASED_SHA}"
+
+          cat > release-assets/build-info.json <<EOF
+          {
+            "repository": "${GITHUB_REPOSITORY}",
+            "release_tag": "${RELEASE_TAG}",
+            "released_commit": "${RELEASED_SHA}",
+            "workflow_run_id": "${GITHUB_RUN_ID}",
+            "workflow_run_url": "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          }
+          EOF
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.release-tag.outputs.release_tag }}
+          RELEASED_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "${RELEASE_TAG}" \
+            release-assets/knowhere-notebook-${RELEASE_TAG}-source.zip \
+            release-assets/build-info.json \
+            --repo "${GITHUB_REPOSITORY}" \
+            --target "${RELEASED_SHA}" \
+            --title "${RELEASE_TAG}" \
+            --generate-notes

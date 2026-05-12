@@ -28,6 +28,14 @@ Upload documents, explore parsed content, and ask questions about your knowledge
 - **UI**: [shadcn/ui](https://ui.shadcn.com) + Tailwind CSS 4
 - **Icons**: [Lucide](https://lucide.dev)
 
+## CI and Releases
+
+The CI workflow runs lint, typecheck, tests, and build on pull requests targeting
+`main` and `staging`.
+
+After changes are merged to `main`, the release workflow creates a date-based
+GitHub Release with a source archive and build metadata.
+
 ## Dashboard Auth Integration
 
 Notebook treats Dashboard as the auth source of truth. Server-side auth calls
