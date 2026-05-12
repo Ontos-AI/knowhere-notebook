@@ -1,5 +1,6 @@
 import { Effect } from "effect"
 
+import { demoView } from "@/domains/demo/view"
 import { routeResult } from "@/lib/route-result"
 import { toSourceView } from "./view"
 import { getClientForWorkspace } from "./route-dependencies"
@@ -19,9 +20,10 @@ type RouteListingDependencies = Pick<
   | "makeKnowhereClient"
   | "reconcileSourcesForWorkspace"
 > & {
-  readonly demoData: Pick<
-    SourceRouteServiceDependencies["demoData"],
-    "listSources"
+  readonly demoApi: Pick<SourceRouteServiceDependencies["demoApi"], "fetchCatalog">
+  readonly sourceService: Pick<
+    SourceRouteServiceDependencies["sourceService"],
+    "listHiddenDemoSourceIds"
   >
 }
 
@@ -42,8 +44,9 @@ async function listSources(
   deps: RouteListingDependencies,
 ): Promise<JsonRouteResult<ListSourcesBody>> {
   const user = await deps.getCurrentUser()
+  const catalog = await deps.demoApi.fetchCatalog()
   if (!user) {
-    return routeResult.ok({ sources: deps.demoData.listSources() })
+    return routeResult.ok({ sources: catalog.sources.map(demoView.toSourceView) })
   }
 
   const workspace = await deps.ensureWorkspace(user.id)
@@ -56,11 +59,26 @@ async function listSources(
   const sourceOptions = await Effect.runPromise(
     deps.getSourceViewOptionsBySourceId(sources, client),
   )
+  const materializedDemoSourceIds = new Set(
+    sources
+      .map((source) => source.demoKey)
+      .filter((demoSourceId): demoSourceId is string => Boolean(demoSourceId)),
+  )
+  const hiddenDemoSourceIds = new Set(
+    await deps.sourceService.listHiddenDemoSourceIds(workspace.id),
+  )
+  const visibleDemoSources = catalog.sources
+    .filter((source) => !materializedDemoSourceIds.has(source.demoSourceId))
+    .filter((source) => !hiddenDemoSourceIds.has(source.demoSourceId))
+    .map(demoView.toSourceView)
 
   return routeResult.ok({
-    sources: sources.map((source) =>
-      toSourceView(source, sourceOptions.get(source.id)),
-    ),
+    sources: [
+      ...visibleDemoSources,
+      ...sources.map((source) =>
+        toSourceView(source, sourceOptions.get(source.id)),
+      ),
+    ],
   })
 }
 

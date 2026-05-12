@@ -3,7 +3,6 @@ import "server-only"
 import { Effect, Either } from "effect"
 import type Knowhere from "@ontos-ai/knowhere-sdk"
 
-import { demoData } from "./demo-data"
 import type { Source } from "@/infrastructure/db/schema"
 
 export const countChunksBySourceId = (
@@ -21,11 +20,6 @@ export const countChunksBySourceId = (
         Effect.gen(function* () {
           const documentId = source.knowhereDocumentId
           if (!documentId) return [source.id, undefined] as const
-
-          const demoChunkCount = demoData.getChunkCountForDocumentId(documentId)
-          if (demoChunkCount !== undefined) {
-            return [source.id, demoChunkCount] as const
-          }
 
           const result = yield* Effect.either(
             Effect.tryPromise(() =>

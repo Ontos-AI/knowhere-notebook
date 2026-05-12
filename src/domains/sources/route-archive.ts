@@ -10,7 +10,7 @@ import type {
 type RouteArchiveDependencies = Pick<
   SourceRouteServiceDependencies,
   | "deleteBlob"
-  | "demoData"
+  | "demoApi"
   | "ensureApiKeyForWorkspace"
   | "ensureWorkspace"
   | "makeKnowhereClient"
@@ -42,14 +42,19 @@ async function archiveSource(
   )
 
   if (!source) {
+    const catalog = await deps.demoApi.fetchCatalog()
+    const isDemoSource = catalog.sources.some(
+      (candidate) => candidate.demoSourceId === input.sourceId,
+    )
+    if (isDemoSource) {
+      await deps.sourceService.hideDemoSource(workspace.id, input.sourceId)
+      return routeResult.ok({ id: input.sourceId, archived: true })
+    }
+
     return routeResult.error(404, "Source not found.")
   }
 
-  const isDemoSource = Boolean(
-    source.demoKey && deps.demoData.getSourceSeedByDemoKey(source.demoKey),
-  )
-
-  if (!isDemoSource && source.knowhereDocumentId) {
+  if (source.knowhereDocumentId) {
     const client = await getClientForWorkspace(
       workspace.id,
       input.cookieHeader,
@@ -59,7 +64,10 @@ async function archiveSource(
   }
 
   await deps.sourceService.softDelete(workspace.id, input.sourceId)
-  if (!isDemoSource && source.originalBlobPathname) {
+  if (source.demoKey) {
+    await deps.sourceService.hideDemoSource(workspace.id, source.demoKey)
+  }
+  if (source.originalBlobPathname) {
     try {
       await deps.deleteBlob(source.originalBlobPathname)
     } catch {

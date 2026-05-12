@@ -5,6 +5,7 @@ import type { Job } from "@ontos-ai/knowhere-sdk";
 import type { Source, Workspace } from "@/infrastructure/db/schema";
 import { createRouteListing } from "./route-listing";
 import { createSourceRouteService } from "./route-service";
+import type { DemoCatalog } from "@/integrations/knowhere-demo";
 
 const workspace: Workspace = {
   id: "workspace_1",
@@ -58,9 +59,10 @@ describe("source route service", () => {
       Effect.succeed(new Map([[source.id, { chunkCount: 8 }]])),
     );
     const reconcileSourcesForWorkspace = vi.fn(async () => [source]);
+    const listHiddenDemoSourceIds = vi.fn(async () => []);
     const listing = createRouteListing({
-      demoData: {
-        listSources: vi.fn(() => []),
+      demoApi: {
+        fetchCatalog: vi.fn(async () => emptyDemoCatalog),
       },
       ensureApiKeyForWorkspace,
       ensureWorkspace: vi.fn(async () => workspace),
@@ -72,6 +74,7 @@ describe("source route service", () => {
       getSourceViewOptionsBySourceId,
       makeKnowhereClient: vi.fn(() => knowhereClient),
       reconcileSourcesForWorkspace,
+      sourceService: { listHiddenDemoSourceIds },
     });
 
     const result = await listing.listSources({ cookieHeader: "session=abc" });
@@ -82,9 +85,11 @@ describe("source route service", () => {
         sources: [
           {
             id: "source_1",
+            kind: "workspace",
             title: "notes.pdf",
             status: "parsing",
             mimeType: "application/pdf",
+            documentId: undefined,
             chunkCount: 8,
           },
         ],
@@ -98,21 +103,14 @@ describe("source route service", () => {
       workspace,
       knowhereClient,
     );
+    expect(listHiddenDemoSourceIds).toHaveBeenCalledWith(workspace.id);
   });
 
-  it("lists bundled demo sources for anonymous users", async () => {
-    const demoSource = {
-      id: "demo_source_1",
-      title: "Demo.pdf",
-      status: "ready" as const,
-      mimeType: "application/pdf",
-      documentId: "demo_doc_1",
-      chunkCount: 3,
-    };
+  it("lists API-owned demo sources for anonymous users", async () => {
     const ensureWorkspace = vi.fn(async () => workspace);
     const service = createSourceRouteService({
-      demoData: {
-        listSources: vi.fn(() => [demoSource]),
+      demoApi: {
+        fetchCatalog: vi.fn(async () => demoCatalog),
       },
       ensureWorkspace,
       getCurrentUser: vi.fn(async () => null),
@@ -122,7 +120,26 @@ describe("source route service", () => {
 
     expect(result).toEqual({
       status: 200,
-      body: { sources: [demoSource] },
+      body: {
+        sources: [
+          {
+            id: "demo-tsla-q4-2025",
+            kind: "demo",
+            demoSourceId: "demo-tsla-q4-2025",
+            title: "TSLA-Q4-2025-Update.pdf",
+            mimeType: "application/pdf",
+            status: "ready",
+            documentId: "demo-doc-tsla-q4-2025",
+            originalFile: {
+              url: "/api/demo-sources/demo-tsla-q4-2025/original",
+              mimeType: "application/pdf",
+              sizeBytes: 1024,
+              canDownload: false,
+            },
+            chunkCount: 70,
+          },
+        ],
+      },
     });
     expect(ensureWorkspace).not.toHaveBeenCalled();
   });
@@ -183,9 +200,11 @@ describe("source route service", () => {
       body: {
         source: {
           id: "source_1",
+          kind: "workspace",
           title: "notes.pdf",
           status: "parsing",
           mimeType: "application/pdf",
+          documentId: undefined,
         },
       },
     });
@@ -201,3 +220,28 @@ describe("source route service", () => {
     expect(onUploadFinished).toHaveBeenCalledOnce();
   });
 });
+
+const emptyDemoCatalog: DemoCatalog = {
+  sources: [],
+};
+
+const demoCatalog: DemoCatalog = {
+  sources: [
+    {
+      demoSourceId: "demo-tsla-q4-2025",
+      canonicalDocumentId: "demo-doc-tsla-q4-2025",
+      title: "TSLA-Q4-2025-Update.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 1024,
+      status: "ready",
+      chunkCount: 70,
+      originalFile: {
+        url: "/api/v1/demo/sources/demo-tsla-q4-2025/original",
+        mimeType: "application/pdf",
+        sizeBytes: 1024,
+        canDownload: false,
+      },
+      examples: [],
+    },
+  ],
+};

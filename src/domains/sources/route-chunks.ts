@@ -1,7 +1,6 @@
 import { Effect } from "effect"
 
-import type { ChunkPage, ChunkPageParams } from "@/domains/chunks"
-import type { ParsedChunkView } from "@/domains/chunks/types"
+import { demoView } from "@/domains/demo/view"
 import { routeResult } from "@/lib/route-result"
 import { getClientForWorkspace } from "./route-dependencies"
 import type {
@@ -13,7 +12,7 @@ import type {
 
 type RouteChunksDependencies = Pick<
   SourceRouteServiceDependencies,
-  | "demoData"
+  | "demoApi"
   | "ensureApiKeyForWorkspace"
   | "ensureWorkspace"
   | "getCurrentUser"
@@ -41,15 +40,9 @@ async function loadSourceChunks(
   deps: RouteChunksDependencies,
 ): Promise<JsonRouteResult<SourceChunksBody>> {
   const user = await deps.getCurrentUser()
+  const demoChunkPage = await loadDemoChunkPage(input, deps)
   if (!user) {
-    const chunks = await deps.demoData.loadChunksForSource(input.sourceId)
-    if (!chunks) return sourceNotFound()
-
-    return routeResult.ok(
-      input.shouldLoadAll
-        ? { chunks }
-        : toChunkPage(chunks, input.pageParams),
-    )
+    return demoChunkPage ?? sourceNotFound()
   }
 
   const workspace = await deps.ensureWorkspace(user.id)
@@ -58,18 +51,7 @@ async function loadSourceChunks(
     input.sourceId,
   )
 
-  if (!source) return sourceNotFound()
-
-  const demoChunks = await deps.demoData.loadChunksForDocumentId(
-    source.knowhereDocumentId,
-  )
-  if (demoChunks) {
-    return routeResult.ok(
-      input.shouldLoadAll
-        ? { chunks: demoChunks }
-        : toChunkPage(demoChunks, input.pageParams),
-    )
-  }
+  if (!source) return demoChunkPage ?? sourceNotFound()
 
   const client = await getClientForWorkspace(
     workspace.id,
@@ -96,28 +78,44 @@ async function loadSourceChunks(
   return routeResult.ok(chunkPage)
 }
 
-function sourceNotFound(): JsonRouteResult<{ readonly message: string }> {
-  return routeResult.error(404, "Source not found.")
+async function loadDemoChunkPage(
+  input: LoadSourceChunksInput,
+  deps: RouteChunksDependencies,
+): Promise<JsonRouteResult<SourceChunksBody> | null> {
+  try {
+    const page = await deps.demoApi.fetchChunkPage({
+      demoSourceId: input.sourceId,
+      page: input.shouldLoadAll ? 1 : input.pageParams.page,
+      pageSize: input.shouldLoadAll ? 200 : input.pageParams.pageSize,
+    })
+    const source = {
+      id: page.demoSourceId,
+      kind: "demo" as const,
+      demoSourceId: page.demoSourceId,
+      title: page.title,
+      mimeType: page.mimeType,
+      status: "ready" as const,
+      documentId: page.canonicalDocumentId,
+    }
+    const chunks = page.chunks.map((chunk) =>
+      demoView.toParsedChunkView(source, chunk),
+    )
+
+    return routeResult.ok(
+      input.shouldLoadAll
+        ? { chunks }
+        : {
+            chunks,
+            pagination: page.pagination,
+          },
+    )
+  } catch {
+    return null
+  }
 }
 
-function toChunkPage(
-  chunks: readonly ParsedChunkView[],
-  params: ChunkPageParams,
-): ChunkPage {
-  const start = (params.page - 1) * params.pageSize
-  const pageChunks = chunks.slice(start, start + params.pageSize)
-  const totalPages =
-    chunks.length === 0 ? 0 : Math.ceil(chunks.length / params.pageSize)
-
-  return {
-    chunks: pageChunks,
-    pagination: {
-      page: params.page,
-      pageSize: params.pageSize,
-      total: chunks.length,
-      totalPages,
-    },
-  }
+function sourceNotFound(): JsonRouteResult<{ readonly message: string }> {
+  return routeResult.error(404, "Source not found.")
 }
 
 export { createRouteChunks }
