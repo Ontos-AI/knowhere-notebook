@@ -106,6 +106,82 @@ describe("source route service", () => {
     expect(listHiddenDemoSourceIds).toHaveBeenCalledWith(workspace.id);
   });
 
+  it("keeps API-owned demos visible when a legacy fake demo row exists", async () => {
+    const legacyFakeSource: Source = {
+      ...source,
+      id: "source_legacy_demo",
+      status: "ready",
+      demoKey: "demo-tsla-q4-2025",
+      knowhereJobId: null,
+      knowhereDocumentId: "demo-doc-tsla-q4-2025",
+    };
+    const knowhereClient = {
+      documents: {
+        archive: vi.fn(async () => undefined),
+        listChunks: vi.fn(async () => ({
+          chunks: [],
+          pagination: {
+            page: 1,
+            pageSize: 1,
+            total: 0,
+            totalPages: 0,
+          },
+        })),
+      },
+      jobs: {
+        create: vi.fn(),
+        upload: vi.fn(),
+      },
+    };
+    const getSourceViewOptionsBySourceId = vi.fn(() => Effect.succeed(new Map()));
+    const listing = createRouteListing({
+      demoApi: {
+        fetchCatalog: vi.fn(async () => demoCatalog),
+      },
+      ensureApiKeyForWorkspace: vi.fn(async () => "jwt_123"),
+      ensureWorkspace: vi.fn(async () => workspace),
+      getCurrentUser: vi.fn(async () => ({
+        id: "user_1",
+        email: null,
+        name: null,
+      })),
+      getSourceViewOptionsBySourceId,
+      makeKnowhereClient: vi.fn(() => knowhereClient),
+      reconcileSourcesForWorkspace: vi.fn(async () => [legacyFakeSource]),
+      sourceService: { listHiddenDemoSourceIds: vi.fn(async () => []) },
+    });
+
+    const result = await listing.listSources({ cookieHeader: "session=abc" });
+
+    expect(getSourceViewOptionsBySourceId).toHaveBeenCalledWith(
+      [],
+      knowhereClient,
+    );
+    expect(result).toEqual({
+      status: 200,
+      body: {
+        sources: [
+          {
+            id: "demo-tsla-q4-2025",
+            kind: "demo",
+            demoSourceId: "demo-tsla-q4-2025",
+            title: "TSLA-Q4-2025-Update.pdf",
+            mimeType: "application/pdf",
+            status: "ready",
+            documentId: "demo-doc-tsla-q4-2025",
+            originalFile: {
+              url: "/api/demo-sources/demo-tsla-q4-2025/original",
+              mimeType: "application/pdf",
+              sizeBytes: 1024,
+              canDownload: false,
+            },
+            chunkCount: 70,
+          },
+        ],
+      },
+    });
+  });
+
   it("lists API-owned demo sources for anonymous users", async () => {
     const ensureWorkspace = vi.fn(async () => workspace);
     const service = createSourceRouteService({

@@ -4,6 +4,7 @@ import { Effect } from "effect"
 
 import type { ChatMessageView } from "@/domains/chat/types"
 import { demoView } from "@/domains/demo/view"
+import { resolveWorkspaceDemoSources } from "@/domains/demo/workspace-source-resolution"
 import { chatThreadService } from "@/domains/chat/thread-service"
 import { toChatMessageView, toChatThreadView } from "@/domains/chat/view"
 import { sourceViewOptionsBySourceId as getSourceViewOptionsBySourceId } from "@/domains/sources/counts"
@@ -100,16 +101,18 @@ export async function loadWorkspaceShellInitialState(
   const { user, workspace } = context
   const { client } = await deps.getClientForWorkspace(workspace)
   const sources = await deps.reconcileSourcesForWorkspace(workspace, client)
-  const materializedDemoSourceIds = new Set(
-    sources
-      .map((source) => source.demoKey)
-      .filter((demoSourceId): demoSourceId is string => Boolean(demoSourceId)),
+  const demoSourceResolution = resolveWorkspaceDemoSources(
+    sources,
+    demoCatalog,
   )
   const hiddenDemoSourceIds = new Set(
     await deps.listHiddenDemoSourceIds(workspace.id),
   )
   const visibleDemoCatalogSources = demoCatalog.sources
-    .filter((source) => !materializedDemoSourceIds.has(source.demoSourceId))
+    .filter(
+      (source) =>
+        !demoSourceResolution.materializedDemoSourceIds.has(source.demoSourceId),
+    )
     .filter((source) => !hiddenDemoSourceIds.has(source.demoSourceId))
   const demoSources = visibleDemoCatalogSources.map(demoView.toSourceView)
   const chatThreads = await deps.listChatThreads(workspace.id)
@@ -120,7 +123,7 @@ export async function loadWorkspaceShellInitialState(
       )
     : []
   const sourceOptions = await Effect.runPromise(
-    deps.sourceViewOptionsBySourceId(sources, client),
+    deps.sourceViewOptionsBySourceId(demoSourceResolution.workspaceSources, client),
   )
 
   return {
@@ -135,7 +138,7 @@ export async function loadWorkspaceShellInitialState(
     },
     sources: [
       ...demoSources,
-      ...sources.map((source) =>
+      ...demoSourceResolution.workspaceSources.map((source) =>
         toSourceView(source, sourceOptions.get(source.id)),
       ),
     ],

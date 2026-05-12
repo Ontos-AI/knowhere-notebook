@@ -126,6 +126,34 @@ describe("loadWorkspaceShellInitialState", () => {
     ])
   })
 
+  it("does not treat legacy fake demo rows as materialized user copies", async () => {
+    const workspace = makeWorkspace()
+    const legacyFakeSource = makeSource(workspace.id, {
+      id: "source_legacy_demo",
+      demoKey: "demo-tsla-q4-2025",
+      title: "TSLA-Q4-2025-Update.pdf",
+      knowhereJobId: null,
+      knowhereDocumentId: "demo-doc-tsla-q4-2025",
+    })
+    const sourceViewOptionsBySourceId = vi.fn(() => Effect.succeed(new Map()))
+    const deps = createDependencies({
+      reconcileSourcesForWorkspace: vi.fn(async () => [legacyFakeSource]),
+      sourceViewOptionsBySourceId,
+    })
+
+    const state = await loadWorkspaceShellInitialState(deps)
+
+    expect(sourceViewOptionsBySourceId).toHaveBeenCalledWith([], expect.any(Object))
+    expect(state.sources).toEqual([
+      expect.objectContaining({
+        id: "demo-tsla-q4-2025",
+        kind: "demo",
+        demoSourceId: "demo-tsla-q4-2025",
+        documentId: "demo-doc-tsla-q4-2025",
+      }),
+    ])
+  })
+
   it("does not seed authenticated empty threads with non-persisted demo chat", async () => {
     const state = await loadWorkspaceShellInitialState(createDependencies())
 

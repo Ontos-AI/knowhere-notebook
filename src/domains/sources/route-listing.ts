@@ -1,6 +1,7 @@
 import { Effect } from "effect"
 
 import { demoView } from "@/domains/demo/view"
+import { resolveWorkspaceDemoSources } from "@/domains/demo/workspace-source-resolution"
 import { routeResult } from "@/lib/route-result"
 import { toSourceView } from "./view"
 import { getClientForWorkspace } from "./route-dependencies"
@@ -56,26 +57,28 @@ async function listSources(
     deps,
   )
   const sources = await deps.reconcileSourcesForWorkspace(workspace, client)
+  const demoSourceResolution = resolveWorkspaceDemoSources(sources, catalog)
   const sourceOptions = await Effect.runPromise(
-    deps.getSourceViewOptionsBySourceId(sources, client),
-  )
-  const materializedDemoSourceIds = new Set(
-    sources
-      .map((source) => source.demoKey)
-      .filter((demoSourceId): demoSourceId is string => Boolean(demoSourceId)),
+    deps.getSourceViewOptionsBySourceId(
+      demoSourceResolution.workspaceSources,
+      client,
+    ),
   )
   const hiddenDemoSourceIds = new Set(
     await deps.sourceService.listHiddenDemoSourceIds(workspace.id),
   )
   const visibleDemoSources = catalog.sources
-    .filter((source) => !materializedDemoSourceIds.has(source.demoSourceId))
+    .filter(
+      (source) =>
+        !demoSourceResolution.materializedDemoSourceIds.has(source.demoSourceId),
+    )
     .filter((source) => !hiddenDemoSourceIds.has(source.demoSourceId))
     .map(demoView.toSourceView)
 
   return routeResult.ok({
     sources: [
       ...visibleDemoSources,
-      ...sources.map((source) =>
+      ...demoSourceResolution.workspaceSources.map((source) =>
         toSourceView(source, sourceOptions.get(source.id)),
       ),
     ],
