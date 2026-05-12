@@ -154,6 +154,16 @@ describe("loadWorkspaceShellInitialState", () => {
     ])
   })
 
+  it("hides API-owned demos when deleted legacy rows were backfilled into visibility", async () => {
+    const state = await loadWorkspaceShellInitialState(
+      createDependencies({
+        listHiddenDemoSourceIds: vi.fn(async () => ["demo-tsla-q4-2025"]),
+      }),
+    )
+
+    expect(state.sources).toEqual([])
+  })
+
   it("does not seed authenticated empty threads with non-persisted demo chat", async () => {
     const state = await loadWorkspaceShellInitialState(createDependencies())
 

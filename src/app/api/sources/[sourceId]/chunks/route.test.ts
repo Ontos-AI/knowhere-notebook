@@ -117,6 +117,88 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
     expect(mocks.getSourceParseAssetUrls).not.toHaveBeenCalled()
   })
 
+  it("loads every API-owned demo chunk page for full anonymous chunk requests", async () => {
+    mocks.getCurrentUser.mockResolvedValue(null)
+    mocks.fetchDemoChunkPage
+      .mockResolvedValueOnce({
+        demoSourceId: "demo-tsla-q4-2025",
+        canonicalDocumentId: "demo-doc-tsla-q4-2025",
+        title: "TSLA-Q4-2025-Update.pdf",
+        mimeType: "application/pdf",
+        chunks: [
+          {
+            id: "demo-tsla-q4-2025:chunk_1",
+            chunkId: "chunk_1",
+            chunkType: "text",
+            content: "First page",
+            sectionPath: "Summary",
+            sourceChunkPath: "Summary",
+            filePath: null,
+            sortOrder: 0,
+            metadata: {},
+            assetUrl: null,
+          },
+        ],
+        pagination: {
+          page: 1,
+          pageSize: 200,
+          total: 201,
+          totalPages: 2,
+        },
+      })
+      .mockResolvedValueOnce({
+        demoSourceId: "demo-tsla-q4-2025",
+        canonicalDocumentId: "demo-doc-tsla-q4-2025",
+        title: "TSLA-Q4-2025-Update.pdf",
+        mimeType: "application/pdf",
+        chunks: [
+          {
+            id: "demo-tsla-q4-2025:chunk_201",
+            chunkId: "chunk_201",
+            chunkType: "text",
+            content: "Second page",
+            sectionPath: "Outlook",
+            sourceChunkPath: "Outlook",
+            filePath: null,
+            sortOrder: 200,
+            metadata: {},
+            assetUrl: null,
+          },
+        ],
+        pagination: {
+          page: 2,
+          pageSize: 200,
+          total: 201,
+          totalPages: 2,
+        },
+      })
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost:3001/api/sources/demo-tsla-q4-2025/chunks",
+      ),
+      { params: Promise.resolve({ sourceId: "demo-tsla-q4-2025" }) },
+    )
+
+    await expect(response.json()).resolves.toMatchObject({
+      chunks: [
+        { chunkId: "demo-tsla-q4-2025:chunk_1" },
+        { chunkId: "demo-tsla-q4-2025:chunk_201" },
+      ],
+    })
+    expect(response.status).toBe(200)
+    expect(mocks.fetchDemoChunkPage).toHaveBeenNthCalledWith(1, {
+      demoSourceId: "demo-tsla-q4-2025",
+      page: 1,
+      pageSize: 200,
+    })
+    expect(mocks.fetchDemoChunkPage).toHaveBeenNthCalledWith(2, {
+      demoSourceId: "demo-tsla-q4-2025",
+      page: 2,
+      pageSize: 200,
+    })
+  })
+
   it("loads authenticated workspace chunks without probing the demo endpoint first", async () => {
     const knowhereClient = {
       documents: {

@@ -1,6 +1,7 @@
 import { Effect } from "effect"
 
 import { demoView } from "@/domains/demo/view"
+import type { DemoChunkPage } from "@/integrations/knowhere-demo"
 import { routeResult } from "@/lib/route-result"
 import { getClientForWorkspace } from "./route-dependencies"
 import type {
@@ -84,11 +85,17 @@ async function loadDemoChunkPage(
   deps: RouteChunksDependencies,
 ): Promise<JsonRouteResult<SourceChunksBody> | null> {
   try {
-    const page = await deps.demoApi.fetchChunkPage({
-      demoSourceId: input.sourceId,
-      page: input.shouldLoadAll ? 1 : input.pageParams.page,
-      pageSize: input.shouldLoadAll ? 200 : input.pageParams.pageSize,
-    })
+    const pages = input.shouldLoadAll
+      ? await loadAllDemoChunkPages(input, deps)
+      : [
+          await deps.demoApi.fetchChunkPage({
+            demoSourceId: input.sourceId,
+            page: input.pageParams.page,
+            pageSize: input.pageParams.pageSize,
+          }),
+        ]
+    const page = pages[0]
+    if (!page) return null
     const source = {
       id: page.demoSourceId,
       kind: "demo" as const,
@@ -98,8 +105,10 @@ async function loadDemoChunkPage(
       status: "ready" as const,
       documentId: page.canonicalDocumentId,
     }
-    const chunks = page.chunks.map((chunk) =>
-      demoView.toParsedChunkView(source, chunk),
+    const chunks = pages.flatMap((demoChunkPage) =>
+      demoChunkPage.chunks.map((chunk) =>
+        demoView.toParsedChunkView(source, chunk),
+      ),
     )
 
     return routeResult.ok(
@@ -113,6 +122,33 @@ async function loadDemoChunkPage(
   } catch {
     return null
   }
+}
+
+async function loadAllDemoChunkPages(
+  input: LoadSourceChunksInput,
+  deps: RouteChunksDependencies,
+): Promise<DemoChunkPage[]> {
+  const pageSize = 200
+  const firstPage = await deps.demoApi.fetchChunkPage({
+    demoSourceId: input.sourceId,
+    page: 1,
+    pageSize,
+  })
+  const pages = [firstPage]
+  for (
+    let pageNumber = 2;
+    pageNumber <= firstPage.pagination.totalPages;
+    pageNumber += 1
+  ) {
+    pages.push(
+      await deps.demoApi.fetchChunkPage({
+        demoSourceId: input.sourceId,
+        page: pageNumber,
+        pageSize,
+      }),
+    )
+  }
+  return pages
 }
 
 function sourceNotFound(): JsonRouteResult<{ readonly message: string }> {
