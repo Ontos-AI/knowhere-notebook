@@ -46,13 +46,15 @@ export function useWorkspaceSourceWorkflow({
     Record<string, boolean>
   >({})
   const [archivingSourceIds, setArchivingSourceIds] = useState<string[]>([])
+  const shouldRefreshSourcesOnMount =
+    !isGuest && workspaceClientCache.hasPendingSources(initialSourceRows)
   const { data: serverSources, mutate: mutateSources } = useSWR(
     sourcesSWRKey,
     workspaceClient.fetchSources,
     {
       fallbackData: initialSourceRows,
       revalidateIfStale: false,
-      revalidateOnMount: false,
+      revalidateOnMount: shouldRefreshSourcesOnMount,
       refreshInterval: (currentSources) =>
         workspaceClientCache.hasPendingSources(currentSources ?? []) ? 3000 : 0,
     },

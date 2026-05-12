@@ -88,6 +88,33 @@ describe("useWorkspaceSourceWorkflow", () => {
     ])
     expect(mocks.fetchSources).toHaveBeenCalled()
   })
+
+  it("refreshes immediately on mount when initial Sources are pending", async () => {
+    const parsingSource = makeSource({
+      id: "source_parsing",
+      status: "parsing",
+    })
+    const readySource = makeSource({
+      id: "source_parsing",
+      status: "ready",
+      documentId: "document_1",
+    })
+    mocks.fetchSources.mockResolvedValue([readySource])
+
+    const { result } = renderWorkspaceSourceWorkflow({
+      initialSources: [parsingSource],
+      isGuest: false,
+    })
+
+    await waitFor(() => {
+      expect(mocks.fetchSources).toHaveBeenCalledTimes(1)
+    })
+    expect(result.current.sources[0]).toMatchObject({
+      id: "source_parsing",
+      status: "ready",
+      documentId: "document_1",
+    })
+  })
 })
 
 function renderWorkspaceSourceWorkflow(input: {
