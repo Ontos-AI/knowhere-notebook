@@ -40,9 +40,8 @@ async function loadSourceChunks(
   deps: RouteChunksDependencies,
 ): Promise<JsonRouteResult<SourceChunksBody>> {
   const user = await deps.getCurrentUser()
-  const demoChunkPage = await loadDemoChunkPage(input, deps)
   if (!user) {
-    return demoChunkPage ?? sourceNotFound()
+    return (await loadDemoChunkPage(input, deps)) ?? sourceNotFound()
   }
 
   const workspace = await deps.ensureWorkspace(user.id)
@@ -51,7 +50,9 @@ async function loadSourceChunks(
     input.sourceId,
   )
 
-  if (!source) return demoChunkPage ?? sourceNotFound()
+  if (!source) {
+    return (await loadDemoChunkPage(input, deps)) ?? sourceNotFound()
+  }
 
   const client = await getClientForWorkspace(
     workspace.id,

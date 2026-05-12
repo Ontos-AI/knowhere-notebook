@@ -50,6 +50,13 @@
       "when": 1778564600000,
       "tag": "0006_api_owned_demos",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1778569500000,
+      "tag": "0007_normalize_legacy_demo_sources",
+      "breakpoints": true
     }
   ]
 }

@@ -126,6 +126,13 @@ describe("loadWorkspaceShellInitialState", () => {
     ])
   })
 
+  it("does not seed authenticated empty threads with non-persisted demo chat", async () => {
+    const state = await loadWorkspaceShellInitialState(createDependencies())
+
+    expect(state.activeChatThreadId).toBeNull()
+    expect(state.chatMessages).toEqual([])
+  })
+
   it("reconciles source state during authenticated shell load", async () => {
     const workspace = makeWorkspace()
     const readySource = makeSource(workspace.id, {

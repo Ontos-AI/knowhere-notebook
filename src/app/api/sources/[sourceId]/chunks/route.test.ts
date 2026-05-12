@@ -116,4 +116,95 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
     expect(mocks.makeKnowhereClient).not.toHaveBeenCalled()
     expect(mocks.getSourceParseAssetUrls).not.toHaveBeenCalled()
   })
+
+  it("loads authenticated workspace chunks without probing the demo endpoint first", async () => {
+    const knowhereClient = {
+      documents: {
+        listChunks: vi.fn(async () => ({
+          chunks: [
+            {
+              id: "dchk_1",
+              chunkId: "parser_1",
+              chunkType: "text",
+              content: "Workspace chunk",
+              sectionPath: "Summary",
+              sourceChunkPath: "Default_Root/notes.pdf/Summary",
+              filePath: null,
+              metadata: {},
+              sortOrder: 0,
+            },
+          ],
+          pagination: {
+            page: 1,
+            pageSize: 1,
+            total: 1,
+            totalPages: 1,
+          },
+        })),
+      },
+    }
+    mocks.getCurrentUser.mockResolvedValue({
+      id: "user_1",
+      email: null,
+      name: null,
+    })
+    mocks.ensureWorkspace.mockResolvedValue({
+      id: "workspace_1",
+      userId: "user_1",
+      namespace: "notebook-workspace_1",
+      createdAt: new Date("2026-05-10T00:00:00.000Z"),
+    })
+    mocks.findSourceInWorkspace.mockResolvedValue({
+      id: "source_1",
+      workspaceId: "workspace_1",
+      title: "notes.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 1024,
+      status: "ready",
+      failureReason: null,
+      knowhereJobId: "job_1",
+      knowhereDocumentId: "doc_1",
+      stagedBlobPathname: null,
+      stagedBlobUrl: null,
+      originalBlobPathname: null,
+      originalBlobUrl: null,
+      demoKey: null,
+      createdAt: new Date("2026-05-10T00:00:00.000Z"),
+      updatedAt: new Date("2026-05-10T00:00:00.000Z"),
+      deletedAt: null,
+    })
+    mocks.ensureApiKeyForWorkspace.mockResolvedValue("jwt_123")
+    mocks.makeKnowhereClient.mockReturnValue(knowhereClient)
+    mocks.getSourceParseAssetUrls.mockResolvedValue({})
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost:3001/api/sources/source_1/chunks?page=1&pageSize=1",
+      ),
+      { params: Promise.resolve({ sourceId: "source_1" }) },
+    )
+
+    await expect(response.json()).resolves.toMatchObject({
+      chunks: [
+        {
+          chunkId: "dchk_1",
+          parserChunkId: "parser_1",
+          documentId: "doc_1",
+          sourceTitle: "notes.pdf",
+        },
+      ],
+      pagination: {
+        page: 1,
+        pageSize: 1,
+        total: 1,
+      },
+    })
+    expect(response.status).toBe(200)
+    expect(mocks.fetchDemoChunkPage).not.toHaveBeenCalled()
+    expect(knowhereClient.documents.listChunks).toHaveBeenCalledWith("doc_1", {
+      page: 1,
+      pageSize: 1,
+      includeAssetUrls: true,
+    })
+  })
 })

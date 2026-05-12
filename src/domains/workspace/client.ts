@@ -155,10 +155,18 @@ function sendChatMessage(
 async function materializeDemoSources(
   input: MaterializeDemoSourcesRequest,
 ): Promise<SourceView[]> {
-  const body = await workspaceRouteClient.postJson<SourcesResponse>(
+  const response = await workspaceRouteClient.postJsonWithStatus<
+    SourcesResponse & { readonly message?: string }
+  >(
     workspaceClientKeys.materializeDemoSources,
     input,
   )
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(
+      response.body.message ?? "Demo sources could not be prepared right now.",
+    )
+  }
+  const body = response.body
   return Array.isArray(body.sources) ? body.sources : []
 }
 

@@ -118,7 +118,7 @@ export async function loadWorkspaceShellInitialState(
     ? ((await deps.listMessages(workspace.id, activeChatThread.id)) ?? []).map(
         (message) => toChatMessageView(message),
       )
-    : demoView.toChatMessages({ sources: visibleDemoCatalogSources })
+    : []
   const sourceOptions = await Effect.runPromise(
     deps.sourceViewOptionsBySourceId(sources, client),
   )
