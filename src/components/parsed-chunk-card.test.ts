@@ -90,15 +90,54 @@ describe("ParsedChunkCard", () => {
       React.createElement(ParsedChunkCard, {
         chunk,
         isFocused: false,
+        isOriginalPreviewAvailable: true,
         onChunkClick,
         onReferenceClick: vi.fn(),
       }),
     );
 
-    await user.click(screen.getByRole("button", { name: "Open page 2" }));
+    const openOriginalButton = screen.getByRole("button", {
+      name: "Open page 2 in original file",
+    });
 
+    expect(openOriginalButton.className).toContain("font-semibold");
+    expect(openOriginalButton.className).toContain("text-primary");
+
+    await user.click(openOriginalButton);
     expect(onChunkClick).toHaveBeenCalledWith(chunk);
     expect(screen.getByTestId("chunk-card-shell-text_1").getAttribute("role")).toBeNull();
+  });
+
+  it("keeps original file buttons quiet when preview is not supported", async () => {
+    const user = userEvent.setup();
+    const chunk = {
+      chunkId: "text_1",
+      type: "text" as const,
+      content: "Legacy report details.",
+      sourceTitle: "report.doc",
+      pageNums: [2],
+    };
+    const onChunkClick = vi.fn();
+
+    render(
+      React.createElement(ParsedChunkCard, {
+        chunk,
+        isFocused: false,
+        isOriginalPreviewAvailable: false,
+        onChunkClick,
+        onReferenceClick: vi.fn(),
+      }),
+    );
+
+    const openOriginalButton = screen.getByRole("button", {
+      name: "Open original file",
+    });
+
+    expect(openOriginalButton.className).toContain("font-normal");
+    expect(openOriginalButton.className).not.toContain("font-semibold");
+
+    await user.click(openOriginalButton);
+    expect(onChunkClick).toHaveBeenCalledWith(chunk);
   });
 
   it("sanitizes table HTML before rendering", () => {

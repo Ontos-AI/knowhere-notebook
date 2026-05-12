@@ -64,11 +64,20 @@ describe("ChunksPanel", () => {
   });
 
   it("switches to a download-only original file state for unsupported previews", async () => {
+    mockVisibleVirtualViewport();
     const user = userEvent.setup();
 
     render(
       React.createElement(C, {
-        chunks: [],
+        chunks: [
+          {
+            chunkId: "chunk_1",
+            type: "text",
+            content: "Legacy report details live in the original file.",
+            sourceTitle: "brief.doc",
+            pageNums: [2],
+          },
+        ],
         selectedSource: "brief.doc",
         selectedSourceFile: {
           url: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.doc",
@@ -77,7 +86,14 @@ describe("ChunksPanel", () => {
       }),
     );
 
-    await user.click(screen.getByRole("button", { name: "Original" }));
+    const openOriginalButton = screen.getByRole("button", {
+      name: "Open original file",
+    });
+
+    expect(openOriginalButton.className).toContain("font-normal");
+    expect(openOriginalButton.className).not.toContain("font-semibold");
+
+    await user.click(openOriginalButton);
 
     const downloadLink = screen.getByRole("link", {
       name: "Download original file",
@@ -141,7 +157,9 @@ describe("ChunksPanel", () => {
       }),
     );
 
-    await user.click(screen.getByRole("button", { name: "Open page 2" }));
+    await user.click(
+      screen.getByRole("button", { name: "Open page 2 in original file" }),
+    );
 
     expect(screen.getByRole("heading", { name: "Original File" })).toBeTruthy();
     expect(screen.getByTestId("source-original-preview").getAttribute(
@@ -180,7 +198,9 @@ describe("ChunksPanel", () => {
       }),
     );
 
-    await user.click(screen.getByRole("button", { name: "Open page 2" }));
+    await user.click(
+      screen.getByRole("button", { name: "Open page 2 in original file" }),
+    );
 
     const mountedOriginalPreview = screen.getByTestId("source-original-preview");
 
