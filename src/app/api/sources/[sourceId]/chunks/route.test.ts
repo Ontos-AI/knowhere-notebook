@@ -8,28 +8,37 @@ const mocks = vi.hoisted(() => ({
   getCurrentUser: vi.fn(),
   getSourceParseAssetUrls: vi.fn(),
   makeKnowhereClient: vi.fn(),
+  requireUser: vi.fn(),
 }));
 
 vi.mock("next/headers", () => ({
   headers: vi.fn(async () => new Headers({ cookie: "session=abc" })),
 }));
 
-vi.mock("@/lib/api-key-service", () => ({
+vi.mock("@/integrations/dashboard/api-key-service", () => ({
   ensureApiKeyForWorkspace: mocks.ensureApiKeyForWorkspace,
 }));
 
-vi.mock("@/lib/auth", () => ({
+vi.mock("@/infrastructure/auth", () => ({
   getCurrentUser: mocks.getCurrentUser,
+  requireUser: mocks.requireUser,
 }));
 
-vi.mock("@/lib/knowhere", () => ({
+vi.mock("@/integrations/knowhere", () => ({
   makeKnowhereClient: mocks.makeKnowhereClient,
 }));
 
-vi.mock("@/lib/workspace", () => ({
-  ensureWorkspace: mocks.ensureWorkspace,
-  findSourceInWorkspace: mocks.findSourceInWorkspace,
-  getSourceParseAssetUrls: mocks.getSourceParseAssetUrls,
+vi.mock("@/domains/sources/service", () => ({
+  sourceService: {
+    findInWorkspace: mocks.findSourceInWorkspace,
+    getParseAssetUrls: mocks.getSourceParseAssetUrls,
+  },
+}));
+
+vi.mock("@/domains/workspace/service", () => ({
+  workspaceService: {
+    ensureWorkspace: mocks.ensureWorkspace,
+  },
 }));
 
 import { GET } from "./route";

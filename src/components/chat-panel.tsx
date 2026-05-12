@@ -1,16 +1,14 @@
 "use client";
 
 import {
-  useEffect,
-  useRef,
-  useState,
-  type CSSProperties,
+  type ReactElement,
 } from "react";
-import { useVirtualizer, type VirtualItem } from "@tanstack/react-virtual";
-import { History, MessageCircle, Plus, Send, Trash2 } from "lucide-react";
+import { History, Plus } from "lucide-react";
+import { ChatComposer } from "@/components/chat-composer";
+import { ChatHistorySheet } from "@/components/chat-history-sheet";
+import { ChatMessageList } from "@/components/chat-message-list";
+import { useChatPanelWorkflow } from "@/components/chat-panel-workflow";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
 import {
   AlertDialog,
@@ -23,13 +21,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
-import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -39,9 +30,7 @@ import type {
   ChatCitationView,
   ChatMessageView,
   ChatThreadView,
-} from "@/lib/types";
-
-const CHAT_COMPOSER_ID = "chat-composer";
+} from "@/domains/chat/types";
 
 export type ChatPanelProps = {
   messages: ChatMessageView[];
@@ -64,9 +53,6 @@ export type ChatPanelProps = {
   isDisabled?: boolean;
 };
 
-const estimatedMessageHeight = 160;
-const virtualMessageOverscan = 6;
-
 export function ChatPanel({
   messages = [],
   threads = [],
@@ -86,46 +72,22 @@ export function ChatPanel({
   archivingThreadIds = [],
   pendingCitationId = null,
   isDisabled = false,
-}: Partial<ChatPanelProps> = {}) {
-  const [input, setInput] = useState("");
-  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
-  const [confirmThreadId, setConfirmThreadId] = useState<string | null>(null);
-  const viewportRef = useRef<HTMLDivElement>(null);
-  const canSend = !isDisabled && !isSending && input.trim().length > 0;
-  const confirmThread = threads.find((thread) => thread.id === confirmThreadId);
-  const shouldShowThinkingProgress = isSending && messages.length > 0;
-  const messageRowCount =
-    messages.length + (shouldShowThinkingProgress ? 1 : 0);
-  // TanStack Virtual owns scroll measurement callbacks; this component is not memoized by React Compiler.
-  // eslint-disable-next-line react-hooks/incompatible-library
-  const messageVirtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
-    count: messageRowCount,
-    getScrollElement: () => viewportRef.current,
-    estimateSize: () => estimatedMessageHeight,
-    overscan: virtualMessageOverscan,
+}: Partial<ChatPanelProps> = {}): ReactElement {
+  const {
+    confirmThread,
+    confirmThreadId,
+    isHistoryOpen,
+    handleArchiveConfirm,
+    handleArchiveDialogOpenChange,
+    handleHistoryOpenChange,
+    handleNewChat,
+    handleThreadArchiveRequest,
+  } = useChatPanelWorkflow({
+    isCreatingThread,
+    onNewChat,
+    onThreadArchive,
+    threads,
   });
-  const virtualItems = messageVirtualizer.getVirtualItems();
-  const totalHeight = messageVirtualizer.getTotalSize();
-
-  useEffect(() => {
-    if (messageRowCount === 0) {
-      return;
-    }
-
-    messageVirtualizer.scrollToIndex(messageRowCount - 1, { align: "end" });
-  }, [messageVirtualizer, messageRowCount]);
-
-  function handleSend() {
-    if (!canSend) return;
-    onSend?.(input.trim());
-    setInput("");
-  }
-
-  function handleNewChat() {
-    if (isCreatingThread) return;
-    onNewChat?.();
-    setIsHistoryOpen(false);
-  }
 
   return (
     <section
@@ -134,9 +96,7 @@ export function ChatPanel({
     >
       <AlertDialog
         open={confirmThreadId !== null}
-        onOpenChange={(open) => {
-          if (!open) setConfirmThreadId(null);
-        }}
+        onOpenChange={handleArchiveDialogOpenChange}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -149,14 +109,7 @@ export function ChatPanel({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                if (confirmThreadId) {
-                  onThreadArchive?.(confirmThreadId);
-                  setConfirmThreadId(null);
-                }
-              }}
-            >
+            <AlertDialogAction onClick={handleArchiveConfirm}>
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -187,7 +140,7 @@ export function ChatPanel({
                         variant="outline"
                         size="icon"
                         aria-label="Open chat history"
-                        onClick={() => setIsHistoryOpen(true)}
+                        onClick={() => handleHistoryOpenChange(true)}
                       >
                         <History className="size-4" />
                       </Button>
@@ -230,520 +183,30 @@ export function ChatPanel({
         isCreatingThread={isCreatingThread}
         loadingThreadId={loadingThreadId}
         archivingThreadIds={archivingThreadIds}
-        onOpenChange={setIsHistoryOpen}
+        onOpenChange={handleHistoryOpenChange}
         onNewChat={onNewChat ? handleNewChat : undefined}
         onThreadSelect={onThreadSelect}
-        onThreadArchive={onThreadArchive ? setConfirmThreadId : undefined}
+        onThreadArchive={
+          onThreadArchive ? handleThreadArchiveRequest : undefined
+        }
       />
 
-      <ScrollArea
-        data-testid="chat-scroll"
-        className="flex min-w-0 flex-1 flex-col overflow-x-hidden p-3 sm:p-4"
-        viewportRef={viewportRef}
-      >
-        {messageRowCount === 0 ? (
-          <EmptyChat disabled={isDisabled} needsLogin={Boolean(onLoginClick)} />
-        ) : (
-          <div
-            className="relative mt-auto min-w-0"
-            style={{ height: totalHeight }}
-          >
-            {virtualItems.map((virtualItem) =>
-              shouldShowThinkingProgress &&
-              virtualItem.index === messages.length ? (
-                <VirtualThinkingRow
-                  key={virtualItem.key}
-                  virtualItem={virtualItem}
-                  measureElement={messageVirtualizer.measureElement}
-                />
-              ) : (
-                <VirtualMessageRow
-                  key={virtualItem.key}
-                  virtualItem={virtualItem}
-                  message={messages[virtualItem.index]}
-                  measureElement={messageVirtualizer.measureElement}
-                  onCitationClick={onCitationClick}
-                  pendingCitationId={pendingCitationId}
-                  sourceTitlesByDocumentId={sourceTitlesByDocumentId}
-                />
-              ),
-            )}
-          </div>
-        )}
-      </ScrollArea>
-
-      <div
-        data-testid="chat-composer"
-        className="shrink-0 border-t border-border/70 bg-background p-3 sm:p-4"
-      >
-        {onLoginClick ? (
-          <Button
-            type="button"
-            size="sm"
-            className="w-full"
-            onClick={onLoginClick}
-          >
-            Log in to start
-          </Button>
-        ) : (
-          <>
-            <div className="rounded-2xl shadow-sm">
-              <Textarea
-                id={CHAT_COMPOSER_ID}
-                name={CHAT_COMPOSER_ID}
-                className="h-[84px] w-full min-w-0 resize-none rounded-2xl border-slate-300 bg-muted/60 p-3 text-sm transition-all placeholder:text-muted-foreground hover:border-slate-400 focus-visible:border-primary focus-visible:ring-0 sm:p-3.5"
-                placeholder={
-                  isDisabled
-                    ? "Upload a document to start asking questions."
-                    : "Ask a question about your documents…"
-                }
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                disabled={isDisabled}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey && canSend) {
-                    e.preventDefault();
-                    handleSend();
-                  }
-                }}
-              />
-            </div>
-            <div className="mt-3 flex items-center justify-between gap-3">
-              <span className="hidden text-[10px] font-medium text-muted-foreground sm:inline">
-                Shift + Enter for a new line
-              </span>
-              <Button
-                type="button"
-                variant="default"
-                size="sm"
-                className="ml-auto gap-1.5 px-4"
-                disabled={!canSend}
-                onClick={handleSend}
-                aria-label="Send message"
-              >
-                {isSending ? (
-                  <Spinner className="size-4" />
-                ) : (
-                  <Send className="size-4" />
-                )}
-                <span>{isSending ? "Sending" : "Send"}</span>
-              </Button>
-            </div>
-          </>
-        )}
-      </div>
-    </section>
-  );
-}
-
-function VirtualThinkingRow({
-  virtualItem,
-  measureElement,
-}: {
-  virtualItem: VirtualItem;
-  measureElement: (node: HTMLDivElement | null) => void;
-}) {
-  const rowStyle: CSSProperties = {
-    position: "absolute",
-    transform: `translateY(${virtualItem.start}px)`,
-    width: "100%",
-  };
-
-  return (
-    <div
-      ref={measureElement}
-      data-index={virtualItem.index}
-      style={rowStyle}
-      className="min-w-0 pb-4 sm:pb-5"
-    >
-      <ThinkingProgressBubble />
-    </div>
-  );
-}
-
-function ThinkingProgressBubble() {
-  return (
-    <div className="flex min-w-0 flex-col items-start">
-      <div
-        role="status"
-        aria-label="Thinking"
-        className="inline-flex max-w-[92%] items-center gap-2 rounded-2xl rounded-tl-sm border border-border/70 bg-card px-3 py-2.5 text-sm text-muted-foreground shadow-xs sm:max-w-[90%] sm:px-4 sm:py-3"
-      >
-        <span className="font-medium text-foreground">Thinking</span>
-        <span aria-hidden="true" className="inline-flex items-center gap-1">
-          <span className="size-1.5 rounded-full bg-primary/60 animate-pulse" />
-          <span className="size-1.5 rounded-full bg-primary/60 animate-pulse [animation-delay:150ms]" />
-          <span className="size-1.5 rounded-full bg-primary/60 animate-pulse [animation-delay:300ms]" />
-        </span>
-      </div>
-    </div>
-  );
-}
-
-function VirtualMessageRow({
-  virtualItem,
-  message,
-  measureElement,
-  onCitationClick,
-  pendingCitationId,
-  sourceTitlesByDocumentId,
-}: {
-  virtualItem: VirtualItem;
-  message: ChatMessageView | undefined;
-  measureElement: (node: HTMLDivElement | null) => void;
-  onCitationClick?: (citation: ChatCitationView, citationId: string) => void;
-  pendingCitationId?: string | null;
-  sourceTitlesByDocumentId: Readonly<Record<string, string>>;
-}) {
-  if (!message) {
-    return null;
-  }
-
-  const rowStyle: CSSProperties = {
-    position: "absolute",
-    transform: `translateY(${virtualItem.start}px)`,
-    width: "100%",
-  };
-
-  return (
-    <div
-      ref={measureElement}
-      data-index={virtualItem.index}
-      style={rowStyle}
-      className="min-w-0 pb-4 sm:pb-5"
-    >
-      <MessageBubble
-        message={message}
+      <ChatMessageList
+        isDisabled={isDisabled}
+        isSending={isSending}
+        messages={messages}
+        needsLogin={Boolean(onLoginClick)}
         onCitationClick={onCitationClick}
         pendingCitationId={pendingCitationId}
         sourceTitlesByDocumentId={sourceTitlesByDocumentId}
       />
-    </div>
+
+      <ChatComposer
+        isDisabled={isDisabled}
+        isSending={isSending}
+        onLoginClick={onLoginClick}
+        onSend={onSend}
+      />
+    </section>
   );
-}
-
-function ChatHistorySheet({
-  threads,
-  activeThreadId,
-  isOpen,
-  isLoading,
-  isCreatingThread,
-  loadingThreadId,
-  archivingThreadIds,
-  onOpenChange,
-  onNewChat,
-  onThreadSelect,
-  onThreadArchive,
-}: {
-  threads: ChatThreadView[];
-  activeThreadId: string | null;
-  isOpen: boolean;
-  isLoading: boolean;
-  isCreatingThread: boolean;
-  loadingThreadId: string | null;
-  archivingThreadIds: readonly string[];
-  onOpenChange: (open: boolean) => void;
-  onNewChat?: () => void;
-  onThreadSelect?: (threadId: string) => void;
-  onThreadArchive?: (threadId: string) => void;
-}) {
-  const archivingThreadIdSet: ReadonlySet<string> = new Set(archivingThreadIds);
-  const shouldUseGlobalThreadLoading = isLoading && loadingThreadId === null;
-
-  return (
-    <Sheet open={isOpen} onOpenChange={onOpenChange}>
-      <SheetContent
-        side="right"
-        className="flex w-[min(92vw,360px)] flex-col overflow-hidden p-0"
-      >
-        <SheetHeader className="shrink-0 border-b border-border/70 px-5 py-4 text-left">
-          <div className="flex items-center justify-between gap-3 pr-8">
-            <SheetTitle className="text-base">Chat history</SheetTitle>
-            <SheetDescription className="sr-only">
-              Recover an old chat or start a fresh chat.
-            </SheetDescription>
-            {onNewChat && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="gap-1.5"
-                disabled={isCreatingThread}
-                onClick={onNewChat}
-              >
-                {isCreatingThread ? (
-                  <Spinner className="size-4" />
-                ) : (
-                  <Plus className="size-4" />
-                )}
-                {isCreatingThread ? "Creating…" : "New chat"}
-              </Button>
-            )}
-          </div>
-        </SheetHeader>
-        <ScrollArea className="min-h-0 flex-1">
-          <div className="flex flex-col gap-1.5 p-4">
-            {threads.length === 0 ? (
-              <EmptyChatHistory />
-            ) : (
-              threads.map((thread) => (
-                <ChatThreadRow
-                  key={thread.id}
-                  thread={thread}
-                  isActive={thread.id === activeThreadId}
-                  isLoading={shouldUseGlobalThreadLoading}
-                  isSelecting={thread.id === loadingThreadId}
-                  isArchiving={archivingThreadIdSet.has(thread.id)}
-                  onSelect={() => {
-                    onThreadSelect?.(thread.id);
-                    onOpenChange(false);
-                  }}
-                  onArchive={
-                    onThreadArchive
-                      ? () => onThreadArchive(thread.id)
-                      : undefined
-                  }
-                />
-              ))
-            )}
-          </div>
-        </ScrollArea>
-      </SheetContent>
-    </Sheet>
-  );
-}
-
-function ChatThreadRow({
-  thread,
-  isActive,
-  isLoading,
-  isSelecting,
-  isArchiving,
-  onSelect,
-  onArchive,
-}: {
-  thread: ChatThreadView;
-  isActive: boolean;
-  isLoading: boolean;
-  isSelecting: boolean;
-  isArchiving: boolean;
-  onSelect: () => void;
-  onArchive?: () => void;
-}) {
-  const isDisabled = isLoading || isSelecting || isArchiving;
-
-  return (
-    <div
-      className={`flex items-center gap-2 rounded-2xl border p-2 transition-colors ${
-        isActive
-          ? "border-border/70 bg-muted/60 shadow-xs"
-          : "border-transparent hover:bg-muted/40"
-      }`}
-    >
-      <button
-        type="button"
-        className="flex min-w-0 flex-1 items-center gap-2 text-left"
-        disabled={isDisabled}
-        onClick={onSelect}
-        aria-label={`Open ${thread.title} chat`}
-      >
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-semibold text-foreground">
-            {thread.title}
-          </span>
-          <span className="mt-0.5 block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-            {formatThreadDate(thread.updatedAt)}
-          </span>
-        </span>
-        {isSelecting && <Spinner className="size-3.5 shrink-0" />}
-      </button>
-      {onArchive && (
-        <button
-          type="button"
-          disabled={isArchiving}
-          onClick={(event) => {
-            event.stopPropagation();
-            if (isArchiving) return;
-            onArchive();
-          }}
-          className="shrink-0 rounded-lg p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:cursor-wait disabled:opacity-70"
-          aria-label={`Delete ${thread.title} chat`}
-        >
-          {isArchiving ? (
-            <Spinner className="size-3.5" />
-          ) : (
-            <Trash2 className="size-3.5" />
-          )}
-        </button>
-      )}
-    </div>
-  );
-}
-
-function EmptyChatHistory() {
-  return (
-    <div className="flex flex-col items-center justify-center px-4 py-10 text-center">
-      <div className="mb-3 flex size-10 items-center justify-center rounded-full bg-muted text-muted-foreground">
-        <MessageCircle className="size-5" />
-      </div>
-      <p className="text-xs font-semibold text-foreground">No chats yet.</p>
-    </div>
-  );
-}
-
-function formatThreadDate(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Updated recently";
-  return date.toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-  });
-}
-
-function EmptyChat({
-  disabled,
-  needsLogin,
-}: {
-  disabled: boolean;
-  needsLogin: boolean;
-}) {
-  return (
-    <div className="m-auto mt-16 flex h-full w-full max-w-sm flex-col items-center justify-center px-3 pb-8 text-center sm:mt-24 sm:px-4 sm:pb-10">
-      <div className="mb-4 flex size-14 items-center justify-center rounded-2xl border border-border/70 bg-background text-primary/50 shadow-xs">
-        <MessageCircle className="size-7" />
-      </div>
-      <h3 className="mb-1.5 text-sm font-bold text-foreground">
-        How may I assist you today?
-      </h3>
-      <p className="text-[13px] leading-relaxed text-muted-foreground">
-        {needsLogin
-          ? "Log in to start asking questions about your sources."
-          : disabled
-            ? "Upload a document to start asking questions."
-            : "Ask anything about your sources. Answers include source links when Notebook finds support."}
-      </p>
-    </div>
-  );
-}
-
-function MessageBubble({
-  message,
-  onCitationClick,
-  pendingCitationId,
-  sourceTitlesByDocumentId,
-}: {
-  message: ChatMessageView;
-  onCitationClick?: (citation: ChatCitationView, citationId: string) => void;
-  pendingCitationId?: string | null;
-  sourceTitlesByDocumentId: Readonly<Record<string, string>>;
-}) {
-  if (message.role === "user") {
-    return (
-      <div className="flex min-w-0 flex-col items-end">
-        <div className="max-w-[85%] break-words rounded-2xl rounded-tr-sm bg-muted px-3 py-2.5 text-sm text-foreground shadow-xs sm:px-4 sm:py-3">
-          {message.content}
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex min-w-0 flex-col items-start">
-      <div className="max-w-[92%] overflow-hidden rounded-2xl rounded-tl-sm border border-border/70 bg-card px-3 py-2.5 text-sm leading-relaxed text-foreground shadow-xs sm:max-w-[90%] sm:px-4 sm:py-3">
-        <p className="whitespace-pre-wrap break-words">{message.content}</p>
-        {message.citations && message.citations.length > 0 && (
-          <div className="mt-3 border-t border-border/70 pt-2.5">
-            <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-              Sources used
-            </p>
-            <div className="flex flex-wrap gap-1.5">
-              {message.citations.map((cite, i) => {
-                const citationId = getCitationId(message.id, i);
-                const label = getCitationLabel(cite, sourceTitlesByDocumentId);
-                const isPending = citationId === pendingCitationId;
-
-                return (
-                  <button
-                    key={citationId}
-                    type="button"
-                    disabled={!onCitationClick || isPending}
-                    onClick={() => onCitationClick?.(cite, citationId)}
-                    className="inline-flex max-w-full cursor-pointer items-center gap-1.5 whitespace-normal rounded-lg border border-border bg-muted px-2 py-0 text-left text-[10px] font-medium text-muted-foreground shadow-2xs transition-colors hover:bg-muted/70 focus:outline-none focus:ring-4 focus:ring-ring/15 focus:ring-offset-2 focus:ring-offset-background disabled:cursor-wait disabled:opacity-75"
-                    aria-label={`Open source ${label}`}
-                  >
-                    {isPending && <Spinner className="size-3" />}
-                    <span className="min-w-0 break-words">{label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function getCitationId(messageId: string, citationIndex: number): string {
-  return `${messageId}:${citationIndex}`;
-}
-
-function getCitationLabel(
-  citation: ChatCitationView,
-  sourceTitlesByDocumentId: Readonly<Record<string, string>>,
-): string {
-  const sourceName = getCitationSourceName(citation, sourceTitlesByDocumentId);
-  const detail = getCitationDetail(citation, sourceName);
-  const parts = [sourceName ?? "Source", detail].filter(
-    (value): value is string => typeof value === "string" && value.length > 0,
-  );
-
-  return Array.from(new Set(parts)).join(" · ");
-}
-
-function getCitationSourceName(
-  citation: ChatCitationView,
-  sourceTitlesByDocumentId: Readonly<Record<string, string>>,
-): string | undefined {
-  const documentId = citation.source.documentId;
-  const title = documentId ? sourceTitlesByDocumentId[documentId] : undefined;
-  if (title) return title;
-
-  return normalizeCitationLabelPart(citation.source.sourceFileName);
-}
-
-function getCitationDetail(
-  citation: ChatCitationView,
-  sourceName: string | undefined,
-): string | undefined {
-  const rawSourceName = citation.source.sourceFileName;
-  const detail = normalizeCitationLabelPart(citation.description, sourceName);
-  if (detail && detail !== rawSourceName) return detail;
-
-  return normalizeCitationLabelPart(citation.source.sectionPath, sourceName);
-}
-
-function normalizeCitationLabelPart(
-  value: string | undefined,
-  sourceName?: string,
-): string | undefined {
-  if (!value) return undefined;
-
-  const trimmed = value.trim();
-  if (trimmed.length === 0) return undefined;
-  if (trimmed === sourceName) return undefined;
-  if (trimmed === "Root") return undefined;
-  if (isGeneratedKnowhereFileName(trimmed)) return undefined;
-
-  const normalized = trimmed
-    .replace(/^Default_Root\//, "")
-    .replace(/^Root\//, "")
-    .replace(/^[^/]+\.[A-Za-z0-9]+-->/, "")
-    .trim();
-
-  return normalized.length > 0 ? normalized : undefined;
-}
-
-function isGeneratedKnowhereFileName(value: string): boolean {
-  return /^document-[A-Za-z0-9_-]{16,}\.[A-Za-z0-9]+$/u.test(value);
 }

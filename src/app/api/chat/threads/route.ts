@@ -1,30 +1,16 @@
-import { NextResponse } from "next/server"
+import type { NextResponse } from "next/server"
 
-import { requireUser } from "@/lib/auth"
-import { toChatThreadView } from "@/lib/chat-view"
-import {
-  createChatThread,
-  ensureWorkspace,
-  listChatThreadsForWorkspace,
-} from "@/lib/workspace"
+import { chatThreadRouteService } from "@/domains/chat/route-threads"
+import { nextRouteResponse } from "@/lib/next-route-response"
 
 export async function GET(): Promise<NextResponse> {
-  const user = await requireUser()
-  const workspace = await ensureWorkspace(user.id)
-  const threads = await listChatThreadsForWorkspace(workspace.id)
-
-  return NextResponse.json({
-    threads: threads.map(toChatThreadView),
-  })
+  return nextRouteResponse.toNextResponse(
+    await chatThreadRouteService.listThreads(),
+  )
 }
 
 export async function POST(): Promise<NextResponse> {
-  const user = await requireUser()
-  const workspace = await ensureWorkspace(user.id)
-  const thread = await createChatThread(workspace.id)
-
-  return NextResponse.json({
-    thread: toChatThreadView(thread),
-    messages: [],
-  })
+  return nextRouteResponse.toNextResponse(
+    await chatThreadRouteService.createThread(),
+  )
 }

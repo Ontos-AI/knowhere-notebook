@@ -1,30 +1,17 @@
 "use client";
 
 import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
   type CSSProperties,
   type ReactNode,
-  type UIEventHandler,
 } from "react";
-import {
-  useVirtualizer,
-  type VirtualItem,
-} from "@tanstack/react-virtual";
-import { FileText, ImageIcon, Layers, Table2, Tags, TextQuote } from "lucide-react";
-import DOMPurify from "dompurify";
+import { type VirtualItem } from "@tanstack/react-virtual";
+import { Layers } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { SourceOriginalPreview } from "@/components/source-original-preview";
-import type {
-  ParsedChunkConnection,
-  ParsedChunkView,
-  SourceOriginalFileView,
-} from "@/lib/types";
+import { useChunksPanelWorkflow } from "@/components/chunks-panel-workflow";
+import { ParsedChunkCard } from "@/components/parsed-chunk-card";
+import type { ParsedChunkView } from "@/domains/chunks/types";
+import type { SourceOriginalFileView } from "@/domains/sources/types";
 import { cn } from "@/lib/utils";
 
 export type ChunksPanelProps = {
@@ -39,14 +26,6 @@ export type ChunksPanelProps = {
   onLoadMore?: () => void;
 };
 
-const estimatedChunkCardHeight = 220;
-const virtualListOverscan = 4;
-const infiniteScrollThreshold = 720;
-const keywordPanelClassName =
-  "rounded-lg border border-emerald-200/70 bg-emerald-50/70 p-3 shadow-[0_1px_0_rgba(16,185,129,0.08)] dark:border-emerald-400/20 dark:bg-emerald-950/20";
-const keywordBadgeClassName =
-  "rounded-md border border-emerald-200/80 bg-emerald-100/90 px-2 py-0.5 text-[11px] font-semibold text-emerald-800 shadow-[0_1px_0_rgba(16,185,129,0.10)] hover:bg-emerald-100 dark:border-emerald-400/25 dark:bg-emerald-400/10 dark:text-emerald-200";
-
 export function ChunksPanel({
   chunks = [],
   selectedSource = null,
@@ -58,110 +37,32 @@ export function ChunksPanel({
   hasMoreChunks = false,
   onLoadMore,
 }: Partial<ChunksPanelProps> = {}) {
-  const viewportRef = useRef<HTMLDivElement>(null);
-  const [activeView, setActiveView] = useState<"parsed" | "original">("parsed");
-  const [localFocusedChunkId, setLocalFocusedChunkId] = useState<string | null>(
-    null,
-  );
-  const activeFocusedChunkId = focusedChunkId ?? localFocusedChunkId;
-  const visibleChunks = useMemo(
-    () => getChunksWithFocusedFirst(chunks, activeFocusedChunkId),
-    [activeFocusedChunkId, chunks],
-  );
-  const getVirtualChunkKey = useCallback(
-    (index: number): string | number => visibleChunks[index]?.chunkId ?? index,
-    [visibleChunks],
-  );
-  const measureVirtualChunkElement = useCallback(
-    (element: HTMLDivElement): number => element.offsetHeight,
-    [],
-  );
-  // TanStack Virtual owns scroll measurement callbacks; this component is not memoized by React Compiler.
-  // eslint-disable-next-line react-hooks/incompatible-library
-  const chunkVirtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
-    count: visibleChunks.length,
-    getScrollElement: () => viewportRef.current,
-    getItemKey: getVirtualChunkKey,
-    estimateSize: () => estimatedChunkCardHeight,
-    measureElement: measureVirtualChunkElement,
-    overscan: virtualListOverscan,
+  const {
+    activeFocusedChunkId,
+    handleOriginalViewSelected,
+    handleParsedViewSelected,
+    handleViewportScroll,
+    hasOriginalFile,
+    measureVirtualChunkElement,
+    requestChunkFocus,
+    totalHeight,
+    viewportRef,
+    virtualItems,
+    visibleChunks,
+    visibleView,
+  } = useChunksPanelWorkflow({
+    chunks,
+    selectedSource,
+    selectedSourceFile,
+    focusedChunkId,
+    focusedChunkRequestId,
+    hasMoreChunks,
+    isLoading,
+    isLoadingMore,
+    onLoadMore,
   });
-  const virtualItems = chunkVirtualizer.getVirtualItems();
-  const totalHeight = chunkVirtualizer.getTotalSize();
-
-  const requestMoreChunksIfNeeded = useCallback(
-    (viewport: HTMLDivElement): void => {
-      if (
-        !onLoadMore ||
-        !hasMoreChunks ||
-        isLoading ||
-        isLoadingMore ||
-        !hasVisibleViewportSize(viewport)
-      ) {
-        return;
-      }
-
-      const distanceFromBottom =
-        viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
-
-      if (distanceFromBottom <= infiniteScrollThreshold) {
-        onLoadMore();
-      }
-    },
-    [hasMoreChunks, isLoading, isLoadingMore, onLoadMore],
-  );
-
-  const handleViewportScroll = useCallback<UIEventHandler<HTMLDivElement>>(
-    (event) => {
-      requestMoreChunksIfNeeded(event.currentTarget);
-    },
-    [requestMoreChunksIfNeeded],
-  );
-
-  const scrollToFocusedChunk = useCallback((): void => {
-    if (!activeFocusedChunkId) return;
-    // getChunksWithFocusedFirst moves the focused chunk to index 0 in
-    // visibleChunks, so the virtual list renders it at position 0 in
-    // the reordered array.  scrollToOffset(0) and scrollToIndex(0)
-    // both land on the focused chunk.
-    chunkVirtualizer.scrollToOffset(0, {
-      align: "start",
-      behavior: "auto",
-    });
-    requestAnimationFrame(() => {
-      chunkVirtualizer.scrollToOffset(0, {
-        align: "start",
-        behavior: "smooth",
-      });
-    });
-  }, [activeFocusedChunkId, chunkVirtualizer]);
-
-  useEffect(() => {
-    const viewport = viewportRef.current;
-
-    if (!viewport) {
-      return;
-    }
-
-    requestMoreChunksIfNeeded(viewport);
-  }, [requestMoreChunksIfNeeded, totalHeight, visibleChunks.length]);
-
-  useEffect(() => {
-    if (!activeFocusedChunkId) {
-      return;
-    }
-
-    scrollToFocusedChunk();
-  }, [activeFocusedChunkId, focusedChunkRequestId, scrollToFocusedChunk]);
-
-  const requestChunkFocus = useCallback((chunkId: string): void => {
-    setLocalFocusedChunkId(chunkId);
-  }, []);
 
   const headerTitle = focusedChunkId ? "Referenced Chunks" : "Parsed Chunks";
-  const hasOriginalFile = selectedSource !== null && selectedSourceFile !== null;
-  const visibleView = hasOriginalFile ? activeView : "parsed";
-
   const headerSubtitle = visibleView === "original" ? (
     selectedSource ? (
       <>
@@ -186,14 +87,6 @@ export function ChunksPanel({
     "Select a source to see its parsed chunks."
   );
 
-  useEffect(() => {
-    if (!hasOriginalFile) setActiveView("parsed");
-  }, [hasOriginalFile]);
-
-  useEffect(() => {
-    if (focusedChunkId) setActiveView("parsed");
-  }, [focusedChunkId, focusedChunkRequestId]);
-
   return (
     <main
       data-testid="chunks-panel"
@@ -212,14 +105,14 @@ export function ChunksPanel({
           <div className="flex shrink-0 rounded-lg border border-border bg-muted/40 p-0.5">
             <button
               type="button"
-              onClick={() => setActiveView("parsed")}
+              onClick={handleParsedViewSelected}
               className={viewToggleClassName(visibleView === "parsed")}
             >
               Parsed
             </button>
             <button
               type="button"
-              onClick={() => setActiveView("original")}
+              onClick={handleOriginalViewSelected}
               className={viewToggleClassName(visibleView === "original")}
             >
               Original
@@ -262,7 +155,7 @@ export function ChunksPanel({
                     virtualItem={virtualItem}
                     chunk={visibleChunks[virtualItem.index]}
                     focusedChunkId={activeFocusedChunkId}
-                    measureElement={chunkVirtualizer.measureElement}
+                    measureElement={measureVirtualChunkElement}
                     onReferenceClick={requestChunkFocus}
                   />
                 ))}
@@ -287,29 +180,6 @@ function viewToggleClassName(isActive: boolean): string {
       ? "bg-background text-foreground shadow-xs"
       : "text-muted-foreground hover:text-foreground",
   );
-}
-
-function getChunksWithFocusedFirst(
-  chunks: readonly ParsedChunkView[],
-  focusedChunkId: string | null,
-): readonly ParsedChunkView[] {
-  if (!focusedChunkId) {
-    return chunks;
-  }
-
-  const focusedIndex = chunks.findIndex(
-    (chunk) => chunk.chunkId === focusedChunkId,
-  );
-  if (focusedIndex <= 0) {
-    return chunks;
-  }
-
-  const focusedChunk = chunks[focusedIndex]!;
-  return [
-    focusedChunk,
-    ...chunks.slice(0, focusedIndex),
-    ...chunks.slice(focusedIndex + 1),
-  ];
 }
 
 function EmptyChunks(): ReactNode {
@@ -372,554 +242,11 @@ function VirtualChunkRow({
       data-chunk-id={chunk.chunkId}
       data-focused-chunk={chunk.chunkId === focusedChunkId ? "true" : undefined}
     >
-      <ChunkCard
+      <ParsedChunkCard
         chunk={chunk}
         isFocused={chunk.chunkId === focusedChunkId}
         onReferenceClick={onReferenceClick}
       />
     </div>
   );
-}
-
-function hasVisibleViewportSize(viewport: HTMLDivElement): boolean {
-  return viewport.clientHeight > 0 && viewport.scrollHeight > 0;
-}
-
-function ChunkCard({
-  chunk,
-  isFocused,
-  onReferenceClick,
-}: {
-  chunk: ParsedChunkView;
-  isFocused: boolean;
-  onReferenceClick: (chunkId: string) => void;
-}): ReactNode {
-  if (chunk.type === "image") {
-    return (
-      <div
-        data-testid={`chunk-card-shell-${chunk.chunkId}`}
-        className="w-full min-w-0"
-      >
-        <ImageChunkCard chunk={chunk} isFocused={isFocused} />
-      </div>
-    );
-  }
-  if (chunk.type === "table") {
-    return (
-      <div
-        data-testid={`chunk-card-shell-${chunk.chunkId}`}
-        className="w-full min-w-0"
-      >
-        <TableChunkCard chunk={chunk} isFocused={isFocused} />
-      </div>
-    );
-  }
-  return (
-    <div
-      data-testid={`chunk-card-shell-${chunk.chunkId}`}
-      className="w-full min-w-0"
-    >
-      <TextChunkCard
-        chunk={chunk}
-        isFocused={isFocused}
-        onReferenceClick={onReferenceClick}
-      />
-    </div>
-  );
-}
-
-function ChunkCardFrame({
-  chunk,
-  isFocused,
-  children,
-}: {
-  chunk: ParsedChunkView;
-  isFocused: boolean;
-  children: ReactNode;
-}): ReactNode {
-  return (
-    <Card
-      className={cn(
-        "w-full min-w-0 cursor-default overflow-hidden rounded-lg shadow-xs transition-colors",
-        focusCardClasses(isFocused),
-      )}
-    >
-      <CardContent className="space-y-3 p-3 sm:p-4">
-        <ChunkSourcePanel chunk={chunk} />
-        {children}
-      </CardContent>
-    </Card>
-  );
-}
-
-function ChunkSourcePanel({ chunk }: { chunk: ParsedChunkView }): ReactNode {
-  const pageLabel: string | null = formatPageNumbers(chunk.pageNums);
-  const sectionLabel: string | null = formatChunkSectionPath(chunk.sectionPath);
-
-  return (
-    <section
-      data-testid={`chunk-source-panel-${chunk.chunkId}`}
-      className="rounded-lg border border-border/70 bg-background/80 p-3"
-    >
-      <div className="flex min-w-0 gap-3">
-        <div
-          className={cn(
-            "grid size-9 shrink-0 place-items-center rounded-lg border shadow-inner",
-            getChunkIconClasses(chunk.type),
-          )}
-        >
-          {renderChunkIcon(chunk.type)}
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Badge
-              variant="outline"
-              className="h-5 rounded-md px-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground"
-            >
-              {getChunkTypeLabel(chunk.type)}
-            </Badge>
-            {pageLabel ? (
-              <Badge
-                variant="secondary"
-                className="h-5 rounded-md px-1.5 text-[10px] font-semibold text-muted-foreground"
-              >
-                {pageLabel}
-              </Badge>
-            ) : null}
-          </div>
-          {sectionLabel ? (
-            <p className="mt-2 break-words text-xs leading-5 text-muted-foreground">
-              {sectionLabel}
-            </p>
-          ) : null}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function formatChunkSectionPath(
-  sectionPath: ParsedChunkView["sectionPath"],
-): string | null {
-  const trimmedSectionPath: string = sectionPath?.trim() ?? "";
-  if (!trimmedSectionPath) return null;
-
-  const userVisiblePath: string =
-    removeKnowhereDefaultRootPrefix(trimmedSectionPath);
-  const readablePath: string = userVisiblePath
-    .split("-->")
-    .map((segment: string): string => segment.trim())
-    .filter((segment: string): boolean => segment.length > 0)
-    .join(" / ");
-
-  return readablePath.length > 0 ? readablePath : null;
-}
-
-function removeKnowhereDefaultRootPrefix(sectionPath: string): string {
-  const knowhereDefaultRootPrefix = "Default_Root/" as const;
-  const hasKnowhereDefaultRootPrefix: boolean = sectionPath.startsWith(
-    knowhereDefaultRootPrefix,
-  );
-  if (!hasKnowhereDefaultRootPrefix) return sectionPath;
-
-  const sectionSegments: string[] = sectionPath.split("-->");
-  if (sectionSegments.length <= 1) {
-    return sectionPath.slice(knowhereDefaultRootPrefix.length);
-  }
-
-  return sectionSegments.slice(1).join("-->");
-}
-
-function ChunkSummaryPanel({ chunk }: { chunk: ParsedChunkView }): ReactNode {
-  if (!chunk.summary) return null;
-
-  return (
-    <section
-      data-testid={`chunk-summary-panel-${chunk.chunkId}`}
-      className="rounded-lg border border-border/70 bg-muted/35 p-3"
-    >
-      <SectionLabel icon={<TextQuote className="size-3.5" />} label="Summary" />
-      <p className="mt-2 text-sm leading-6 text-foreground/85">{chunk.summary}</p>
-    </section>
-  );
-}
-
-function ChunkContentPanel({
-  chunk,
-  children,
-}: {
-  chunk: ParsedChunkView;
-  children: ReactNode;
-}): ReactNode {
-  return (
-    <section
-      data-testid={`chunk-content-panel-${chunk.chunkId}`}
-      className="rounded-lg border border-border/70 bg-card p-3"
-    >
-      <SectionLabel icon={<FileText className="size-3.5" />} label="Content" />
-      <div className="mt-2 min-w-0">{children}</div>
-    </section>
-  );
-}
-
-function ChunkKeywords({ chunk }: { chunk: ParsedChunkView }): ReactNode {
-  if (!chunk.keywords || chunk.keywords.length === 0) return null;
-
-  return (
-    <section
-      data-testid={`chunk-keywords-panel-${chunk.chunkId}`}
-      className={keywordPanelClassName}
-    >
-      <SectionLabel
-        icon={<Tags className="size-3.5" />}
-        label="Keywords"
-        className="text-emerald-800 dark:text-emerald-200"
-        iconClassName="text-emerald-600 dark:text-emerald-300"
-      />
-      <div className="mt-2 flex flex-wrap gap-1.5">
-        {chunk.keywords.map((keyword) => (
-          <Badge
-            key={keyword}
-            variant="secondary"
-            className={keywordBadgeClassName}
-          >
-            {keyword}
-          </Badge>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function SectionLabel({
-  icon,
-  label,
-  className,
-  iconClassName,
-}: {
-  icon: ReactNode;
-  label: string;
-  className?: string;
-  iconClassName?: string;
-}): ReactNode {
-  return (
-    <div
-      className={cn(
-        "flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-muted-foreground",
-        className,
-      )}
-    >
-      <span className={cn("text-primary", iconClassName)}>{icon}</span>
-      {label}
-    </div>
-  );
-}
-
-function focusCardClasses(isFocused: boolean): string {
-  return isFocused
-    ? "citation-card-highlight border-primary/70 bg-primary/5 ring-2 ring-primary/30 shadow-md"
-    : "hover:border-primary/30";
-}
-
-function TextChunkCard({
-  chunk,
-  isFocused,
-  onReferenceClick,
-}: {
-  chunk: ParsedChunkView;
-  isFocused: boolean;
-  onReferenceClick: (chunkId: string) => void;
-}): ReactNode {
-  return (
-    <ChunkCardFrame chunk={chunk} isFocused={isFocused}>
-      <ChunkSummaryPanel chunk={chunk} />
-      <ChunkContentPanel chunk={chunk}>
-        <pre className="whitespace-pre-wrap break-words font-sans text-[13px] leading-relaxed text-foreground sm:text-sm">
-          {renderTextChunkContent(chunk, onReferenceClick)}
-        </pre>
-      </ChunkContentPanel>
-      <ChunkKeywords chunk={chunk} />
-    </ChunkCardFrame>
-  );
-}
-
-function ImageChunkCard({
-  chunk,
-  isFocused,
-}: {
-  chunk: ParsedChunkView;
-  isFocused: boolean;
-}): ReactNode {
-  return (
-    <ChunkCardFrame chunk={chunk} isFocused={isFocused}>
-      <ChunkSummaryPanel chunk={chunk} />
-      <ChunkContentPanel chunk={chunk}>
-        {chunk.assetUrl ? (
-          <figure className="overflow-hidden rounded-lg border border-border bg-muted/30">
-            {/* eslint-disable-next-line @next/next/no-img-element -- Parsed artifact dimensions are not known before render. */}
-            <img
-              src={chunk.assetUrl}
-              alt={chunk.summary ?? "Image chunk"}
-              className="max-h-[520px] w-full object-contain"
-            />
-          </figure>
-        ) : (
-          <div className="flex flex-col items-center gap-3 rounded-lg border border-border bg-muted/40 py-8 text-center">
-            <ImageIcon className="size-8 text-muted-foreground" />
-            <div>
-              <p className="text-sm font-medium text-foreground">
-                Image chunk
-              </p>
-              <p className="mt-1 max-w-xs text-xs text-muted-foreground">
-                {chunk.summary ?? "Image content is not available in this view."}
-              </p>
-            </div>
-          </div>
-        )}
-      </ChunkContentPanel>
-      <ChunkKeywords chunk={chunk} />
-    </ChunkCardFrame>
-  );
-}
-
-function renderTextChunkContent(
-  chunk: ParsedChunkView,
-  onReferenceClick: (chunkId: string) => void,
-): ReactNode {
-  const references = getRenderableReferences(chunk);
-  if (references.length === 0) return chunk.content;
-
-  const nodes: ReactNode[] = [];
-  let cursor = 0;
-
-  references.forEach((reference, index) => {
-    if (reference.start > cursor) {
-      nodes.push(chunk.content.slice(cursor, reference.start));
-    }
-    nodes.push(
-      <ChunkReferenceButton
-        key={`${reference.connection.ref ?? "ref"}-${index}`}
-        connection={reference.connection}
-        onReferenceClick={onReferenceClick}
-      />,
-    );
-    cursor = reference.end;
-  });
-
-  if (cursor < chunk.content.length) {
-    nodes.push(chunk.content.slice(cursor));
-  }
-
-  return nodes;
-}
-
-type RenderableReference = {
-  start: number;
-  end: number;
-  connection: ParsedChunkConnection;
-};
-
-function getRenderableReferences(
-  chunk: ParsedChunkView,
-): RenderableReference[] {
-  if (!chunk.connections || chunk.connections.length === 0) return [];
-
-  const references = chunk.connections.flatMap(
-    (connection): RenderableReference[] => {
-      const range = getReferenceRange(chunk.content, connection);
-      return range ? [{ ...range, connection }] : [];
-    },
-  );
-
-  const sorted = references.sort((a, b) => a.start - b.start);
-  const nonOverlapping: RenderableReference[] = [];
-  let previousEnd = -1;
-
-  sorted.forEach((reference) => {
-    if (reference.start < previousEnd) return;
-    nonOverlapping.push(reference);
-    previousEnd = reference.end;
-  });
-
-  return nonOverlapping;
-}
-
-function getReferenceRange(
-  content: string,
-  connection: ParsedChunkConnection,
-): { start: number; end: number } | null {
-  const positioned = connection.position;
-  if (
-    positioned &&
-    positioned.start >= 0 &&
-    positioned.end > positioned.start &&
-    positioned.end <= content.length
-  ) {
-    return positioned;
-  }
-
-  if (!connection.ref) return null;
-  const start = content.indexOf(connection.ref);
-  if (start < 0) return null;
-  return { start, end: start + connection.ref.length };
-}
-
-function ChunkReferenceButton({
-  connection,
-  onReferenceClick,
-}: {
-  connection: ParsedChunkConnection;
-  onReferenceClick: (chunkId: string) => void;
-}): ReactNode {
-  const isResolved = typeof connection.targetChunkId === "string";
-  const label = getReferenceLabel(connection);
-
-  return (
-    <button
-      type="button"
-      disabled={!isResolved}
-      aria-disabled={!isResolved}
-      className="mx-0.5 inline-flex max-w-full items-center rounded border border-primary/25 bg-primary/10 px-1.5 py-0.5 text-[12px] font-medium leading-5 text-primary hover:bg-primary/15 disabled:cursor-not-allowed disabled:border-border disabled:bg-muted disabled:text-muted-foreground"
-      onClick={() => {
-        if (connection.targetChunkId) onReferenceClick(connection.targetChunkId);
-      }}
-    >
-      {label}
-    </button>
-  );
-}
-
-function getReferenceLabel(connection: ParsedChunkConnection): string {
-  const ref = connection.ref?.trim();
-  if (!ref) return connection.targetParserChunkId;
-  return formatReferenceLabel(ref);
-}
-
-function formatReferenceLabel(ref: string): string {
-  const cleanedReference = ref.replace(/^\[/, "").replace(/\]$/, "").trim();
-  const pathWithoutQuery = cleanedReference.split(/[?#]/, 1)[0] ?? cleanedReference;
-  const fileName = pathWithoutQuery.split(/[\\/]/).filter(Boolean).at(-1);
-  const baseName = fileName ?? pathWithoutQuery;
-  const withoutExtension = baseName.replace(
-    /\.(?:csv|gif|htm|html|jpeg|jpg|md|pdf|png|svg|txt|webp)$/i,
-    "",
-  );
-
-  const readableName = withoutExtension
-    .replace(/_/g, " ")
-    .replace(/-/g, getReadableDashReplacement)
-    .replace(/^(image|table)\s+(\d+)/i, (_, type: string, index: string) =>
-      `${capitalize(type)} ${index}`,
-    );
-
-  return capitalize(readableName.replace(/\s+/g, " ").trim());
-}
-
-function getReadableDashReplacement(
-  _match: string,
-  index: number,
-  value: string,
-): string {
-  const previous = value.at(index - 1) ?? "";
-  const next = value.at(index + 1) ?? "";
-  return /\d/.test(previous) && /\d/.test(next) ? "-" : " ";
-}
-
-function capitalize(value: string): string {
-  return value.charAt(0).toUpperCase() + value.slice(1);
-}
-
-function TableChunkCard({
-  chunk,
-  isFocused,
-}: {
-  chunk: ParsedChunkView;
-  isFocused: boolean;
-}): ReactNode {
-  const hasHtml = chunk.content.trim().startsWith("<");
-
-  const safeHtml = useMemo(
-    () =>
-      hasHtml
-        ? DOMPurify.sanitize(chunk.content, {
-            ALLOWED_TAGS: [
-              "table",
-              "thead",
-              "tbody",
-              "tfoot",
-              "tr",
-              "th",
-              "td",
-              "caption",
-              "colgroup",
-              "col",
-            ],
-            ALLOWED_ATTR: ["colspan", "rowspan", "scope", "align"],
-          })
-        : null,
-    [chunk.content, hasHtml],
-  );
-
-  return (
-    <ChunkCardFrame chunk={chunk} isFocused={isFocused}>
-      <ChunkSummaryPanel chunk={chunk} />
-      <ChunkContentPanel chunk={chunk}>
-        {safeHtml ? (
-          <div
-            data-testid={`chunk-table-content-${chunk.chunkId}`}
-            className="prose prose-sm max-w-full overflow-x-auto text-sm leading-relaxed [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-border [&_td]:px-2 [&_td]:py-1 [&_th]:border [&_th]:border-border [&_th]:bg-muted [&_th]:px-2 [&_th]:py-1"
-            dangerouslySetInnerHTML={{ __html: safeHtml }}
-          />
-        ) : (
-          <div className="flex flex-col items-center gap-3 rounded-lg border border-border bg-muted/40 py-8 text-center">
-            <Table2 className="size-8 text-muted-foreground" />
-            <div>
-              <p className="text-sm font-medium text-foreground">
-                Table chunk
-              </p>
-              <p className="mt-1 max-w-xs text-xs text-muted-foreground">
-                {chunk.summary ?? "Table content is not available in this view."}
-              </p>
-            </div>
-          </div>
-        )}
-      </ChunkContentPanel>
-      <ChunkKeywords chunk={chunk} />
-    </ChunkCardFrame>
-  );
-}
-
-function renderChunkIcon(type: ParsedChunkView["type"]): ReactNode {
-  if (type === "image") return <ImageIcon className="size-4" />;
-  if (type === "table") return <Table2 className="size-4" />;
-  return <FileText className="size-4" />;
-}
-
-function getChunkIconClasses(type: ParsedChunkView["type"]): string {
-  if (type === "image") {
-    return "border-violet-500/15 bg-violet-500/10 text-violet-600 dark:text-violet-300";
-  }
-  if (type === "table") {
-    return "border-primary/15 bg-primary/10 text-primary";
-  }
-  return "border-border bg-muted/60 text-muted-foreground";
-}
-
-function getChunkTypeLabel(type: ParsedChunkView["type"]): string {
-  if (type === "image") return "Image";
-  if (type === "table") return "Table";
-  return "Text";
-}
-
-function formatPageNumbers(pageNums: ParsedChunkView["pageNums"]): string | null {
-  if (!pageNums || pageNums.length === 0) return null;
-
-  const uniquePageNums = Array.from(new Set(pageNums)).sort(
-    (leftPageNum, rightPageNum) => leftPageNum - rightPageNum,
-  );
-  if (uniquePageNums.length === 1) return `Page ${uniquePageNums[0]}`;
-
-  const visiblePageNums = uniquePageNums.slice(0, 3).join(", ");
-  const suffix = uniquePageNums.length > 3 ? "..." : "";
-  return `Pages ${visiblePageNums}${suffix}`;
 }

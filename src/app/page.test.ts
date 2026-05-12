@@ -18,35 +18,41 @@ vi.mock("next/headers", () => ({
   headers: vi.fn(async () => new Headers({ cookie: "session=abc" })),
 }));
 
-vi.mock("@/lib/api-key-service", () => ({
+vi.mock("@/integrations/dashboard/api-key-service", () => ({
   ensureApiKeyForWorkspace: mocks.ensureApiKeyForWorkspace,
 }));
 
-vi.mock("@/lib/auth", () => ({
+vi.mock("@/infrastructure/auth", () => ({
   getCurrentUser: mocks.getCurrentUser,
 }));
 
-vi.mock("@/lib/knowhere", () => ({
+vi.mock("@/integrations/knowhere", () => ({
   makeKnowhereClient: mocks.makeKnowhereClient,
 }));
 
-vi.mock("@/lib/source-counts", () => ({
+vi.mock("@/domains/sources/counts", () => ({
   sourceViewOptionsBySourceId: mocks.sourceViewOptionsBySourceId,
 }));
 
-vi.mock("@/lib/workspace", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/workspace")>(
-    "@/lib/workspace",
-  );
-  return {
-    ...actual,
+vi.mock("@/domains/workspace/service", () => ({
+  workspaceService: {
     ensureDemoWorkspaceContent: mocks.ensureDemoWorkspaceContent,
     ensureWorkspace: mocks.ensureWorkspace,
-    listChatThreadsForWorkspace: mocks.listChatThreadsForWorkspace,
-    listMessagesForThread: mocks.listMessagesForThread,
-    listSourcesForWorkspace: mocks.listSourcesForWorkspace,
-  };
-});
+  },
+}));
+
+vi.mock("@/domains/sources/service", () => ({
+  sourceService: {
+    listForWorkspace: mocks.listSourcesForWorkspace,
+  },
+}));
+
+vi.mock("@/domains/chat/thread-service", () => ({
+  chatThreadService: {
+    listForWorkspace: mocks.listChatThreadsForWorkspace,
+    listMessages: mocks.listMessagesForThread,
+  },
+}));
 
 import Home from "./page";
 
