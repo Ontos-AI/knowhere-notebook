@@ -9,8 +9,8 @@ const mocks = vi.hoisted(() => ({
   getCurrentUser: vi.fn(),
   listChatThreadsForWorkspace: vi.fn(),
   listMessagesForThread: vi.fn(),
-  listSourcesForWorkspace: vi.fn(),
   makeKnowhereClient: vi.fn(),
+  reconcileSourcesForWorkspace: vi.fn(),
   sourceViewOptionsBySourceId: vi.fn(),
 }));
 
@@ -41,10 +41,8 @@ vi.mock("@/domains/workspace/service", () => ({
   },
 }));
 
-vi.mock("@/domains/sources/service", () => ({
-  sourceService: {
-    listForWorkspace: mocks.listSourcesForWorkspace,
-  },
+vi.mock("@/domains/sources/reconcile", () => ({
+  reconcileSourcesForWorkspace: mocks.reconcileSourcesForWorkspace,
 }));
 
 vi.mock("@/domains/chat/thread-service", () => ({
@@ -70,7 +68,7 @@ describe("Home", () => {
     });
     mocks.ensureApiKeyForWorkspace.mockResolvedValue("jwt_123");
     mocks.makeKnowhereClient.mockReturnValue(client);
-    mocks.listSourcesForWorkspace.mockResolvedValue([]);
+    mocks.reconcileSourcesForWorkspace.mockResolvedValue([]);
     mocks.listChatThreadsForWorkspace.mockResolvedValue([]);
     mocks.sourceViewOptionsBySourceId.mockReturnValue(Effect.succeed(new Map()));
 
@@ -89,6 +87,8 @@ describe("Home", () => {
     ).toBeGreaterThan(mocks.makeKnowhereClient.mock.invocationCallOrder[0]);
     expect(
       mocks.ensureDemoWorkspaceContent.mock.invocationCallOrder[0],
-    ).toBeLessThan(mocks.listSourcesForWorkspace.mock.invocationCallOrder[0]);
+    ).toBeLessThan(
+      mocks.reconcileSourcesForWorkspace.mock.invocationCallOrder[0],
+    );
   });
 });

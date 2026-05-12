@@ -53,7 +53,7 @@ describe("loadWorkspaceShellInitialState", () => {
         callOrder.push("threads");
         return [thread];
       }),
-      listSources: vi.fn(async () => {
+      reconcileSourcesForWorkspace: vi.fn(async () => {
         callOrder.push("sources");
         return [source];
       }),
@@ -75,6 +75,44 @@ describe("loadWorkspaceShellInitialState", () => {
         status: "ready",
         documentId: "document_1",
         chunkCount: 2,
+      },
+    ]);
+  });
+
+  it("reconciles source state during authenticated shell load", async () => {
+    const workspace = makeWorkspace();
+    const readySource = makeSource(workspace.id, {
+      status: "ready",
+      knowhereDocumentId: "document_1",
+    });
+    const reconcileSourcesForWorkspace = vi.fn(async () => [readySource]);
+    const deps = {
+      ...createDependencies({
+        getOptionalAuthenticated: vi.fn(async () => ({
+          user: {
+            id: "user_1",
+            email: "ada@example.com",
+            name: "Ada",
+          },
+          workspace,
+        })),
+      }),
+      reconcileSourcesForWorkspace,
+    } satisfies InitialStateDependencies;
+
+    const state = await loadWorkspaceShellInitialState(deps);
+
+    expect(reconcileSourcesForWorkspace).toHaveBeenCalledWith(
+      workspace,
+      expect.any(Object),
+    );
+    expect(state.sources).toEqual([
+      {
+        id: readySource.id,
+        title: "notes.pdf",
+        mimeType: "application/pdf",
+        status: "ready",
+        documentId: "document_1",
       },
     ]);
   });
@@ -113,7 +151,7 @@ function createDependencies(
     getOptionalAuthenticated: vi.fn(async () => ({ user, workspace })),
     listChatThreads: vi.fn(async () => []),
     listMessages: vi.fn(async () => []),
-    listSources: vi.fn(async () => []),
+    reconcileSourcesForWorkspace: vi.fn(async () => []),
     sourceViewOptionsBySourceId: vi.fn(() => Effect.succeed(new Map())),
     ...overrides,
   };
@@ -128,7 +166,10 @@ function makeWorkspace(): Workspace {
   };
 }
 
-function makeSource(workspaceId: string): Source {
+function makeSource(
+  workspaceId: string,
+  overrides: Partial<Source> = {},
+): Source {
   return {
     id: "source_1",
     workspaceId,
@@ -147,6 +188,7 @@ function makeSource(workspaceId: string): Source {
     createdAt: new Date("2026-05-10T00:00:00.000Z"),
     updatedAt: new Date("2026-05-10T00:00:00.000Z"),
     deletedAt: null,
+    ...overrides,
   };
 }
 

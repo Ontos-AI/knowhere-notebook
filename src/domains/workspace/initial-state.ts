@@ -8,7 +8,7 @@ import { chatThreadService } from "@/domains/chat/thread-service"
 import { toChatMessageView, toChatThreadView } from "@/domains/chat/view"
 import { sourceViewOptionsBySourceId as getSourceViewOptionsBySourceId } from "@/domains/sources/counts"
 import { demoData } from "@/domains/sources/demo-data"
-import { sourceService } from "@/domains/sources/service"
+import { reconcileSourcesForWorkspace as reconcileDefaultSourcesForWorkspace } from "@/domains/sources/reconcile"
 import type { SourceView } from "@/domains/sources/types"
 import { toSourceView } from "@/domains/sources/view"
 import type { AuthUser } from "@/infrastructure/auth"
@@ -41,7 +41,8 @@ type WorkspaceShellInitialState = {
 
 type WorkspaceShellInitialStateClient =
   Parameters<typeof workspaceService.ensureDemoWorkspaceContent>[1] &
-    Parameters<typeof getSourceViewOptionsBySourceId>[1]
+    Parameters<typeof getSourceViewOptionsBySourceId>[1] &
+    Parameters<typeof reconcileDefaultSourcesForWorkspace>[1]
 
 type WorkspaceShellInitialStateDependencies = {
   readonly demoChatMessages: readonly ChatMessageView[]
@@ -63,7 +64,10 @@ type WorkspaceShellInitialStateDependencies = {
     workspaceId: string,
     threadId: string,
   ) => Promise<readonly ChatMessage[] | null>
-  readonly listSources: (workspaceId: string) => Promise<readonly Source[]>
+  readonly reconcileSourcesForWorkspace: (
+    workspace: Workspace,
+    client: WorkspaceShellInitialStateClient,
+  ) => Promise<readonly Source[]>
   readonly sourceViewOptionsBySourceId: (
     sources: readonly Source[],
     client: WorkspaceShellInitialStateClient,
@@ -79,7 +83,7 @@ const defaultDependencies: WorkspaceShellInitialStateDependencies = {
   getOptionalAuthenticated: notebookRequestContext.getOptionalAuthenticated,
   listChatThreads: chatThreadService.listForWorkspace,
   listMessages: chatThreadService.listMessages,
-  listSources: sourceService.listForWorkspace,
+  reconcileSourcesForWorkspace: reconcileDefaultSourcesForWorkspace,
   sourceViewOptionsBySourceId: getSourceViewOptionsBySourceId,
 }
 
@@ -101,7 +105,7 @@ export async function loadWorkspaceShellInitialState(
   const { user, workspace } = context
   const { client } = await deps.getClientForWorkspace(workspace)
   await deps.ensureDemoWorkspaceContent(workspace, client)
-  const sources = await deps.listSources(workspace.id)
+  const sources = await deps.reconcileSourcesForWorkspace(workspace, client)
   const chatThreads = await deps.listChatThreads(workspace.id)
   const activeChatThread = chatThreads[0] ?? null
   const chatMessages = activeChatThread
