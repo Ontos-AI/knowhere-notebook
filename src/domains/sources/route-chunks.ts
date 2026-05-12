@@ -2,6 +2,7 @@ import { Effect } from "effect"
 
 import { demoView } from "@/domains/demo/view"
 import type { DemoChunkPage } from "@/integrations/knowhere-demo"
+import { logger } from "@/lib/logger"
 import { routeResult } from "@/lib/route-result"
 import { getClientForWorkspace } from "./route-dependencies"
 import type {
@@ -119,7 +120,15 @@ async function loadDemoChunkPage(
             pagination: page.pagination,
           },
     )
-  } catch {
+  } catch (error) {
+    logger.warn("sources: demo chunk load failed", {
+      sourceId: input.sourceId,
+      page: input.pageParams.page,
+      pageSize: input.pageParams.pageSize,
+      shouldLoadAll: input.shouldLoadAll,
+      knowhereBaseUrl: process.env.KNOWHERE_BASE_URL ?? "(default)",
+      error: error instanceof Error ? error.message : String(error),
+    })
     return null
   }
 }

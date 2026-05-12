@@ -55,6 +55,13 @@ type WorkspaceShellInitialStateDependencies = {
     readonly user: AuthUser
     readonly workspace: Workspace
   } | null>
+  readonly ensureDemoChatThread: (
+    workspaceId: string,
+    catalog: DemoCatalog,
+  ) => Promise<{
+    readonly thread: ChatThread
+    readonly messages: readonly ChatMessage[]
+  } | null>
   readonly listChatThreads: (workspaceId: string) => Promise<readonly ChatThread[]>
   readonly listHiddenDemoSourceIds: (workspaceId: string) => Promise<string[]>
   readonly listMessages: (
@@ -76,6 +83,7 @@ const defaultDependencies: WorkspaceShellInitialStateDependencies = {
   getClientForWorkspace: notebookRequestContext.getClientForWorkspace,
   getGuest: notebookRequestContext.getGuest,
   getOptionalAuthenticated: notebookRequestContext.getOptionalAuthenticated,
+  ensureDemoChatThread: chatThreadService.ensureDemo,
   listChatThreads: chatThreadService.listForWorkspace,
   listHiddenDemoSourceIds: sourceService.listHiddenDemoSourceIds,
   listMessages: chatThreadService.listMessages,
@@ -120,10 +128,22 @@ export async function loadWorkspaceShellInitialState(
     )
     .filter((source) => !hiddenDemoSourceIds.has(source.demoSourceId))
   const demoSources = visibleDemoCatalogSources.map(demoView.toSourceView)
-  const chatThreads = await deps.listChatThreads(workspace.id)
+  const listedChatThreads = await deps.listChatThreads(workspace.id)
+  const seededDemoChatThread =
+    listedChatThreads.length === 0
+      ? await deps.ensureDemoChatThread(workspace.id, demoCatalog)
+      : null
+  const chatThreads = seededDemoChatThread
+    ? [seededDemoChatThread.thread]
+    : listedChatThreads
   const activeChatThread = chatThreads[0] ?? null
-  const chatMessages = activeChatThread
-    ? ((await deps.listMessages(workspace.id, activeChatThread.id)) ?? []).map(
+  const activeChatMessages = seededDemoChatThread
+    ? seededDemoChatThread.messages
+    : activeChatThread
+      ? await deps.listMessages(workspace.id, activeChatThread.id)
+      : []
+  const chatMessages = activeChatMessages
+    ? activeChatMessages.map(
         (message) => toChatMessageView(message),
       )
     : []

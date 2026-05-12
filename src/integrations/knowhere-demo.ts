@@ -320,7 +320,7 @@ function toDemoChunk(
     id: requireString(chunk.id),
     chunkId: requireString(chunk.chunk_id),
     chunkType: requireString(chunk.chunk_type),
-    content: requireString(chunk.content),
+    content: requireContentString(chunk.content),
     sectionPath: optionalString(chunk.section_path) ?? null,
     sourceChunkPath: optionalString(chunk.source_chunk_path) ?? null,
     filePath: optionalString(chunk.file_path) ?? null,
@@ -363,6 +363,11 @@ function requireString(value: unknown): string {
     return value
   }
   throw new Error("Expected non-empty string from Knowhere demo API.")
+}
+
+function requireContentString(value: unknown): string {
+  if (typeof value === "string") return value
+  throw new Error("Expected string content from Knowhere demo API.")
 }
 
 function optionalString(value: unknown): string | undefined {

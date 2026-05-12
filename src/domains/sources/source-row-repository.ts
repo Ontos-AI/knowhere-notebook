@@ -68,6 +68,7 @@ type SourceRowRepository = {
     workspaceId: string,
     sourceId: string,
   ) => Effect.Effect<boolean, never, DbClient>
+  readonly isWorkspaceSourceId: (sourceId: string) => boolean
   readonly findInWorkspaceWithDb: (
     db: Db,
     workspaceId: string,
@@ -187,6 +188,8 @@ const softDeleteEffect: SourceRowRepository["softDeleteEffect"] = (
   sourceId: string,
 ) =>
   Effect.gen(function* () {
+    if (!isWorkspaceSourceId(sourceId)) return false
+
     const db = yield* DbClient
     const result = yield* Effect.promise(() =>
       db
@@ -222,6 +225,8 @@ async function findInWorkspaceWithDb(
   workspaceId: string,
   sourceId: string,
 ): Promise<Source | null> {
+  if (!isWorkspaceSourceId(sourceId)) return null
+
   const row = await db
     .select()
     .from(sources)
@@ -243,6 +248,8 @@ async function updateInWorkspaceWithDb(
   sourceId: string,
   values: SourceUpdate,
 ): Promise<Source | null> {
+  if (!isWorkspaceSourceId(sourceId)) return null
+
   const [source] = await db
     .update(sources)
     .set({ ...values, updatedAt: sql`now()` })
@@ -256,6 +263,13 @@ async function updateInWorkspaceWithDb(
     .returning()
 
   return source ?? null
+}
+
+const WORKSPACE_SOURCE_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu
+
+function isWorkspaceSourceId(sourceId: string): boolean {
+  return WORKSPACE_SOURCE_ID_PATTERN.test(sourceId)
 }
 
 function requireSource(source: Source | null, message: string): Source {
@@ -272,6 +286,7 @@ export const sourceRowRepository: SourceRowRepository = {
   markFailedEffect,
   clearStagedBlobEffect,
   softDeleteEffect,
+  isWorkspaceSourceId,
   findInWorkspaceWithDb,
   updateInWorkspaceWithDb,
   requireSource,

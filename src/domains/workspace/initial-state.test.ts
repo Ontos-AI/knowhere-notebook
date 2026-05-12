@@ -3,7 +3,12 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { loadWorkspaceShellInitialState } from "./initial-state"
 import type { AuthUser } from "@/infrastructure/auth"
-import type { ChatThread, Source, Workspace } from "@/infrastructure/db/schema"
+import type {
+  ChatMessage,
+  ChatThread,
+  Source,
+  Workspace,
+} from "@/infrastructure/db/schema"
 import type { DemoCatalog } from "@/integrations/knowhere-demo"
 
 type InitialStateDependencies = NonNullable<
@@ -119,6 +124,7 @@ describe("loadWorkspaceShellInitialState", () => {
         chunkCount: 2,
       },
     ])
+    expect(deps.ensureDemoChatThread).not.toHaveBeenCalled()
   })
 
   it("keeps authenticated workspace sources when the demo catalog is unavailable", async () => {
@@ -248,11 +254,68 @@ describe("loadWorkspaceShellInitialState", () => {
     expect(state.sources).toEqual([])
   })
 
-  it("does not seed authenticated empty threads with non-persisted demo chat", async () => {
-    const state = await loadWorkspaceShellInitialState(createDependencies())
+  it("seeds authenticated empty workspaces with persisted demo chat", async () => {
+    const workspace = makeWorkspace()
+    const demoThread = makeThread(workspace.id, {
+      id: "demo_thread_1",
+      title: "What happened in Tesla Q4?",
+      demoKey: "knowhere-demo-chat",
+    })
+    const demoMessages = [
+      makeMessage(demoThread.id, {
+        id: "demo_message_user",
+        role: "user",
+        content: "What happened in Tesla Q4?",
+      }),
+      makeMessage(demoThread.id, {
+        id: "demo_message_assistant",
+        role: "assistant",
+        content: "Tesla delivered higher revenue.",
+      }),
+    ]
+    const ensureDemoChatThread = vi.fn(async () => ({
+      thread: demoThread,
+      messages: demoMessages,
+    }))
+    const deps = createDependencies({
+      getOptionalAuthenticated: vi.fn(async () => ({
+        user: {
+          id: "user_1",
+          email: "ada@example.com",
+          name: "Ada",
+        },
+        workspace,
+      })),
+      ensureDemoChatThread,
+    })
 
-    expect(state.activeChatThreadId).toBeNull()
-    expect(state.chatMessages).toEqual([])
+    const state = await loadWorkspaceShellInitialState(deps)
+
+    expect(ensureDemoChatThread).toHaveBeenCalledWith(
+      workspace.id,
+      makeDemoCatalog(),
+    )
+    expect(state.activeChatThreadId).toBe("demo_thread_1")
+    expect(state.chatThreads).toEqual([
+      expect.objectContaining({
+        id: "demo_thread_1",
+        title: "What happened in Tesla Q4?",
+      }),
+    ])
+    expect(state.chatMessages).toEqual([
+      {
+        id: "demo_message_user",
+        role: "user",
+        content: "What happened in Tesla Q4?",
+        citations: undefined,
+      },
+      {
+        id: "demo_message_assistant",
+        role: "assistant",
+        content: "Tesla delivered higher revenue.",
+        citations: undefined,
+      },
+    ])
   })
 
   it("reconciles source state during authenticated shell load", async () => {
@@ -315,6 +378,7 @@ function createDependencies(
     getClientForWorkspace: vi.fn(async () => ({ client })),
     getGuest: vi.fn(async () => ({ loginUrl: "/login" })),
     getOptionalAuthenticated: vi.fn(async () => ({ user, workspace })),
+    ensureDemoChatThread: vi.fn(async () => null),
     listChatThreads: vi.fn(async () => []),
     listHiddenDemoSourceIds: vi.fn(async () => []),
     listMessages: vi.fn(async () => []),
@@ -403,7 +467,10 @@ function makeSource(
   }
 }
 
-function makeThread(workspaceId: string): ChatThread {
+function makeThread(
+  workspaceId: string,
+  overrides: Partial<ChatThread> = {},
+): ChatThread {
   return {
     id: "thread_1",
     workspaceId,
@@ -412,5 +479,21 @@ function makeThread(workspaceId: string): ChatThread {
     createdAt: new Date("2026-05-10T00:00:00.000Z"),
     updatedAt: new Date("2026-05-10T00:00:00.000Z"),
     deletedAt: null,
+    ...overrides,
+  }
+}
+
+function makeMessage(
+  threadId: string,
+  overrides: Partial<ChatMessage> = {},
+): ChatMessage {
+  return {
+    id: "message_1",
+    threadId,
+    role: "user",
+    content: "Hello",
+    citations: null,
+    createdAt: new Date("2026-05-10T00:00:00.000Z"),
+    ...overrides,
   }
 }

@@ -199,6 +199,131 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
     })
   })
 
+  it("serves API-owned demo chunks for authenticated canonical demo sources", async () => {
+    mocks.getCurrentUser.mockResolvedValue({
+      id: "knowhere-api-key-dev-user",
+      email: null,
+      name: "Knowhere API Key Development",
+    })
+    mocks.ensureWorkspace.mockResolvedValue({
+      id: "workspace_1",
+      userId: "knowhere-api-key-dev-user",
+      namespace: "notebook-workspace_1",
+      createdAt: new Date("2026-05-10T00:00:00.000Z"),
+    })
+    mocks.findSourceInWorkspace.mockResolvedValue(null)
+    mocks.fetchDemoChunkPage.mockResolvedValue({
+      demoSourceId: "demo-tsla-q4-2025",
+      canonicalDocumentId: "demo-doc-tsla-q4-2025",
+      title: "TSLA-Q4-2025-Update.pdf",
+      mimeType: "application/pdf",
+      chunks: [
+        {
+          id: "demo-tsla-q4-2025:chunk_1",
+          chunkId: "chunk_1",
+          chunkType: "text",
+          content: "Tesla demo content",
+          sectionPath: "Summary",
+          sourceChunkPath: "Summary",
+          filePath: null,
+          sortOrder: 0,
+          metadata: {},
+          assetUrl: null,
+        },
+      ],
+      pagination: {
+        page: 1,
+        pageSize: 100,
+        total: 70,
+        totalPages: 1,
+      },
+    })
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost:3001/api/sources/demo-tsla-q4-2025/chunks?page=1&pageSize=100",
+      ),
+      { params: Promise.resolve({ sourceId: "demo-tsla-q4-2025" }) },
+    )
+
+    await expect(response.json()).resolves.toMatchObject({
+      chunks: [
+        {
+          chunkId: "demo-tsla-q4-2025:chunk_1",
+          documentId: "demo-doc-tsla-q4-2025",
+          sourceTitle: "TSLA-Q4-2025-Update.pdf",
+        },
+      ],
+      pagination: {
+        page: 1,
+        pageSize: 100,
+        total: 70,
+      },
+    })
+    expect(response.status).toBe(200)
+    expect(mocks.fetchDemoChunkPage).toHaveBeenCalledWith({
+      demoSourceId: "demo-tsla-q4-2025",
+      page: 1,
+      pageSize: 100,
+    })
+    expect(mocks.findSourceInWorkspace).toHaveBeenCalledWith(
+      "workspace_1",
+      "demo-tsla-q4-2025",
+    )
+    expect(mocks.ensureApiKeyForWorkspace).not.toHaveBeenCalled()
+    expect(mocks.makeKnowhereClient).not.toHaveBeenCalled()
+    expect(mocks.getSourceParseAssetUrls).not.toHaveBeenCalled()
+  })
+
+  it("logs the demo chunk load failure before returning 404", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+    try {
+      mocks.getCurrentUser.mockResolvedValue({
+        id: "knowhere-api-key-dev-user",
+        email: null,
+        name: "Knowhere API Key Development",
+      })
+      mocks.ensureWorkspace.mockResolvedValue({
+        id: "workspace_1",
+        userId: "knowhere-api-key-dev-user",
+        namespace: "notebook-workspace_1",
+        createdAt: new Date("2026-05-10T00:00:00.000Z"),
+      })
+      mocks.findSourceInWorkspace.mockResolvedValue(null)
+      mocks.fetchDemoChunkPage.mockRejectedValue(
+        new Error("Knowhere demo API failed: status=404"),
+      )
+
+      const response = await GET(
+        new NextRequest(
+          "http://localhost:3001/api/sources/demo-tsla-q4-2025/chunks?page=1&pageSize=100",
+        ),
+        { params: Promise.resolve({ sourceId: "demo-tsla-q4-2025" }) },
+      )
+
+      expect(response.status).toBe(404)
+      const line = String(warnSpy.mock.calls[0]?.[0] ?? "")
+      const log = JSON.parse(line) as {
+        readonly msg?: unknown
+        readonly sourceId?: unknown
+        readonly page?: unknown
+        readonly pageSize?: unknown
+        readonly shouldLoadAll?: unknown
+        readonly error?: unknown
+      }
+      expect(log).toMatchObject({
+        msg: "sources: demo chunk load failed",
+        sourceId: "demo-tsla-q4-2025",
+        page: 1,
+        pageSize: 100,
+        shouldLoadAll: false,
+        error: "Knowhere demo API failed: status=404",
+      })
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+
   it("loads authenticated workspace chunks without probing the demo endpoint first", async () => {
     const knowhereClient = {
       documents: {

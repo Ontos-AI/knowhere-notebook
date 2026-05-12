@@ -11,6 +11,7 @@ Upload documents, explore parsed content, and ask questions about your knowledge
 
 2. Fill in your API keys in `.env.local`:
    - `AI_GATEWAY_API_KEY` — your Vercel AI Gateway key for chat (optional `CHAT_MODEL` override)
+   - `KNOWHERE_API_KEY` — optional development override that skips Dashboard auth and calls Knowhere directly
 
 3. Install dependencies and run:
    ```bash
@@ -41,6 +42,12 @@ GitHub Release with a source archive and build metadata.
 Notebook treats Dashboard as the auth source of truth. Server-side auth calls
 forward the incoming session cookie to Dashboard oRPC endpoints, including
 `/api/orpc/users/getCurrentUser` and `/api/orpc/users/issueServiceJwt`.
+
+For local development, setting server-side `KNOWHERE_API_KEY` switches Notebook
+into API-key mode. In that mode the app uses a deterministic local development
+user, skips Dashboard redirects and JWT issuance, and passes the configured key
+directly to the Knowhere SDK. Leave it unset for production and normal
+Dashboard-authenticated staging flows.
 
 Dashboard chooses its oRPC handler by request shape and `Content-Type`.
 When using Effect's `HttpClientRequest.bodyText`, pass

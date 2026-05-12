@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { authURLs } from "@/infrastructure/auth/urls"
 import { sessionCookieNames } from "@/infrastructure/auth/session-cookie-names"
+import { knowhereApiKeyOverride } from "@/integrations/knowhere-api-key"
 
 /**
  * Edge-runtime proxy (renamed from middleware.ts in Next.js 16).
@@ -52,6 +53,8 @@ function isGuestSourceReadPath(method: string, pathname: string): boolean {
 }
 
 export function proxy(req: NextRequest): NextResponse {
+  if (knowhereApiKeyOverride.hasApiKey()) return NextResponse.next()
+
   if (isPublicPath(req)) return NextResponse.next()
 
   for (const name of sessionCookieNames()) {
