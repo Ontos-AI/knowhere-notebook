@@ -53,7 +53,7 @@ describe("useWorkspaceSourceWorkflow", () => {
 
     expect(mocks.archiveSource).toHaveBeenCalledWith("source_1")
     await waitFor(() => {
-      expect(result.current.selectedSourceId).toBeNull()
+      expect(result.current.selectedSourceId).toBe("source_2")
     })
     expect(result.current.sources.map((source) => source.id)).toEqual([
       "source_2",

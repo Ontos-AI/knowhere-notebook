@@ -137,7 +137,6 @@ export function SourcesPanel({
                     onSelectSource?.(
                       sourcePanelState.getNextSelectedSourceId({
                         sourceId: source.id,
-                        selectedSourceId,
                       }),
                     )
                   }

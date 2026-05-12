@@ -623,6 +623,56 @@ describe("ChunksPanel", () => {
     ).toBe("true");
   });
 
+  it("lets in-chunk table references override the current citation focus", async () => {
+    mockVisibleVirtualViewport();
+    const user = userEvent.setup();
+
+    render(
+      React.createElement(C, {
+        chunks: [
+          {
+            chunkId: "text_1",
+            parserChunkId: "parser_text_1",
+            type: "text",
+            content: "See [tables/table-1.html] for Roadster details.",
+            sourceTitle: "manual.pdf",
+            connections: [
+              {
+                targetParserChunkId: "parser_table_1",
+                targetChunkId: "table_1",
+                relation: "embeds",
+                ref: "[tables/table-1.html]",
+                position: { start: 4, end: 25 },
+              },
+            ],
+          },
+          {
+            chunkId: "table_1",
+            parserChunkId: "parser_table_1",
+            type: "table",
+            content:
+              "<table><tbody><tr><td>Roadster</td><td>TBD</td></tr></tbody></table>",
+            sourceTitle: "manual.pdf",
+          },
+        ],
+        selectedSource: "manual.pdf",
+        focusedChunkId: "text_1",
+        focusedChunkRequestId: 1,
+      }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Table 1" }));
+
+    await waitFor(() => {
+      const focusedRow = screen
+        .getByTestId("chunk-card-shell-table_1")
+        .closest("[data-index]");
+
+      expect(focusedRow?.getAttribute("data-index")).toBe("0");
+      expect(focusedRow?.getAttribute("data-focused-chunk")).toBe("true");
+    });
+  });
+
   it("renders a focused virtual chunk outside the initial range first", async () => {
     mockVisibleVirtualViewport();
 
