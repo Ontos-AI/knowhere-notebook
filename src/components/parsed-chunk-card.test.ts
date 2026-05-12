@@ -12,7 +12,7 @@ describe("ParsedChunkCard", () => {
   });
 
   it("renders text chunks with source, summary, content, and keywords", () => {
-    render(
+    const { container } = render(
       React.createElement(ParsedChunkCard, {
         chunk: {
           chunkId: "text_1",
@@ -24,6 +24,7 @@ describe("ParsedChunkCard", () => {
           keywords: ["Supercharging", "AI training capacity"],
         },
         isFocused: true,
+        searchQuery: "capacity",
         onReferenceClick: vi.fn(),
       }),
     );
@@ -43,6 +44,9 @@ describe("ParsedChunkCard", () => {
     expect(screen.getByTestId("chunk-card-shell-text_1").className).toContain(
       "min-w-0",
     );
+    expect(
+      container.querySelectorAll('mark[data-chunk-search-match="true"]').length,
+    ).toBeGreaterThan(0);
   });
 
   it("routes resolved artifact reference clicks to the target chunk", async () => {

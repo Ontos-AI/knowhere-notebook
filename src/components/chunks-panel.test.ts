@@ -63,6 +63,114 @@ describe("ChunksPanel", () => {
     expect(screen.getByText(/Showing all parsed chunks from/)).toBeTruthy();
   });
 
+  it("searches loaded chunks and jumps between matching chunks", async () => {
+    mockVisibleVirtualViewport();
+    const user = userEvent.setup();
+    const { container } = render(
+      React.createElement(C, {
+        chunks: [
+          {
+            chunkId: "chunk_1",
+            type: "text",
+            content: "Revenue increased.",
+            sourceTitle: "report.pdf",
+            pageNums: [1],
+          },
+          {
+            chunkId: "chunk_2",
+            type: "text",
+            content: "Operating margin improved.",
+            sourceTitle: "report.pdf",
+            pageNums: [2],
+          },
+          {
+            chunkId: "chunk_3",
+            type: "image",
+            content: "",
+            summary: "Margin bridge chart.",
+            keywords: ["gross margin"],
+            sourceTitle: "report.pdf",
+            pageNums: [3],
+          },
+        ],
+        selectedSource: "report.pdf",
+      }),
+    );
+
+    await user.type(
+      screen.getByRole("searchbox", { name: "Search parsed chunks" }),
+      "margin",
+    );
+
+    expect(screen.getByText("1/2 chunks · 3 hits")).toBeTruthy();
+    await waitFor(() => {
+      expect(
+        container.querySelector(
+          '[data-chunk-id="chunk_2"][data-focused-chunk="true"]',
+        ),
+      ).toBeTruthy();
+    });
+    expect(
+      container.querySelectorAll('mark[data-chunk-search-match="true"]').length,
+    ).toBeGreaterThan(0);
+
+    await user.click(
+      screen.getByRole("button", { name: "Next chunk search match" }),
+    );
+
+    await waitFor(() => {
+      expect(
+        container.querySelector(
+          '[data-chunk-id="chunk_3"][data-focused-chunk="true"]',
+        ),
+      ).toBeTruthy();
+    });
+  });
+
+  it("shows a large upload target when no document is selected", async () => {
+    const user = userEvent.setup();
+
+    render(
+      React.createElement(C, {
+        chunks: [],
+        selectedSource: null,
+        onSourceUploaded: vi.fn(),
+      }),
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: /Upload a document/i }),
+    );
+
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(screen.getByText("Add source")).toBeTruthy();
+  });
+
+  it("accepts dropped files from the empty chunk upload target", async () => {
+    render(
+      React.createElement(C, {
+        chunks: [],
+        selectedSource: null,
+        onSourceUploaded: vi.fn(),
+      }),
+    );
+
+    const dropTarget = screen.getByRole("button", {
+      name: /Upload a document/i,
+    });
+    const dropEvent = createFileDropEvent(
+      new File(["hello"], "drop.pdf", { type: "application/pdf" }),
+    );
+
+    await act(async () => {
+      dropTarget.dispatchEvent(dropEvent);
+    });
+
+    expect(dropEvent.defaultPrevented).toBe(true);
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(await screen.findByText("Selected: drop.pdf")).toBeTruthy();
+  });
+
   it("switches to a download-only original file state for unsupported previews", async () => {
     mockVisibleVirtualViewport();
     const user = userEvent.setup();
@@ -809,6 +917,22 @@ describe("ChunksPanel", () => {
 
 function mockVisibleVirtualViewport(): void {
   mockVirtualViewportWithChunkHeights({});
+}
+
+function createFileDropEvent(file: File): Event {
+  const event = new Event("drop", { bubbles: true, cancelable: true });
+  const files: Pick<FileList, "length" | "item"> & { readonly 0: File } = {
+    0: file,
+    length: 1,
+    item: (index: number): File | null => (index === 0 ? file : null),
+  };
+  Object.defineProperty(event, "dataTransfer", {
+    value: {
+      files,
+      types: ["Files"],
+    },
+  });
+  return event;
 }
 
 function mockVirtualViewportWithChunkHeights(

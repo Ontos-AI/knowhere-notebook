@@ -42,7 +42,7 @@ type ChunksPanelWorkflow = {
   readonly measureVirtualChunkElement: (node: HTMLDivElement | null) => void
   readonly originalTargetPageNumber: number | null
   readonly originalTargetPageRequestId: number
-  readonly requestChunkFocus: (chunkId: string) => void
+  readonly requestChunkFocus: (chunkId: string | null) => void
   readonly totalHeight: number
   readonly viewportRef: RefObject<HTMLDivElement | null>
   readonly virtualItems: readonly VirtualItem[]
@@ -156,7 +156,7 @@ export function useChunksPanelWorkflow({
     [chunkVirtualizer],
   )
 
-  const requestChunkFocus = useCallback((chunkId: string): void => {
+  const requestChunkFocus = useCallback((chunkId: string | null): void => {
     setLocalFocusedChunkId(chunkId)
   }, [])
 

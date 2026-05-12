@@ -26,6 +26,7 @@ type WorkspaceShellInitialState = {
   readonly activeChatThreadId?: string | null
   readonly chatMessages?: ChatMessageView[]
   readonly chatThreads?: ReturnType<typeof toChatThreadView>[]
+  readonly dashboardUrl?: string
   readonly isGuest?: boolean
   readonly loginUrl?: string
   readonly sources?: SourceView[]
@@ -96,6 +97,7 @@ export async function loadWorkspaceShellInitialState(
       isGuest: true,
       sources: demoCatalog.sources.map(demoView.toSourceView),
       chatMessages: demoView.toChatMessages(demoCatalog),
+      dashboardUrl: resolveDashboardUrl(),
       loginUrl: guestContext.loginUrl,
     }
   }
@@ -139,6 +141,7 @@ export async function loadWorkspaceShellInitialState(
       id: workspace.id,
       namespace: workspace.namespace,
     },
+    dashboardUrl: resolveDashboardUrl(),
     sources: [
       ...demoSources,
       ...demoSourceResolution.workspaceSources.map((source) =>
@@ -149,6 +152,10 @@ export async function loadWorkspaceShellInitialState(
     activeChatThreadId: activeChatThread?.id ?? null,
     chatMessages,
   }
+}
+
+function resolveDashboardUrl(): string | undefined {
+  return process.env.DASHBOARD_ORIGIN
 }
 
 async function fetchOptionalDemoCatalog(
