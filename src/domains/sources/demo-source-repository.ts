@@ -1,201 +1,137 @@
 import "server-only"
 
-import { and, eq } from "drizzle-orm"
+import { and, eq, isNotNull, or, sql } from "drizzle-orm"
 import { Effect } from "effect"
 
-import { DbClient, type Db } from "@/infrastructure/db"
-import { sources, type Source } from "@/infrastructure/db/schema"
-import type { DemoSourceUploadRepository } from "./source-upload-contracts"
-import { sourceRowRepository } from "./source-row-repository"
+import { DbClient } from "@/infrastructure/db"
+import {
+  demoSourceVisibilities,
+  sources,
+  type Source,
+} from "@/infrastructure/db/schema"
 
-type CreateDemoUploadingSourceInput = {
-  readonly demoKey: string
+type UpsertMaterializedDemoSourceInput = {
+  readonly demoSourceId: string
   readonly title: string
   readonly mimeType: string
   readonly sizeBytes: number
-  readonly originalBlobUrl: string
-}
-
-type MarkDemoSourceUploadingInput = {
-  readonly title: string
-  readonly mimeType: string
-  readonly sizeBytes: number
+  readonly knowhereDocumentId: string
   readonly originalBlobUrl: string
 }
 
 type DemoSourceRepository = {
-  readonly findByDemoKeyEffect: (
+  readonly listHiddenDemoSourceIdsEffect: (
     workspaceId: string,
-    demoKey: string,
-  ) => Effect.Effect<Source | null, never, DbClient>
-  readonly createDemoUploadingEffect: (
+  ) => Effect.Effect<string[], never, DbClient>
+  readonly hideDemoSourceEffect: (
     workspaceId: string,
-    input: CreateDemoUploadingSourceInput,
-  ) => Effect.Effect<Source | null, never, DbClient>
-  readonly markDemoUploadingEffect: (
+    demoSourceId: string,
+  ) => Effect.Effect<void, never, DbClient>
+  readonly upsertMaterializedDemoSourceEffect: (
     workspaceId: string,
-    sourceId: string,
-    input: MarkDemoSourceUploadingInput,
-  ) => Effect.Effect<Source | null, never, DbClient>
-  readonly createDemoUploadRepository: (
-    db: Db,
-  ) => DemoSourceUploadRepository
+    input: UpsertMaterializedDemoSourceInput,
+  ) => Effect.Effect<Source, never, DbClient>
 }
 
-const findByDemoKeyEffect: DemoSourceRepository["findByDemoKeyEffect"] = (
+const listHiddenDemoSourceIdsEffect: DemoSourceRepository["listHiddenDemoSourceIdsEffect"] =
+  (workspaceId: string) =>
+    Effect.gen(function* () {
+      const db = yield* DbClient
+      const rows = yield* Effect.promise(() =>
+        db
+          .select({ demoSourceId: demoSourceVisibilities.demoSourceId })
+          .from(demoSourceVisibilities)
+          .where(
+            and(
+              eq(demoSourceVisibilities.workspaceId, workspaceId),
+              or(
+                isNotNull(demoSourceVisibilities.hiddenAt),
+                isNotNull(demoSourceVisibilities.deletedAt),
+              ),
+            ),
+          ),
+      )
+
+      return rows.map((row) => row.demoSourceId)
+    })
+
+const hideDemoSourceEffect: DemoSourceRepository["hideDemoSourceEffect"] = (
   workspaceId: string,
-  demoKey: string,
+  demoSourceId: string,
 ) =>
   Effect.gen(function* () {
     const db = yield* DbClient
-    return yield* Effect.promise(() =>
-      findByDemoKeyWithDb(db, workspaceId, demoKey),
+    yield* Effect.promise(() =>
+      db
+        .insert(demoSourceVisibilities)
+        .values({
+          workspaceId,
+          demoSourceId,
+          hiddenAt: sql`now()`,
+          deletedAt: sql`now()`,
+        })
+        .onConflictDoUpdate({
+          target: [
+            demoSourceVisibilities.workspaceId,
+            demoSourceVisibilities.demoSourceId,
+          ],
+          set: {
+            hiddenAt: sql`now()`,
+            deletedAt: sql`now()`,
+            updatedAt: sql`now()`,
+          },
+        }),
     )
   })
 
-const createDemoUploadingEffect: DemoSourceRepository["createDemoUploadingEffect"] =
-  (workspaceId: string, input: CreateDemoUploadingSourceInput) =>
+const upsertMaterializedDemoSourceEffect: DemoSourceRepository["upsertMaterializedDemoSourceEffect"] =
+  (workspaceId: string, input: UpsertMaterializedDemoSourceInput) =>
     Effect.gen(function* () {
       const db = yield* DbClient
-      return yield* Effect.promise(() =>
-        createDemoUploadingWithDb(db, workspaceId, input),
-      )
-    })
-
-const markDemoUploadingEffect: DemoSourceRepository["markDemoUploadingEffect"] =
-  (
-    workspaceId: string,
-    sourceId: string,
-    input: MarkDemoSourceUploadingInput,
-  ) =>
-    Effect.gen(function* () {
-      const db = yield* DbClient
-      return yield* Effect.promise(() =>
-        markDemoUploadingWithDb(db, workspaceId, sourceId, input),
-      )
-    })
-
-function createDemoUploadRepository(db: Db): DemoSourceUploadRepository {
-  return {
-    findSourceByDemoKey: (workspaceId: string, demoKey: string) =>
-      findByDemoKeyWithDb(db, workspaceId, demoKey),
-    createDemoUploadingSource: (
-      workspaceId: string,
-      input: CreateDemoUploadingSourceInput,
-    ) => createDemoUploadingWithDb(db, workspaceId, input),
-    markDemoSourceUploading: async (
-      workspaceId: string,
-      sourceId: string,
-      input: MarkDemoSourceUploadingInput,
-    ) =>
-      sourceRowRepository.requireSource(
-        await markDemoUploadingWithDb(db, workspaceId, sourceId, input),
-        "Source disappeared before demo upload.",
-      ),
-    markSourceParsing: async (
-      workspaceId: string,
-      sourceId: string,
-      jobId: string,
-    ) =>
-      sourceRowRepository.requireSource(
-        await sourceRowRepository.updateInWorkspaceWithDb(
-          db,
-          workspaceId,
-          sourceId,
-          {
-            status: "parsing",
-            knowhereJobId: jobId,
+      const [source] = yield* Effect.promise(() =>
+        db
+          .insert(sources)
+          .values({
+            workspaceId,
+            title: input.title,
+            mimeType: input.mimeType,
+            sizeBytes: input.sizeBytes,
+            status: "ready",
             failureReason: null,
-          },
-        ),
-        "Source disappeared before parsing.",
-      ),
-    markSourceFailed: async (
-      workspaceId: string,
-      sourceId: string,
-      reason: string,
-    ) =>
-      sourceRowRepository.requireSource(
-        await sourceRowRepository.updateInWorkspaceWithDb(
-          db,
-          workspaceId,
-          sourceId,
-          {
-            status: "failed",
-            failureReason: reason,
-          },
-        ),
-        "Source disappeared before failure.",
-      ),
-  }
-}
+            knowhereJobId: null,
+            knowhereDocumentId: input.knowhereDocumentId,
+            originalBlobUrl: input.originalBlobUrl,
+            demoKey: input.demoSourceId,
+          })
+          .onConflictDoUpdate({
+            target: [sources.workspaceId, sources.demoKey],
+            set: {
+              title: input.title,
+              mimeType: input.mimeType,
+              sizeBytes: input.sizeBytes,
+              status: "ready",
+              failureReason: null,
+              knowhereJobId: null,
+              knowhereDocumentId: input.knowhereDocumentId,
+              originalBlobUrl: input.originalBlobUrl,
+              deletedAt: null,
+              updatedAt: sql`now()`,
+            },
+          })
+          .returning(),
+      )
 
-async function findByDemoKeyWithDb(
-  db: Db,
-  workspaceId: string,
-  demoKey: string,
-): Promise<Source | null> {
-  const rows = await db
-    .select()
-    .from(sources)
-    .where(
-      and(eq(sources.workspaceId, workspaceId), eq(sources.demoKey, demoKey)),
-    )
-    .limit(1)
+      if (!source) {
+        return yield* Effect.die(
+          new Error("upsertMaterializedDemoSource: upsert did not return a row."),
+        )
+      }
 
-  return rows[0] ?? null
-}
-
-async function createDemoUploadingWithDb(
-  db: Db,
-  workspaceId: string,
-  input: CreateDemoUploadingSourceInput,
-): Promise<Source | null> {
-  const [source] = await db
-    .insert(sources)
-    .values({
-      workspaceId,
-      title: input.title,
-      mimeType: input.mimeType,
-      sizeBytes: input.sizeBytes,
-      status: "uploading",
-      originalBlobUrl: input.originalBlobUrl,
-      demoKey: input.demoKey,
+      return source
     })
-    .onConflictDoNothing({
-      target: [sources.workspaceId, sources.demoKey],
-    })
-    .returning()
-
-  return source ?? null
-}
-
-async function markDemoUploadingWithDb(
-  db: Db,
-  workspaceId: string,
-  sourceId: string,
-  input: MarkDemoSourceUploadingInput,
-): Promise<Source | null> {
-  return await sourceRowRepository.updateInWorkspaceWithDb(
-    db,
-    workspaceId,
-    sourceId,
-    {
-      title: input.title,
-      mimeType: input.mimeType,
-      sizeBytes: input.sizeBytes,
-      status: "uploading",
-      failureReason: null,
-      knowhereJobId: null,
-      knowhereDocumentId: null,
-      originalBlobUrl: input.originalBlobUrl,
-    },
-  )
-}
 
 export const demoSourceRepository: DemoSourceRepository = {
-  findByDemoKeyEffect,
-  createDemoUploadingEffect,
-  markDemoUploadingEffect,
-  createDemoUploadRepository,
+  listHiddenDemoSourceIdsEffect,
+  hideDemoSourceEffect,
+  upsertMaterializedDemoSourceEffect,
 }

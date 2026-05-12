@@ -2,13 +2,14 @@ import "server-only"
 
 import { Effect } from "effect"
 
-import { DEMO_CHAT_MESSAGES } from "@/domains/chat/demo"
 import type { ChatMessageView } from "@/domains/chat/types"
+import { demoView } from "@/domains/demo/view"
+import { resolveWorkspaceDemoSources } from "@/domains/demo/workspace-source-resolution"
 import { chatThreadService } from "@/domains/chat/thread-service"
 import { toChatMessageView, toChatThreadView } from "@/domains/chat/view"
 import { sourceViewOptionsBySourceId as getSourceViewOptionsBySourceId } from "@/domains/sources/counts"
-import { demoData } from "@/domains/sources/demo-data"
 import { reconcileSourcesForWorkspace as reconcileDefaultSourcesForWorkspace } from "@/domains/sources/reconcile"
+import { sourceService } from "@/domains/sources/service"
 import type { SourceView } from "@/domains/sources/types"
 import { toSourceView } from "@/domains/sources/view"
 import type { AuthUser } from "@/infrastructure/auth"
@@ -18,8 +19,8 @@ import type {
   Source,
   Workspace,
 } from "@/infrastructure/db/schema"
+import { knowhereDemoApi, type DemoCatalog } from "@/integrations/knowhere-demo"
 import { notebookRequestContext } from "./request-context"
-import { workspaceService } from "./service"
 
 type WorkspaceShellInitialState = {
   readonly activeChatThreadId?: string | null
@@ -40,17 +41,11 @@ type WorkspaceShellInitialState = {
 }
 
 type WorkspaceShellInitialStateClient =
-  Parameters<typeof workspaceService.ensureDemoWorkspaceContent>[1] &
-    Parameters<typeof getSourceViewOptionsBySourceId>[1] &
+  Parameters<typeof getSourceViewOptionsBySourceId>[1] &
     Parameters<typeof reconcileDefaultSourcesForWorkspace>[1]
 
 type WorkspaceShellInitialStateDependencies = {
-  readonly demoChatMessages: readonly ChatMessageView[]
-  readonly demoSources: readonly SourceView[]
-  readonly ensureDemoWorkspaceContent: (
-    workspace: Workspace,
-    client: WorkspaceShellInitialStateClient,
-  ) => Promise<void>
+  readonly fetchDemoCatalog: () => Promise<DemoCatalog>
   readonly getClientForWorkspace: (
     workspace: Workspace,
   ) => Promise<{ readonly client: WorkspaceShellInitialStateClient }>
@@ -60,6 +55,7 @@ type WorkspaceShellInitialStateDependencies = {
     readonly workspace: Workspace
   } | null>
   readonly listChatThreads: (workspaceId: string) => Promise<readonly ChatThread[]>
+  readonly listHiddenDemoSourceIds: (workspaceId: string) => Promise<string[]>
   readonly listMessages: (
     workspaceId: string,
     threadId: string,
@@ -75,17 +71,18 @@ type WorkspaceShellInitialStateDependencies = {
 }
 
 const defaultDependencies: WorkspaceShellInitialStateDependencies = {
-  demoChatMessages: DEMO_CHAT_MESSAGES,
-  demoSources: demoData.listSources(),
-  ensureDemoWorkspaceContent: workspaceService.ensureDemoWorkspaceContent,
+  fetchDemoCatalog: knowhereDemoApi.fetchCatalog,
   getClientForWorkspace: notebookRequestContext.getClientForWorkspace,
   getGuest: notebookRequestContext.getGuest,
   getOptionalAuthenticated: notebookRequestContext.getOptionalAuthenticated,
   listChatThreads: chatThreadService.listForWorkspace,
+  listHiddenDemoSourceIds: sourceService.listHiddenDemoSourceIds,
   listMessages: chatThreadService.listMessages,
   reconcileSourcesForWorkspace: reconcileDefaultSourcesForWorkspace,
   sourceViewOptionsBySourceId: getSourceViewOptionsBySourceId,
 }
+
+const emptyDemoCatalog: DemoCatalog = { sources: [] }
 
 export async function loadWorkspaceShellInitialState(
   deps: WorkspaceShellInitialStateDependencies = defaultDependencies,
@@ -93,26 +90,43 @@ export async function loadWorkspaceShellInitialState(
   const context = await deps.getOptionalAuthenticated()
 
   if (!context) {
+    const demoCatalog = await deps.fetchDemoCatalog()
     const guestContext = await deps.getGuest()
     return {
       isGuest: true,
-      sources: [...deps.demoSources],
-      chatMessages: [...deps.demoChatMessages],
+      sources: demoCatalog.sources.map(demoView.toSourceView),
+      chatMessages: demoView.toChatMessages(demoCatalog),
       loginUrl: guestContext.loginUrl,
     }
   }
 
   const { user, workspace } = context
+  const demoCatalog = await fetchOptionalDemoCatalog(deps.fetchDemoCatalog)
   const { client } = await deps.getClientForWorkspace(workspace)
-  await deps.ensureDemoWorkspaceContent(workspace, client)
   const sources = await deps.reconcileSourcesForWorkspace(workspace, client)
+  const demoSourceResolution = resolveWorkspaceDemoSources(
+    sources,
+    demoCatalog,
+  )
+  const hiddenDemoSourceIds = new Set(
+    await deps.listHiddenDemoSourceIds(workspace.id),
+  )
+  const visibleDemoCatalogSources = demoCatalog.sources
+    .filter(
+      (source) =>
+        !demoSourceResolution.materializedDemoSourceIds.has(source.demoSourceId),
+    )
+    .filter((source) => !hiddenDemoSourceIds.has(source.demoSourceId))
+  const demoSources = visibleDemoCatalogSources.map(demoView.toSourceView)
   const chatThreads = await deps.listChatThreads(workspace.id)
   const activeChatThread = chatThreads[0] ?? null
   const chatMessages = activeChatThread
-    ? await deps.listMessages(workspace.id, activeChatThread.id)
+    ? ((await deps.listMessages(workspace.id, activeChatThread.id)) ?? []).map(
+        (message) => toChatMessageView(message),
+      )
     : []
   const sourceOptions = await Effect.runPromise(
-    deps.sourceViewOptionsBySourceId(sources, client),
+    deps.sourceViewOptionsBySourceId(demoSourceResolution.workspaceSources, client),
   )
 
   return {
@@ -125,13 +139,24 @@ export async function loadWorkspaceShellInitialState(
       id: workspace.id,
       namespace: workspace.namespace,
     },
-    sources: sources.map((source) =>
-      toSourceView(source, sourceOptions.get(source.id)),
-    ),
+    sources: [
+      ...demoSources,
+      ...demoSourceResolution.workspaceSources.map((source) =>
+        toSourceView(source, sourceOptions.get(source.id)),
+      ),
+    ],
     chatThreads: chatThreads.map(toChatThreadView),
     activeChatThreadId: activeChatThread?.id ?? null,
-    chatMessages: (chatMessages ?? []).map((message) =>
-      toChatMessageView(message),
-    ),
+    chatMessages,
+  }
+}
+
+async function fetchOptionalDemoCatalog(
+  fetchDemoCatalog: () => Promise<DemoCatalog>,
+): Promise<DemoCatalog> {
+  try {
+    return await fetchDemoCatalog()
+  } catch {
+    return emptyDemoCatalog
   }
 }

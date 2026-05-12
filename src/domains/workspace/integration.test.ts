@@ -7,6 +7,7 @@ import * as schema from "@/infrastructure/db/schema";
 import {
   chatMessages,
   chatThreads,
+  demoSourceVisibilities,
   sourceParseResults,
   sources,
   workspaces,
@@ -98,13 +99,17 @@ describeIfDb("workspace helpers — integration", () => {
       workspaceId: string,
       sourceId: string,
     ) => Promise<Readonly<Record<string, string>>>
-    readonly createDemoUploadRepository: (
-      db: Parameters<
-        typeof import("../sources/repository").sourceRepository.createDemoUploadRepository
-      >[0],
-    ) => ReturnType<
-      typeof import("../sources/repository").sourceRepository.createDemoUploadRepository
-    >
+    readonly hideDemoSource: (
+      workspaceId: string,
+      demoSourceId: string,
+    ) => Promise<void>
+    readonly listHiddenDemoSourceIds: (workspaceId: string) => Promise<string[]>
+    readonly upsertMaterializedDemoSource: (
+      workspaceId: string,
+      input: Parameters<
+        typeof import("../sources/service").sourceService.upsertMaterializedDemoSource
+      >[1],
+    ) => Promise<schema.Source>
   };
 
   beforeEach(async () => {
@@ -120,13 +125,11 @@ describeIfDb("workspace helpers — integration", () => {
       { sourceService },
       { sourceWorkflowRuntime },
       { chatThreadService },
-      { sourceRepository },
     ] = await Promise.all([
         import("./service"),
         import("../sources/service"),
         import("../sources/workflow-runtime"),
         import("../chat/thread-service"),
-        import("../sources/repository"),
       ]);
     workspaceHelpers = {
       ensureWorkspace: workspaceService.ensureWorkspace,
@@ -143,13 +146,17 @@ describeIfDb("workspace helpers — integration", () => {
       markSourceFailed: sourceWorkflowRuntime.markFailed,
       saveSourceParseResult: sourceWorkflowRuntime.saveParseResult,
       getParseAssetUrls: sourceService.getParseAssetUrls,
-      createDemoUploadRepository: sourceRepository.createDemoUploadRepository,
+      hideDemoSource: sourceService.hideDemoSource,
+      listHiddenDemoSourceIds: sourceService.listHiddenDemoSourceIds,
+      upsertMaterializedDemoSource:
+        sourceService.upsertMaterializedDemoSource,
     };
 
     // Clean slate on the tables these tests touch. Order respects FK.
     await testDb.delete(chatMessages);
     await testDb.delete(chatThreads);
     await testDb.delete(sourceParseResults);
+    await testDb.delete(demoSourceVisibilities);
     await testDb.delete(sources);
     await testDb.delete(workspaces);
   });
@@ -586,49 +593,41 @@ describeIfDb("workspace helpers — integration", () => {
     ).resolves.toEqual({});
   });
 
-  it("demo source upload repository is idempotent by workspace demo key", async () => {
+  it("tracks hidden demos and upserts materialized demo sources by demo id", async () => {
     const ws = await workspaceHelpers.ensureWorkspace("user_1");
-    const repository = workspaceHelpers.createDemoUploadRepository(
-      testDb as unknown as Parameters<
-        typeof workspaceHelpers.createDemoUploadRepository
-      >[0],
-    );
 
-    const first = await repository.createDemoUploadingSource(ws.id, {
-      demoKey: "demo-intro",
-      title: "intro.pdf",
+    await workspaceHelpers.hideDemoSource(ws.id, "demo-tsla-q4-2025");
+    await workspaceHelpers.hideDemoSource(ws.id, "demo-tsla-q4-2025");
+
+    await expect(workspaceHelpers.listHiddenDemoSourceIds(ws.id)).resolves.toEqual([
+      "demo-tsla-q4-2025",
+    ]);
+
+    const first = await workspaceHelpers.upsertMaterializedDemoSource(ws.id, {
+      demoSourceId: "demo-tsla-q4-2025",
+      title: "TSLA-Q4-2025-Update.pdf",
       mimeType: "application/pdf",
-      sizeBytes: 128,
-      originalBlobUrl: "https://demo.example/intro.pdf",
+      sizeBytes: 1024,
+      knowhereDocumentId: "doc_user_copy_1",
+      originalBlobUrl: "/api/demo-sources/demo-tsla-q4-2025/original",
     });
-    const duplicate = await repository.createDemoUploadingSource(ws.id, {
-      demoKey: "demo-intro",
-      title: "intro-copy.pdf",
+    const second = await workspaceHelpers.upsertMaterializedDemoSource(ws.id, {
+      demoSourceId: "demo-tsla-q4-2025",
+      title: "TSLA-Q4-2025-Update.pdf",
       mimeType: "application/pdf",
-      sizeBytes: 256,
-      originalBlobUrl: "https://demo.example/intro-copy.pdf",
-    });
-
-    expect(first).not.toBeNull();
-    expect(duplicate).toBeNull();
-
-    await repository.markSourceFailed(ws.id, first!.id, "Previous failure.");
-    await repository.markSourceParsing(ws.id, first!.id, "job_old");
-    const reupload = await repository.markDemoSourceUploading(ws.id, first!.id, {
-      title: "intro-updated.pdf",
-      mimeType: "application/pdf",
-      sizeBytes: 512,
-      originalBlobUrl: "https://demo.example/intro-updated.pdf",
+      sizeBytes: 1024,
+      knowhereDocumentId: "doc_user_copy_2",
+      originalBlobUrl: "/api/demo-sources/demo-tsla-q4-2025/original",
     });
 
-    expect(reupload).toMatchObject({
-      title: "intro-updated.pdf",
-      sizeBytes: 512,
-      status: "uploading",
+    expect(second.id).toBe(first.id);
+    expect(second).toMatchObject({
+      demoKey: "demo-tsla-q4-2025",
+      status: "ready",
       failureReason: null,
       knowhereJobId: null,
-      knowhereDocumentId: null,
-      originalBlobUrl: "https://demo.example/intro-updated.pdf",
+      knowhereDocumentId: "doc_user_copy_2",
+      originalBlobUrl: "/api/demo-sources/demo-tsla-q4-2025/original",
     });
   });
 });

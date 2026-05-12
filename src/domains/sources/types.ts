@@ -7,11 +7,15 @@ export type SourceOriginalFileView = {
   readonly canDownload?: boolean
 }
 
+export type SourceKind = "workspace" | "demo"
+
 /**
  * Sources sidebar row. Metadata-only, per the MVP persistence rule.
  */
 export type SourceView = {
   readonly id: string
+  readonly kind?: SourceKind
+  readonly demoSourceId?: string
   readonly title: string
   /** Browser-provided content type for preview routing. */
   readonly mimeType: string

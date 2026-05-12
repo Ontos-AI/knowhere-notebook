@@ -10,6 +10,7 @@ const workspaceClientKeys = {
   sources: "/api/sources",
   chatThreads: "/api/chat/threads",
   chat: "/api/chat",
+  materializeDemoSources: "/api/demo-sources/materialize",
   archiveSource: "archive-source",
   archiveChatThread: "archive-chat-thread",
 } as const
@@ -44,6 +45,10 @@ type ChatMessageRequest = {
   excludedSourceIds: string[]
 }
 
+type MaterializeDemoSourcesRequest = {
+  demoSourceIds: string[]
+}
+
 type SourcesResponse = {
   sources?: SourceView[]
 }
@@ -72,6 +77,7 @@ export const workspaceClient = {
   fetchChatThread,
   createChatThread,
   sendChatMessage,
+  materializeDemoSources,
   archiveSource,
   archiveChatThread,
 } as const
@@ -144,6 +150,24 @@ function sendChatMessage(
     workspaceClientKeys.chat,
     input,
   )
+}
+
+async function materializeDemoSources(
+  input: MaterializeDemoSourcesRequest,
+): Promise<SourceView[]> {
+  const response = await workspaceRouteClient.postJsonWithStatus<
+    SourcesResponse & { readonly message?: string }
+  >(
+    workspaceClientKeys.materializeDemoSources,
+    input,
+  )
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(
+      response.body.message ?? "Demo sources could not be prepared right now.",
+    )
+  }
+  const body = response.body
+  return Array.isArray(body.sources) ? body.sources : []
 }
 
 function archiveSource(sourceId: string): Promise<ArchiveResponse> {

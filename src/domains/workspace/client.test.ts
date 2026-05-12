@@ -54,4 +54,26 @@ describe("workspaceClient", () => {
     })
     expect(fetch).toHaveBeenCalledOnce()
   })
+
+  it("throws materialization route errors instead of treating them as empty sources", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init)
+      const requestUrl = new URL(request.url)
+
+      expect(request.method).toBe("POST")
+      expect(requestUrl.pathname).toBe("/api/demo-sources/materialize")
+
+      return Response.json(
+        { message: "Demo sources could not be prepared right now." },
+        { status: 502 },
+      )
+    })
+    vi.stubGlobal("fetch", fetch)
+
+    await expect(
+      workspaceClient.materializeDemoSources({
+        demoSourceIds: ["demo-tsla-q4-2025"],
+      }),
+    ).rejects.toThrow("Demo sources could not be prepared right now.")
+  })
 })

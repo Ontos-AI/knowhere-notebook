@@ -40,6 +40,7 @@ type WorkspaceChatState = {
   readonly isSending: boolean
   readonly isLoading: boolean
   readonly error: string | null
+  readonly pendingStatusText: string | null
 }
 
 export type WorkspaceShellLayoutProps = {
@@ -213,6 +214,7 @@ export function WorkspaceShellLayout(
               loadingThreadId={props.loadingThreadId}
               archivingThreadIds={[...props.archivingThreadIds]}
               pendingCitationId={props.pendingCitationId}
+              pendingStatusText={props.chat.pendingStatusText}
               sourceCount={props.readySourceCount}
               onSend={props.onChatSend}
               onNewChat={props.isGuest ? undefined : props.onCreateChatThread}
@@ -291,6 +293,7 @@ export function WorkspaceShellLayout(
           loadingThreadId={props.loadingThreadId}
           archivingThreadIds={[...props.archivingThreadIds]}
           pendingCitationId={props.pendingCitationId}
+          pendingStatusText={props.chat.pendingStatusText}
           sourceCount={props.readySourceCount}
           onSend={props.onChatSend}
           onNewChat={props.isGuest ? undefined : props.onCreateChatThread}

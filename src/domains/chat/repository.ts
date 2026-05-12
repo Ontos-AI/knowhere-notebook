@@ -1,6 +1,5 @@
 import "server-only"
 
-import { demoChatRepository } from "./demo-chat-repository"
 import { chatMessageRepository } from "./chat-message-repository"
 import { chatThreadRepository } from "./chat-thread-repository"
 
@@ -12,7 +11,6 @@ type ChatRepository = {
   readonly listMessagesForThreadEffect: typeof chatMessageRepository.listMessagesForThreadEffect
   readonly softDeleteThreadEffect: typeof chatThreadRepository.softDeleteThreadEffect
   readonly appendMessageToThreadEffect: typeof chatMessageRepository.appendMessageToThreadEffect
-  readonly ensureDemoThreadEffect: typeof demoChatRepository.ensureDemoThreadEffect
 }
 
 export const chatRepository: ChatRepository = {
@@ -23,5 +21,4 @@ export const chatRepository: ChatRepository = {
   listMessagesForThreadEffect: chatMessageRepository.listMessagesForThreadEffect,
   softDeleteThreadEffect: chatThreadRepository.softDeleteThreadEffect,
   appendMessageToThreadEffect: chatMessageRepository.appendMessageToThreadEffect,
-  ensureDemoThreadEffect: demoChatRepository.ensureDemoThreadEffect,
 }

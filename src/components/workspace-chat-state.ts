@@ -11,6 +11,7 @@ type ChatState = {
   readonly isSending: boolean
   readonly isLoading: boolean
   readonly error: string | null
+  readonly pendingStatusText: string | null
 }
 
 type LoadedChatThreadData = {
@@ -52,6 +53,10 @@ type WorkspaceChatStateModule = {
     messages: readonly ChatMessageView[],
   ) => ChatState
   readonly failCreate: (current: ChatState, message?: string | null) => ChatState
+  readonly prepareSend: (
+    current: ChatState,
+    pendingStatusText: string,
+  ) => ChatState
   readonly addOptimisticUserMessage: (
     current: ChatState,
     message: OptimisticUserMessageInput,
@@ -95,6 +100,7 @@ function createInitialState(
     isSending: false,
     isLoading: false,
     error: null,
+    pendingStatusText: null,
   }
 }
 
@@ -147,6 +153,7 @@ function selectThread(input: SelectThreadInput): ChatState {
       isSending: false,
       isLoading: false,
       error: null,
+      pendingStatusText: null,
     }
   }
 
@@ -155,6 +162,7 @@ function selectThread(input: SelectThreadInput): ChatState {
     threadId: input.threadId,
     isLoading: true,
     error: null,
+    pendingStatusText: null,
   }
 }
 
@@ -168,6 +176,7 @@ function createThread(
     isSending: false,
     isLoading: false,
     error: null,
+    pendingStatusText: null,
   }
 }
 
@@ -175,6 +184,18 @@ function failCreate(current: ChatState, message?: string | null): ChatState {
   return {
     ...current,
     error: message ?? chatCreateError,
+  }
+}
+
+function prepareSend(
+  current: ChatState,
+  pendingStatusText: string,
+): ChatState {
+  return {
+    ...current,
+    isSending: true,
+    error: null,
+    pendingStatusText,
   }
 }
 
@@ -192,6 +213,7 @@ function addOptimisticUserMessage(
     ...current,
     isSending: true,
     error: null,
+    pendingStatusText: null,
     messages: [...current.messages, optimisticUser],
   }
 }
@@ -211,6 +233,7 @@ function completeSend(
     isSending: false,
     isLoading: false,
     error: null,
+    pendingStatusText: null,
   }
 }
 
@@ -221,6 +244,7 @@ function failSend(current: ChatState, optimisticId: string): ChatState {
     isLoading: false,
     messages: current.messages.filter((message) => message.id !== optimisticId),
     error: chatSendError,
+    pendingStatusText: null,
   }
 }
 
@@ -231,6 +255,7 @@ function clearThread(): ChatState {
     isSending: false,
     isLoading: false,
     error: null,
+    pendingStatusText: null,
   }
 }
 
@@ -293,6 +318,7 @@ export const workspaceChatState: WorkspaceChatStateModule = {
   selectThread,
   createThread,
   failCreate,
+  prepareSend,
   addOptimisticUserMessage,
   completeSend,
   failSend,

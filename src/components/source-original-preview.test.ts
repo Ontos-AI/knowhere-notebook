@@ -571,7 +571,7 @@ describe("SourceOriginalPreview", () => {
       React.createElement(SourceOriginalPreview, {
         sourceTitle: "demo.pdf",
         file: {
-          url: "/demo-sources/example/original.pdf",
+          url: "/api/demo-sources/example/original",
           mimeType: "application/pdf",
           canDownload: false,
         },

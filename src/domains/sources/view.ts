@@ -25,6 +25,7 @@ export function toSourceView(
 
   return {
     id: source.id,
+    kind: "workspace",
     title: source.title,
     mimeType: source.mimeType,
     status: toSourceStatus(source.status),

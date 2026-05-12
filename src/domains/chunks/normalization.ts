@@ -19,11 +19,6 @@ type ParsedChunkNormalizationInput = {
   readonly sourceTitle: string
 }
 
-type DemoAssetUrlInput = {
-  readonly assetDirectory: string
-  readonly filePath: string
-}
-
 function createParsedChunkView(
   input: ParsedChunkNormalizationInput,
 ): ParsedChunkView {
@@ -48,15 +43,6 @@ function createParsedChunkView(
     connections,
     sourceTitle: input.sourceTitle,
   }
-}
-
-function buildDemoAssetURL(input: DemoAssetUrlInput): string {
-  const encodedPath = input.filePath
-    .split("/")
-    .map((segment) => encodeURIComponent(segment))
-    .join("/")
-
-  return `/demo-sources/${encodeURIComponent(input.assetDirectory)}/${encodedPath}`
 }
 
 function resolveConnectionTargets(
@@ -247,7 +233,6 @@ function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
 }
 
 export const parsedChunkNormalization = {
-  buildDemoAssetURL,
   createParsedChunkView,
   resolveCitationChunk,
   resolveCitationChunkByContent,

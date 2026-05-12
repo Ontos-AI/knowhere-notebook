@@ -107,6 +107,7 @@ describe("POST /api/sources", () => {
     await expect(response.json()).resolves.toEqual({
       source: {
         id: "source_1",
+        kind: "workspace",
         title: "notes.pdf",
         status: "parsing",
         mimeType: "application/pdf",
@@ -146,6 +147,7 @@ describe("POST /api/sources", () => {
     await expect(response.json()).resolves.toEqual({
       source: {
         id: "source_1",
+        kind: "workspace",
         title: "notes.pdf",
         status: "parsing",
         mimeType: "application/pdf",
