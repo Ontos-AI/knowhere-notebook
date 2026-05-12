@@ -20,7 +20,7 @@ describe("demoData", () => {
     expect(sources).toEqual([
       {
         id: "demo-tsla-q4-2025",
-        title: "TSLA-Q4-2025-Update(1).pdf",
+        title: "TSLA-Q4-2025-Update.pdf",
         mimeType: "application/pdf",
         status: "ready",
         documentId: "demo-doc-tsla-q4-2025",
@@ -48,7 +48,7 @@ describe("demoData", () => {
       documentId: "demo-doc-tsla-q4-2025",
       sectionPath: "tables/table-0 Tesla 2025 Results.html",
       type: "table",
-      sourceTitle: "TSLA-Q4-2025-Update(1).pdf",
+      sourceTitle: "TSLA-Q4-2025-Update.pdf",
     });
     expect(tslaChunks?.[0]?.content).toContain("<table>");
     expect(tslaChunks?.[0]?.summary).toContain("Tesla reported strong 2025");
@@ -66,7 +66,7 @@ describe("demoData", () => {
       tslaChunks?.find(
         (chunk) =>
           chunk.sectionPath ===
-          "Default_Root/TSLA-Q4-2025-Update(1).pdf-->SUMMARY-->Automotive",
+          "Default_Root/TSLA-Q4-2025-Update.pdf-->SUMMARY-->Automotive",
       )?.pageNums,
     ).toEqual([8]);
     expect(

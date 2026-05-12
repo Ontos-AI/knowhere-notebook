@@ -75,7 +75,7 @@ describe("toSourceView", () => {
       toSourceView(
         makeSource({
           demoKey: "demo-tsla-q4-2025",
-          title: "TSLA-Q4-2025-Update(1).pdf",
+          title: "TSLA-Q4-2025-Update.pdf",
           mimeType: "application/pdf",
           sizeBytes: 5648867,
           knowhereDocumentId: "demo-doc-tsla-q4-2025",
@@ -84,7 +84,7 @@ describe("toSourceView", () => {
         { chunkCount: 70 },
       ),
     ).toMatchObject({
-      title: "TSLA-Q4-2025-Update(1).pdf",
+      title: "TSLA-Q4-2025-Update.pdf",
       documentId: "demo-doc-tsla-q4-2025",
       chunkCount: 70,
       originalFile: {

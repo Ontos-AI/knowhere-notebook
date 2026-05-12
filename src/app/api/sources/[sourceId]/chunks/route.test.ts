@@ -66,7 +66,7 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
       chunks: [
         {
           documentId: "demo-doc-tsla-q4-2025",
-          sourceTitle: "TSLA-Q4-2025-Update(1).pdf",
+          sourceTitle: "TSLA-Q4-2025-Update.pdf",
         },
       ],
       pagination: {
