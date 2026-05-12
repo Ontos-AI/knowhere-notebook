@@ -40,6 +40,7 @@ export type WorkspaceShellProps = {
   chatThreads?: ChatThreadView[]
   activeChatThreadId?: string | null
   chatMessages?: ChatMessageView[]
+  dashboardUrl?: string
   isGuest?: boolean
   loginUrl?: string
 }
@@ -66,6 +67,7 @@ function WorkspaceShellContent({
   chatThreads: initialChatThreads,
   activeChatThreadId,
   chatMessages: initialChatMessages,
+  dashboardUrl,
   isGuest = false,
   loginUrl,
 }: WorkspaceShellProps): ReactElement {
@@ -118,6 +120,7 @@ function WorkspaceShellContent({
       chat={chatWorkflow.chat}
       chatThreads={chatWorkflow.chatThreads}
       desktopPanelWidths={desktopPanelWidths}
+      dashboardUrl={dashboardUrl}
       focusedChunk={citationFocus.focusedChunk}
       hasMessages={hasMessages}
       hasMoreSelectedChunks={citationFocus.hasMoreSelectedChunks}

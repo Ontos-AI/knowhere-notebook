@@ -63,6 +63,50 @@ describe("ChunksPanel", () => {
     expect(screen.getByText(/Showing all parsed chunks from/)).toBeTruthy();
   });
 
+  it("shows a large upload target when no document is selected", async () => {
+    const user = userEvent.setup();
+
+    render(
+      React.createElement(C, {
+        chunks: [],
+        selectedSource: null,
+        onSourceUploaded: vi.fn(),
+      }),
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: /Upload a document/i }),
+    );
+
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(screen.getByText("Add source")).toBeTruthy();
+  });
+
+  it("accepts dropped files from the empty chunk upload target", async () => {
+    render(
+      React.createElement(C, {
+        chunks: [],
+        selectedSource: null,
+        onSourceUploaded: vi.fn(),
+      }),
+    );
+
+    const dropTarget = screen.getByRole("button", {
+      name: /Upload a document/i,
+    });
+    const dropEvent = createFileDropEvent(
+      new File(["hello"], "drop.pdf", { type: "application/pdf" }),
+    );
+
+    await act(async () => {
+      dropTarget.dispatchEvent(dropEvent);
+    });
+
+    expect(dropEvent.defaultPrevented).toBe(true);
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(await screen.findByText("Selected: drop.pdf")).toBeTruthy();
+  });
+
   it("switches to a download-only original file state for unsupported previews", async () => {
     mockVisibleVirtualViewport();
     const user = userEvent.setup();
@@ -809,6 +853,22 @@ describe("ChunksPanel", () => {
 
 function mockVisibleVirtualViewport(): void {
   mockVirtualViewportWithChunkHeights({});
+}
+
+function createFileDropEvent(file: File): Event {
+  const event = new Event("drop", { bubbles: true, cancelable: true });
+  const files: Pick<FileList, "length" | "item"> & { readonly 0: File } = {
+    0: file,
+    length: 1,
+    item: (index: number): File | null => (index === 0 ? file : null),
+  };
+  Object.defineProperty(event, "dataTransfer", {
+    value: {
+      files,
+      types: ["Files"],
+    },
+  });
+  return event;
 }
 
 function mockVirtualViewportWithChunkHeights(

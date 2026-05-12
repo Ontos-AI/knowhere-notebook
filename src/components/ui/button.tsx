@@ -19,6 +19,10 @@ const buttonVariants = cva(
         "pill-primary": "text-[#F5F3FF] shadow-none",
         "pill-secondary": "border-stone-200 text-stone-800 shadow-none",
         mono: "bg-zinc-800 font-mono text-primary-light shadow-none hover:bg-zinc-700",
+        "copy-cli":
+          "bg-zinc-800 font-normal text-[#A684FF] shadow-none hover:bg-zinc-900 hover:font-semibold active:bg-zinc-950 active:font-semibold",
+        "copy-code":
+          "bg-zinc-800 font-mono-readable font-normal text-[#A684FF] shadow-none hover:bg-zinc-700 hover:text-[#C4B4FF] active:bg-zinc-600 active:text-[#DDD6FF]",
       },
       size: {
         default: "h-16 px-7 pb-1 text-base [&_svg]:size-5",
@@ -27,6 +31,8 @@ const buttonVariants = cva(
         icon: "size-10",
         "pill-md": "h-16 px-7 pb-1 text-base [&_svg]:size-5",
         "pill-lg": "h-[72px] px-9 pb-1 text-xl [&_svg]:size-6",
+        "copy-cli": "h-9 w-[72px] px-0 py-2 text-sm",
+        "copy-code": "h-9 px-4 py-2 text-sm",
       },
     },
     compoundVariants: [

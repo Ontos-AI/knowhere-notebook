@@ -40,8 +40,8 @@ type SourceUploadDialogWorkflow = {
   readonly isUploading: boolean;
   readonly message: SourceUploadDialogMessage | null;
   readonly selectedFileName: string | null;
-  readonly handleDialogDragOver: (event: DragEvent<HTMLDivElement>) => void;
-  readonly handleDialogDrop: (event: DragEvent<HTMLDivElement>) => void;
+  readonly handleUploadDragOver: (event: DragEvent<HTMLElement>) => void;
+  readonly handleUploadDrop: (event: DragEvent<HTMLElement>) => void;
   readonly handleDialogOpenChange: (open: boolean) => void;
   readonly handleFileInputChange: (event: ChangeEvent<HTMLInputElement>) => void;
   readonly handleSubmit: (event: FormEvent<HTMLFormElement>) => Promise<void>;
@@ -110,13 +110,13 @@ export function useSourceUploadDialogWorkflow({
     }
   }
 
-  function handleDialogDragOver(event: DragEvent<HTMLDivElement>): void {
+  function handleUploadDragOver(event: DragEvent<HTMLElement>): void {
     if (!hasDraggedFiles(event)) return;
     event.preventDefault();
     event.stopPropagation();
   }
 
-  function handleDialogDrop(event: DragEvent<HTMLDivElement>): void {
+  function handleUploadDrop(event: DragEvent<HTMLElement>): void {
     if (!hasDraggedFiles(event)) return;
     event.preventDefault();
     event.stopPropagation();
@@ -127,6 +127,7 @@ export function useSourceUploadDialogWorkflow({
     if (!file) return;
 
     setSelectedFileState(file);
+    setIsDialogOpen(true);
   }
 
   function handleDialogOpenChange(open: boolean): void {
@@ -161,8 +162,8 @@ export function useSourceUploadDialogWorkflow({
     isUploading,
     message,
     selectedFileName,
-    handleDialogDragOver,
-    handleDialogDrop,
+    handleUploadDragOver,
+    handleUploadDrop,
     handleDialogOpenChange,
     handleFileInputChange,
     handleSubmit,

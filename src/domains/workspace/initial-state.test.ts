@@ -1,5 +1,5 @@
 import { Effect } from "effect"
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { loadWorkspaceShellInitialState } from "./initial-state"
 import type { AuthUser } from "@/infrastructure/auth"
@@ -13,7 +13,18 @@ type InitialStateClient = Awaited<
   ReturnType<InitialStateDependencies["getClientForWorkspace"]>
 >["client"]
 
+const originalDashboardOrigin = process.env.DASHBOARD_ORIGIN
+
 describe("loadWorkspaceShellInitialState", () => {
+  afterEach(() => {
+    if (originalDashboardOrigin === undefined) {
+      delete process.env.DASHBOARD_ORIGIN
+      return
+    }
+
+    process.env.DASHBOARD_ORIGIN = originalDashboardOrigin
+  })
+
   it("returns guest demo state from the Knowhere demo API only", async () => {
     const deps = createDependencies({
       getOptionalAuthenticated: vi.fn(async () => null),
@@ -66,6 +77,14 @@ describe("loadWorkspaceShellInitialState", () => {
     ])
     expect(state.loginUrl).toBe("/login")
     expect(deps.reconcileSourcesForWorkspace).not.toHaveBeenCalled()
+  })
+
+  it("exposes the configured Dashboard origin to the shell", async () => {
+    process.env.DASHBOARD_ORIGIN = "https://dashboard.staging.example"
+
+    const state = await loadWorkspaceShellInitialState(createDependencies())
+
+    expect(state.dashboardUrl).toBe("https://dashboard.staging.example")
   })
 
   it("lists visible API demos before authenticated workspace sources", async () => {

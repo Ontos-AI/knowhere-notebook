@@ -48,6 +48,7 @@ export type WorkspaceShellLayoutProps = {
   readonly archivingThreadIds: readonly string[]
   readonly chat: WorkspaceChatState
   readonly chatThreads: readonly ChatThreadView[]
+  readonly dashboardUrl?: string
   readonly desktopPanelWidths: Readonly<DesktopPanelWidths>
   readonly focusedChunk: FocusedChunkState
   readonly hasMessages: boolean
@@ -105,6 +106,7 @@ export function WorkspaceShellLayout(
   return (
     <div className="flex h-screen w-full flex-col overflow-hidden bg-background">
       <TopNav
+        dashboardUrl={props.dashboardUrl}
         userInitials={props.user ? initialsOf(props.user) : undefined}
         userName={
           props.user ? (props.user.name ?? props.user.email ?? undefined) : undefined
@@ -180,6 +182,10 @@ export function WorkspaceShellLayout(
               isLoadingMore={props.isSelectedChunksLoadingMore}
               hasMoreChunks={props.hasMoreSelectedChunks}
               onLoadMore={props.onLoadMoreChunks}
+              onLoginClick={props.isGuest ? props.onLoginClick : undefined}
+              onSourceUploaded={
+                props.isGuest ? undefined : props.onSourceUploaded
+              }
             />
           </div>
           <DesktopResizeHandle
@@ -272,6 +278,8 @@ export function WorkspaceShellLayout(
           isLoadingMore={props.isSelectedChunksLoadingMore}
           hasMoreChunks={props.hasMoreSelectedChunks}
           onLoadMore={props.onLoadMoreChunks}
+          onLoginClick={props.isGuest ? props.onLoginClick : undefined}
+          onSourceUploaded={props.isGuest ? undefined : props.onSourceUploaded}
         />
       </div>
       <div

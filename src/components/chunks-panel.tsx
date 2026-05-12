@@ -7,15 +7,16 @@ import {
   useState,
 } from "react";
 import { type VirtualItem } from "@tanstack/react-virtual";
-import { Layers } from "lucide-react";
+import { FilePlus2, Layers, UploadCloud } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SourceOriginalPreview } from "@/components/source-original-preview";
+import { SourceUploadDialog } from "@/components/source-upload-dialog";
 import { useChunksPanelWorkflow } from "@/components/chunks-panel-workflow";
 import { ParsedChunkCard } from "@/components/parsed-chunk-card";
 import { useSourceOriginalPreviewWarmup } from "@/components/source-original-preview-warmup";
 import { sourceOriginalPreviewModel } from "@/components/source-original-preview-model";
 import type { ParsedChunkView } from "@/domains/chunks/types";
-import type { SourceOriginalFileView } from "@/domains/sources/types";
+import type { SourceOriginalFileView, SourceView } from "@/domains/sources/types";
 import { cn } from "@/lib/utils";
 
 export type ChunksPanelProps = {
@@ -28,6 +29,8 @@ export type ChunksPanelProps = {
   isLoadingMore?: boolean;
   hasMoreChunks?: boolean;
   onLoadMore?: () => void;
+  onLoginClick?: () => void;
+  onSourceUploaded?: (source: SourceView) => void;
 };
 
 export function ChunksPanel({
@@ -40,6 +43,8 @@ export function ChunksPanel({
   isLoadingMore = false,
   hasMoreChunks = false,
   onLoadMore,
+  onLoginClick,
+  onSourceUploaded,
 }: Partial<ChunksPanelProps> = {}) {
   const originalPreviewCacheKey = selectedSourceFile?.url ?? null;
   const isOriginalPreviewAvailable =
@@ -178,7 +183,14 @@ export function ChunksPanel({
               {isLoading ? (
                 <LoadingChunks />
               ) : chunks.length === 0 ? (
-                <EmptyChunks />
+                selectedSource ? (
+                  <EmptyChunks />
+                ) : (
+                  <EmptySourceUploadState
+                    onLoginClick={onLoginClick}
+                    onSourceUploaded={onSourceUploaded}
+                  />
+                )
               ) : (
                 <div
                   className="relative w-full min-w-0"
@@ -225,6 +237,86 @@ export function ChunksPanel({
     </main>
   );
 }
+
+function EmptySourceUploadState({
+  onLoginClick,
+  onSourceUploaded,
+}: {
+  readonly onLoginClick?: () => void;
+  readonly onSourceUploaded?: (source: SourceView) => void;
+}): ReactNode {
+  if (onLoginClick) {
+    return (
+      <button
+        type="button"
+        onClick={onLoginClick}
+        className={emptyUploadTargetClassName}
+      >
+        <EmptyUploadPicture />
+        <span className="text-base font-semibold text-foreground">
+          Log in to add documents
+        </span>
+        <span className="max-w-sm text-sm leading-6 text-muted-foreground">
+          Add your first source to see parsed chunks and ask questions from this
+          workspace.
+        </span>
+      </button>
+    );
+  }
+
+  if (!onSourceUploaded) {
+    return <EmptyChunks />;
+  }
+
+  return (
+    <SourceUploadDialog
+      onSourceUploaded={onSourceUploaded}
+      renderTrigger={({ onClick, onDragOver, onDrop }) => (
+        <button
+          type="button"
+          onClick={onClick}
+          onDragOver={onDragOver}
+          onDrop={onDrop}
+          className={emptyUploadTargetClassName}
+        >
+          <EmptyUploadPicture />
+          <span className="text-base font-semibold text-foreground">
+            Upload a document
+          </span>
+          <span className="max-w-sm text-sm leading-6 text-muted-foreground">
+            Click to choose a file, or drag a document here to prepare it for
+            parsed chunks and chat.
+          </span>
+          <span className="rounded-md border border-border bg-background px-2.5 py-1 text-[11px] font-medium text-muted-foreground shadow-sm">
+            PDF, DOCX, TXT, MD, spreadsheets, slides, and images up to 100 MB
+          </span>
+        </button>
+      )}
+    />
+  );
+}
+
+function EmptyUploadPicture(): ReactNode {
+  return (
+    <span
+      aria-hidden="true"
+      className="relative mb-2 flex h-36 w-44 items-center justify-center"
+    >
+      <span className="absolute bottom-3 left-4 h-24 w-20 rotate-[-8deg] rounded-lg border border-border bg-card shadow-sm" />
+      <span className="absolute bottom-6 right-5 h-28 w-24 rotate-6 rounded-lg border border-border bg-card shadow-sm" />
+      <span className="absolute flex size-20 items-center justify-center rounded-2xl border border-[#ddd6fe] border-l-[6px] bg-[#ede9fe] text-[#7f22fe] shadow-[0_16px_30px_-20px_rgba(127,34,254,0.8)] dark:border-[#6d28d9] dark:bg-[#3b0764] dark:text-[#ddd6fe]">
+        <FilePlus2 className="size-9" strokeWidth={1.75} />
+      </span>
+      <span className="absolute bottom-0 flex h-10 items-center gap-2 rounded-lg border-x-2 border-t-2 border-b-[5px] border-[#e7e5e4] bg-white px-4 pb-0.5 font-mono-display text-xs font-semibold text-[#292524] dark:border-[#3f3f46] dark:bg-[#18181b] dark:text-[#fafafa]">
+        <UploadCloud className="size-4" strokeWidth={1.75} />
+        Drop files
+      </span>
+    </span>
+  );
+}
+
+const emptyUploadTargetClassName =
+  "mx-auto flex min-h-[440px] w-full max-w-2xl cursor-pointer flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed border-border bg-background-secondary/70 px-6 py-10 text-center transition-colors hover:border-[#8e51ff]/60 hover:bg-accent/80 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#8e51ff]/15 dark:bg-background-secondary/80";
 
 function ViewPanel({
   children,
