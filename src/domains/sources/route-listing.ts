@@ -3,6 +3,7 @@ import { Effect } from "effect"
 import { demoView } from "@/domains/demo/view"
 import { resolveWorkspaceDemoSources } from "@/domains/demo/workspace-source-resolution"
 import { routeResult } from "@/lib/route-result"
+import type { DemoCatalog } from "@/integrations/knowhere-demo"
 import { toSourceView } from "./view"
 import { getClientForWorkspace } from "./route-dependencies"
 import type {
@@ -34,6 +35,8 @@ type RouteListing = {
   ) => Promise<JsonRouteResult<ListSourcesBody>>
 }
 
+const emptyDemoCatalog: DemoCatalog = { sources: [] }
+
 function createRouteListing(deps: RouteListingDependencies): RouteListing {
   return {
     listSources: (input: ListSourcesInput) => listSources(input, deps),
@@ -45,11 +48,12 @@ async function listSources(
   deps: RouteListingDependencies,
 ): Promise<JsonRouteResult<ListSourcesBody>> {
   const user = await deps.getCurrentUser()
-  const catalog = await deps.demoApi.fetchCatalog()
   if (!user) {
+    const catalog = await deps.demoApi.fetchCatalog()
     return routeResult.ok({ sources: catalog.sources.map(demoView.toSourceView) })
   }
 
+  const catalog = await fetchOptionalDemoCatalog(deps.demoApi.fetchCatalog)
   const workspace = await deps.ensureWorkspace(user.id)
   const client = await getClientForWorkspace(
     workspace.id,
@@ -83,6 +87,16 @@ async function listSources(
       ),
     ],
   })
+}
+
+async function fetchOptionalDemoCatalog(
+  fetchDemoCatalog: () => Promise<DemoCatalog>,
+): Promise<DemoCatalog> {
+  try {
+    return await fetchDemoCatalog()
+  } catch {
+    return emptyDemoCatalog
+  }
 }
 
 export { createRouteListing }

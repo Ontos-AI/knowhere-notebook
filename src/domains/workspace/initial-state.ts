@@ -82,13 +82,15 @@ const defaultDependencies: WorkspaceShellInitialStateDependencies = {
   sourceViewOptionsBySourceId: getSourceViewOptionsBySourceId,
 }
 
+const emptyDemoCatalog: DemoCatalog = { sources: [] }
+
 export async function loadWorkspaceShellInitialState(
   deps: WorkspaceShellInitialStateDependencies = defaultDependencies,
 ): Promise<WorkspaceShellInitialState> {
   const context = await deps.getOptionalAuthenticated()
-  const demoCatalog = await deps.fetchDemoCatalog()
 
   if (!context) {
+    const demoCatalog = await deps.fetchDemoCatalog()
     const guestContext = await deps.getGuest()
     return {
       isGuest: true,
@@ -99,6 +101,7 @@ export async function loadWorkspaceShellInitialState(
   }
 
   const { user, workspace } = context
+  const demoCatalog = await fetchOptionalDemoCatalog(deps.fetchDemoCatalog)
   const { client } = await deps.getClientForWorkspace(workspace)
   const sources = await deps.reconcileSourcesForWorkspace(workspace, client)
   const demoSourceResolution = resolveWorkspaceDemoSources(
@@ -145,5 +148,15 @@ export async function loadWorkspaceShellInitialState(
     chatThreads: chatThreads.map(toChatThreadView),
     activeChatThreadId: activeChatThread?.id ?? null,
     chatMessages,
+  }
+}
+
+async function fetchOptionalDemoCatalog(
+  fetchDemoCatalog: () => Promise<DemoCatalog>,
+): Promise<DemoCatalog> {
+  try {
+    return await fetchDemoCatalog()
+  } catch {
+    return emptyDemoCatalog
   }
 }

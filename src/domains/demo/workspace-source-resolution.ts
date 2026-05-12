@@ -40,17 +40,19 @@ function isLegacyCanonicalDemoSource(
   canonicalDocumentIdByDemoSourceId: ReadonlyMap<string, string>,
 ): boolean {
   if (!source.demoKey) return false
+  if (
+    source.knowhereJobId === null &&
+    (source.knowhereDocumentId === null ||
+      source.knowhereDocumentId.startsWith("demo-doc-"))
+  ) {
+    return true
+  }
+
   const canonicalDocumentId = canonicalDocumentIdByDemoSourceId.get(
     source.demoKey,
   )
   if (canonicalDocumentId === undefined) return false
-  if (source.knowhereDocumentId === canonicalDocumentId) return true
-
-  return (
-    source.knowhereJobId === null &&
-    (source.knowhereDocumentId === null ||
-      source.knowhereDocumentId.startsWith("demo-doc-"))
-  )
+  return source.knowhereDocumentId === canonicalDocumentId
 }
 
 function isMaterializedDemoSource(

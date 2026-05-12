@@ -102,6 +102,45 @@ describe("loadWorkspaceShellInitialState", () => {
     ])
   })
 
+  it("keeps authenticated workspace sources when the demo catalog is unavailable", async () => {
+    const workspace = makeWorkspace()
+    const source = makeSource(workspace.id)
+    const legacyFakeSource = makeSource(workspace.id, {
+      id: "source_legacy_demo",
+      demoKey: "demo-tsla-q4-2025",
+      knowhereJobId: null,
+      knowhereDocumentId: "demo-doc-tsla-q4-2025",
+    })
+    const sourceViewOptionsBySourceId = vi.fn(() =>
+      Effect.succeed(new Map([[source.id, { chunkCount: 2 }]])),
+    )
+    const deps = createDependencies({
+      fetchDemoCatalog: vi.fn(async () => {
+        throw new Error("Demo API unavailable.")
+      }),
+      reconcileSourcesForWorkspace: vi.fn(async () => [legacyFakeSource, source]),
+      sourceViewOptionsBySourceId,
+    })
+
+    const state = await loadWorkspaceShellInitialState(deps)
+
+    expect(sourceViewOptionsBySourceId).toHaveBeenCalledWith(
+      [source],
+      expect.any(Object),
+    )
+    expect(state.sources).toEqual([
+      {
+        id: source.id,
+        kind: "workspace",
+        title: "notes.pdf",
+        mimeType: "application/pdf",
+        status: "ready",
+        documentId: "document_1",
+        chunkCount: 2,
+      },
+    ])
+  })
+
   it("hides canonical demos that are hidden or already materialized", async () => {
     const workspace = makeWorkspace()
     const materializedSource = makeSource(workspace.id, {
