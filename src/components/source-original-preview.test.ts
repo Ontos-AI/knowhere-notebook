@@ -566,6 +566,40 @@ describe("SourceOriginalPreview", () => {
     expect(screen.queryByText(/<br>/)).toBeNull();
   });
 
+  it("keeps Markdown content readable inside the responsive original preview shell", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response("# Scan report\n\nThe scan found placeholder keys.", {
+            status: 200,
+          }),
+        ),
+      ),
+    );
+
+    render(
+      React.createElement(SourceOriginalPreview, {
+        sourceTitle: "scan-report.md",
+        file: {
+          url: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/scan-report.md",
+          mimeType: "text/markdown",
+        },
+      }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Scan report")).toBeTruthy();
+    });
+
+    const previewShell = screen.getByTestId("source-original-preview");
+    expect(previewShell.className).toContain("w-[90%]");
+    expect(previewShell.className).toContain("max-w-[1600px]");
+
+    const markdownPreview = document.querySelector(".original-markdown-preview");
+    expect(markdownPreview?.parentElement?.className).toContain("max-w-4xl");
+  });
+
   it("hides the download action for non-downloadable demo originals", () => {
     render(
       React.createElement(SourceOriginalPreview, {
