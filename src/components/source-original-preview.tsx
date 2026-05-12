@@ -14,6 +14,8 @@ import type { SourceOriginalFileView } from "@/domains/sources/types";
 type SourceOriginalPreviewProps = {
   sourceTitle: string;
   file: SourceOriginalFileView | null;
+  targetPageNumber?: number | null;
+  targetPageRequestId?: number;
 };
 
 type PreviewKind = ReturnType<typeof sourceOriginalPreviewModel.getPreviewKind>;
@@ -21,6 +23,8 @@ type PreviewKind = ReturnType<typeof sourceOriginalPreviewModel.getPreviewKind>;
 export function SourceOriginalPreview({
   sourceTitle,
   file,
+  targetPageNumber = null,
+  targetPageRequestId = 0,
 }: SourceOriginalPreviewProps): ReactNode {
   if (!file) {
     return (
@@ -42,7 +46,11 @@ export function SourceOriginalPreview({
   const canDownload = file.canDownload !== false;
 
   return (
-    <div className="mx-auto flex w-[90%] min-w-0 max-w-[1600px] flex-col gap-3 p-3 sm:p-6">
+    <div
+      data-testid="source-original-preview"
+      data-target-page={targetPageNumber ?? undefined}
+      className="mx-auto flex w-[90%] min-w-0 max-w-[1600px] flex-col gap-3 p-3 sm:p-6"
+    >
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/70 bg-background/80 p-3">
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-foreground">
@@ -67,7 +75,10 @@ export function SourceOriginalPreview({
         ) : null}
       </div>
       <div className="min-h-0 rounded-lg border border-border/70 bg-card p-3">
-        {renderPreview(kind, sourceTitle, file)}
+        {renderPreview(kind, sourceTitle, file, {
+          targetPageNumber,
+          targetPageRequestId,
+        })}
       </div>
     </div>
   );
@@ -77,6 +88,10 @@ function renderPreview(
   kind: PreviewKind,
   sourceTitle: string,
   file: SourceOriginalFileView,
+  options: {
+    readonly targetPageNumber: number | null;
+    readonly targetPageRequestId: number;
+  },
 ): ReactNode {
   if (!sourceOriginalPreviewModel.isWithinPreviewByteLimit(kind, file)) {
     return <UnsupportedPreview />;
@@ -95,7 +110,14 @@ function renderPreview(
         </figure>
       );
     case "pdf":
-      return <SourceOriginalPdfPreview key={file.url} file={file} />;
+      return (
+        <SourceOriginalPdfPreview
+          key={file.url}
+          file={file}
+          targetPageNumber={options.targetPageNumber}
+          targetPageRequestId={options.targetPageRequestId}
+        />
+      );
     case "markdown":
       return <SourceOriginalTextPreview file={file} variant="markdown" />;
     case "text":

@@ -28,7 +28,7 @@ describe("toParsedChunkView", () => {
       metadata: {
         summary: "Intro summary",
         keywords: ["notebook", "parsed"],
-        pageNums: [1, 2],
+        page_nums: [1, 2],
         connectTo: [
           {
             target: "parser_image_1",
@@ -78,7 +78,7 @@ describe("toParsedChunkView", () => {
       metadata: {
         filePath: "images/image-1.jpg",
         summary: "A diagram.",
-        pageNums: [3],
+        page_nums: [3],
       },
       assetUrl: null,
     });
@@ -100,7 +100,7 @@ describe("toParsedChunkView", () => {
     });
   });
 
-  it("normalizes parser metadata variants shared with demo chunks", () => {
+  it("normalizes current parser metadata shared with demo chunks", () => {
     const chunk = makeDocumentChunk({
       id: "document_chunk_table_1",
       chunkId: "parser_table_1",
@@ -136,6 +136,32 @@ describe("toParsedChunkView", () => {
         },
       ],
     });
+  });
+
+  it("ignores legacy page number aliases outside metadata.page_nums", () => {
+    const chunk = {
+      ...makeDocumentChunk({
+        metadata: {
+          pageNums: [1, 2],
+          pageNumbers: [3],
+          page_numbers: [4],
+        },
+      }),
+      pageNums: [5],
+      page_nums: [6],
+    } as DocumentChunk;
+
+    expect(toParsedChunkView(chunk, "manual.pdf").pageNums).toBeUndefined();
+  });
+
+  it("ignores malformed page number values", () => {
+    const chunk = makeDocumentChunk({
+      metadata: {
+        page_nums: "15, 16",
+      },
+    });
+
+    expect(toParsedChunkView(chunk, "manual.pdf").pageNums).toBeUndefined();
   });
 });
 

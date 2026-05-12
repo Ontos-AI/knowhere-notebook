@@ -4,11 +4,13 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import type { SourceOriginalFileView } from "@/domains/sources/types"
+import { sourceOriginalPreviewRequest } from "./source-original-preview-request"
 import { useSourceOriginalTextWorkflow } from "./source-original-text-workflow"
 
 describe("useSourceOriginalTextWorkflow", () => {
   afterEach(() => {
     cleanup()
+    sourceOriginalPreviewRequest.clearCacheForTests()
     vi.unstubAllGlobals()
   })
 

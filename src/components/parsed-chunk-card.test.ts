@@ -75,6 +75,32 @@ describe("ParsedChunkCard", () => {
     expect(onReferenceClick).toHaveBeenCalledWith("image_1");
   });
 
+  it("shows an explicit original preview button when chunk preview is available", async () => {
+    const user = userEvent.setup();
+    const chunk = {
+      chunkId: "text_1",
+      type: "text" as const,
+      content: "Revenue details live on the second page.",
+      sourceTitle: "report.pdf",
+      pageNums: [2],
+    };
+    const onChunkClick = vi.fn();
+
+    render(
+      React.createElement(ParsedChunkCard, {
+        chunk,
+        isFocused: false,
+        onChunkClick,
+        onReferenceClick: vi.fn(),
+      }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Open page 2" }));
+
+    expect(onChunkClick).toHaveBeenCalledWith(chunk);
+    expect(screen.getByTestId("chunk-card-shell-text_1").getAttribute("role")).toBeNull();
+  });
+
   it("sanitizes table HTML before rendering", () => {
     render(
       React.createElement(ParsedChunkCard, {

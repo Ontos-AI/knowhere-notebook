@@ -4,6 +4,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SourceOriginalPdfPreview } from "./source-original-pdf-preview";
+import { sourceOriginalPreviewRequest } from "./source-original-preview-request";
 
 const pdfPageRenderLog: number[] = [];
 const pdfPageWidthLog: number[] = [];
@@ -80,6 +81,14 @@ describe("SourceOriginalPdfPreview", () => {
         return pdfContainerClientWidth;
       },
     });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof globalThis.fetch>(() =>
+        Promise.resolve(
+          new Response(new Uint8Array([1, 2, 3]).buffer, { status: 200 }),
+        ),
+      ),
+    );
     class MockIntersectionObserver implements IntersectionObserver {
       readonly root: Element | Document | null = null;
       readonly rootMargin: string = "";
@@ -112,10 +121,12 @@ describe("SourceOriginalPdfPreview", () => {
 
   afterEach(() => {
     cleanup();
+    sourceOriginalPreviewRequest.clearCacheForTests();
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
-  it("uses measured PDF page dimensions and only renders visible pages", async () => {
+  it("uses measured PDF page dimensions and prerenders ahead of visible pages", async () => {
     render(
       React.createElement(SourceOriginalPdfPreview, {
         file: {
@@ -132,7 +143,7 @@ describe("SourceOriginalPdfPreview", () => {
       expect(pdfPageRenderLog).toContain(1);
     });
 
-    expect(pdfPageRenderLog).not.toContain(2);
+    expect(pdfPageRenderLog).toContain(2);
     expect(pdfPageWidthLog).toContain(640);
   });
 });

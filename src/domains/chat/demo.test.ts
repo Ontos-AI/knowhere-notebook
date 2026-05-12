@@ -38,6 +38,24 @@ describe("DEMO_CHAT_MESSAGES", () => {
       expect(message.citations).toHaveLength(1);
     }
   });
+
+  it("uses latest parser section paths for demo citations", () => {
+    const citations = DEMO_CHAT_MESSAGES.flatMap((message) =>
+      message.citations ?? [],
+    );
+
+    expect(citations.map((citation) => citation.source.sectionPath)).toEqual([
+      "Default_Root/TSLA-Q4-2025-Update(1).pdf-->OTHER UPDATES",
+      "Default_Root/TSLA-Q4-2025-Update(1).pdf-->SUMMARY-->Energy generation and storage",
+      "Default_Root/TSLA-Q4-2025-Update(1).pdf-->OUTLOOK-->Product",
+    ]);
+    expect(
+      citations.every(
+        (citation) =>
+          citation.source.sourceFileName === "TSLA-Q4-2025-Update(1).pdf",
+      ),
+    ).toBe(true);
+  });
 });
 
 function loadTslaDemoChunks(): ParsedChunkView[] {
@@ -58,7 +76,7 @@ function loadTslaDemoChunks(): ParsedChunkView[] {
     sectionPath: getString(chunk.path) ?? null,
     type: toChunkType(chunk.type),
     content: getString(chunk.content) ?? "",
-    sourceTitle: "TSLA-Q4-2025-Update.pdf",
+    sourceTitle: "TSLA-Q4-2025-Update(1).pdf",
     summary: getString(chunk.metadata?.summary),
   }));
 }

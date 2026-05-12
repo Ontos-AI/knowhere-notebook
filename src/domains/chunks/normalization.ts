@@ -44,9 +44,7 @@ function createParsedChunkView(
     assetUrl,
     summary: getStringMetadata(input.metadata, "summary"),
     keywords: getStringArrayMetadata(input.metadata, "keywords"),
-    pageNums:
-      getNumberArrayMetadata(input.metadata, "pageNums") ??
-      getNumberArrayMetadata(input.metadata, "page_nums"),
+    pageNums: getPageNumbers(input.metadata["page_nums"]),
     connections,
     sourceTitle: input.sourceTitle,
   }
@@ -230,17 +228,18 @@ function getStringArrayMetadata(
   return strings.length > 0 ? strings : undefined
 }
 
-function getNumberArrayMetadata(
-  metadata: Readonly<Record<string, unknown>>,
-  key: string,
-): number[] | undefined {
-  const value = metadata[key]
+function getPageNumbers(value: unknown): number[] | undefined {
   if (!Array.isArray(value)) return undefined
 
-  const numbers = value.filter(
-    (item): item is number => typeof item === "number" && Number.isFinite(item),
+  const pageNumbers = value.filter(
+    (pageNumber): pageNumber is number =>
+      Number.isInteger(pageNumber) && pageNumber > 0,
   )
-  return numbers.length > 0 ? numbers : undefined
+  const uniquePageNumbers = Array.from(new Set(pageNumbers)).sort(
+    (left, right) => left - right,
+  )
+
+  return uniquePageNumbers.length > 0 ? uniquePageNumbers : undefined
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {

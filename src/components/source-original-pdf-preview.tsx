@@ -16,6 +16,7 @@ type PdfPageShellRef = ReturnType<PdfWorkflow["registerPageShell"]>;
 type PdfPageLoadSuccess = Parameters<PdfWorkflow["handlePdfPageLoadSuccess"]>[2];
 type LazyPdfPageProps = {
   readonly PageComponent: PdfPageComponent;
+  readonly devicePixelRatio: number;
   readonly pageNumber: number;
   readonly pageCount: number;
   readonly width: number;
@@ -29,30 +30,42 @@ type LazyPdfPageProps = {
   ) => void;
 };
 
-const pdfCanvasDevicePixelRatio = 2;
-
 export function SourceOriginalPdfPreview({
   file,
+  targetPageNumber = null,
+  targetPageRequestId = 0,
 }: {
   readonly file: SourceOriginalFileView;
+  readonly targetPageNumber?: number | null;
+  readonly targetPageRequestId?: number;
 }): ReactNode {
   const {
     containerRef,
+    fileSource,
     getPageAspectRatio,
     handlePdfLoadSuccess,
     handlePdfPageLoadSuccess,
     hasLoadedPageLayout,
+    hasPdfFileLoadFailed,
     pageCount,
     pageWidth,
     pdfModule,
     registerPageShell,
     shouldRenderPage,
-  } = useSourceOriginalPdfWorkflow({ file });
+  } = useSourceOriginalPdfWorkflow({
+    file,
+    targetPageNumber,
+    targetPageRequestId,
+  });
 
   if (!pdfModule) return <LoadingPreview />;
+  if (hasPdfFileLoadFailed) return <UnsupportedPreview />;
+  if (!fileSource) return <LoadingPreview />;
 
   const Document = pdfModule.Document;
   const Page = pdfModule.Page;
+  const pdfCanvasDevicePixelRatio =
+    sourceOriginalPreviewModel.getPdfCanvasDevicePixelRatio();
 
   return (
     <div
@@ -60,7 +73,7 @@ export function SourceOriginalPdfPreview({
       className="flex flex-col items-center overflow-auto rounded-lg bg-muted/30 px-3 py-4"
     >
       <Document
-        file={file.url}
+        file={fileSource}
         loading={<LoadingPreview />}
         error={<UnsupportedPreview />}
         onLoadSuccess={handlePdfLoadSuccess}
@@ -70,6 +83,7 @@ export function SourceOriginalPdfPreview({
             <LazyPdfPage
               key={`${file.url}:${index}`}
               PageComponent={Page}
+              devicePixelRatio={pdfCanvasDevicePixelRatio}
               pageNumber={index + 1}
               pageCount={pageCount}
               width={pageWidth}
@@ -89,6 +103,7 @@ export function SourceOriginalPdfPreview({
 
 const LazyPdfPage = memo(function LazyPdfPage({
   PageComponent,
+  devicePixelRatio,
   pageNumber,
   pageCount,
   width,
@@ -114,7 +129,7 @@ const LazyPdfPage = memo(function LazyPdfPage({
         <PageComponent
           pageNumber={pageNumber}
           width={width}
-          devicePixelRatio={pdfCanvasDevicePixelRatio}
+          devicePixelRatio={devicePixelRatio}
           renderAnnotationLayer={false}
           renderTextLayer={false}
           onLoadSuccess={(page) =>
@@ -138,6 +153,7 @@ function areLazyPdfPagePropsEqual(
 ): boolean {
   return (
     previous.PageComponent === next.PageComponent &&
+    previous.devicePixelRatio === next.devicePixelRatio &&
     previous.pageNumber === next.pageNumber &&
     previous.pageCount === next.pageCount &&
     previous.width === next.width &&

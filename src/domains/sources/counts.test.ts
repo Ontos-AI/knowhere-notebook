@@ -98,6 +98,6 @@ describe("countChunksBySourceId", () => {
     )
 
     expect(listChunks).not.toHaveBeenCalled()
-    expect(counts).toEqual(new Map([["source_demo", 71]]))
+    expect(counts).toEqual(new Map([["source_demo", 70]]))
   })
 })
