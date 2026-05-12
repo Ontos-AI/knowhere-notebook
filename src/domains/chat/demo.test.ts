@@ -45,14 +45,14 @@ describe("DEMO_CHAT_MESSAGES", () => {
     );
 
     expect(citations.map((citation) => citation.source.sectionPath)).toEqual([
-      "Default_Root/TSLA-Q4-2025-Update(1).pdf-->OTHER UPDATES",
-      "Default_Root/TSLA-Q4-2025-Update(1).pdf-->SUMMARY-->Energy generation and storage",
-      "Default_Root/TSLA-Q4-2025-Update(1).pdf-->OUTLOOK-->Product",
+      "Default_Root/TSLA-Q4-2025-Update.pdf-->OTHER UPDATES",
+      "Default_Root/TSLA-Q4-2025-Update.pdf-->SUMMARY-->Energy generation and storage",
+      "Default_Root/TSLA-Q4-2025-Update.pdf-->OUTLOOK-->Product",
     ]);
     expect(
       citations.every(
         (citation) =>
-          citation.source.sourceFileName === "TSLA-Q4-2025-Update(1).pdf",
+          citation.source.sourceFileName === "TSLA-Q4-2025-Update.pdf",
       ),
     ).toBe(true);
   });
@@ -76,7 +76,7 @@ function loadTslaDemoChunks(): ParsedChunkView[] {
     sectionPath: getString(chunk.path) ?? null,
     type: toChunkType(chunk.type),
     content: getString(chunk.content) ?? "",
-    sourceTitle: "TSLA-Q4-2025-Update(1).pdf",
+    sourceTitle: "TSLA-Q4-2025-Update.pdf",
     summary: getString(chunk.metadata?.summary),
   }));
 }

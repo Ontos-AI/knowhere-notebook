@@ -13,6 +13,7 @@ import { SourceOriginalPreview } from "@/components/source-original-preview";
 import { useChunksPanelWorkflow } from "@/components/chunks-panel-workflow";
 import { ParsedChunkCard } from "@/components/parsed-chunk-card";
 import { useSourceOriginalPreviewWarmup } from "@/components/source-original-preview-warmup";
+import { sourceOriginalPreviewModel } from "@/components/source-original-preview-model";
 import type { ParsedChunkView } from "@/domains/chunks/types";
 import type { SourceOriginalFileView } from "@/domains/sources/types";
 import { cn } from "@/lib/utils";
@@ -41,6 +42,11 @@ export function ChunksPanel({
   onLoadMore,
 }: Partial<ChunksPanelProps> = {}) {
   const originalPreviewCacheKey = selectedSourceFile?.url ?? null;
+  const isOriginalPreviewAvailable =
+    sourceOriginalPreviewModel.canPreviewOriginalFile(
+      selectedSource,
+      selectedSourceFile,
+    );
   const [mountedOriginalPreviewKey, setMountedOriginalPreviewKey] = useState<
     string | null
   >(null);
@@ -185,6 +191,7 @@ export function ChunksPanel({
                       virtualItem={virtualItem}
                       chunk={visibleChunks[virtualItem.index]}
                       focusedChunkId={activeFocusedChunkId}
+                      isOriginalPreviewAvailable={isOriginalPreviewAvailable}
                       measureElement={measureVirtualChunkElement}
                       onChunkClick={
                         hasOriginalFile ? handleChunkSelected : undefined
@@ -283,6 +290,7 @@ function VirtualChunkRow({
   virtualItem,
   chunk,
   focusedChunkId,
+  isOriginalPreviewAvailable,
   measureElement,
   onChunkClick,
   onReferenceClick,
@@ -290,6 +298,7 @@ function VirtualChunkRow({
   virtualItem: VirtualItem;
   chunk: ParsedChunkView | undefined;
   focusedChunkId: string | null;
+  isOriginalPreviewAvailable: boolean;
   measureElement: (node: HTMLDivElement | null) => void;
   onChunkClick?: (chunk: ParsedChunkView) => void;
   onReferenceClick: (chunkId: string) => void;
@@ -316,6 +325,7 @@ function VirtualChunkRow({
       <ParsedChunkCard
         chunk={chunk}
         isFocused={chunk.chunkId === focusedChunkId}
+        isOriginalPreviewAvailable={isOriginalPreviewAvailable}
         onChunkClick={onChunkClick}
         onReferenceClick={onReferenceClick}
       />

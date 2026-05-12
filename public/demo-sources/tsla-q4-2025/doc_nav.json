@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "file_name": "TSLA-Q4-2025-Update(1).pdf",
+  "file_name": "TSLA-Q4-2025-Update.pdf",
   "stats": {
     "total_chunks": 70,
     "text_chunks": 36,
@@ -11,7 +11,7 @@
   "sections": [
     {
       "title": "Root",
-      "path": "Default_Root/TSLA-Q4-2025-Update(1).pdf-->HIGHLIGHTS",
+      "path": "Default_Root/TSLA-Q4-2025-Update.pdf-->HIGHLIGHTS",
       "level": 1,
       "summary": "[tables/table-0 Tesla 2025 Results.html]",
       "chunk_count": 36,
