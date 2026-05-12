@@ -43,9 +43,13 @@ function isLegacyCanonicalDemoSource(
   const canonicalDocumentId = canonicalDocumentIdByDemoSourceId.get(
     source.demoKey,
   )
+  if (canonicalDocumentId === undefined) return false
+  if (source.knowhereDocumentId === canonicalDocumentId) return true
+
   return (
-    canonicalDocumentId !== undefined &&
-    source.knowhereDocumentId === canonicalDocumentId
+    source.knowhereJobId === null &&
+    (source.knowhereDocumentId === null ||
+      source.knowhereDocumentId.startsWith("demo-doc-"))
   )
 }
 

@@ -154,6 +154,32 @@ describe("loadWorkspaceShellInitialState", () => {
     ])
   })
 
+  it("does not list non-ready legacy demo rows as workspace sources", async () => {
+    const workspace = makeWorkspace()
+    const nonReadyLegacySource = makeSource(workspace.id, {
+      id: "source_non_ready_legacy_demo",
+      status: "parsing",
+      demoKey: "demo-tsla-q4-2025",
+      knowhereJobId: null,
+      knowhereDocumentId: null,
+    })
+    const sourceViewOptionsBySourceId = vi.fn(() => Effect.succeed(new Map()))
+    const deps = createDependencies({
+      reconcileSourcesForWorkspace: vi.fn(async () => [nonReadyLegacySource]),
+      sourceViewOptionsBySourceId,
+    })
+
+    const state = await loadWorkspaceShellInitialState(deps)
+
+    expect(sourceViewOptionsBySourceId).toHaveBeenCalledWith([], expect.any(Object))
+    expect(state.sources).toEqual([
+      expect.objectContaining({
+        id: "demo-tsla-q4-2025",
+        kind: "demo",
+      }),
+    ])
+  })
+
   it("hides API-owned demos when deleted legacy rows were backfilled into visibility", async () => {
     const state = await loadWorkspaceShellInitialState(
       createDependencies({

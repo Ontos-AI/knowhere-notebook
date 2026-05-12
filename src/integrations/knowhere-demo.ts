@@ -173,6 +173,8 @@ type MaterializedDemoSourceResponse = {
   readonly original_file?: DemoOriginalFileResponse
 }
 
+const DEFAULT_KNOWHERE_BASE_URL = "https://api.knowhereto.ai"
+
 export const knowhereDemoApi = {
   fetchCatalog,
   fetchChunkPage,
@@ -236,7 +238,7 @@ async function materializeSources(input: {
 }
 
 function resolveApiURL(path: string): string {
-  const baseURL = process.env.KNOWHERE_BASE_URL ?? "http://localhost:8000"
+  const baseURL = process.env.KNOWHERE_BASE_URL ?? DEFAULT_KNOWHERE_BASE_URL
   return new URL(path, baseURL).toString()
 }
 

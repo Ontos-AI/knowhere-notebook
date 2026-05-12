@@ -30,9 +30,11 @@ SET
 WHERE
   "demo_key" IS NOT NULL
   AND "deleted_at" IS NULL
-  AND "status" = 'ready'
   AND "knowhere_job_id" IS NULL
-  AND "knowhere_document_id" LIKE 'demo-doc-%';
+  AND (
+    "knowhere_document_id" IS NULL
+    OR "knowhere_document_id" LIKE 'demo-doc-%'
+  );
 
 UPDATE "sources"
 SET

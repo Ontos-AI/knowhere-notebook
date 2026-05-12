@@ -25,10 +25,22 @@ export async function POST(request: Request): Promise<NextResponse> {
   try {
     const { apiKey, workspace } =
       await notebookRequestContext.getAuthenticatedWithClient()
+    const hiddenDemoSourceIds = new Set(
+      await sourceService.listHiddenDemoSourceIds(workspace.id),
+    )
+    const visibleDemoSourceIds = demoSourceIds.filter(
+      (demoSourceId) => !hiddenDemoSourceIds.has(demoSourceId),
+    )
+    if (visibleDemoSourceIds.length === 0) {
+      return nextRouteResponse.toNextResponse(
+        routeResult.badRequest("Selected demo sources are no longer available."),
+      )
+    }
+
     const materializedSources = await knowhereDemoApi.materializeSources({
       apiKey,
       namespace: workspace.namespace,
-      demoSourceIds,
+      demoSourceIds: visibleDemoSourceIds,
     })
     const sources = await Promise.all(
       materializedSources.map(async (source) => {

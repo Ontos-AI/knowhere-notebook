@@ -17,4 +17,16 @@ describe("demo source migration", () => {
       'ON CONFLICT ("workspace_id", "demo_source_id") DO UPDATE',
     )
   })
+
+  it("soft-deletes legacy fake demo rows regardless of readiness state", () => {
+    const migrationSql: string = readFileSync(
+      join(process.cwd(), "drizzle/0007_normalize_legacy_demo_sources.sql"),
+      "utf8",
+    )
+
+    expect(migrationSql).toContain('"knowhere_job_id" IS NULL')
+    expect(migrationSql).toContain('"knowhere_document_id" IS NULL')
+    expect(migrationSql).toContain('"knowhere_document_id" LIKE \'demo-doc-%\'')
+    expect(migrationSql).not.toContain('"status" = \'ready\'')
+  })
 })
