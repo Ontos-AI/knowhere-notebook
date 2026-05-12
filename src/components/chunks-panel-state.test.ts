@@ -92,4 +92,37 @@ describe("chunksPanelState", () => {
       chunksPanelState.formatReferenceLabel("[images/image-12.png?token=abc]"),
     ).toBe("Image 12")
   })
+
+  it("finds chunk search matches across content, summary, and keywords", () => {
+    const chunks: ParsedChunkView[] = [
+      {
+        chunkId: "chunk_1",
+        type: "text",
+        content: "Tesla storage revenue increased while Tesla deployed Megapack.",
+        summary: "Storage update",
+        keywords: ["Energy storage"],
+        sourceTitle: "report.pdf",
+      },
+      {
+        chunkId: "chunk_2",
+        type: "image",
+        content: "",
+        summary: "Megapack deployment chart",
+        keywords: ["Tesla Energy"],
+        sourceTitle: "report.pdf",
+      },
+      {
+        chunkId: "chunk_3",
+        type: "text",
+        content: "Vehicle deliveries only.",
+        sourceTitle: "report.pdf",
+      },
+    ]
+
+    expect(chunksPanelState.getChunkSearchMatches(chunks, " tesla ")).toEqual([
+      { chunkId: "chunk_1", matchCount: 2 },
+      { chunkId: "chunk_2", matchCount: 1 },
+    ])
+    expect(chunksPanelState.getChunkSearchMatches(chunks, "missing")).toEqual([])
+  })
 })
