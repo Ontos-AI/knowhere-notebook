@@ -76,8 +76,10 @@ describe("countChunksBySourceId", () => {
     expect(counts.size).toBe(0)
   })
 
-  it("uses bundled counts for persisted demo sources without calling Knowhere", async () => {
-    const listChunks = vi.fn()
+  it("counts materialized demo sources through their copied document id", async () => {
+    const listChunks = vi.fn().mockResolvedValue({
+      pagination: { total: 70 },
+    })
     const mockClient = {
       documents: { listChunks },
     } as unknown as Knowhere
@@ -90,14 +92,17 @@ describe("countChunksBySourceId", () => {
           makeSource({
             id: "source_demo",
             demoKey: "demo-tsla-q4-2025",
-            knowhereDocumentId: "demo-doc-tsla-q4-2025",
+            knowhereDocumentId: "doc_user_copy",
           }),
         ],
         mockClient,
       ),
     )
 
-    expect(listChunks).not.toHaveBeenCalled()
+    expect(listChunks).toHaveBeenCalledWith("doc_user_copy", {
+      page: 1,
+      pageSize: 1,
+    })
     expect(counts).toEqual(new Map([["source_demo", 70]]))
   })
 })

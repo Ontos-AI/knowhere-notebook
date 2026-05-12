@@ -18,6 +18,10 @@ type WorkspaceSourceWorkflow = {
   readonly archivingSourceIds: string[]
   readonly handleArchiveSource: (sourceId: string) => Promise<void>
   readonly handleSelectedSourceChange: (sourceId: string | null) => void
+  readonly handleSourcesMaterialized: (
+    demoSourceIds: readonly string[],
+    materializedSources: readonly SourceView[],
+  ) => void
   readonly handleSourceUploaded: (source: SourceView) => void
   readonly handleToggleIncluded: (sourceId: string, included: boolean) => void
   readonly readySourceCount: number
@@ -90,6 +94,28 @@ export function useWorkspaceSourceWorkflow({
     void mutateSources()
   }
 
+  function handleSourcesMaterialized(
+    demoSourceIds: readonly string[],
+    materializedSources: readonly SourceView[],
+  ): void {
+    const materializedDemoSourceIdSet = new Set(demoSourceIds)
+    void mutateSources(
+      (current) => [
+        ...(current ?? sourceRows).filter(
+          (source) =>
+            !source.demoSourceId ||
+            !materializedDemoSourceIdSet.has(source.demoSourceId),
+        ),
+        ...materializedSources,
+      ],
+      { revalidate: false },
+    )
+    setSelectedSourceId((current) => {
+      if (!current || !materializedDemoSourceIdSet.has(current)) return current
+      return materializedSources[0]?.id ?? current
+    })
+  }
+
   function handleToggleIncluded(sourceId: string, included: boolean): void {
     setSourceExclusionById((current) => ({
       ...current,
@@ -139,6 +165,7 @@ export function useWorkspaceSourceWorkflow({
     archivingSourceIds,
     handleArchiveSource,
     handleSelectedSourceChange,
+    handleSourcesMaterialized,
     handleSourceUploaded,
     handleToggleIncluded,
     readySourceCount,

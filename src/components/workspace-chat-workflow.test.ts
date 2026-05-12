@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   createChatThread: vi.fn(),
   fetchChatThread: vi.fn(),
   fetchChatThreads: vi.fn(),
+  materializeDemoSources: vi.fn(),
   sendChatMessage: vi.fn(),
 }))
 
@@ -26,6 +27,7 @@ vi.mock("@/domains/workspace/client", () => ({
     createChatThread: mocks.createChatThread,
     fetchChatThread: mocks.fetchChatThread,
     fetchChatThreads: mocks.fetchChatThreads,
+    materializeDemoSources: mocks.materializeDemoSources,
     sendChatMessage: mocks.sendChatMessage,
   },
 }))
@@ -106,6 +108,39 @@ describe("useWorkspaceChatWorkflow", () => {
       },
     ])
   })
+
+  it("shows a retryable error without sending chat when demo materialization fails", async () => {
+    const demoSource = makeSource({
+      id: "demo-tsla-q4-2025",
+      kind: "demo",
+      demoSourceId: "demo-tsla-q4-2025",
+    })
+    const onSourcesMaterialized = vi.fn()
+    mocks.fetchChatThreads.mockResolvedValue([])
+    mocks.materializeDemoSources.mockRejectedValue(new Error("Bad gateway"))
+
+    const { result } = renderWorkspaceChatWorkflow({
+      initialChatThreads: [],
+      initialChatMessages: [],
+      onSourcesMaterialized,
+      sources: [demoSource],
+    })
+
+    await act(async () => {
+      await result.current.handleChatSend("What changed in Q4?")
+    })
+
+    expect(mocks.materializeDemoSources).toHaveBeenCalledWith({
+      demoSourceIds: ["demo-tsla-q4-2025"],
+    })
+    expect(mocks.sendChatMessage).not.toHaveBeenCalled()
+    expect(onSourcesMaterialized).not.toHaveBeenCalled()
+    expect(result.current.chat.messages).toEqual([])
+    expect(result.current.chat.error).toBe(
+      "Demo sources could not be prepared right now.",
+    )
+    expect(result.current.chat.isSending).toBe(false)
+  })
 })
 
 function renderWorkspaceChatWorkflow(input: {
@@ -113,6 +148,10 @@ function renderWorkspaceChatWorkflow(input: {
   readonly initialChatMessages: readonly []
   readonly initialChatThreads: readonly ChatThreadView[]
   readonly isGuest?: boolean
+  readonly onSourcesMaterialized?: (
+    demoSourceIds: readonly string[],
+    materializedSources: readonly SourceView[],
+  ) => void
   readonly sources: readonly SourceView[]
 }) {
   return renderHook(() => useWorkspaceChatWorkflow(input), {

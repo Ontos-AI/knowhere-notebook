@@ -1,6 +1,9 @@
 import { Effect } from "effect"
 
+import { demoView } from "@/domains/demo/view"
+import { resolveWorkspaceDemoSources } from "@/domains/demo/workspace-source-resolution"
 import { routeResult } from "@/lib/route-result"
+import type { DemoCatalog } from "@/integrations/knowhere-demo"
 import { toSourceView } from "./view"
 import { getClientForWorkspace } from "./route-dependencies"
 import type {
@@ -19,9 +22,10 @@ type RouteListingDependencies = Pick<
   | "makeKnowhereClient"
   | "reconcileSourcesForWorkspace"
 > & {
-  readonly demoData: Pick<
-    SourceRouteServiceDependencies["demoData"],
-    "listSources"
+  readonly demoApi: Pick<SourceRouteServiceDependencies["demoApi"], "fetchCatalog">
+  readonly sourceService: Pick<
+    SourceRouteServiceDependencies["sourceService"],
+    "listHiddenDemoSourceIds"
   >
 }
 
@@ -30,6 +34,8 @@ type RouteListing = {
     input: ListSourcesInput,
   ) => Promise<JsonRouteResult<ListSourcesBody>>
 }
+
+const emptyDemoCatalog: DemoCatalog = { sources: [] }
 
 function createRouteListing(deps: RouteListingDependencies): RouteListing {
   return {
@@ -43,9 +49,11 @@ async function listSources(
 ): Promise<JsonRouteResult<ListSourcesBody>> {
   const user = await deps.getCurrentUser()
   if (!user) {
-    return routeResult.ok({ sources: deps.demoData.listSources() })
+    const catalog = await deps.demoApi.fetchCatalog()
+    return routeResult.ok({ sources: catalog.sources.map(demoView.toSourceView) })
   }
 
+  const catalog = await fetchOptionalDemoCatalog(deps.demoApi.fetchCatalog)
   const workspace = await deps.ensureWorkspace(user.id)
   const client = await getClientForWorkspace(
     workspace.id,
@@ -53,15 +61,42 @@ async function listSources(
     deps,
   )
   const sources = await deps.reconcileSourcesForWorkspace(workspace, client)
+  const demoSourceResolution = resolveWorkspaceDemoSources(sources, catalog)
   const sourceOptions = await Effect.runPromise(
-    deps.getSourceViewOptionsBySourceId(sources, client),
+    deps.getSourceViewOptionsBySourceId(
+      demoSourceResolution.workspaceSources,
+      client,
+    ),
   )
+  const hiddenDemoSourceIds = new Set(
+    await deps.sourceService.listHiddenDemoSourceIds(workspace.id),
+  )
+  const visibleDemoSources = catalog.sources
+    .filter(
+      (source) =>
+        !demoSourceResolution.materializedDemoSourceIds.has(source.demoSourceId),
+    )
+    .filter((source) => !hiddenDemoSourceIds.has(source.demoSourceId))
+    .map(demoView.toSourceView)
 
   return routeResult.ok({
-    sources: sources.map((source) =>
-      toSourceView(source, sourceOptions.get(source.id)),
-    ),
+    sources: [
+      ...visibleDemoSources,
+      ...demoSourceResolution.workspaceSources.map((source) =>
+        toSourceView(source, sourceOptions.get(source.id)),
+      ),
+    ],
   })
+}
+
+async function fetchOptionalDemoCatalog(
+  fetchDemoCatalog: () => Promise<DemoCatalog>,
+): Promise<DemoCatalog> {
+  try {
+    return await fetchDemoCatalog()
+  } catch {
+    return emptyDemoCatalog
+  }
 }
 
 export { createRouteListing }

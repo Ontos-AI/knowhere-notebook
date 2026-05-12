@@ -13,20 +13,20 @@ import {
 /**
  * Drizzle schema for Knowhere Notebook.
  *
- * Persistence rule (per @suguan + the technical plan):
+ * Persistence rule:
  *   - Postgres stores only metadata, status, Knowhere IDs, and chat
  *     threads/messages.
  *   - It does NOT store file bytes or chunk copies in Postgres. Original
  *     uploads and parsed media artifacts live in Blob storage; chunks are
  *     fetched on demand from Knowhere's chunks API.
  *
- * Soft delete (per @Pi's PR-B review criteria):
+ * Soft delete:
  *   - Every user-visible resource has a nullable `deleted_at` timestamp.
  *   - Reads filter on `deleted_at IS NULL` by default (see helpers in
  *     src/lib/workspace.ts).
  *   - Hard delete is reserved for retention sweeps and admin paths.
  *
- * Portability rule (per @suguan):
+ * Portability rule:
  *   - Stay on portable Postgres. No Neon-only syntax, no pgvector, no
  *     extensions beyond `pgcrypto` (used implicitly by defaultRandom).
  *   - Migrating to AWS Aurora Postgres is a DATABASE_URL swap.
@@ -74,8 +74,8 @@ export type NewWorkspace = typeof workspaces.$inferInsert;
  *                         and download path
  *   - `staged_blob_*`   — legacy temporary Blob staging pointer retained for
  *                         older rows during the PR #28 transition
- *   - `demo_key`    — bundled demo source identifier when this row is seeded
- *                     into a logged-in workspace
+ *   - `demo_key`    — canonical demo source identifier when this row is a
+ *                     materialized API-owned demo copy
  *   - `deleted_at`   — soft delete timestamp; reads filter it out
  *
  * Indexes:
@@ -127,6 +127,39 @@ export type Source = typeof sources.$inferSelect;
 export type NewSource = typeof sources.$inferInsert;
 
 /**
+ * User presentation state for canonical demo sources before they are copied
+ * into a real workspace source.
+ */
+export const demoSourceVisibilities = pgTable(
+  "demo_source_visibilities",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    demoSourceId: text("demo_source_id").notNull(),
+    hiddenAt: timestamp("hidden_at", { withTimezone: true }),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("demo_source_visibilities_workspace_source_idx").on(
+      t.workspaceId,
+      t.demoSourceId,
+    ),
+    index("demo_source_visibilities_workspace_idx").on(t.workspaceId),
+  ],
+);
+
+export type DemoSourceVisibility = typeof demoSourceVisibilities.$inferSelect;
+export type NewDemoSourceVisibility = typeof demoSourceVisibilities.$inferInsert;
+
+/**
  * Notebook-owned parse-result artifact index for one source.
  *
  * Knowhere's chunk list currently may omit media asset URLs, while parsed chunk
@@ -160,8 +193,8 @@ export type SourceParseResult = typeof sourceParseResults.$inferSelect;
 export type NewSourceParseResult = typeof sourceParseResults.$inferInsert;
 
 /**
- * A chat thread is a conversation within a workspace. `demo_key` is set only
- * for bundled demo conversations seeded into a logged-in workspace.
+ * A chat thread is a conversation within a workspace. `demo_key` is retained
+ * for legacy seeded demo conversations.
  */
 export const chatThreads = pgTable(
   "chat_threads",

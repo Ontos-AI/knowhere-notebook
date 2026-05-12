@@ -24,6 +24,7 @@ describe("workspaceChatState", () => {
         isSending: false,
         isLoading: false,
         error: "Previous error",
+        pendingStatusText: null,
       },
       threadId: "thread_2",
       loadedMessages: messages,
@@ -35,6 +36,7 @@ describe("workspaceChatState", () => {
       isSending: false,
       isLoading: false,
       error: null,
+      pendingStatusText: null,
     });
   });
 
@@ -53,6 +55,7 @@ describe("workspaceChatState", () => {
         isSending: false,
         isLoading: false,
         error: null,
+        pendingStatusText: null,
       },
       {
         id: "pending-1",
@@ -68,6 +71,7 @@ describe("workspaceChatState", () => {
       isSending: false,
       isLoading: false,
       error: "The assistant could not answer right now.",
+      pendingStatusText: null,
     });
   });
 

@@ -1,94 +1,28 @@
-import React from "react";
-import { Effect } from "effect";
-import { describe, expect, it, vi } from "vitest";
+import React from "react"
+import { describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
-  ensureApiKeyForWorkspace: vi.fn(),
-  ensureDemoWorkspaceContent: vi.fn(),
-  ensureWorkspace: vi.fn(),
-  getCurrentUser: vi.fn(),
-  listChatThreadsForWorkspace: vi.fn(),
-  listMessagesForThread: vi.fn(),
-  makeKnowhereClient: vi.fn(),
-  reconcileSourcesForWorkspace: vi.fn(),
-  sourceViewOptionsBySourceId: vi.fn(),
-}));
+  loadWorkspaceShellInitialState: vi.fn(),
+}))
 
-vi.mock("next/headers", () => ({
-  headers: vi.fn(async () => new Headers({ cookie: "session=abc" })),
-}));
+vi.mock("@/domains/workspace/initial-state", () => ({
+  loadWorkspaceShellInitialState: mocks.loadWorkspaceShellInitialState,
+}))
 
-vi.mock("@/integrations/dashboard/api-key-service", () => ({
-  ensureApiKeyForWorkspace: mocks.ensureApiKeyForWorkspace,
-}));
-
-vi.mock("@/infrastructure/auth", () => ({
-  getCurrentUser: mocks.getCurrentUser,
-}));
-
-vi.mock("@/integrations/knowhere", () => ({
-  makeKnowhereClient: mocks.makeKnowhereClient,
-}));
-
-vi.mock("@/domains/sources/counts", () => ({
-  sourceViewOptionsBySourceId: mocks.sourceViewOptionsBySourceId,
-}));
-
-vi.mock("@/domains/workspace/service", () => ({
-  workspaceService: {
-    ensureDemoWorkspaceContent: mocks.ensureDemoWorkspaceContent,
-    ensureWorkspace: mocks.ensureWorkspace,
-  },
-}));
-
-vi.mock("@/domains/sources/reconcile", () => ({
-  reconcileSourcesForWorkspace: mocks.reconcileSourcesForWorkspace,
-}));
-
-vi.mock("@/domains/chat/thread-service", () => ({
-  chatThreadService: {
-    listForWorkspace: mocks.listChatThreadsForWorkspace,
-    listMessages: mocks.listMessagesForThread,
-  },
-}));
-
-import Home from "./page";
+import Home from "./page"
 
 describe("Home", () => {
-  it("uploads bundled demo content into the logged-in workspace before rendering", async () => {
-    const client = {};
-    mocks.getCurrentUser.mockResolvedValue({
-      id: "user_1",
-      name: "Ada",
-      email: "ada@example.com",
-    });
-    mocks.ensureWorkspace.mockResolvedValue({
-      id: "workspace_1",
-      namespace: "notebook-workspace_1",
-    });
-    mocks.ensureApiKeyForWorkspace.mockResolvedValue("jwt_123");
-    mocks.makeKnowhereClient.mockReturnValue(client);
-    mocks.reconcileSourcesForWorkspace.mockResolvedValue([]);
-    mocks.listChatThreadsForWorkspace.mockResolvedValue([]);
-    mocks.sourceViewOptionsBySourceId.mockReturnValue(Effect.succeed(new Map()));
+  it("renders the workspace shell from the API-backed initial state", async () => {
+    mocks.loadWorkspaceShellInitialState.mockResolvedValue({
+      isGuest: true,
+      loginUrl: "/login",
+      sources: [],
+      chatMessages: [],
+    })
 
-    const element = await Home();
+    const element = await Home()
 
-    expect(React.isValidElement(element)).toBe(true);
-    expect(mocks.ensureDemoWorkspaceContent).toHaveBeenCalledWith(
-      {
-        id: "workspace_1",
-        namespace: "notebook-workspace_1",
-      },
-      client,
-    );
-    expect(
-      mocks.ensureDemoWorkspaceContent.mock.invocationCallOrder[0],
-    ).toBeGreaterThan(mocks.makeKnowhereClient.mock.invocationCallOrder[0]);
-    expect(
-      mocks.ensureDemoWorkspaceContent.mock.invocationCallOrder[0],
-    ).toBeLessThan(
-      mocks.reconcileSourcesForWorkspace.mock.invocationCallOrder[0],
-    );
-  });
-});
+    expect(React.isValidElement(element)).toBe(true)
+    expect(mocks.loadWorkspaceShellInitialState).toHaveBeenCalledOnce()
+  })
+})

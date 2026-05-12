@@ -87,6 +87,7 @@ function WorkspaceShellContent({
     initialChatMessages: initialChatMessages ?? [],
     initialChatThreads: initialChatThreads ?? [],
     isGuest,
+    onSourcesMaterialized: sourceWorkflow.handleSourcesMaterialized,
     sources: sourceWorkflow.sources,
   })
   const {

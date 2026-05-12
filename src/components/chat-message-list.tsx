@@ -23,6 +23,7 @@ export type ChatMessageListProps = {
     citationId: string,
   ) => void;
   readonly pendingCitationId?: string | null;
+  readonly pendingStatusText?: string | null;
   readonly sourceTitlesByDocumentId?: Readonly<Record<string, string>>;
 };
 
@@ -33,6 +34,7 @@ export function ChatMessageList({
   needsLogin = false,
   onCitationClick,
   pendingCitationId = null,
+  pendingStatusText = null,
   sourceTitlesByDocumentId = {},
 }: ChatMessageListProps): ReactElement {
   const {
@@ -61,6 +63,7 @@ export function ChatMessageList({
                 key={virtualItem.key}
                 virtualItem={virtualItem}
                 measureElement={measureElement}
+                pendingStatusText={pendingStatusText}
               />
             ) : (
               <VirtualMessageRow
@@ -83,9 +86,11 @@ export function ChatMessageList({
 function VirtualThinkingRow({
   virtualItem,
   measureElement,
+  pendingStatusText,
 }: {
   readonly virtualItem: VirtualItem;
   readonly measureElement: (node: HTMLDivElement | null) => void;
+  readonly pendingStatusText?: string | null;
 }): ReactElement {
   const rowStyle: CSSProperties = {
     position: "absolute",
@@ -100,12 +105,16 @@ function VirtualThinkingRow({
       style={rowStyle}
       className="min-w-0 pb-4 sm:pb-5"
     >
-      <ThinkingProgressBubble />
+      <ThinkingProgressBubble pendingStatusText={pendingStatusText} />
     </div>
   );
 }
 
-function ThinkingProgressBubble(): ReactElement {
+function ThinkingProgressBubble({
+  pendingStatusText,
+}: {
+  readonly pendingStatusText?: string | null;
+}): ReactElement {
   return (
     <div className="flex min-w-0 flex-col items-start">
       <div
@@ -113,7 +122,9 @@ function ThinkingProgressBubble(): ReactElement {
         aria-label="Thinking"
         className="inline-flex max-w-[92%] items-center gap-2 rounded-2xl rounded-tl-sm border border-border/70 bg-card px-3 py-2.5 text-sm text-muted-foreground shadow-xs sm:max-w-[90%] sm:px-4 sm:py-3"
       >
-        <span className="font-medium text-foreground">Thinking</span>
+        <span className="font-medium text-foreground">
+          {pendingStatusText ?? "Thinking"}
+        </span>
         <span aria-hidden="true" className="inline-flex items-center gap-1">
           <span className="size-1.5 rounded-full bg-primary/60 animate-pulse" />
           <span className="size-1.5 rounded-full bg-primary/60 animate-pulse [animation-delay:150ms]" />

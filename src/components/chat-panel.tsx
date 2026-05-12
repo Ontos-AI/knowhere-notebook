@@ -50,6 +50,7 @@ export type ChatPanelProps = {
   loadingThreadId?: string | null;
   archivingThreadIds?: readonly string[];
   pendingCitationId?: string | null;
+  pendingStatusText?: string | null;
   isDisabled?: boolean;
 };
 
@@ -71,6 +72,7 @@ export function ChatPanel({
   loadingThreadId = null,
   archivingThreadIds = [],
   pendingCitationId = null,
+  pendingStatusText = null,
   isDisabled = false,
 }: Partial<ChatPanelProps> = {}): ReactElement {
   const {
@@ -198,6 +200,7 @@ export function ChatPanel({
         needsLogin={Boolean(onLoginClick)}
         onCitationClick={onCitationClick}
         pendingCitationId={pendingCitationId}
+        pendingStatusText={pendingStatusText}
         sourceTitlesByDocumentId={sourceTitlesByDocumentId}
       />
 
