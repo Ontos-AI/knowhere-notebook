@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { Source, Workspace } from "@/lib/schema";
+import type { Source, Workspace } from "@/infrastructure/db/schema";
 
 const mocks = vi.hoisted(() => {
   return {
@@ -9,12 +9,10 @@ const mocks = vi.hoisted(() => {
     getCurrentUser: vi.fn(),
     makeKnowhereClient: vi.fn(),
     revalidatePath: vi.fn(),
+    requireUser: vi.fn(),
     uploadSourceBlobToKnowhere: vi.fn(),
     uploadSourceToKnowhere: vi.fn(),
     ensureWorkspace: vi.fn(),
-    createUploadingSource: vi.fn(),
-    markSourceFailed: vi.fn(),
-    markSourceParsing: vi.fn(),
   };
 });
 
@@ -26,35 +24,31 @@ vi.mock("next/headers", () => ({
   headers: vi.fn(async () => new Headers({ cookie: "session=abc" })),
 }));
 
-vi.mock("@/lib/api-key-service", () => ({
+vi.mock("@/integrations/dashboard/api-key-service", () => ({
   ensureApiKeyForWorkspace: mocks.ensureApiKeyForWorkspace,
 }));
 
-vi.mock("@/lib/auth", () => ({
+vi.mock("@/infrastructure/auth", () => ({
   getCurrentUser: mocks.getCurrentUser,
+  requireUser: mocks.requireUser,
 }));
 
-vi.mock("@/lib/knowhere", () => ({
+vi.mock("@/integrations/knowhere", () => ({
   makeKnowhereClient: mocks.makeKnowhereClient,
 }));
 
-vi.mock("@/lib/source-upload", () => ({
-  uploadSourceBlobToKnowhere: mocks.uploadSourceBlobToKnowhere,
-  uploadSourceToKnowhere: mocks.uploadSourceToKnowhere,
+vi.mock("@/domains/sources/service", () => ({
+  sourceService: {
+    uploadSourceBlobToKnowhere: mocks.uploadSourceBlobToKnowhere,
+    uploadSourceToKnowhere: mocks.uploadSourceToKnowhere,
+  },
 }));
 
-vi.mock("@/lib/workspace", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/workspace")>(
-    "@/lib/workspace",
-  );
-  return {
-    ...actual,
+vi.mock("@/domains/workspace/service", () => ({
+  workspaceService: {
     ensureWorkspace: mocks.ensureWorkspace,
-    createUploadingSource: mocks.createUploadingSource,
-    markSourceFailed: mocks.markSourceFailed,
-    markSourceParsing: mocks.markSourceParsing,
-  };
-});
+  },
+}));
 
 import { POST } from "./route";
 
@@ -126,12 +120,7 @@ describe("POST /api/sources", () => {
     expect(mocks.uploadSourceToKnowhere).toHaveBeenCalledWith(
       workspace,
       expect.objectContaining({ name: "notes.pdf" }),
-      expect.objectContaining({
-        repository: expect.objectContaining({
-          createUploadingSource: mocks.createUploadingSource,
-        }),
-        knowhere: { jobs: {} },
-      }),
+      { jobs: {} },
     );
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/");
   });
@@ -172,12 +161,7 @@ describe("POST /api/sources", () => {
         mimeType: "application/pdf",
         sizeBytes: 5 * 1024 * 1024,
       },
-      expect.objectContaining({
-        repository: expect.objectContaining({
-          createUploadingSource: mocks.createUploadingSource,
-        }),
-        knowhere: { jobs: {} },
-      }),
+      { jobs: {} },
     );
     expect(mocks.uploadSourceToKnowhere).not.toHaveBeenCalled();
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/");

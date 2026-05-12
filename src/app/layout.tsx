@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { appMetadata } from "@/lib/app-metadata";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -12,11 +13,7 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-export const metadata: Metadata = {
-  title: "Knowhere Notebook",
-  description:
-    "Upload documents, explore parsed content, and ask questions about your knowledge.",
-};
+export const metadata: Metadata = appMetadata;
 
 export default function RootLayout({
   children,

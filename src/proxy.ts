@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server"
-import { authURLs } from "./lib/auth-urls"
-import { sessionCookieNames } from "./lib/session-cookie-names"
+import { authURLs } from "@/infrastructure/auth/urls"
+import { sessionCookieNames } from "@/infrastructure/auth/session-cookie-names"
 
 /**
  * Edge-runtime proxy (renamed from middleware.ts in Next.js 16).
@@ -10,7 +10,7 @@ import { sessionCookieNames } from "./lib/session-cookie-names"
  * Dashboard login page without making any DB or upstream calls.
  *
  * This is NOT the authoritative auth check. A present cookie is never
- * trusted here — the real verification happens in `src/lib/auth.ts`
+ * trusted here — the real verification happens in `src/infrastructure/auth`.
  * via the Dashboard oRPC lookup. The proxy only catches the easy case
  * where there's nothing to verify.
  */

@@ -10,6 +10,7 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
+    "test:e2e": "playwright test",
     "test:watch": "vitest",
     "test:integration": "TEST_DATABASE_URL=${TEST_DATABASE_URL:-postgres://postgres:postgres@127.0.0.1:55432/knowhere_notebook_e2e} vitest run src/lib/*.integration.test.ts",
     "db:generate": "drizzle-kit generate",
@@ -58,6 +59,7 @@
   },
   "devDependencies": {
     "@effect/language-service": "^0.85.1",
+    "@playwright/test": "1.58.2",
     "@tailwindcss/postcss": "^4",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
@@ -73,7 +75,6 @@
     "shadcn": "^4.7.0",
     "tailwindcss": "^4",
     "typescript": "^6.0.3",
-    "vite-tsconfig-paths": "^6.1.1",
     "vitest": "^4.1.5"
   }
 }

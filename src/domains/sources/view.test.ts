@@ -1,0 +1,96 @@
+import { describe, expect, it } from "vitest";
+
+import type { Source } from "@/infrastructure/db/schema";
+import { toSourceView } from "./view";
+
+function makeSource(overrides: Partial<Source> = {}): Source {
+  return {
+    id: "source_1",
+    workspaceId: "workspace_1",
+    title: "notes.pdf",
+    mimeType: "application/pdf",
+    sizeBytes: 1,
+    status: "ready",
+    failureReason: null,
+    knowhereJobId: "job_1",
+    knowhereDocumentId: "doc_1",
+    stagedBlobPathname: null,
+    stagedBlobUrl: null,
+    originalBlobPathname: null,
+    originalBlobUrl: null,
+    demoKey: null,
+    createdAt: new Date("2026-05-06T00:00:00Z"),
+    updatedAt: new Date("2026-05-06T00:00:00Z"),
+    deletedAt: null,
+    ...overrides,
+  };
+}
+
+describe("toSourceView", () => {
+  it("maps database source metadata to the sidebar view shape", () => {
+    expect(
+      toSourceView(
+        makeSource({
+          originalBlobPathname: "source-uploads/upload_1/document.pdf",
+          originalBlobUrl:
+            "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
+        }),
+        { chunkCount: 7 },
+      ),
+    ).toEqual({
+      id: "source_1",
+      title: "notes.pdf",
+      mimeType: "application/pdf",
+      status: "ready",
+      documentId: "doc_1",
+      chunkCount: 7,
+      originalFile: {
+        url: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 1,
+      },
+    });
+  });
+
+  it("does not expose internal job ids or failure internals", () => {
+    expect(
+      toSourceView(
+        makeSource({
+          status: "parsing",
+          knowhereDocumentId: null,
+          failureReason: "internal stack trace",
+        }),
+      ),
+    ).toEqual({
+      id: "source_1",
+      title: "notes.pdf",
+      mimeType: "application/pdf",
+      status: "parsing",
+      documentId: undefined,
+    });
+  });
+
+  it("hides the download action for persisted demo originals", () => {
+    expect(
+      toSourceView(
+        makeSource({
+          demoKey: "demo-tsla-q4-2025",
+          title: "TSLA-Q4-2025-Update(1).pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 5648867,
+          knowhereDocumentId: "demo-doc-tsla-q4-2025",
+          originalBlobUrl: "/demo-sources/tsla-q4-2025/original.pdf",
+        }),
+        { chunkCount: 70 },
+      ),
+    ).toMatchObject({
+      title: "TSLA-Q4-2025-Update(1).pdf",
+      documentId: "demo-doc-tsla-q4-2025",
+      chunkCount: 70,
+      originalFile: {
+        url: "/demo-sources/tsla-q4-2025/original.pdf",
+        canDownload: false,
+      },
+    });
+  });
+});

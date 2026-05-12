@@ -9,8 +9,8 @@ const mocks = vi.hoisted(() => ({
   getCurrentUser: vi.fn(),
   listChatThreadsForWorkspace: vi.fn(),
   listMessagesForThread: vi.fn(),
-  listSourcesForWorkspace: vi.fn(),
   makeKnowhereClient: vi.fn(),
+  reconcileSourcesForWorkspace: vi.fn(),
   sourceViewOptionsBySourceId: vi.fn(),
 }));
 
@@ -18,35 +18,39 @@ vi.mock("next/headers", () => ({
   headers: vi.fn(async () => new Headers({ cookie: "session=abc" })),
 }));
 
-vi.mock("@/lib/api-key-service", () => ({
+vi.mock("@/integrations/dashboard/api-key-service", () => ({
   ensureApiKeyForWorkspace: mocks.ensureApiKeyForWorkspace,
 }));
 
-vi.mock("@/lib/auth", () => ({
+vi.mock("@/infrastructure/auth", () => ({
   getCurrentUser: mocks.getCurrentUser,
 }));
 
-vi.mock("@/lib/knowhere", () => ({
+vi.mock("@/integrations/knowhere", () => ({
   makeKnowhereClient: mocks.makeKnowhereClient,
 }));
 
-vi.mock("@/lib/source-counts", () => ({
+vi.mock("@/domains/sources/counts", () => ({
   sourceViewOptionsBySourceId: mocks.sourceViewOptionsBySourceId,
 }));
 
-vi.mock("@/lib/workspace", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/workspace")>(
-    "@/lib/workspace",
-  );
-  return {
-    ...actual,
+vi.mock("@/domains/workspace/service", () => ({
+  workspaceService: {
     ensureDemoWorkspaceContent: mocks.ensureDemoWorkspaceContent,
     ensureWorkspace: mocks.ensureWorkspace,
-    listChatThreadsForWorkspace: mocks.listChatThreadsForWorkspace,
-    listMessagesForThread: mocks.listMessagesForThread,
-    listSourcesForWorkspace: mocks.listSourcesForWorkspace,
-  };
-});
+  },
+}));
+
+vi.mock("@/domains/sources/reconcile", () => ({
+  reconcileSourcesForWorkspace: mocks.reconcileSourcesForWorkspace,
+}));
+
+vi.mock("@/domains/chat/thread-service", () => ({
+  chatThreadService: {
+    listForWorkspace: mocks.listChatThreadsForWorkspace,
+    listMessages: mocks.listMessagesForThread,
+  },
+}));
 
 import Home from "./page";
 
@@ -64,7 +68,7 @@ describe("Home", () => {
     });
     mocks.ensureApiKeyForWorkspace.mockResolvedValue("jwt_123");
     mocks.makeKnowhereClient.mockReturnValue(client);
-    mocks.listSourcesForWorkspace.mockResolvedValue([]);
+    mocks.reconcileSourcesForWorkspace.mockResolvedValue([]);
     mocks.listChatThreadsForWorkspace.mockResolvedValue([]);
     mocks.sourceViewOptionsBySourceId.mockReturnValue(Effect.succeed(new Map()));
 
@@ -83,6 +87,8 @@ describe("Home", () => {
     ).toBeGreaterThan(mocks.makeKnowhereClient.mock.invocationCallOrder[0]);
     expect(
       mocks.ensureDemoWorkspaceContent.mock.invocationCallOrder[0],
-    ).toBeLessThan(mocks.listSourcesForWorkspace.mock.invocationCallOrder[0]);
+    ).toBeLessThan(
+      mocks.reconcileSourcesForWorkspace.mock.invocationCallOrder[0],
+    );
   });
 });

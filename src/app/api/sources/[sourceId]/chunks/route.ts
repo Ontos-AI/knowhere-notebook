@@ -1,107 +1,36 @@
-import { headers } from "next/headers"
-import { NextResponse, type NextRequest } from "next/server"
-import { Effect } from "effect"
+import type { NextRequest, NextResponse } from "next/server"
 
-import { ensureApiKeyForWorkspace } from "@/lib/api-key-service"
-import { getCurrentUser } from "@/lib/auth"
 import {
   getChunkPageParams,
-  loadChunkPageForSource,
-  loadChunksForSource,
-  type ChunkPage,
-  type ChunkPageParams,
-} from "@/lib/chunks"
-import type { ParsedChunkView } from "@/lib/types"
-import { demoData } from "@/lib/demo-data"
-import { makeKnowhereClient } from "@/lib/knowhere"
-import {
-  ensureWorkspace,
-  findSourceInWorkspace,
-  getSourceParseAssetUrls,
-} from "@/lib/workspace"
+} from "@/domains/chunks"
+import { createSourceRouteService } from "@/domains/sources/route-service"
+import { nextRouteContext } from "@/lib/next-route-context"
+import { nextRouteResponse } from "@/lib/next-route-response"
 
 type RouteContext = {
   params: Promise<{
-    sourceId: string;
-  }>;
-};
+    sourceId: string
+  }>
+}
+
+const sourceRouteService = createSourceRouteService()
 
 export async function GET(
   request: NextRequest,
   context: RouteContext,
 ): Promise<NextResponse> {
-  const { sourceId } = await context.params;
+  const { sourceId } = await context.params
   const shouldLoadAll =
     !request.nextUrl.searchParams.has("page") &&
     !request.nextUrl.searchParams.has("pageSize")
-  const pageParams = getChunkPageParams(request.nextUrl.searchParams);
-  const user = await getCurrentUser();
+  const pageParams = getChunkPageParams(request.nextUrl.searchParams)
+  const routeContext = await nextRouteContext.read()
+  const result = await sourceRouteService.loadSourceChunks({
+    cookieHeader: routeContext.cookieHeader,
+    pageParams,
+    shouldLoadAll,
+    sourceId,
+  })
 
-  if (!user) {
-    const chunks = await demoData.loadChunksForSource(sourceId);
-    if (!chunks) {
-      return NextResponse.json(
-        { message: "Source not found." },
-        { status: 404 },
-      );
-    }
-    return NextResponse.json(
-      shouldLoadAll ? { chunks } : toChunkPage(chunks, pageParams),
-    );
-  }
-
-  const workspace = await ensureWorkspace(user.id);
-  const source = await findSourceInWorkspace(workspace.id, sourceId);
-
-  if (!source) {
-    return NextResponse.json({ message: "Source not found." }, { status: 404 });
-  }
-
-  const demoChunks = await demoData.loadChunksForDocumentId(
-    source.knowhereDocumentId,
-  )
-  if (demoChunks) {
-    return NextResponse.json(
-      shouldLoadAll ? { chunks: demoChunks } : toChunkPage(demoChunks, pageParams),
-    )
-  }
-
-  const cookieHeader = (await headers()).get("cookie") ?? ""
-  const apiKey = await ensureApiKeyForWorkspace(workspace.id, cookieHeader)
-  const client = makeKnowhereClient(apiKey)
-  const assetUrlsByFilePath = await getSourceParseAssetUrls(
-    workspace.id,
-    source.id,
-  )
-  if (shouldLoadAll) {
-    const chunks = await Effect.runPromise(
-      loadChunksForSource(source, client, { assetUrlsByFilePath }),
-    )
-    return NextResponse.json({ chunks })
-  }
-
-  const chunkPage = await Effect.runPromise(
-    loadChunkPageForSource(source, client, pageParams, { assetUrlsByFilePath }),
-  )
-  return NextResponse.json(chunkPage);
-}
-
-function toChunkPage(
-  chunks: readonly ParsedChunkView[],
-  params: ChunkPageParams,
-): ChunkPage {
-  const start = (params.page - 1) * params.pageSize
-  const pageChunks = chunks.slice(start, start + params.pageSize)
-  const totalPages =
-    chunks.length === 0 ? 0 : Math.ceil(chunks.length / params.pageSize)
-
-  return {
-    chunks: pageChunks,
-    pagination: {
-      page: params.page,
-      pageSize: params.pageSize,
-      total: chunks.length,
-      totalPages,
-    },
-  }
+  return nextRouteResponse.toNextResponse(result)
 }

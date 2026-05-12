@@ -4,6 +4,7 @@ import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SourceOriginalPreview } from "./source-original-preview";
+import { sourceOriginalPreviewRequest } from "./source-original-preview-request";
 
 const pdfPageRenderLog: number[] = [];
 const pdfPageWidthLog: number[] = [];
@@ -172,6 +173,14 @@ describe("SourceOriginalPreview", () => {
       configurable: true,
       value: 1,
     });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof globalThis.fetch>(() =>
+        Promise.resolve(
+          new Response(new Uint8Array([1, 2, 3]).buffer, { status: 200 }),
+        ),
+      ),
+    );
     class MockIntersectionObserver implements IntersectionObserver {
       readonly root: Element | Document | null = null;
       readonly rootMargin: string = "";
@@ -213,11 +222,12 @@ describe("SourceOriginalPreview", () => {
 
   afterEach(() => {
     cleanup();
+    sourceOriginalPreviewRequest.clearCacheForTests();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
-  it("renders PDF pages lazily without a hard page-count cap", async () => {
+  it("renders PDF pages lazily within a bounded preview window", async () => {
     render(
       React.createElement(SourceOriginalPreview, {
         sourceTitle: "report.pdf",
@@ -234,9 +244,11 @@ describe("SourceOriginalPreview", () => {
 
     expect(screen.queryByText(/Showing first 20/)).toBeNull();
     await waitFor(() => {
-      expect(new Set(pdfPageRenderLog)).toEqual(new Set([1, 2]));
+      expect(new Set(pdfPageRenderLog)).toEqual(
+        new Set(Array.from({ length: 22 }, (_, index) => index + 1)),
+      );
     });
-    expect(pdfPageRenderLog.every((pageNumber) => pageNumber <= 2)).toBe(true);
+    expect(pdfPageRenderLog.every((pageNumber) => pageNumber <= 22)).toBe(true);
     expect(screen.queryByTestId("pdf-page-35")).toBeNull();
   });
 
@@ -260,14 +272,18 @@ describe("SourceOriginalPreview", () => {
     const pageOneShell = observedPdfTargets.findLast(
       (target) => target.getAttribute("data-pdf-page-shell") === "1",
     );
-    if (!latestObserver || !pageOneShell) {
+    const pageFifteenShell = observedPdfTargets.findLast(
+      (target) => target.getAttribute("data-pdf-page-shell") === "15",
+    );
+    if (!latestObserver || !pageOneShell || !pageFifteenShell) {
       throw new Error("PDF page observer was not registered.");
     }
 
     act(() => {
-      pdfVisiblePageNumbers = new Set([2]);
+      pdfVisiblePageNumbers = new Set([15]);
       latestObserver?.emit([
         { isIntersecting: false, target: pageOneShell },
+        { isIntersecting: true, target: pageFifteenShell },
       ]);
     });
 
@@ -324,7 +340,31 @@ describe("SourceOriginalPreview", () => {
     await waitFor(() => {
       expect(pdfPageWidthLog).toContain(968);
     });
-    expect(pdfPageDevicePixelRatioLog).toContain(2);
+    expect(pdfPageDevicePixelRatioLog).toContain(1);
+  });
+
+  it("caps PDF canvas pixel density for high-density displays", async () => {
+    Object.defineProperty(window, "devicePixelRatio", {
+      configurable: true,
+      value: 3,
+    });
+    pdfVisiblePageNumbers = new Set([1]);
+
+    render(
+      React.createElement(SourceOriginalPreview, {
+        sourceTitle: "dense-report.pdf",
+        file: {
+          url: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/dense-report.pdf",
+          mimeType: "application/pdf",
+        },
+      }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("pdf-page-1")).toBeTruthy();
+    });
+
+    expect(pdfPageDevicePixelRatioLog).toContain(1.5);
   });
 
   it("uses more of wide preview panels instead of capping PDF pages at 1100px", async () => {
@@ -376,7 +416,7 @@ describe("SourceOriginalPreview", () => {
   });
 
   it("uses PDF page dimensions for offscreen placeholders before rendering", async () => {
-    pdfDocumentPageCount = 2;
+    pdfDocumentPageCount = 25;
     pdfVisiblePageNumbers = new Set([1]);
     pdfPageViewportWidth = 640;
     pdfPageViewportHeight = 360;
@@ -392,11 +432,11 @@ describe("SourceOriginalPreview", () => {
     );
 
     await waitFor(() => {
-      const pageTwoPlaceholder = document.querySelector(
-        '[data-pdf-page-shell="2"] .bg-background\\/80',
+      const firstLazyPlaceholder = document.querySelector(
+        '[data-pdf-page-shell="23"] .bg-background\\/80',
       ) as HTMLElement | null;
 
-      expect(pageTwoPlaceholder?.style.height).toBe("360px");
+      expect(firstLazyPlaceholder?.style.height).toBe("360px");
     });
   });
 
