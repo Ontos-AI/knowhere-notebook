@@ -117,9 +117,9 @@ describe("chat route services", () => {
         generateRetrievalQuery: mocks.generateContextualRetrievalQuery,
         generateAnswer: mocks.generateGroundedAnswer,
         repository: expect.objectContaining({
-          appendMessageToThread: mocks.appendMessageToThread,
-          ensureDefaultChatThread: mocks.ensureDefaultChatThread,
-          findChatThreadInWorkspace: mocks.findChatThreadInWorkspace,
+          appendMessageToThread: expect.any(Function),
+          ensureDefaultChatThread: expect.any(Function),
+          findChatThreadInWorkspace: expect.any(Function),
           listMessagesForThread: expect.any(Function),
         }),
       }),

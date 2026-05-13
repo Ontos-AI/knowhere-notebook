@@ -36,9 +36,9 @@ function makeSource(overrides: Partial<Source>): Source {
 
 async function loadReconcile({
   listSourcesForWorkspace,
-  markSourceFailed = vi.fn(),
-  markSourceReady = vi.fn(),
-  saveSourceParseResult = vi.fn(),
+  markSourceFailed = vi.fn().mockResolvedValue(undefined),
+  markSourceReady = vi.fn().mockResolvedValue(undefined),
+  saveSourceParseResult = vi.fn().mockResolvedValue(undefined),
   storeParsedResultAssets = vi.fn().mockResolvedValue({
     resultBlobUrl: "https://blob.example/result.zip",
     assetUrlsByFilePath: {},
@@ -247,6 +247,7 @@ describe("reconcileSourcesForWorkspace", () => {
       workspace.id,
       "source_1",
       "Parser rejected this document.",
+      "parsing",
     )
   })
 
