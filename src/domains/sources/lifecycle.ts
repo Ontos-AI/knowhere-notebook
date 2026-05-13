@@ -4,6 +4,7 @@ import { Effect } from "effect"
 import type { JobResult } from "@ontos-ai/knowhere-sdk"
 
 import type { Source } from "@/infrastructure/db/schema"
+import { logger } from "@/lib/logger"
 import type {
   StoreParsedResultAssetsInput,
   StoredParsedResultAssets,
@@ -71,6 +72,11 @@ export const applyKnowhereJobToSourceEffect = Effect.fn(
 
     if (job.isDone || job.status === "done") {
       if (job.documentId) {
+        logger.info("lifecycle: job done — transitioning source to ready", {
+          sourceId: source.id,
+          jobId: source.knowhereJobId ?? "",
+          documentId: job.documentId,
+        })
         const stored = yield* Effect.tryPromise(() =>
           parsedResultStore.storeParsedResultAssets({
             workspaceId,
@@ -91,9 +97,17 @@ export const applyKnowhereJobToSourceEffect = Effect.fn(
           repository,
           blobStore,
         )
+        logger.info("lifecycle: source transitioned to ready", {
+          sourceId: source.id,
+          documentId: job.documentId,
+        })
         return
       }
 
+      logger.warn("lifecycle: job done but no documentId — marking failed", {
+        sourceId: source.id,
+        jobId: source.knowhereJobId ?? "",
+      })
       yield* Effect.tryPromise(() =>
         repository.markSourceFailed(
           workspaceId,
@@ -107,6 +121,11 @@ export const applyKnowhereJobToSourceEffect = Effect.fn(
     }
 
     if (job.isFailed || job.status === "failed") {
+      logger.warn("lifecycle: job failed — marking source failed", {
+        sourceId: source.id,
+        jobId: source.knowhereJobId ?? "",
+        error: job.error?.message ?? "unknown",
+      })
       yield* Effect.tryPromise(() =>
         repository.markSourceFailed(
           workspaceId,
@@ -116,7 +135,14 @@ export const applyKnowhereJobToSourceEffect = Effect.fn(
         ),
       )
       yield* cleanupStagedBlobEffect(workspaceId, source, repository, blobStore)
+      return
     }
+
+    logger.info("lifecycle: job still in progress", {
+      sourceId: source.id,
+      jobId: source.knowhereJobId ?? "",
+      jobStatus: job.status,
+    })
   },
 )
 

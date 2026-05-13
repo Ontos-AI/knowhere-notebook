@@ -6,6 +6,7 @@ import type Knowhere from "@ontos-ai/knowhere-sdk"
 import type { JobResult } from "@ontos-ai/knowhere-sdk"
 
 import type { Source } from "@/infrastructure/db/schema"
+import { logger } from "@/lib/logger"
 import {
   storeParsedResultAssets,
   type StoreParsedResultAssetsInput,
@@ -50,17 +51,44 @@ export const reconcileSourcesForWorkspaceEffect = Effect.fn(
     )
     if (parsing.length === 0) return rows
 
+    logger.info("reconcile: found sources in parsing state", {
+      workspaceId: workspace.id,
+      count: parsing.length,
+      sourceIds: parsing.map((s) => s.id),
+    })
+
     yield* pipe(
       parsing,
       Effect.forEach(
         (source) =>
           Effect.gen(function* () {
             const jobId = source.knowhereJobId!
+            logger.info("reconcile: checking Knowhere job status", {
+              sourceId: source.id,
+              jobId,
+            })
             const job = yield* Effect.tryPromise(() => client.jobs.get(jobId))
+            logger.info("reconcile: Knowhere job status", {
+              sourceId: source.id,
+              jobId,
+              jobStatus: job.status,
+              isDone: job.isDone,
+              isFailed: job.isFailed,
+              hasDocumentId: Boolean(job.documentId),
+            })
             yield* Effect.tryPromise(() =>
               updateSourceFromJob(workspace.id, source, job, client, deps),
             )
-          }).pipe(Effect.catchAllCause(() => Effect.void)),
+          }).pipe(
+            Effect.catchAllCause((cause) => {
+              logger.error("reconcile: failed to process source", {
+                sourceId: source.id,
+                jobId: source.knowhereJobId,
+                error: String(cause),
+              })
+              return Effect.void
+            }),
+          ),
         { concurrency: "unbounded" },
       ),
     )

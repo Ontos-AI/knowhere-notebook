@@ -36,6 +36,10 @@ const startBackgroundReconciliationEffect = (
     if (triggeredSourceIds.has(sourceId)) return
     triggeredSourceIds.add(sourceId)
 
+    logger.info("background-reconcile: triggering workflow", {
+      sourceId,
+      workspaceId,
+    })
     yield* Effect.tryPromise(() =>
       createClient().trigger({
         url: `${resolveBaseURL()}/api/sources/reconcile`,
