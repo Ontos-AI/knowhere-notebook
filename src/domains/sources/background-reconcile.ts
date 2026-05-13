@@ -15,10 +15,6 @@ import { logger } from "@/lib/logger"
 
 const triggeredSourceIds = new Set<string>()
 
-function createClient(): Client {
-  return new Client({ token: process.env.QSTASH_TOKEN! })
-}
-
 function resolveBaseURL(): string {
   return process.env.NOTEBOOK_PUBLIC_URL ?? "http://localhost:3000"
 }
@@ -36,13 +32,25 @@ const startBackgroundReconciliationEffect = (
     if (triggeredSourceIds.has(sourceId)) return
     triggeredSourceIds.add(sourceId)
 
+    const token = process.env.QSTASH_TOKEN
+    if (!token) {
+      logger.warn("background-reconcile: skipping — QSTASH_TOKEN not set", {
+        sourceId,
+        workspaceId,
+      })
+      triggeredSourceIds.delete(sourceId)
+      return
+    }
+
+    const url = `${resolveBaseURL()}/api/sources/reconcile`
     logger.info("background-reconcile: triggering workflow", {
       sourceId,
       workspaceId,
+      url,
     })
     yield* Effect.tryPromise(() =>
-      createClient().trigger({
-        url: `${resolveBaseURL()}/api/sources/reconcile`,
+      new Client({ token }).trigger({
+        url,
         body: { workspaceId, sourceId, apiKey },
         workflowRunId: sourceId,
         retries: 3,
@@ -52,12 +60,13 @@ const startBackgroundReconciliationEffect = (
       `background-reconcile: workflow triggered for ${sourceId}`,
     )
   }).pipe(
-    Effect.catchAll((error) =>
+    Effect.catchAllCause((cause) =>
       Effect.sync(() => {
         triggeredSourceIds.delete(sourceId)
         logger.error("background-reconcile: failed to trigger workflow", {
           sourceId,
-          error: String(error),
+          workspaceId,
+          cause: String(cause),
         })
       }),
     ),
