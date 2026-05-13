@@ -1,8 +1,17 @@
+import { Suspense } from "react"
 import { WorkspaceShell } from "@/components/workspace-shell"
 import { loadWorkspaceShellInitialState } from "@/domains/workspace/initial-state"
+import { connection } from "next/server"
 
-export const dynamic = "force-dynamic"
+export default function Home() {
+  return (
+    <Suspense>
+      <HomeContent />
+    </Suspense>
+  )
+}
 
-export default async function Home() {
+async function HomeContent() {
+  await connection()
   return <WorkspaceShell {...(await loadWorkspaceShellInitialState())} />
 }
