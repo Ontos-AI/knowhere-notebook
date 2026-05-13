@@ -1,41 +1,49 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+const { mockRouteClient } = vi.hoisted(() => ({
+  mockRouteClient: {
+    getJson: vi.fn(),
+    postJsonWithStatus: vi.fn(),
+    postJson: vi.fn(),
+    patchJson: vi.fn(),
+    deleteJson: vi.fn(),
+  },
+}))
+
+vi.mock("./route-client", () => ({
+  workspaceRouteClient: mockRouteClient,
+}))
+
 import { workspaceClient } from "./client"
 
 describe("workspaceClient", () => {
   beforeEach(() => {
-    vi.unstubAllGlobals()
+    vi.clearAllMocks()
   })
 
   it("fetches a normalized chunk page with an encoded source id", async () => {
-    const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
-      const requestUrl = new URL(String(input), "http://localhost")
-
-      expect(requestUrl.pathname).toBe("/api/sources/source%20one/chunks")
-      expect(requestUrl.searchParams.get("page")).toBe("2")
-      expect(requestUrl.searchParams.get("pageSize")).toBe("100")
-
-      return Response.json({
-        chunks: [
-          {
-            chunkId: "chunk_1",
-            type: "text",
-            content: "Chunk body",
-            sourceTitle: "source one",
-          },
-        ],
-        pagination: {
-          page: 2,
-          pageSize: 100,
-          total: 3,
-          totalPages: 3,
+    mockRouteClient.getJson.mockResolvedValue({
+      chunks: [
+        {
+          chunkId: "chunk_1",
+          type: "text",
+          content: "Chunk body",
+          sourceTitle: "source one",
         },
-      })
+      ],
+      pagination: {
+        page: 2,
+        pageSize: 50,
+        total: 3,
+        totalPages: 3,
+      },
     })
-    vi.stubGlobal("fetch", fetch)
 
     const page = await workspaceClient.fetchChunkPage("source one", 2)
 
+    expect(mockRouteClient.getJson).toHaveBeenCalledWith(
+      "/api/sources/source%20one/chunks?page=2&pageSize=50",
+    )
     expect(page).toEqual({
       chunks: [
         {
@@ -47,28 +55,18 @@ describe("workspaceClient", () => {
       ],
       pagination: {
         page: 2,
-        pageSize: 100,
+        pageSize: 50,
         total: 3,
         totalPages: 3,
       },
     })
-    expect(fetch).toHaveBeenCalledOnce()
   })
 
   it("throws materialization route errors instead of treating them as empty sources", async () => {
-    const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
-      const request = input instanceof Request ? input : new Request(input, init)
-      const requestUrl = new URL(request.url)
-
-      expect(request.method).toBe("POST")
-      expect(requestUrl.pathname).toBe("/api/demo-sources/materialize")
-
-      return Response.json(
-        { message: "Demo sources could not be prepared right now." },
-        { status: 502 },
-      )
+    mockRouteClient.postJsonWithStatus.mockResolvedValue({
+      status: 502,
+      body: { message: "Demo sources could not be prepared right now." },
     })
-    vi.stubGlobal("fetch", fetch)
 
     await expect(
       workspaceClient.materializeDemoSources({
