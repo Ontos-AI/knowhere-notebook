@@ -88,6 +88,11 @@ export const fetchKnowhereJwtEffect = (cookieHeader: string) =>
     return body.json.token
   })
 
+// Cached for a fixed 1-minute window regardless of the JWT's expiresInSeconds.
+// Dashboard JWTs are typically long-lived (15+ minutes), so a 1-minute cache
+// reduces issuance calls without risking expired-token propagation. If short-lived
+// JWTs are introduced, this should switch to an inline cacheLife profile driven
+// by the actual expiration.
 async function fetchKnowhereJwtCached(
   cookieHeader: string,
 ): Promise<string> {

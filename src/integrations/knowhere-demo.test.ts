@@ -1,7 +1,11 @@
-import { Effect } from "effect"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { fetchChunkPageEffect, knowhereDemoApi } from "./knowhere-demo"
+vi.mock("next/cache", () => ({
+  cacheLife: () => {},
+  cacheTag: () => {},
+}))
+
+import { knowhereDemoApi } from "./knowhere-demo"
 
 describe("knowhereDemoApi", () => {
   const originalBaseURL = process.env.KNOWHERE_BASE_URL
@@ -61,13 +65,11 @@ describe("knowhereDemoApi", () => {
       ),
     )
 
-    const page = await Effect.runPromise(
-      fetchChunkPageEffect({
-        demoSourceId: "demo-tsla-q4-2025",
-        page: 1,
-        pageSize: 100,
-      }),
-    )
+    const page = await knowhereDemoApi.fetchChunkPage({
+      demoSourceId: "demo-tsla-q4-2025",
+      page: 1,
+      pageSize: 100,
+    })
 
     expect(page.chunks[0]).toMatchObject({
       id: "demo-tsla-q4-2025:chunk-empty",

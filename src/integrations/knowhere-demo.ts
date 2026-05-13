@@ -184,7 +184,7 @@ const emptyCatalog: DemoCatalog = { sources: [] }
 // Effect core
 // ---------------------------------------------------------------------------
 
-export const fetchCatalogEffect = Effect.fn("knowhereDemo.fetchCatalog")(function* () {
+const fetchCatalogEffect = Effect.fn("knowhereDemo.fetchCatalog")(function* () {
   const response = yield* Effect.tryPromise(() =>
     fetch(resolveApiURL("/api/v1/demo/catalog")),
   )
@@ -198,7 +198,7 @@ export const fetchCatalogEffect = Effect.fn("knowhereDemo.fetchCatalog")(functio
   }
 })
 
-export const fetchChunkPageEffect = Effect.fn("knowhereDemo.fetchChunkPage")(
+const fetchChunkPageEffect = Effect.fn("knowhereDemo.fetchChunkPage")(
   function* (input: {
     readonly demoSourceId: string
     readonly page: number

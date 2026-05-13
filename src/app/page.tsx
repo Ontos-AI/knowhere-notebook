@@ -11,11 +11,7 @@ export default function Home() {
   )
 }
 
-async function HomeContent() {
+export async function HomeContent() {
   await connection()
-  return renderWorkspaceShell()
-}
-
-export async function renderWorkspaceShell() {
   return <WorkspaceShell {...(await loadWorkspaceShellInitialState())} />
 }

@@ -14,12 +14,8 @@ export default function LoginPage() {
   )
 }
 
-async function LoginContent() {
+export async function LoginContent() {
   await connection()
-  return renderLoginPage()
-}
-
-export async function renderLoginPage() {
   const notebookPublicURL =
     process.env.NOTEBOOK_PUBLIC_URL ??
     authURLs.resolveNotebookPublicURLFromHeaders(await headers());
