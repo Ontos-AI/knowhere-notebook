@@ -1,10 +1,9 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useState } from "react"
 
 import { workspaceCitationState } from "@/components/workspace-citation-state"
 import { useWorkspaceSelectedChunks } from "@/components/workspace-selected-chunks"
-import { useHashFragment } from "@/lib/use-hash-fragment"
 import type { ChatCitationView } from "@/domains/chat/types"
 import type { ParsedChunkView } from "@/domains/chunks/types"
 import type { SourceView } from "@/domains/sources/types"
@@ -58,7 +57,6 @@ export function useWorkspaceCitationFocus({
   )
   const [prefetchedChunksBySourceId, setPrefetchedChunksBySourceId] =
     useState<PrefetchedChunksBySourceId>(initialPrefetchedChunksBySourceId)
-  const [hashChunkId, setHashChunkId] = useHashFragment()
   const {
     hasMoreSelectedChunks,
     handleLoadMoreChunks,
@@ -78,20 +76,9 @@ export function useWorkspaceCitationFocus({
         chunkId,
         requestId: current.requestId + 1,
       }))
-      setHashChunkId(chunkId)
     },
-    [setHashChunkId],
+    [],
   )
-
-  useEffect(() => {
-    if (!hashChunkId) return
-
-    const frameId = window.requestAnimationFrame(() => {
-      requestChunkFocus(hashChunkId)
-    })
-
-    return () => window.cancelAnimationFrame(frameId)
-  }, [hashChunkId, requestChunkFocus])
 
   const handleSourceSelected = useCallback(
     (sourceId: string | null): void => {

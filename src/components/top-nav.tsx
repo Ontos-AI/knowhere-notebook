@@ -1,7 +1,7 @@
 import { NotebookLogoMark } from "@/components/notebook-logo-mark";
 import { Separator } from "@/components/ui/separator";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { ExternalLink, LayoutDashboard } from "lucide-react";
+import { ExternalLink } from "lucide-react";
 import type { ReactElement } from "react";
 
 export type TopNavProps = {
@@ -41,7 +41,6 @@ export function TopNav({
             aria-label="Open Dashboard"
             className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8e51ff]/25"
           >
-            <LayoutDashboard className="size-4" strokeWidth={1.75} />
             <span className="hidden sm:inline">Dashboard</span>
             <ExternalLink className="hidden size-3.5 sm:block" strokeWidth={1.75} />
           </a>
