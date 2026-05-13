@@ -320,6 +320,75 @@ describe("source route service", () => {
     });
   });
 
+  it("uses demo catalog counts for materialized demo sources", async () => {
+    const materializedSource: Source = {
+      ...source,
+      id: "source_demo",
+      title: "TSLA-Q4-2025-Update.pdf",
+      status: "ready",
+      demoKey: "demo-tsla-q4-2025",
+      knowhereJobId: null,
+      knowhereDocumentId: "doc_user_copy",
+      originalBlobUrl: "/api/demo-sources/demo-tsla-q4-2025/original",
+    };
+    const knowhereClient = {
+      documents: {
+        archive: vi.fn(async () => undefined),
+        listChunks: vi.fn(async () => ({
+          chunks: [],
+          pagination: {
+            page: 1,
+            pageSize: 1,
+            total: 0,
+            totalPages: 0,
+          },
+        })),
+      },
+      jobs: {
+        create: vi.fn(),
+        upload: vi.fn(),
+      },
+    };
+    const getSourceViewOptionsBySourceId = vi.fn(() => Effect.succeed(new Map()));
+    const listing = createRouteListing({
+      demoApi: {
+        fetchCatalog: vi.fn(async () => demoCatalog),
+      },
+      ensureApiKeyForWorkspace: vi.fn(async () => "jwt_123"),
+      ensureWorkspace: vi.fn(async () => workspace),
+      getCurrentUser: vi.fn(async () => ({
+        id: "user_1",
+        email: null,
+        name: null,
+      })),
+      getSourceViewOptionsBySourceId,
+      makeKnowhereClient: vi.fn(() => knowhereClient),
+      reconcileSourcesForWorkspace: vi.fn(async () => [materializedSource]),
+      sourceService: { listHiddenDemoSourceIds: vi.fn(async () => []) },
+    });
+
+    const result = await listing.listSources({ cookieHeader: "session=abc" });
+
+    expect(getSourceViewOptionsBySourceId).toHaveBeenCalledWith(
+      [],
+      knowhereClient,
+    );
+    expect(knowhereClient.documents.listChunks).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      status: 200,
+      body: {
+        sources: [
+          expect.objectContaining({
+            id: "source_demo",
+            kind: "workspace",
+            documentId: "doc_user_copy",
+            chunkCount: 70,
+          }),
+        ],
+      },
+    });
+  });
+
   it("lists API-owned demo sources for anonymous users", async () => {
     const ensureWorkspace = vi.fn(async () => workspace);
     const service = createSourceRouteService({

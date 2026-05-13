@@ -4,7 +4,11 @@ import { Effect } from "effect"
 
 import type { ChatMessageView } from "@/domains/chat/types"
 import { demoView } from "@/domains/demo/view"
-import { resolveWorkspaceDemoSources } from "@/domains/demo/workspace-source-resolution"
+import {
+  getMaterializedDemoSourceViewOptionsBySourceId,
+  getWorkspaceSourcesNeedingKnowhereChunkCount,
+  resolveWorkspaceDemoSources,
+} from "@/domains/demo/workspace-source-resolution"
 import { chatThreadService } from "@/domains/chat/thread-service"
 import { toChatMessageView, toChatThreadView } from "@/domains/chat/view"
 import { sourceViewOptionsBySourceId as getSourceViewOptionsBySourceId } from "@/domains/sources/counts"
@@ -147,8 +151,17 @@ export async function loadWorkspaceShellInitialState(
         (message) => toChatMessageView(message),
       )
     : []
+  const sourcesNeedingKnowhereChunkCount =
+    getWorkspaceSourcesNeedingKnowhereChunkCount(
+      demoSourceResolution.workspaceSources,
+    )
+  const materializedDemoSourceOptions =
+    getMaterializedDemoSourceViewOptionsBySourceId(
+      demoSourceResolution.workspaceSources,
+      demoCatalog,
+    )
   const sourceOptions = await Effect.runPromise(
-    deps.sourceViewOptionsBySourceId(demoSourceResolution.workspaceSources, client),
+    deps.sourceViewOptionsBySourceId(sourcesNeedingKnowhereChunkCount, client),
   )
 
   return {
@@ -165,7 +178,11 @@ export async function loadWorkspaceShellInitialState(
     sources: [
       ...demoSources,
       ...demoSourceResolution.workspaceSources.map((source) =>
-        toSourceView(source, sourceOptions.get(source.id)),
+        toSourceView(
+          source,
+          materializedDemoSourceOptions.get(source.id) ??
+            sourceOptions.get(source.id),
+        ),
       ),
     ],
     chatThreads: chatThreads.map(toChatThreadView),

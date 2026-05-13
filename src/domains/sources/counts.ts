@@ -11,7 +11,10 @@ export const countChunksBySourceId = (
 ) =>
   Effect.gen(function* () {
     const readySources = sources.filter(
-      (source) => source.status === "ready" && source.knowhereDocumentId,
+      (source) =>
+        !source.demoKey &&
+        source.status === "ready" &&
+        source.knowhereDocumentId,
     )
     if (readySources.length === 0) return new Map<string, number>()
 

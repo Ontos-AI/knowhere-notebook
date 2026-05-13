@@ -174,18 +174,22 @@ describe("loadWorkspaceShellInitialState", () => {
       title: "TSLA-Q4-2025-Update.pdf",
       knowhereDocumentId: "doc_user_copy",
     })
+    const sourceViewOptionsBySourceId = vi.fn(() => Effect.succeed(new Map()))
     const deps = createDependencies({
       listHiddenDemoSourceIds: vi.fn(async () => ["another-demo"]),
       reconcileSourcesForWorkspace: vi.fn(async () => [materializedSource]),
+      sourceViewOptionsBySourceId,
     })
 
     const state = await loadWorkspaceShellInitialState(deps)
 
+    expect(sourceViewOptionsBySourceId).toHaveBeenCalledWith([], expect.any(Object))
     expect(state.sources).toEqual([
       expect.objectContaining({
         id: "source_demo",
         kind: "workspace",
         documentId: "doc_user_copy",
+        chunkCount: 70,
       }),
     ])
   })

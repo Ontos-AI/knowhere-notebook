@@ -1,7 +1,11 @@
 import { Effect } from "effect"
 
 import { demoView } from "@/domains/demo/view"
-import { resolveWorkspaceDemoSources } from "@/domains/demo/workspace-source-resolution"
+import {
+  getMaterializedDemoSourceViewOptionsBySourceId,
+  getWorkspaceSourcesNeedingKnowhereChunkCount,
+  resolveWorkspaceDemoSources,
+} from "@/domains/demo/workspace-source-resolution"
 import { routeResult } from "@/lib/route-result"
 import type { DemoCatalog } from "@/integrations/knowhere-demo"
 import { toSourceView } from "./view"
@@ -62,9 +66,18 @@ async function listSources(
   )
   const sources = await deps.reconcileSourcesForWorkspace(workspace, client)
   const demoSourceResolution = resolveWorkspaceDemoSources(sources, catalog)
+  const sourcesNeedingKnowhereChunkCount =
+    getWorkspaceSourcesNeedingKnowhereChunkCount(
+      demoSourceResolution.workspaceSources,
+    )
+  const materializedDemoSourceOptions =
+    getMaterializedDemoSourceViewOptionsBySourceId(
+      demoSourceResolution.workspaceSources,
+      catalog,
+    )
   const sourceOptions = await Effect.runPromise(
     deps.getSourceViewOptionsBySourceId(
-      demoSourceResolution.workspaceSources,
+      sourcesNeedingKnowhereChunkCount,
       client,
     ),
   )
@@ -83,7 +96,11 @@ async function listSources(
     sources: [
       ...visibleDemoSources,
       ...demoSourceResolution.workspaceSources.map((source) =>
-        toSourceView(source, sourceOptions.get(source.id)),
+        toSourceView(
+          source,
+          materializedDemoSourceOptions.get(source.id) ??
+            sourceOptions.get(source.id),
+        ),
       ),
     ],
   })
