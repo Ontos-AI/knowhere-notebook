@@ -58,74 +58,77 @@ const DASHBOARD_SESSION_TIMEOUT_MS = 3_000
 
 // ---- Effect implementation ------------------------------------------------
 
+const callGetCurrentUser = (cookieHeader: string) =>
+  Effect.gen(function* () {
+    const origin = process.env.DASHBOARD_ORIGIN
+    if (!origin) {
+      return yield* Effect.die(
+        new Error(
+          "DASHBOARD_ORIGIN is required. Set it to the Dashboard origin " +
+          "(see .env.local.example).",
+        ),
+      )
+    }
+
+    const http = yield* HttpClient.HttpClient
+    const url = `${origin}/api/orpc/users/getCurrentUser`
+    return yield* HttpClientRequest.post(url).pipe(
+      HttpClientRequest.setHeader("cookie", cookieHeader),
+      setEmptyJsonBody,
+      http.execute,
+      Effect.flatMap((response) =>
+        Effect.gen(function* () {
+          const status = response.status
+
+          if (status < 200 || status >= 300) {
+            const rawText = yield* Effect.either(response.text)
+            logger.warn(
+              "dashboard: POST /api/orpc/users/getCurrentUser -> non-2xx",
+              { status, body: Either.getOrElse(rawText, () => "").slice(0, 1000) },
+            )
+            return null
+          }
+
+          const parsed = yield* Effect.either(response.json)
+          if (Either.isLeft(parsed)) {
+            logger.warn(
+              "dashboard: POST /api/orpc/users/getCurrentUser -> invalid JSON",
+              { status, error: String(parsed.left) },
+            )
+            return null
+          }
+
+          const result = Schema.decodeUnknownEither(oRPCEnvelope)(parsed.right)
+          if (Either.isLeft(result)) {
+            logger.warn(
+              "dashboard: POST /api/orpc/users/getCurrentUser -> schema mismatch",
+              { status, body: formatUnknownForLog(parsed.right).slice(0, 1000) },
+            )
+            return null
+          }
+
+          return result.right.json.user
+        }),
+      ),
+      Effect.timeout(DASHBOARD_SESSION_TIMEOUT_MS),
+      Effect.catchAll((err) => {
+        logger.warn(
+          "dashboard: POST /api/orpc/users/getCurrentUser -> failed",
+          { error: String(err) },
+        )
+        return Effect.succeed(null)
+      }),
+    )
+  })
+
 export const getCurrentUserEffect = Effect.gen(function* () {
   const developmentUser = knowhereApiKeyOverride.getDevelopmentUser()
   if (developmentUser) return developmentUser
 
-  const origin = process.env.DASHBOARD_ORIGIN
-  if (!origin) {
-    return yield* Effect.die(
-      new Error(
-        "DASHBOARD_ORIGIN is required. Set it to the Dashboard origin " +
-        "(see .env.local.example).",
-      ),
-    )
-  }
-
   const cookieHeader = (yield* Effect.promise(() => headers())).get("cookie") ?? ""
   if (cookieHeader.length === 0) return null
 
-  const http = yield* HttpClient.HttpClient
-  const url = `${origin}/api/orpc/users/getCurrentUser`
-  const body = yield* HttpClientRequest.post(url).pipe(
-    HttpClientRequest.setHeader("cookie", cookieHeader),
-    setEmptyJsonBody,
-    http.execute,
-    Effect.flatMap((response) =>
-      Effect.gen(function* () {
-        const status = response.status
-
-        if (status < 200 || status >= 300) {
-          const rawText = yield* Effect.either(response.text)
-          logger.warn(
-            "dashboard: POST /api/orpc/users/getCurrentUser -> non-2xx",
-            { status, body: Either.getOrElse(rawText, () => "").slice(0, 1000) },
-          )
-          return null
-        }
-
-        const parsed = yield* Effect.either(response.json)
-        if (Either.isLeft(parsed)) {
-          logger.warn(
-            "dashboard: POST /api/orpc/users/getCurrentUser -> invalid JSON",
-            { status, error: String(parsed.left) },
-          )
-          return null
-        }
-
-        const result = Schema.decodeUnknownEither(oRPCEnvelope)(parsed.right)
-        if (Either.isLeft(result)) {
-          logger.warn(
-            "dashboard: POST /api/orpc/users/getCurrentUser -> schema mismatch",
-            { status, body: formatUnknownForLog(parsed.right).slice(0, 1000) },
-          )
-          return null
-        }
-
-        return result.right.json.user
-      }),
-    ),
-    Effect.timeout(DASHBOARD_SESSION_TIMEOUT_MS),
-    Effect.catchAll((err) => {
-      logger.warn(
-        "dashboard: POST /api/orpc/users/getCurrentUser -> failed",
-        { error: String(err) },
-      )
-      return Effect.succeed(null)
-    }),
-  )
-
-  return body
+  return yield* callGetCurrentUser(cookieHeader)
 })
 
 // ---- Auth Service ---------------------------------------------------------
@@ -159,7 +162,9 @@ async function getCurrentUserCached(
   cacheTag("current-user")
 
   return Effect.runPromise(
-    getCurrentUserEffect.pipe(Effect.provide(FetchHttpClient.layer)),
+    callGetCurrentUser(cookieHeader).pipe(
+      Effect.provide(FetchHttpClient.layer),
+    ),
   )
 }
 
