@@ -2,7 +2,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import LoginPage from "./page";
+import { renderLoginPage } from "./page";
 
 describe("LoginPage", () => {
   const originalDashboardOrigin = process.env.DASHBOARD_ORIGIN;
@@ -30,7 +30,7 @@ describe("LoginPage", () => {
   });
 
   it("links directly to Dashboard login with the Notebook callback URL", async () => {
-    render(await LoginPage());
+    render(await renderLoginPage());
 
     const link = screen.getByRole("link", { name: "Sign in" });
 
@@ -41,7 +41,7 @@ describe("LoginPage", () => {
   });
 
   it("uses account language instead of implementation details", async () => {
-    const { container } = render(await LoginPage());
+    const { container } = render(await renderLoginPage());
 
     expect(screen.getByRole("link", { name: "Sign in" })).toBeTruthy();
     expect(screen.getByText("Use your Knowhere account to continue.")).toBeTruthy();
