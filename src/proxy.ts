@@ -26,7 +26,6 @@ const PUBLIC_PATHS: readonly string[] = [
   "/login",
   "/favicon.ico",
   "/api/internal/health",
-  "/api/sources/reconcile",
 ]
 
 const STATIC_EXTENSIONS = /\.(?:svg|png|jpe?g|gif|webp|ico|woff2?|ttf|eot|css|js|map|txt|xml|webmanifest|json|pdf)$/i
@@ -53,8 +52,14 @@ function isGuestSourceReadPath(method: string, pathname: string): boolean {
   )
 }
 
+function isUpstashWorkflowCall(req: NextRequest): boolean {
+  return req.headers.get("upstash-signature") !== null
+}
+
 export function proxy(req: NextRequest): NextResponse {
   if (knowhereApiKeyOverride.hasApiKey()) return NextResponse.next()
+
+  if (isUpstashWorkflowCall(req)) return NextResponse.next()
 
   if (isPublicPath(req)) return NextResponse.next()
 
