@@ -1,6 +1,7 @@
 import "server-only"
 
 import { Effect, Either, Schema } from "effect"
+import { cacheLife, cacheTag } from "next/cache"
 import {
   FetchHttpClient,
   HttpClient,
@@ -87,6 +88,25 @@ export const fetchKnowhereJwtEffect = (cookieHeader: string) =>
     return body.json.token
   })
 
+// Cached for a fixed 1-minute window regardless of the JWT's expiresInSeconds.
+// Dashboard JWTs are typically long-lived (15+ minutes), so a 1-minute cache
+// reduces issuance calls without risking expired-token propagation. If short-lived
+// JWTs are introduced, this should switch to an inline cacheLife profile driven
+// by the actual expiration.
+async function fetchKnowhereJwtCached(
+  cookieHeader: string,
+): Promise<string> {
+  "use cache"
+  cacheLife("minutes")
+  cacheTag("knowhere-jwt")
+
+  return Effect.runPromise(
+    fetchKnowhereJwtEffect(cookieHeader).pipe(
+      Effect.provide(FetchHttpClient.layer),
+    ),
+  )
+}
+
 /**
  * Async wrapper for Next.js boundary callers.
  */
@@ -95,11 +115,7 @@ export async function fetchKnowhereJwt(
 ): Promise<string> {
   const start = Date.now()
   try {
-    const token = await Effect.runPromise(
-      fetchKnowhereJwtEffect(cookieHeader).pipe(
-        Effect.provide(FetchHttpClient.layer),
-      ),
-    )
+    const token = await fetchKnowhereJwtCached(cookieHeader)
     logger.info("dashboard: POST /api/orpc/users/issueServiceJwt ok", {
       durationMs: Date.now() - start,
     })

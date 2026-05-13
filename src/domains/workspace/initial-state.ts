@@ -1,6 +1,5 @@
 import "server-only"
 
-import { unstable_cache } from "next/cache"
 import { Effect } from "effect"
 
 import type { ChatMessageView } from "@/domains/chat/types"
@@ -50,37 +49,33 @@ type WorkspaceShellInitialState = {
   }
 }
 
-const getCachedDemoChunksForSource = (demoSourceId: string) =>
-  unstable_cache(
-    async (): Promise<ParsedChunkView[]> => {
-      const chunkPage = await knowhereDemoApi.fetchChunkPage({
-        demoSourceId,
-        page: 1,
-        pageSize: 100,
-      })
-      const sourceView = demoView.toSourceView({
-        demoSourceId: chunkPage.demoSourceId,
-        canonicalDocumentId: chunkPage.canonicalDocumentId,
-        title: chunkPage.title,
-        mimeType: chunkPage.mimeType,
-        sizeBytes: 0,
-        status: "ready",
-        chunkCount: chunkPage.pagination.total,
-        originalFile: {
-          url: "",
-          mimeType: "",
-          sizeBytes: 0,
-          canDownload: false,
-        },
-        examples: [],
-      })
-      return chunkPage.chunks.map((chunk) =>
-        demoView.toParsedChunkView(sourceView, chunk),
-      )
-    },
-    ["demo-chunks", demoSourceId],
-    { revalidate: false },
-  )()
+// Aligned with workspaceClientConfig.sourceChunkPageSize so the SSR
+// prefetch doesn't overlap with the first client-side page request.
+const DEMO_CHUNK_PREFETCH_PAGE_SIZE = 50
+
+async function getDemoChunksForSource(
+  demoSourceId: string,
+): Promise<ParsedChunkView[]> {
+  const chunkPage = await knowhereDemoApi.fetchChunkPage({
+    demoSourceId,
+    page: 1,
+    pageSize: DEMO_CHUNK_PREFETCH_PAGE_SIZE,
+  })
+  // Only title and documentId are consumed by toParsedChunkView,
+  // so a minimal SourceView is sufficient.
+  const sourceView: SourceView = {
+    id: chunkPage.demoSourceId,
+    kind: "demo",
+    demoSourceId: chunkPage.demoSourceId,
+    title: chunkPage.title,
+    mimeType: chunkPage.mimeType,
+    status: "ready",
+    documentId: chunkPage.canonicalDocumentId,
+  }
+  return chunkPage.chunks.map((chunk) =>
+    demoView.toParsedChunkView(sourceView, chunk),
+  )
+}
 
 type WorkspaceShellInitialStateClient =
   Parameters<typeof getSourceViewOptionsBySourceId>[1]
@@ -161,7 +156,7 @@ export const loadWorkspaceShellInitialStateEffect = (
       if (firstDemoSource) {
         const chunks = yield* Effect.catchAll(
           Effect.tryPromise(() =>
-            getCachedDemoChunksForSource(firstDemoSource.demoSourceId),
+            getDemoChunksForSource(firstDemoSource.demoSourceId),
           ),
           () => Effect.succeed([] as ParsedChunkView[]),
         )

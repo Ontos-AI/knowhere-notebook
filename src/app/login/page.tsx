@@ -1,14 +1,21 @@
+import { Suspense } from "react"
 import Link from "next/link";
 import { NotebookLogoMark } from "@/components/notebook-logo-mark";
 import { headers } from "next/headers";
 import { Card, CardContent } from "@/components/ui/card";
 import { authURLs } from "@/infrastructure/auth/urls";
+import { connection } from "next/server";
 
-/**
- * Login gate preview for the MVP shell. The real auth redirect is handled by
- * server-side guards; this page keeps direct `/login` visits user-friendly.
- */
-export default async function LoginPage() {
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginContent />
+    </Suspense>
+  )
+}
+
+export async function LoginContent() {
+  await connection()
   const notebookPublicURL =
     process.env.NOTEBOOK_PUBLIC_URL ??
     authURLs.resolveNotebookPublicURLFromHeaders(await headers());

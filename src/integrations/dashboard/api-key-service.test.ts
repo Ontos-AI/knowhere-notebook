@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+vi.mock("next/cache", () => ({
+  cacheLife: () => {},
+  cacheTag: () => {},
+}))
+
 import {
   ensureApiKeyForWorkspace,
   fetchKnowhereJwt,
