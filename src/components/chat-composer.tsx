@@ -68,7 +68,7 @@ export function ChatComposer({
             <Textarea
               id={chatComposerId}
               name={chatComposerId}
-              className="h-[84px] w-full min-w-0 resize-none rounded-2xl border-slate-300 bg-muted/60 p-3 text-sm transition-all placeholder:text-muted-foreground hover:border-slate-400 focus-visible:border-primary focus-visible:ring-0 sm:p-3.5"
+              className="h-[84px] w-full min-w-0 resize-none rounded-2xl border-input bg-muted/60 p-3 text-sm text-foreground transition-all placeholder:text-muted-foreground hover:border-primary/50 focus-visible:border-primary focus-visible:ring-0 sm:p-3.5"
               placeholder={
                 isDisabled
                   ? "Upload a document to start asking questions."
