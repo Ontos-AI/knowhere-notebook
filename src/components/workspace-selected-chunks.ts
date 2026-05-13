@@ -59,6 +59,13 @@ export function useWorkspaceSelectedChunks({
       keepPreviousData: false,
     },
   )
+  const resolvedPrefetchedChunks = useMemo(
+    () =>
+      prefetchedSelectedChunks
+        ? resolveChunkConnectionTargets(prefetchedSelectedChunks)
+        : undefined,
+    [prefetchedSelectedChunks],
+  )
   const pagedSelectedChunks = useMemo(
     () =>
       resolveChunkConnectionTargets(
@@ -67,7 +74,7 @@ export function useWorkspaceSelectedChunks({
     [selectedChunkPages],
   )
   const selectedChunks = selectedSourceId
-    ? (prefetchedSelectedChunks ?? pagedSelectedChunks)
+    ? (resolvedPrefetchedChunks ?? pagedSelectedChunks)
     : []
   const hasMoreSelectedChunks =
     !prefetchedSelectedChunks &&
