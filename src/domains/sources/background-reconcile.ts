@@ -1,5 +1,6 @@
 import "server-only"
 
+import { Effect } from "effect"
 import { Client } from "@upstash/workflow"
 
 import { sourceWorkflowRuntime } from "./workflow-runtime"
@@ -12,46 +13,78 @@ function createClient(): Client {
 }
 
 function resolveBaseURL(): string {
-  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`
   return process.env.NOTEBOOK_PUBLIC_URL ?? "http://localhost:3000"
 }
+
+// ---------------------------------------------------------------------------
+// Effect core
+// ---------------------------------------------------------------------------
+
+const startBackgroundReconciliationEffect = (
+  workspaceId: string,
+  sourceId: string,
+  apiKey: string,
+): Effect.Effect<void> =>
+  Effect.gen(function* () {
+    if (triggeredSourceIds.has(sourceId)) return
+    triggeredSourceIds.add(sourceId)
+
+    yield* Effect.tryPromise(() =>
+      createClient().trigger({
+        url: `${resolveBaseURL()}/api/sources/reconcile`,
+        body: { workspaceId, sourceId, apiKey },
+        retries: 3,
+      }),
+    )
+    yield* Effect.logInfo(
+      `background-reconcile: workflow triggered for ${sourceId}`,
+    )
+  }).pipe(
+    Effect.catchAll((error) =>
+      Effect.sync(() => {
+        triggeredSourceIds.delete(sourceId)
+        logger.error("background-reconcile: failed to trigger workflow", {
+          sourceId,
+          error: String(error),
+        })
+      }),
+    ),
+  )
+
+const reconcileStaleSourcesEffect = (
+  workspaceId: string,
+  apiKey: string,
+): Effect.Effect<void> =>
+  Effect.gen(function* () {
+    const sources = yield* Effect.tryPromise(() =>
+      sourceWorkflowRuntime.listForWorkspace(workspaceId),
+    )
+    for (const source of sources) {
+      if (source.status === "parsing" && source.knowhereJobId) {
+        yield* Effect.fork(
+          startBackgroundReconciliationEffect(workspaceId, source.id, apiKey),
+        )
+      }
+    }
+  }).pipe(Effect.catchAllCause(() => Effect.void))
+
+// ---------------------------------------------------------------------------
+// Async wrappers (backward-compatible)
+// ---------------------------------------------------------------------------
 
 export async function startBackgroundReconciliation(
   workspaceId: string,
   sourceId: string,
   apiKey: string,
 ): Promise<void> {
-  if (triggeredSourceIds.has(sourceId)) return
-  triggeredSourceIds.add(sourceId)
-
-  try {
-    await createClient().trigger({
-      url: `${resolveBaseURL()}/api/sources/reconcile`,
-      body: { workspaceId, sourceId, apiKey },
-      retries: 3,
-    })
-    logger.info("background-reconcile: workflow triggered", { sourceId })
-  } catch (error) {
-    triggeredSourceIds.delete(sourceId)
-    logger.error("background-reconcile: failed to trigger workflow", {
-      sourceId,
-      error: String(error),
-    })
-  }
+  return Effect.runPromise(
+    startBackgroundReconciliationEffect(workspaceId, sourceId, apiKey),
+  )
 }
 
 export async function reconcileStaleSources(
   workspaceId: string,
   apiKey: string,
 ): Promise<void> {
-  try {
-    const sources = await sourceWorkflowRuntime.listForWorkspace(workspaceId)
-    for (const source of sources) {
-      if (source.status === "parsing" && source.knowhereJobId) {
-        void startBackgroundReconciliation(workspaceId, source.id, apiKey)
-      }
-    }
-  } catch {
-    // Best-effort sweep; listing failures must not block the caller.
-  }
+  return Effect.runPromise(reconcileStaleSourcesEffect(workspaceId, apiKey))
 }

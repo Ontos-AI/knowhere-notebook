@@ -1,5 +1,6 @@
 import "server-only"
 
+import { Effect } from "effect"
 import type { JobResult } from "@ontos-ai/knowhere-sdk"
 
 import type { Source } from "@/infrastructure/db/schema"
@@ -47,6 +48,75 @@ type ApplyKnowhereJobToSourceInput = {
   blobStore: SourceLifecycleBlobStore
 }
 
+// ---------------------------------------------------------------------------
+// Effect core
+// ---------------------------------------------------------------------------
+
+export const applyKnowhereJobToSourceEffect = Effect.fn(
+  "applyKnowhereJobToSource",
+)(
+  function* ({
+    workspaceId,
+    source,
+    job,
+    client,
+    repository,
+    parsedResultStore,
+    blobStore,
+  }: ApplyKnowhereJobToSourceInput) {
+    if (job.isDone || job.status === "done") {
+      if (job.documentId) {
+        const stored = yield* Effect.tryPromise(() =>
+          parsedResultStore.storeParsedResultAssets({
+            workspaceId,
+            sourceId: source.id,
+            job,
+            client,
+          }),
+        )
+        yield* Effect.tryPromise(() =>
+          repository.saveSourceParseResult(workspaceId, source.id, stored),
+        )
+        yield* Effect.tryPromise(() =>
+          repository.markSourceReady(workspaceId, source.id, job.documentId!),
+        )
+        yield* cleanupStagedBlobEffect(
+          workspaceId,
+          source,
+          repository,
+          blobStore,
+        )
+        return
+      }
+
+      yield* Effect.tryPromise(() =>
+        repository.markSourceFailed(
+          workspaceId,
+          source.id,
+          "Parsing finished but no document was published.",
+        ),
+      )
+      yield* cleanupStagedBlobEffect(workspaceId, source, repository, blobStore)
+      return
+    }
+
+    if (job.isFailed || job.status === "failed") {
+      yield* Effect.tryPromise(() =>
+        repository.markSourceFailed(
+          workspaceId,
+          source.id,
+          job.error?.message ?? "Parsing failed.",
+        ),
+      )
+      yield* cleanupStagedBlobEffect(workspaceId, source, repository, blobStore)
+    }
+  },
+)
+
+// ---------------------------------------------------------------------------
+// Async wrapper (backward-compatible)
+// ---------------------------------------------------------------------------
+
 export async function applyKnowhereJobToSource({
   workspaceId,
   source,
@@ -56,51 +126,39 @@ export async function applyKnowhereJobToSource({
   parsedResultStore,
   blobStore,
 }: ApplyKnowhereJobToSourceInput): Promise<void> {
-  if (job.isDone || job.status === "done") {
-    if (job.documentId) {
-      const stored = await parsedResultStore.storeParsedResultAssets({
-        workspaceId,
-        sourceId: source.id,
-        job,
-        client,
-      })
-      await repository.saveSourceParseResult(workspaceId, source.id, stored)
-      await repository.markSourceReady(workspaceId, source.id, job.documentId)
-      await cleanupStagedBlob(workspaceId, source, repository, blobStore)
-      return
-    }
-
-    await repository.markSourceFailed(
+  return Effect.runPromise(
+    applyKnowhereJobToSourceEffect({
       workspaceId,
-      source.id,
-      "Parsing finished but no document was published.",
-    )
-    await cleanupStagedBlob(workspaceId, source, repository, blobStore)
-    return
-  }
-
-  if (job.isFailed || job.status === "failed") {
-    await repository.markSourceFailed(
-      workspaceId,
-      source.id,
-      job.error?.message ?? "Parsing failed.",
-    )
-    await cleanupStagedBlob(workspaceId, source, repository, blobStore)
-  }
+      source,
+      job,
+      client,
+      repository,
+      parsedResultStore,
+      blobStore,
+    }),
+  )
 }
 
-async function cleanupStagedBlob(
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function cleanupStagedBlobEffect(
   workspaceId: string,
   source: Source,
   repository: SourceLifecycleRepository,
   blobStore: SourceLifecycleBlobStore,
-): Promise<void> {
-  if (!source.stagedBlobPathname) return
+): Effect.Effect<void> {
+  if (!source.stagedBlobPathname) return Effect.void
 
-  try {
-    await blobStore.deleteStagedSourceBlob(source.stagedBlobPathname)
-    await repository.clearSourceStagedBlob(workspaceId, source.id)
-  } catch {
-    // Staged upload cleanup is best-effort; source state is already advanced.
-  }
+  return Effect.gen(function* () {
+    yield* Effect.tryPromise(() =>
+      blobStore.deleteStagedSourceBlob(source.stagedBlobPathname!),
+    )
+    yield* Effect.tryPromise(() =>
+      repository.clearSourceStagedBlob(workspaceId, source.id),
+    )
+  }).pipe(
+    Effect.catchAllCause(() => Effect.void),
+  )
 }

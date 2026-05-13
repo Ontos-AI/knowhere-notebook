@@ -33,72 +33,87 @@ type RouteChunks = {
 function createRouteChunks(deps: RouteChunksDependencies): RouteChunks {
   return {
     loadSourceChunks: (input: LoadSourceChunksInput) =>
-      loadSourceChunks(input, deps),
+      Effect.runPromise(loadSourceChunksEffect(input, deps)),
   }
 }
 
-async function loadSourceChunks(
+// ---------------------------------------------------------------------------
+// Effect core
+// ---------------------------------------------------------------------------
+
+const loadSourceChunksEffect = (
   input: LoadSourceChunksInput,
   deps: RouteChunksDependencies,
-): Promise<JsonRouteResult<SourceChunksBody>> {
-  const user = await deps.getCurrentUser()
-  if (!user) {
-    return (await loadDemoChunkPage(input, deps)) ?? sourceNotFound()
-  }
+) =>
+  Effect.gen(function* () {
+    const user = yield* Effect.tryPromise(() => deps.getCurrentUser())
+    if (!user) {
+      const demoResult = yield* loadDemoChunkPageEffect(input, deps)
+      return demoResult ?? sourceNotFound()
+    }
 
-  const workspace = await deps.ensureWorkspace(user.id)
-  const source = await deps.sourceService.findInWorkspace(
-    workspace.id,
-    input.sourceId,
-  )
-
-  if (!source) {
-    return (await loadDemoChunkPage(input, deps)) ?? sourceNotFound()
-  }
-
-  if (source.demoKey) {
-    return (await loadDemoChunkPage(input, deps, source.demoKey)) ?? sourceNotFound()
-  }
-
-  const client = await getClientForWorkspace(
-    workspace.id,
-    input.cookieHeader,
-    deps,
-  )
-  const assetUrlsByFilePath = await deps.sourceService.getParseAssetUrls(
-    workspace.id,
-    source.id,
-  )
-
-  if (input.shouldLoadAll) {
-    const chunks = await Effect.runPromise(
-      deps.loadChunksForSource(source, client, { assetUrlsByFilePath }),
+    const workspace = yield* Effect.tryPromise(() =>
+      deps.ensureWorkspace(user.id),
     )
-    return routeResult.ok({ chunks })
-  }
+    const source = yield* Effect.tryPromise(() =>
+      deps.sourceService.findInWorkspace(workspace.id, input.sourceId),
+    )
 
-  const chunkPage = await Effect.runPromise(
-    deps.loadChunkPageForSource(source, client, input.pageParams, {
-      assetUrlsByFilePath,
-    }),
-  )
-  return routeResult.ok(chunkPage)
-}
+    if (!source) {
+      const demoResult = yield* loadDemoChunkPageEffect(input, deps)
+      return demoResult ?? sourceNotFound()
+    }
 
-async function loadDemoChunkPage(
+    if (source.demoKey) {
+      const demoResult = yield* loadDemoChunkPageEffect(
+        input,
+        deps,
+        source.demoKey,
+      )
+      return demoResult ?? sourceNotFound()
+    }
+
+    const client = yield* Effect.tryPromise(() =>
+      getClientForWorkspace(workspace.id, input.cookieHeader, deps),
+    )
+    const assetUrlsByFilePath = yield* Effect.tryPromise(() =>
+      deps.sourceService.getParseAssetUrls(workspace.id, source.id),
+    )
+
+    if (input.shouldLoadAll) {
+      const chunks = yield* deps.loadChunksForSource(source, client, {
+        assetUrlsByFilePath,
+      })
+      return routeResult.ok({ chunks })
+    }
+
+    const chunkPage = yield* deps.loadChunkPageForSource(
+      source,
+      client,
+      input.pageParams,
+      { assetUrlsByFilePath },
+    )
+    return routeResult.ok(chunkPage)
+  })
+
+const loadDemoChunkPageEffect = (
   input: LoadSourceChunksInput,
   deps: RouteChunksDependencies,
   demoSourceId: string = input.sourceId,
-): Promise<JsonRouteResult<SourceChunksBody> | null> {
-  try {
+) =>
+  Effect.gen(function* () {
     const pages = input.shouldLoadAll
-      ? await loadAllDemoChunkPages(input, deps, demoSourceId)
+      ? yield* Effect.tryPromise(() =>
+          loadAllDemoChunkPages(input, deps, demoSourceId),
+        )
       : [
-          await deps.demoApi.fetchChunkPage({
-            demoSourceId,
-            page: input.pageParams.page,
-            pageSize: input.pageParams.pageSize,
-          }),
+          yield* Effect.tryPromise(() =>
+            deps.demoApi.fetchChunkPage({
+              demoSourceId,
+              page: input.pageParams.page,
+              pageSize: input.pageParams.pageSize,
+            }),
+          ),
         ]
     const page = pages[0]
     if (!page) return null
@@ -125,19 +140,22 @@ async function loadDemoChunkPage(
             pagination: page.pagination,
           },
     )
-  } catch (error) {
-    logger.warn("sources: demo chunk load failed", {
-      sourceId: input.sourceId,
-      demoSourceId,
-      page: input.pageParams.page,
-      pageSize: input.pageParams.pageSize,
-      shouldLoadAll: input.shouldLoadAll,
-      knowhereBaseUrl: process.env.KNOWHERE_BASE_URL ?? "(default)",
-      error: error instanceof Error ? error.message : String(error),
-    })
-    return null
-  }
-}
+  }).pipe(
+    Effect.catchAll((error) =>
+      Effect.sync(() => {
+        logger.warn("sources: demo chunk load failed", {
+          sourceId: input.sourceId,
+          demoSourceId,
+          page: input.pageParams.page,
+          pageSize: input.pageParams.pageSize,
+          shouldLoadAll: input.shouldLoadAll,
+          knowhereBaseUrl: process.env.KNOWHERE_BASE_URL ?? "(default)",
+          error: error instanceof Error ? error.message : String(error),
+        })
+        return null
+      }),
+    ),
+  )
 
 async function loadAllDemoChunkPages(
   input: LoadSourceChunksInput,

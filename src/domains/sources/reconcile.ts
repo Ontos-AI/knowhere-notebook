@@ -1,5 +1,6 @@
 import "server-only"
 
+import { Effect, pipe } from "effect"
 import { del } from "@vercel/blob"
 import type Knowhere from "@ontos-ai/knowhere-sdk"
 import type { JobResult } from "@ontos-ai/knowhere-sdk"
@@ -29,33 +30,64 @@ type SourceReconcileDependencies = {
   ) => Promise<unknown>
 }
 
+// ---------------------------------------------------------------------------
+// Effect core
+// ---------------------------------------------------------------------------
+
+export const reconcileSourcesForWorkspaceEffect = Effect.fn(
+  "reconcileSourcesForWorkspace",
+)(
+  function* (
+    workspace: { readonly id: string },
+    client: Knowhere,
+    deps: SourceReconcileDependencies = {},
+  ) {
+    const rows = yield* Effect.tryPromise(() =>
+      sourceWorkflowRuntime.listForWorkspace(workspace.id),
+    )
+    const parsing = rows.filter(
+      (row) => row.status === "parsing" && row.knowhereJobId,
+    )
+    if (parsing.length === 0) return rows
+
+    yield* pipe(
+      parsing,
+      Effect.forEach(
+        (source) =>
+          Effect.gen(function* () {
+            const jobId = source.knowhereJobId!
+            const job = yield* Effect.tryPromise(() => client.jobs.get(jobId))
+            yield* Effect.tryPromise(() =>
+              updateSourceFromJob(workspace.id, source, job, client, deps),
+            )
+          }).pipe(Effect.catchAllCause(() => Effect.void)),
+        { concurrency: "unbounded" },
+      ),
+    )
+
+    return yield* Effect.tryPromise(() =>
+      sourceWorkflowRuntime.listForWorkspace(workspace.id),
+    )
+  },
+)
+
+// ---------------------------------------------------------------------------
+// Async wrapper (backward-compatible)
+// ---------------------------------------------------------------------------
+
 export async function reconcileSourcesForWorkspace(
   workspace: { readonly id: string },
   client: Knowhere,
   deps: SourceReconcileDependencies = {},
 ): Promise<Source[]> {
-  const rows = await sourceWorkflowRuntime.listForWorkspace(workspace.id)
-  const parsing = rows.filter(
-    (row) => row.status === "parsing" && row.knowhereJobId,
+  return Effect.runPromise(
+    reconcileSourcesForWorkspaceEffect(workspace, client, deps),
   )
-  if (parsing.length === 0) return rows
-
-  await Promise.all(
-    parsing.map(async (source) => {
-      const jobId = source.knowhereJobId
-      if (!jobId) return
-
-      try {
-        const job = await client.jobs.get(jobId)
-        await updateSourceFromJob(workspace.id, source, job, client, deps)
-      } catch {
-        // Leave the current row as-is on transient API errors.
-      }
-    }),
-  )
-
-  return await sourceWorkflowRuntime.listForWorkspace(workspace.id)
 }
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 async function updateSourceFromJob(
   workspaceId: string,

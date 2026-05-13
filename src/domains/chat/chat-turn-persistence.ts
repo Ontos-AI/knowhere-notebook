@@ -44,13 +44,19 @@ function createRepository(
   adapter: ChatThreadPersistenceAdapter = chatThreadService,
 ): ChatRepository {
   return {
-    ensureDefaultChatThread: adapter.ensureDefault,
-    findChatThreadInWorkspace: adapter.findInWorkspace,
-    listMessagesForThread: async (workspaceId: string, threadId: string) => {
+    ensureDefaultChatThread: (workspaceId) =>
+      adapter.ensureDefault(workspaceId),
+
+    findChatThreadInWorkspace: (workspaceId, threadId) =>
+      adapter.findInWorkspace(workspaceId, threadId),
+
+    listMessagesForThread: async (workspaceId, threadId) => {
       const messages = await adapter.listMessages(workspaceId, threadId)
       return messages ? [...messages] : null
     },
-    appendMessageToThread: adapter.appendMessage,
+
+    appendMessageToThread: (workspaceId, input) =>
+      adapter.appendMessage(workspaceId, input),
   }
 }
 
