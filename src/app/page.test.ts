@@ -9,7 +9,7 @@ vi.mock("@/domains/workspace/initial-state", () => ({
   loadWorkspaceShellInitialState: mocks.loadWorkspaceShellInitialState,
 }))
 
-import Home from "./page"
+import { renderWorkspaceShell } from "./page"
 
 describe("Home", () => {
   it("renders the workspace shell from the API-backed initial state", async () => {
@@ -20,7 +20,7 @@ describe("Home", () => {
       chatMessages: [],
     })
 
-    const element = await Home()
+    const element = await renderWorkspaceShell()
 
     expect(React.isValidElement(element)).toBe(true)
     expect(mocks.loadWorkspaceShellInitialState).toHaveBeenCalledOnce()
