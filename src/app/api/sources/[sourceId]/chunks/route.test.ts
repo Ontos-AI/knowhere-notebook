@@ -266,10 +266,7 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
       page: 1,
       pageSize: 100,
     })
-    expect(mocks.findSourceInWorkspace).toHaveBeenCalledWith(
-      "workspace_1",
-      "demo-tsla-q4-2025",
-    )
+    expect(mocks.findSourceInWorkspace).not.toHaveBeenCalled()
     expect(mocks.ensureApiKeyForWorkspace).not.toHaveBeenCalled()
     expect(mocks.makeKnowhereClient).not.toHaveBeenCalled()
     expect(mocks.getSourceParseAssetUrls).not.toHaveBeenCalled()
@@ -288,7 +285,7 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
       createdAt: new Date("2026-05-10T00:00:00.000Z"),
     })
     mocks.findSourceInWorkspace.mockResolvedValue({
-      id: "source_materialized_demo",
+      id: "00000000-0000-0000-0000-000000000001",
       workspaceId: "workspace_1",
       title: "TSLA-Q4-2025-Update.pdf",
       mimeType: "application/pdf",
@@ -335,16 +332,16 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
 
     const response = await GET(
       new NextRequest(
-        "http://localhost:3001/api/sources/source_materialized_demo/chunks?page=1&pageSize=100",
+        "http://localhost:3001/api/sources/00000000-0000-0000-0000-000000000001/chunks?page=1&pageSize=100",
       ),
-      { params: Promise.resolve({ sourceId: "source_materialized_demo" }) },
+      { params: Promise.resolve({ sourceId: "00000000-0000-0000-0000-000000000001" }) },
     )
 
     await expect(response.json()).resolves.toMatchObject({
       chunks: [
         {
           chunkId: "demo-tsla-q4-2025:chunk_1",
-          documentId: "demo-doc-tsla-q4-2025",
+          documentId: "copied-doc-tsla-q4-2025",
           sourceTitle: "TSLA-Q4-2025-Update.pdf",
         },
       ],
@@ -452,7 +449,7 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
       createdAt: new Date("2026-05-10T00:00:00.000Z"),
     })
     mocks.findSourceInWorkspace.mockResolvedValue({
-      id: "source_1",
+      id: "00000000-0000-0000-0000-000000000002",
       workspaceId: "workspace_1",
       title: "notes.pdf",
       mimeType: "application/pdf",
@@ -476,9 +473,9 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
 
     const response = await GET(
       new NextRequest(
-        "http://localhost:3001/api/sources/source_1/chunks?page=1&pageSize=1",
+        "http://localhost:3001/api/sources/00000000-0000-0000-0000-000000000002/chunks?page=1&pageSize=1",
       ),
-      { params: Promise.resolve({ sourceId: "source_1" }) },
+      { params: Promise.resolve({ sourceId: "00000000-0000-0000-0000-000000000002" }) },
     )
 
     await expect(response.json()).resolves.toMatchObject({

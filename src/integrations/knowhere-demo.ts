@@ -215,7 +215,7 @@ const fetchChunkPageEffect = Effect.fn("knowhereDemo.fetchChunkPage")(
         resolveApiURL(
           `/api/v1/demo/sources/${encodeURIComponent(input.demoSourceId)}/chunks?${params.toString()}`,
         ),
-        { cache: "no-store" },
+        { cache: "force-cache", next: { revalidate: 300 } },
       ),
     )
     yield* assertOkEffect(response)

@@ -5,6 +5,7 @@ import type { DemoChunkPage } from "@/integrations/knowhere-demo"
 import { logger } from "@/lib/logger"
 import { routeResult } from "@/lib/route-result"
 import { getClientForWorkspace } from "./route-dependencies"
+import { sourceRowRepository } from "./source-row-repository"
 import type {
   JsonRouteResult,
   LoadSourceChunksInput,
@@ -46,6 +47,11 @@ const loadSourceChunksEffect = (
   deps: RouteChunksDependencies,
 ) =>
   Effect.gen(function* () {
+    if (!sourceRowRepository.isWorkspaceSourceId(input.sourceId)) {
+      const demoResult = yield* loadDemoChunkPageEffect(input, deps)
+      return demoResult ?? sourceNotFound()
+    }
+
     const user = yield* Effect.tryPromise(() => deps.getCurrentUser())
     if (!user) {
       const demoResult = yield* loadDemoChunkPageEffect(input, deps)
@@ -152,7 +158,7 @@ const loadDemoChunkPageEffect = (
           pageSize: input.pageParams.pageSize,
           shouldLoadAll: input.shouldLoadAll,
           knowhereBaseUrl: process.env.KNOWHERE_BASE_URL ?? "(default)",
-          error: error instanceof Error ? error.message : String(error),
+          error: getErrorMessage(error),
         })
         return null
       }),
@@ -185,6 +191,14 @@ async function loadAllDemoChunkPages(
     )
   }
   return pages
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    const inner = (error as Error & { error?: unknown }).error
+    return inner instanceof Error ? inner.message : error.message
+  }
+  return String(error)
 }
 
 function sourceNotFound(): JsonRouteResult<{ readonly message: string }> {
