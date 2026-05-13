@@ -7,7 +7,7 @@ import type { ChatCitationView } from "@/domains/chat/types"
 import type { ParsedChunkView } from "@/domains/chunks/types"
 
 const documentChunkPageSize = 200
-const defaultChunkPageSize = 100
+const defaultChunkPageSize = 50
 const maximumChunkPageSize = 200
 
 export type ChunkKnowhereClient = {

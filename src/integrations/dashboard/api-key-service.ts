@@ -7,6 +7,7 @@ import {
   HttpClientRequest,
 } from "@effect/platform"
 import { logger } from "@/lib/logger"
+import { knowhereApiKeyOverride } from "@/integrations/knowhere-api-key"
 import { setEmptyJsonBody } from "./orpc-request"
 import { formatUnknownForLog } from "@/lib/format-log-value"
 
@@ -113,13 +114,16 @@ export async function fetchKnowhereJwt(
 }
 
 /**
- * Fetch a per-request Knowhere JWT from Dashboard, forwarding the
- * incoming session cookie.
+ * Resolve the credential used for Knowhere SDK calls. Development can
+ * short-circuit Dashboard JWT issuance by setting KNOWHERE_API_KEY.
  */
 export async function ensureApiKeyForWorkspace(
   _workspaceId: string,
   cookieHeader: string,
 ): Promise<string> {
+  const apiKey = knowhereApiKeyOverride.getApiKey()
+  if (apiKey) return apiKey
+
   return fetchKnowhereJwt(cookieHeader)
 }
 

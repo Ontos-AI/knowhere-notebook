@@ -58,7 +58,7 @@ describe("source route service", () => {
     const getSourceViewOptionsBySourceId = vi.fn(() =>
       Effect.succeed(new Map([[source.id, { chunkCount: 8 }]])),
     );
-    const reconcileSourcesForWorkspace = vi.fn(async () => [source]);
+    const listSourcesForWorkspace = vi.fn(async () => [source]);
     const listHiddenDemoSourceIds = vi.fn(async () => []);
     const listing = createRouteListing({
       demoApi: {
@@ -73,7 +73,7 @@ describe("source route service", () => {
       })),
       getSourceViewOptionsBySourceId,
       makeKnowhereClient: vi.fn(() => knowhereClient),
-      reconcileSourcesForWorkspace,
+      listSourcesForWorkspace,
       sourceService: { listHiddenDemoSourceIds },
     });
 
@@ -99,10 +99,7 @@ describe("source route service", () => {
       workspace.id,
       "session=abc",
     );
-    expect(reconcileSourcesForWorkspace).toHaveBeenCalledWith(
-      workspace,
-      knowhereClient,
-    );
+    expect(listSourcesForWorkspace).toHaveBeenCalledWith(workspace.id);
     expect(listHiddenDemoSourceIds).toHaveBeenCalledWith(workspace.id);
   });
 
@@ -151,7 +148,7 @@ describe("source route service", () => {
       })),
       getSourceViewOptionsBySourceId,
       makeKnowhereClient: vi.fn(() => knowhereClient),
-      reconcileSourcesForWorkspace: vi.fn(async () => [legacyFakeSource, source]),
+      listSourcesForWorkspace: vi.fn(async () => [legacyFakeSource, source]),
       sourceService: { listHiddenDemoSourceIds: vi.fn(async () => []) },
     });
 
@@ -220,7 +217,7 @@ describe("source route service", () => {
       })),
       getSourceViewOptionsBySourceId,
       makeKnowhereClient: vi.fn(() => knowhereClient),
-      reconcileSourcesForWorkspace: vi.fn(async () => [legacyFakeSource]),
+      listSourcesForWorkspace: vi.fn(async () => [legacyFakeSource]),
       sourceService: { listHiddenDemoSourceIds: vi.fn(async () => []) },
     });
 
@@ -296,7 +293,7 @@ describe("source route service", () => {
       })),
       getSourceViewOptionsBySourceId,
       makeKnowhereClient: vi.fn(() => knowhereClient),
-      reconcileSourcesForWorkspace: vi.fn(async () => [nonReadyLegacySource]),
+      listSourcesForWorkspace: vi.fn(async () => [nonReadyLegacySource]),
       sourceService: { listHiddenDemoSourceIds: vi.fn(async () => []) },
     });
 
@@ -314,6 +311,75 @@ describe("source route service", () => {
             id: "demo-tsla-q4-2025",
             kind: "demo",
             demoSourceId: "demo-tsla-q4-2025",
+          }),
+        ],
+      },
+    });
+  });
+
+  it("uses demo catalog counts for materialized demo sources", async () => {
+    const materializedSource: Source = {
+      ...source,
+      id: "source_demo",
+      title: "TSLA-Q4-2025-Update.pdf",
+      status: "ready",
+      demoKey: "demo-tsla-q4-2025",
+      knowhereJobId: null,
+      knowhereDocumentId: "doc_user_copy",
+      originalBlobUrl: "/api/demo-sources/demo-tsla-q4-2025/original",
+    };
+    const knowhereClient = {
+      documents: {
+        archive: vi.fn(async () => undefined),
+        listChunks: vi.fn(async () => ({
+          chunks: [],
+          pagination: {
+            page: 1,
+            pageSize: 1,
+            total: 0,
+            totalPages: 0,
+          },
+        })),
+      },
+      jobs: {
+        create: vi.fn(),
+        upload: vi.fn(),
+      },
+    };
+    const getSourceViewOptionsBySourceId = vi.fn(() => Effect.succeed(new Map()));
+    const listing = createRouteListing({
+      demoApi: {
+        fetchCatalog: vi.fn(async () => demoCatalog),
+      },
+      ensureApiKeyForWorkspace: vi.fn(async () => "jwt_123"),
+      ensureWorkspace: vi.fn(async () => workspace),
+      getCurrentUser: vi.fn(async () => ({
+        id: "user_1",
+        email: null,
+        name: null,
+      })),
+      getSourceViewOptionsBySourceId,
+      makeKnowhereClient: vi.fn(() => knowhereClient),
+      listSourcesForWorkspace: vi.fn(async () => [materializedSource]),
+      sourceService: { listHiddenDemoSourceIds: vi.fn(async () => []) },
+    });
+
+    const result = await listing.listSources({ cookieHeader: "session=abc" });
+
+    expect(getSourceViewOptionsBySourceId).toHaveBeenCalledWith(
+      [],
+      knowhereClient,
+    );
+    expect(knowhereClient.documents.listChunks).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      status: 200,
+      body: {
+        sources: [
+          expect.objectContaining({
+            id: "source_demo",
+            kind: "workspace",
+            documentId: "doc_user_copy",
+            chunkCount: 70,
           }),
         ],
       },

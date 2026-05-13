@@ -1,4 +1,4 @@
-import { Either } from "effect"
+import { Effect, Either } from "effect"
 
 import {
   generateContextualRetrievalQuery,
@@ -30,42 +30,62 @@ type ChatAnswerRouteService = {
   ) => Promise<RouteResponse<ChatTurnValue | MessageBody>>
 }
 
-async function answerChat(
-  input: AnswerChatInput,
-): Promise<RouteResponse<ChatTurnValue | MessageBody>> {
-  const body = parseChatRequestBody(input.body)
-  if (!body.ok) {
-    return routeResult.error(body.status, body.message)
-  }
+// ---------------------------------------------------------------------------
+// Effect core
+// ---------------------------------------------------------------------------
 
-  const { workspace, client } =
-    await notebookRequestContext.getAuthenticatedWithClient()
-  const sources = await reconcileSourcesForWorkspace(workspace, client)
+const answerChatEffect = (input: AnswerChatInput) =>
+  Effect.gen(function* () {
+    const body = parseChatRequestBody(input.body)
+    if (!body.ok) {
+      return routeResult.error(body.status, body.message)
+    }
 
-  try {
-    const result = await handleChatTurn({
-      workspace,
-      sources,
-      question: body.value.question,
-      threadId: body.value.threadId,
-      excludedSourceIds: body.value.excludedSourceIds,
-      retrieval: client.retrieval,
-      generateRetrievalQuery: generateContextualRetrievalQuery,
-      generateAnswer: generateGroundedAnswer,
-      repository: chatTurnPersistence.createRepository(),
-    })
+    const { workspace, client } = yield* Effect.tryPromise(() =>
+      notebookRequestContext.getAuthenticatedWithClient(),
+    )
+    const sources = yield* Effect.tryPromise(() =>
+      reconcileSourcesForWorkspace(workspace, client),
+    )
+
+    const result = yield* Effect.tryPromise(() =>
+      handleChatTurn({
+        workspace,
+        sources,
+        question: body.value.question,
+        threadId: body.value.threadId,
+        excludedSourceIds: body.value.excludedSourceIds,
+        retrieval: client.retrieval,
+        generateRetrievalQuery: generateContextualRetrievalQuery,
+        generateAnswer: generateGroundedAnswer,
+        repository: chatTurnPersistence.createRepository(),
+      }),
+    ).pipe(
+      Effect.catchAll(() =>
+        Effect.succeed(
+          Either.left({
+            status: 401,
+            message: "Your session may have expired. Please refresh the page.",
+          }),
+        ),
+      ),
+    )
 
     return Either.match(result, {
       onLeft: (error): RouteResponse<MessageBody> =>
         routeResult.error(error.status, error.message),
       onRight: (value): RouteResponse<ChatTurnValue> => routeResult.ok(value),
     })
-  } catch {
-    return routeResult.error(
-      401,
-      "Your session may have expired. Please refresh the page.",
-    )
-  }
+  })
+
+// ---------------------------------------------------------------------------
+// Async wrapper (backward-compatible)
+// ---------------------------------------------------------------------------
+
+async function answerChat(
+  input: AnswerChatInput,
+): Promise<RouteResponse<ChatTurnValue | MessageBody>> {
+  return Effect.runPromise(answerChatEffect(input))
 }
 
 export const chatAnswerRouteService: ChatAnswerRouteService = {

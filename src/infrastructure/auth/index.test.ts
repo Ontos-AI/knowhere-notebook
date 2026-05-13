@@ -145,16 +145,20 @@ describe("sessionCookieNames", () => {
 describe("getCurrentUser", () => {
   const originalFetch = globalThis.fetch
   const originalOrigin = process.env.DASHBOARD_ORIGIN
+  const originalApiKey = process.env.KNOWHERE_API_KEY
 
   beforeEach(() => {
     vi.resetModules()
     process.env.DASHBOARD_ORIGIN = "https://dashboard.example.test"
+    delete process.env.KNOWHERE_API_KEY
   })
 
   afterEach(() => {
     globalThis.fetch = originalFetch
     if (originalOrigin === undefined) delete process.env.DASHBOARD_ORIGIN
     else process.env.DASHBOARD_ORIGIN = originalOrigin
+    if (originalApiKey === undefined) delete process.env.KNOWHERE_API_KEY
+    else process.env.KNOWHERE_API_KEY = originalApiKey
   })
 
   async function loadWithCookie(cookieHeader: string) {
@@ -172,6 +176,35 @@ describe("getCurrentUser", () => {
     const got = await getCurrentUser()
     expect(got).toBeNull()
     expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it("returns the development user when KNOWHERE_API_KEY is configured", async () => {
+    process.env.KNOWHERE_API_KEY = "sk_dev_key"
+    delete process.env.DASHBOARD_ORIGIN
+    const fetchSpy = vi.fn<typeof fetch>()
+    globalThis.fetch = fetchSpy
+    const { getCurrentUser } = await loadWithCookie("")
+
+    const user = await getCurrentUser()
+
+    expect(user).toEqual({
+      id: "knowhere-api-key-dev-user",
+      email: null,
+      name: "Knowhere API Key Development",
+    })
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it("allows requireUser without redirecting when KNOWHERE_API_KEY is configured", async () => {
+    process.env.KNOWHERE_API_KEY = "sk_dev_key"
+    delete process.env.DASHBOARD_ORIGIN
+    const { requireUser } = await loadWithCookie("")
+
+    await expect(requireUser()).resolves.toEqual({
+      id: "knowhere-api-key-dev-user",
+      email: null,
+      name: "Knowhere API Key Development",
+    })
   })
 
   it("POSTs to the Dashboard oRPC endpoint with the incoming Cookie", async () => {

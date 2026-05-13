@@ -1,11 +1,15 @@
 import { Effect } from "effect"
 
 import { demoView } from "@/domains/demo/view"
-import { resolveWorkspaceDemoSources } from "@/domains/demo/workspace-source-resolution"
+import {
+  getMaterializedDemoSourceViewOptionsBySourceId,
+  getWorkspaceSourcesNeedingKnowhereChunkCount,
+  resolveWorkspaceDemoSources,
+} from "@/domains/demo/workspace-source-resolution"
 import { routeResult } from "@/lib/route-result"
-import type { DemoCatalog } from "@/integrations/knowhere-demo"
+import { knowhereDemoApi } from "@/integrations/knowhere-demo"
 import { toSourceView } from "./view"
-import { getClientForWorkspace } from "./route-dependencies"
+import { startBackgroundReconciliation } from "./background-reconcile"
 import type {
   JsonRouteResult,
   ListSourcesBody,
@@ -19,10 +23,13 @@ type RouteListingDependencies = Pick<
   | "ensureWorkspace"
   | "getCurrentUser"
   | "getSourceViewOptionsBySourceId"
+  | "listSourcesForWorkspace"
   | "makeKnowhereClient"
-  | "reconcileSourcesForWorkspace"
 > & {
-  readonly demoApi: Pick<SourceRouteServiceDependencies["demoApi"], "fetchCatalog">
+  readonly demoApi: Pick<
+    SourceRouteServiceDependencies["demoApi"],
+    "fetchCatalog"
+  >
   readonly sourceService: Pick<
     SourceRouteServiceDependencies["sourceService"],
     "listHiddenDemoSourceIds"
@@ -35,68 +42,93 @@ type RouteListing = {
   ) => Promise<JsonRouteResult<ListSourcesBody>>
 }
 
-const emptyDemoCatalog: DemoCatalog = { sources: [] }
-
 function createRouteListing(deps: RouteListingDependencies): RouteListing {
   return {
-    listSources: (input: ListSourcesInput) => listSources(input, deps),
+    listSources: (input: ListSourcesInput) =>
+      Effect.runPromise(listSourcesEffect(input, deps)),
   }
 }
 
-async function listSources(
+// ---------------------------------------------------------------------------
+// Effect core
+// ---------------------------------------------------------------------------
+
+const listSourcesEffect = (
   input: ListSourcesInput,
   deps: RouteListingDependencies,
-): Promise<JsonRouteResult<ListSourcesBody>> {
-  const user = await deps.getCurrentUser()
-  if (!user) {
-    const catalog = await deps.demoApi.fetchCatalog()
-    return routeResult.ok({ sources: catalog.sources.map(demoView.toSourceView) })
-  }
+) =>
+  Effect.gen(function* () {
+    const user = yield* Effect.tryPromise(() => deps.getCurrentUser())
+    if (!user) {
+      const catalog = yield* Effect.tryPromise(() => deps.demoApi.fetchCatalog())
+      return routeResult.ok({
+        sources: catalog.sources.map(demoView.toSourceView),
+      })
+    }
 
-  const catalog = await fetchOptionalDemoCatalog(deps.demoApi.fetchCatalog)
-  const workspace = await deps.ensureWorkspace(user.id)
-  const client = await getClientForWorkspace(
-    workspace.id,
-    input.cookieHeader,
-    deps,
-  )
-  const sources = await deps.reconcileSourcesForWorkspace(workspace, client)
-  const demoSourceResolution = resolveWorkspaceDemoSources(sources, catalog)
-  const sourceOptions = await Effect.runPromise(
-    deps.getSourceViewOptionsBySourceId(
-      demoSourceResolution.workspaceSources,
-      client,
-    ),
-  )
-  const hiddenDemoSourceIds = new Set(
-    await deps.sourceService.listHiddenDemoSourceIds(workspace.id),
-  )
-  const visibleDemoSources = catalog.sources
-    .filter(
-      (source) =>
-        !demoSourceResolution.materializedDemoSourceIds.has(source.demoSourceId),
+    const catalog = yield* Effect.tryPromise(() =>
+      knowhereDemoApi.fetchOptionalCatalog(deps.demoApi.fetchCatalog),
     )
-    .filter((source) => !hiddenDemoSourceIds.has(source.demoSourceId))
-    .map(demoView.toSourceView)
-
-  return routeResult.ok({
-    sources: [
-      ...visibleDemoSources,
-      ...demoSourceResolution.workspaceSources.map((source) =>
-        toSourceView(source, sourceOptions.get(source.id)),
+    const workspace = yield* Effect.tryPromise(() =>
+      deps.ensureWorkspace(user.id),
+    )
+    const sources = yield* Effect.tryPromise(() =>
+      deps.listSourcesForWorkspace(workspace.id),
+    )
+    const demoSourceResolution = resolveWorkspaceDemoSources(sources, catalog)
+    const sourcesNeedingKnowhereChunkCount =
+      getWorkspaceSourcesNeedingKnowhereChunkCount(
+        demoSourceResolution.workspaceSources,
+      )
+    const materializedDemoSourceOptions =
+      getMaterializedDemoSourceViewOptionsBySourceId(
+        demoSourceResolution.workspaceSources,
+        catalog,
+      )
+    const apiKey = yield* Effect.tryPromise(() =>
+      deps.ensureApiKeyForWorkspace(workspace.id, input.cookieHeader),
+    )
+    const client = deps.makeKnowhereClient(apiKey)
+    for (const source of sources) {
+      if (source.status === "parsing" && source.knowhereJobId) {
+        yield* Effect.fork(
+          Effect.tryPromise(() =>
+            startBackgroundReconciliation(workspace.id, source.id, apiKey),
+          ),
+        )
+      }
+    }
+    const sourceOptions = yield* deps.getSourceViewOptionsBySourceId(
+      sourcesNeedingKnowhereChunkCount,
+      client,
+    )
+    const hiddenDemoSourceIds = new Set(
+      yield* Effect.tryPromise(() =>
+        deps.sourceService.listHiddenDemoSourceIds(workspace.id),
       ),
-    ],
-  })
-}
+    )
+    const visibleDemoSources = catalog.sources
+      .filter(
+        (source) =>
+          !demoSourceResolution.materializedDemoSourceIds.has(
+            source.demoSourceId,
+          ),
+      )
+      .filter((source) => !hiddenDemoSourceIds.has(source.demoSourceId))
+      .map(demoView.toSourceView)
 
-async function fetchOptionalDemoCatalog(
-  fetchDemoCatalog: () => Promise<DemoCatalog>,
-): Promise<DemoCatalog> {
-  try {
-    return await fetchDemoCatalog()
-  } catch {
-    return emptyDemoCatalog
-  }
-}
+    return routeResult.ok({
+      sources: [
+        ...visibleDemoSources,
+        ...demoSourceResolution.workspaceSources.map((source) =>
+          toSourceView(
+            source,
+            materializedDemoSourceOptions.get(source.id) ??
+              sourceOptions.get(source.id),
+          ),
+        ),
+      ],
+    })
+  })
 
 export { createRouteListing }

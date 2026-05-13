@@ -174,6 +174,7 @@ type SourceRouteServiceDependencies = {
   readonly loadChunkPageForSource: typeof loadChunkPageForSource
   readonly loadChunksForSource: typeof loadChunksForSource
   readonly makeKnowhereClient: (apiKey: string) => SourceRouteKnowhereClient
+  readonly listSourcesForWorkspace: (workspaceId: string) => Promise<Source[]>
   readonly reconcileSourcesForWorkspace: (
     workspace: Workspace,
     client: SourceRouteKnowhereClient,

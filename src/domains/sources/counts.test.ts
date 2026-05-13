@@ -76,7 +76,7 @@ describe("countChunksBySourceId", () => {
     expect(counts.size).toBe(0)
   })
 
-  it("counts materialized demo sources through their copied document id", async () => {
+  it("does not count materialized demo sources through their copied document id", async () => {
     const listChunks = vi.fn().mockResolvedValue({
       pagination: { total: 70 },
     })
@@ -99,10 +99,7 @@ describe("countChunksBySourceId", () => {
       ),
     )
 
-    expect(listChunks).toHaveBeenCalledWith("doc_user_copy", {
-      page: 1,
-      pageSize: 1,
-    })
-    expect(counts).toEqual(new Map([["source_demo", 70]]))
+    expect(listChunks).not.toHaveBeenCalled()
+    expect(counts.size).toBe(0)
   })
 })

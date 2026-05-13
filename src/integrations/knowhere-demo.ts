@@ -1,5 +1,7 @@
 import "server-only"
 
+import { Effect } from "effect"
+
 export type DemoCitation = {
   readonly demoSourceId: string
   readonly canonicalDocumentId: string
@@ -175,24 +177,111 @@ type MaterializedDemoSourceResponse = {
 
 const DEFAULT_KNOWHERE_BASE_URL = "https://api.knowhereto.ai"
 
-export const knowhereDemoApi = {
-  fetchCatalog,
-  fetchChunkPage,
-  materializeSources,
-  resolveApiURL,
-} as const
+const emptyCatalog: DemoCatalog = { sources: [] }
 
-async function fetchCatalog(): Promise<DemoCatalog> {
-  const response = await fetch(resolveApiURL("/api/v1/demo/catalog"), {
-    cache: "force-cache",
-    next: { revalidate: 300 },
-  })
-  await assertOk(response)
+// ---------------------------------------------------------------------------
+// Effect core
+// ---------------------------------------------------------------------------
 
-  const body = (await response.json()) as DemoCatalogResponse
+const fetchCatalogEffect = Effect.fn("knowhereDemo.fetchCatalog")(function* () {
+  const response = yield* Effect.tryPromise(() =>
+    fetch(resolveApiURL("/api/v1/demo/catalog"), {
+      cache: "force-cache",
+      next: { revalidate: 300 },
+    }),
+  )
+  yield* assertOkEffect(response)
+
+  const body = (yield* Effect.tryPromise(() =>
+    response.json(),
+  )) as DemoCatalogResponse
   return {
     sources: (body.sources ?? []).map(toDemoSource),
   }
+})
+
+const fetchChunkPageEffect = Effect.fn("knowhereDemo.fetchChunkPage")(
+  function* (input: {
+    readonly demoSourceId: string
+    readonly page: number
+    readonly pageSize: number
+  }) {
+    const params = new URLSearchParams({
+      page: String(input.page),
+      page_size: String(input.pageSize),
+    })
+    const response = yield* Effect.tryPromise(() =>
+      fetch(
+        resolveApiURL(
+          `/api/v1/demo/sources/${encodeURIComponent(input.demoSourceId)}/chunks?${params.toString()}`,
+        ),
+        { cache: "force-cache", next: { revalidate: 300 } },
+      ),
+    )
+    yield* assertOkEffect(response)
+
+    return toDemoChunkPage(
+      (yield* Effect.tryPromise(() =>
+        response.json(),
+      )) as DemoChunkPageResponse,
+    )
+  },
+)
+
+const materializeSourcesEffect = Effect.fn("knowhereDemo.materializeSources")(
+  function* (input: {
+    readonly apiKey: string
+    readonly namespace: string
+    readonly demoSourceIds: readonly string[]
+  }) {
+    const requestBody = JSON.stringify({
+      namespace: input.namespace,
+      demo_source_ids: input.demoSourceIds,
+    })
+    const response = yield* Effect.tryPromise(() =>
+      fetch(resolveApiURL("/api/v1/demo/materializations"), {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${input.apiKey}`,
+          "content-type": "application/json",
+        },
+        body: requestBody,
+      }),
+    )
+    yield* assertOkEffect(response)
+
+    const body = (yield* Effect.tryPromise(() =>
+      response.json(),
+    )) as MaterializeResponse
+    return (body.sources ?? []).map(toMaterializedDemoSource)
+  },
+)
+
+const fetchOptionalCatalogEffect = (
+  fetcher?: () => Effect.Effect<DemoCatalog, unknown>,
+) =>
+  (fetcher ?? fetchCatalogEffect)().pipe(
+    Effect.catchAll(() => Effect.succeed(emptyCatalog)),
+  )
+
+// ---------------------------------------------------------------------------
+// Async wrappers (backward-compatible)
+// ---------------------------------------------------------------------------
+
+async function fetchCatalog(): Promise<DemoCatalog> {
+  return Effect.runPromise(fetchCatalogEffect())
+}
+
+async function fetchOptionalCatalog(
+  fetcher?: () => Promise<DemoCatalog>,
+): Promise<DemoCatalog> {
+  const effectFetcher = fetcher
+    ? () =>
+        Effect.tryPromise(() => fetcher()).pipe(
+          Effect.catchAll(() => Effect.succeed(emptyCatalog)),
+        )
+    : undefined
+  return Effect.runPromise(fetchOptionalCatalogEffect(effectFetcher))
 }
 
 async function fetchChunkPage(input: {
@@ -200,19 +289,7 @@ async function fetchChunkPage(input: {
   readonly page: number
   readonly pageSize: number
 }): Promise<DemoChunkPage> {
-  const params = new URLSearchParams({
-    page: String(input.page),
-    page_size: String(input.pageSize),
-  })
-  const response = await fetch(
-    resolveApiURL(
-      `/api/v1/demo/sources/${encodeURIComponent(input.demoSourceId)}/chunks?${params.toString()}`,
-    ),
-    { cache: "no-store" },
-  )
-  await assertOk(response)
-
-  return toDemoChunkPage((await response.json()) as DemoChunkPageResponse)
+  return Effect.runPromise(fetchChunkPageEffect(input))
 }
 
 async function materializeSources(input: {
@@ -220,35 +297,51 @@ async function materializeSources(input: {
   readonly namespace: string
   readonly demoSourceIds: readonly string[]
 }): Promise<readonly MaterializedDemoSource[]> {
-  const response = await fetch(resolveApiURL("/api/v1/demo/materializations"), {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${input.apiKey}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      namespace: input.namespace,
-      demo_source_ids: input.demoSourceIds,
-    }),
-  })
-  await assertOk(response)
-
-  const body = (await response.json()) as MaterializeResponse
-  return (body.sources ?? []).map(toMaterializedDemoSource)
+  return Effect.runPromise(materializeSourcesEffect(input))
 }
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+export const knowhereDemoApi = {
+  fetchCatalog,
+  fetchOptionalCatalog,
+  fetchChunkPage,
+  materializeSources,
+  resolveApiURL,
+} as const
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 function resolveApiURL(path: string): string {
   const baseURL = process.env.KNOWHERE_BASE_URL ?? DEFAULT_KNOWHERE_BASE_URL
   return new URL(path, baseURL).toString()
 }
 
-async function assertOk(response: Response): Promise<void> {
-  if (response.ok) return
+class KnowhereDemoApiError {
+  readonly _tag = "KnowhereDemoApiError"
+  constructor(
+    readonly status: number,
+    readonly body: string,
+  ) {}
+}
 
-  const body = await response.text().catch(() => "")
-  throw new Error(
-    `Knowhere demo API failed: status=${response.status}, body=${body.slice(0, 300)}`,
-  )
+function assertOkEffect(
+  response: Response,
+): Effect.Effect<void, KnowhereDemoApiError> {
+  if (response.ok) return Effect.void
+
+  return Effect.gen(function* () {
+    const body = yield* Effect.tryPromise(() =>
+      response.text().catch(() => ""),
+    ).pipe(Effect.orDie)
+    return yield* Effect.fail(
+      new KnowhereDemoApiError(response.status, body),
+    )
+  })
 }
 
 function toDemoSource(source: DemoSourceResponse): DemoSource {
@@ -320,7 +413,7 @@ function toDemoChunk(
     id: requireString(chunk.id),
     chunkId: requireString(chunk.chunk_id),
     chunkType: requireString(chunk.chunk_type),
-    content: requireString(chunk.content),
+    content: requireContentString(chunk.content),
     sectionPath: optionalString(chunk.section_path) ?? null,
     sourceChunkPath: optionalString(chunk.source_chunk_path) ?? null,
     filePath: optionalString(chunk.file_path) ?? null,
@@ -363,6 +456,11 @@ function requireString(value: unknown): string {
     return value
   }
   throw new Error("Expected non-empty string from Knowhere demo API.")
+}
+
+function requireContentString(value: unknown): string {
+  if (typeof value === "string") return value
+  throw new Error("Expected string content from Knowhere demo API.")
 }
 
 function optionalString(value: unknown): string | undefined {

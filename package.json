@@ -16,7 +16,8 @@
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
     "db:migrate": "drizzle-kit migrate",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "upstash:dev": "npx @upstash/qstash-cli dev"
   },
   "dependencies": {
     "@ai-sdk/react": "^3.0.177",
@@ -34,6 +35,7 @@
     "@radix-ui/react-tabs": "^1.1.13",
     "@radix-ui/react-tooltip": "^1.2.8",
     "@tanstack/react-virtual": "^3.13.24",
+    "@upstash/workflow": "^1.2.1",
     "@vercel/blob": "^2.3.3",
     "ai": "^6.0.175",
     "class-variance-authority": "^0.7.1",

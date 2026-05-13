@@ -8,6 +8,7 @@ type ChatRepository = {
   readonly listThreadsForWorkspaceEffect: typeof chatThreadRepository.listThreadsForWorkspaceEffect
   readonly createThreadEffect: typeof chatThreadRepository.createThreadEffect
   readonly ensureDefaultThreadEffect: typeof chatThreadRepository.ensureDefaultThreadEffect
+  readonly ensureDemoThreadEffect: typeof chatThreadRepository.ensureDemoThreadEffect
   readonly listMessagesForThreadEffect: typeof chatMessageRepository.listMessagesForThreadEffect
   readonly softDeleteThreadEffect: typeof chatThreadRepository.softDeleteThreadEffect
   readonly appendMessageToThreadEffect: typeof chatMessageRepository.appendMessageToThreadEffect
@@ -18,6 +19,7 @@ export const chatRepository: ChatRepository = {
   listThreadsForWorkspaceEffect: chatThreadRepository.listThreadsForWorkspaceEffect,
   createThreadEffect: chatThreadRepository.createThreadEffect,
   ensureDefaultThreadEffect: chatThreadRepository.ensureDefaultThreadEffect,
+  ensureDemoThreadEffect: chatThreadRepository.ensureDemoThreadEffect,
   listMessagesForThreadEffect: chatMessageRepository.listMessagesForThreadEffect,
   softDeleteThreadEffect: chatThreadRepository.softDeleteThreadEffect,
   appendMessageToThreadEffect: chatMessageRepository.appendMessageToThreadEffect,

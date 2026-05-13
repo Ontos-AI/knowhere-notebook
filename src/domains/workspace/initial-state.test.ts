@@ -3,7 +3,12 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { loadWorkspaceShellInitialState } from "./initial-state"
 import type { AuthUser } from "@/infrastructure/auth"
-import type { ChatThread, Source, Workspace } from "@/infrastructure/db/schema"
+import type {
+  ChatMessage,
+  ChatThread,
+  Source,
+  Workspace,
+} from "@/infrastructure/db/schema"
 import type { DemoCatalog } from "@/integrations/knowhere-demo"
 
 type InitialStateDependencies = NonNullable<
@@ -76,7 +81,7 @@ describe("loadWorkspaceShellInitialState", () => {
       },
     ])
     expect(state.loginUrl).toBe("/login")
-    expect(deps.reconcileSourcesForWorkspace).not.toHaveBeenCalled()
+    expect(deps.listSourcesForWorkspace).not.toHaveBeenCalled()
   })
 
   it("exposes the configured Dashboard origin to the shell", async () => {
@@ -93,7 +98,7 @@ describe("loadWorkspaceShellInitialState", () => {
     const thread = makeThread(workspace.id)
     const deps = createDependencies({
       listChatThreads: vi.fn(async () => [thread]),
-      reconcileSourcesForWorkspace: vi.fn(async () => [source]),
+      listSourcesForWorkspace: vi.fn(async () => [source]),
       sourceViewOptionsBySourceId: vi.fn(() =>
         Effect.succeed(new Map([[source.id, { chunkCount: 2 }]])),
       ),
@@ -119,6 +124,7 @@ describe("loadWorkspaceShellInitialState", () => {
         chunkCount: 2,
       },
     ])
+    expect(deps.ensureDemoChatThread).not.toHaveBeenCalled()
   })
 
   it("keeps authenticated workspace sources when the demo catalog is unavailable", async () => {
@@ -137,7 +143,7 @@ describe("loadWorkspaceShellInitialState", () => {
       fetchDemoCatalog: vi.fn(async () => {
         throw new Error("Demo API unavailable.")
       }),
-      reconcileSourcesForWorkspace: vi.fn(async () => [legacyFakeSource, source]),
+      listSourcesForWorkspace: vi.fn(async () => [legacyFakeSource, source]),
       sourceViewOptionsBySourceId,
     })
 
@@ -168,18 +174,22 @@ describe("loadWorkspaceShellInitialState", () => {
       title: "TSLA-Q4-2025-Update.pdf",
       knowhereDocumentId: "doc_user_copy",
     })
+    const sourceViewOptionsBySourceId = vi.fn(() => Effect.succeed(new Map()))
     const deps = createDependencies({
       listHiddenDemoSourceIds: vi.fn(async () => ["another-demo"]),
-      reconcileSourcesForWorkspace: vi.fn(async () => [materializedSource]),
+      listSourcesForWorkspace: vi.fn(async () => [materializedSource]),
+      sourceViewOptionsBySourceId,
     })
 
     const state = await loadWorkspaceShellInitialState(deps)
 
+    expect(sourceViewOptionsBySourceId).toHaveBeenCalledWith([], expect.any(Object))
     expect(state.sources).toEqual([
       expect.objectContaining({
         id: "source_demo",
         kind: "workspace",
         documentId: "doc_user_copy",
+        chunkCount: 70,
       }),
     ])
   })
@@ -195,7 +205,7 @@ describe("loadWorkspaceShellInitialState", () => {
     })
     const sourceViewOptionsBySourceId = vi.fn(() => Effect.succeed(new Map()))
     const deps = createDependencies({
-      reconcileSourcesForWorkspace: vi.fn(async () => [legacyFakeSource]),
+      listSourcesForWorkspace: vi.fn(async () => [legacyFakeSource]),
       sourceViewOptionsBySourceId,
     })
 
@@ -223,7 +233,7 @@ describe("loadWorkspaceShellInitialState", () => {
     })
     const sourceViewOptionsBySourceId = vi.fn(() => Effect.succeed(new Map()))
     const deps = createDependencies({
-      reconcileSourcesForWorkspace: vi.fn(async () => [nonReadyLegacySource]),
+      listSourcesForWorkspace: vi.fn(async () => [nonReadyLegacySource]),
       sourceViewOptionsBySourceId,
     })
 
@@ -248,20 +258,77 @@ describe("loadWorkspaceShellInitialState", () => {
     expect(state.sources).toEqual([])
   })
 
-  it("does not seed authenticated empty threads with non-persisted demo chat", async () => {
-    const state = await loadWorkspaceShellInitialState(createDependencies())
+  it("seeds authenticated empty workspaces with persisted demo chat", async () => {
+    const workspace = makeWorkspace()
+    const demoThread = makeThread(workspace.id, {
+      id: "demo_thread_1",
+      title: "What happened in Tesla Q4?",
+      demoKey: "knowhere-demo-chat",
+    })
+    const demoMessages = [
+      makeMessage(demoThread.id, {
+        id: "demo_message_user",
+        role: "user",
+        content: "What happened in Tesla Q4?",
+      }),
+      makeMessage(demoThread.id, {
+        id: "demo_message_assistant",
+        role: "assistant",
+        content: "Tesla delivered higher revenue.",
+      }),
+    ]
+    const ensureDemoChatThread = vi.fn(async () => ({
+      thread: demoThread,
+      messages: demoMessages,
+    }))
+    const deps = createDependencies({
+      getOptionalAuthenticated: vi.fn(async () => ({
+        user: {
+          id: "user_1",
+          email: "ada@example.com",
+          name: "Ada",
+        },
+        workspace,
+      })),
+      ensureDemoChatThread,
+    })
 
-    expect(state.activeChatThreadId).toBeNull()
-    expect(state.chatMessages).toEqual([])
+    const state = await loadWorkspaceShellInitialState(deps)
+
+    expect(ensureDemoChatThread).toHaveBeenCalledWith(
+      workspace.id,
+      makeDemoCatalog(),
+    )
+    expect(state.activeChatThreadId).toBe("demo_thread_1")
+    expect(state.chatThreads).toEqual([
+      expect.objectContaining({
+        id: "demo_thread_1",
+        title: "What happened in Tesla Q4?",
+      }),
+    ])
+    expect(state.chatMessages).toEqual([
+      {
+        id: "demo_message_user",
+        role: "user",
+        content: "What happened in Tesla Q4?",
+        citations: undefined,
+      },
+      {
+        id: "demo_message_assistant",
+        role: "assistant",
+        content: "Tesla delivered higher revenue.",
+        citations: undefined,
+      },
+    ])
   })
 
-  it("reconciles source state during authenticated shell load", async () => {
+  it("lists workspace sources without blocking on reconciliation", async () => {
     const workspace = makeWorkspace()
     const readySource = makeSource(workspace.id, {
       status: "ready",
       knowhereDocumentId: "document_1",
     })
-    const reconcileSourcesForWorkspace = vi.fn(async () => [readySource])
+    const listSourcesForWorkspace = vi.fn(async () => [readySource])
     const deps = {
       ...createDependencies({
         getOptionalAuthenticated: vi.fn(async () => ({
@@ -273,15 +340,12 @@ describe("loadWorkspaceShellInitialState", () => {
           workspace,
         })),
       }),
-      reconcileSourcesForWorkspace,
+      listSourcesForWorkspace,
     } satisfies InitialStateDependencies
 
     const state = await loadWorkspaceShellInitialState(deps)
 
-    expect(reconcileSourcesForWorkspace).toHaveBeenCalledWith(
-      workspace,
-      expect.any(Object),
-    )
+    expect(listSourcesForWorkspace).toHaveBeenCalledWith(workspace.id)
     expect(state.sources).toEqual([
       expect.objectContaining({
         id: "demo-tsla-q4-2025",
@@ -312,13 +376,14 @@ function createDependencies(
 
   return {
     fetchDemoCatalog: vi.fn(async () => makeDemoCatalog()),
-    getClientForWorkspace: vi.fn(async () => ({ client })),
+    getClientForWorkspace: vi.fn(async () => ({ client, apiKey: "sk_test" })),
     getGuest: vi.fn(async () => ({ loginUrl: "/login" })),
     getOptionalAuthenticated: vi.fn(async () => ({ user, workspace })),
+    ensureDemoChatThread: vi.fn(async () => null),
     listChatThreads: vi.fn(async () => []),
     listHiddenDemoSourceIds: vi.fn(async () => []),
     listMessages: vi.fn(async () => []),
-    reconcileSourcesForWorkspace: vi.fn(async () => []),
+    listSourcesForWorkspace: vi.fn(async () => []),
     sourceViewOptionsBySourceId: vi.fn(() => Effect.succeed(new Map())),
     ...overrides,
   }
@@ -403,7 +468,10 @@ function makeSource(
   }
 }
 
-function makeThread(workspaceId: string): ChatThread {
+function makeThread(
+  workspaceId: string,
+  overrides: Partial<ChatThread> = {},
+): ChatThread {
   return {
     id: "thread_1",
     workspaceId,
@@ -411,6 +479,23 @@ function makeThread(workspaceId: string): ChatThread {
     title: "Revenue",
     createdAt: new Date("2026-05-10T00:00:00.000Z"),
     updatedAt: new Date("2026-05-10T00:00:00.000Z"),
+    
     deletedAt: null,
+    ...overrides,
+  }
+}
+
+function makeMessage(
+  threadId: string,
+  overrides: Partial<ChatMessage> = {},
+): ChatMessage {
+  return {
+    id: "message_1",
+    threadId,
+    role: "user",
+    content: "Hello",
+    citations: null,
+    createdAt: new Date("2026-05-10T00:00:00.000Z"),
+    ...overrides,
   }
 }

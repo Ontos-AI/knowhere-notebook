@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { fetchKnowhereJwt, isAuthError } from "./api-key-service"
+import {
+  ensureApiKeyForWorkspace,
+  fetchKnowhereJwt,
+  isAuthError,
+} from "./api-key-service"
 
 function getHeaderValue(headers: HeadersInit | undefined, name: string): string | null {
   if (headers === undefined) return null
@@ -158,5 +162,32 @@ describe("fetchKnowhereJwt", () => {
     await expect(
       fetchKnowhereJwt("session=x"),
     ).rejects.toThrow(/Dashboard JWT issuance: schema mismatch .*"token":""/)
+  })
+})
+
+describe("ensureApiKeyForWorkspace", () => {
+  const originalFetch = globalThis.fetch
+  const originalApiKey = process.env.KNOWHERE_API_KEY
+  const originalOrigin = process.env.DASHBOARD_ORIGIN
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+    if (originalApiKey === undefined) delete process.env.KNOWHERE_API_KEY
+    else process.env.KNOWHERE_API_KEY = originalApiKey
+    if (originalOrigin === undefined)
+      delete process.env.DASHBOARD_ORIGIN
+    else process.env.DASHBOARD_ORIGIN = originalOrigin
+  })
+
+  it("uses KNOWHERE_API_KEY without issuing a Dashboard JWT", async () => {
+    process.env.KNOWHERE_API_KEY = "sk_dev_key"
+    delete process.env.DASHBOARD_ORIGIN
+    const fetchSpy = vi.fn<typeof fetch>()
+    globalThis.fetch = fetchSpy
+
+    const apiKey = await ensureApiKeyForWorkspace("workspace_1", "")
+
+    expect(apiKey).toBe("sk_dev_key")
+    expect(fetchSpy).not.toHaveBeenCalled()
   })
 })

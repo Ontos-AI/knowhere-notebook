@@ -50,6 +50,12 @@ type ChunksPanelWorkflow = {
   readonly visibleView: ChunksPanelView
 }
 
+type LocalFocusedChunk = {
+  readonly chunkId: string
+  readonly parentRequestId: number
+  readonly requestId: number
+}
+
 const estimatedChunkCardHeight = 220
 const virtualListOverscan = 4
 const infiniteScrollThreshold = 720
@@ -67,9 +73,8 @@ export function useChunksPanelWorkflow({
 }: ChunksPanelWorkflowInput): ChunksPanelWorkflow {
   const viewportRef = useRef<HTMLDivElement>(null)
   const [activeView, setActiveView] = useState<ChunksPanelView>("parsed")
-  const [localFocusedChunkId, setLocalFocusedChunkId] = useState<string | null>(
-    null,
-  )
+  const [localFocusedChunk, setLocalFocusedChunk] =
+    useState<LocalFocusedChunk | null>(null)
   const [originalTargetPage, setOriginalTargetPage] = useState<{
     readonly pageNumber: number | null
     readonly requestId: number
@@ -77,7 +82,14 @@ export function useChunksPanelWorkflow({
     pageNumber: null,
     requestId: 0,
   })
-  const activeFocusedChunkId = focusedChunkId ?? localFocusedChunkId
+  const activeFocusedChunkId: string | null =
+    localFocusedChunk?.parentRequestId === focusedChunkRequestId
+      ? localFocusedChunk.chunkId
+      : focusedChunkId
+  const activeFocusedChunkRequestId: number =
+    localFocusedChunk?.parentRequestId === focusedChunkRequestId
+      ? localFocusedChunk.requestId
+      : focusedChunkRequestId
   const hasOriginalFile = selectedSource !== null && selectedSourceFile !== null
   const visibleView = hasOriginalFile ? activeView : "parsed"
   const visibleChunks = useMemo(
@@ -157,8 +169,17 @@ export function useChunksPanelWorkflow({
   )
 
   const requestChunkFocus = useCallback((chunkId: string | null): void => {
-    setLocalFocusedChunkId(chunkId)
-  }, [])
+    if (chunkId === null) {
+      setLocalFocusedChunk(null)
+      return
+    }
+
+    setLocalFocusedChunk((current: LocalFocusedChunk | null) => ({
+      chunkId,
+      parentRequestId: focusedChunkRequestId,
+      requestId: (current?.requestId ?? 0) + 1,
+    }))
+  }, [focusedChunkRequestId])
 
   const handleChunkSelected = useCallback(
     (chunk: ParsedChunkView): void => {
@@ -198,7 +219,7 @@ export function useChunksPanelWorkflow({
     }
 
     scrollToFocusedChunk()
-  }, [activeFocusedChunkId, focusedChunkRequestId, scrollToFocusedChunk])
+  }, [activeFocusedChunkId, activeFocusedChunkRequestId, scrollToFocusedChunk])
 
   useEffect(() => {
     if (!hasOriginalFile) setActiveView("parsed")
@@ -207,6 +228,10 @@ export function useChunksPanelWorkflow({
   useEffect(() => {
     if (focusedChunkId) setActiveView("parsed")
   }, [focusedChunkId, focusedChunkRequestId])
+
+  useEffect(() => {
+    setLocalFocusedChunk(null)
+  }, [selectedSource])
 
   return {
     activeFocusedChunkId,

@@ -13,7 +13,7 @@ type ChatCitationPersistence = {
   ) => CitationView[] | null
   readonly replaceDemoCitationDocumentId: (
     citations: readonly ChatCitationView[] | undefined,
-    documentId: string,
+    documentIdMap: ReadonlyMap<string, string>,
   ) => ChatCitationView[] | undefined
 }
 
@@ -29,17 +29,24 @@ function normalizeCitations(
 
 function replaceDemoCitationDocumentId(
   citations: readonly ChatCitationView[] | undefined,
-  documentId: string,
+  documentIdMap: ReadonlyMap<string, string>,
 ): ChatCitationView[] | undefined {
   if (!citations) return undefined
 
-  return citations.map((citation) => ({
-    ...citation,
-    source: {
-      ...citation.source,
-      documentId,
-    },
-  }))
+  return citations.map((citation) => {
+    const newId = citation.source.documentId
+      ? documentIdMap.get(citation.source.documentId)
+      : undefined
+    if (!newId) return citation
+
+    return {
+      ...citation,
+      source: {
+        ...citation.source,
+        documentId: newId,
+      },
+    }
+  })
 }
 
 function toCitationView(

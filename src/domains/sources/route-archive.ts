@@ -1,3 +1,5 @@
+import { Effect } from "effect"
+
 import { routeResult } from "@/lib/route-result"
 import { getClientForWorkspace } from "./route-dependencies"
 import type {
@@ -26,56 +28,67 @@ type RouteArchive = {
 
 function createRouteArchive(deps: RouteArchiveDependencies): RouteArchive {
   return {
-    archiveSource: (input: ArchiveSourceInput) => archiveSource(input, deps),
+    archiveSource: (input: ArchiveSourceInput) =>
+      Effect.runPromise(archiveSourceEffect(input, deps)),
   }
 }
 
-async function archiveSource(
+// ---------------------------------------------------------------------------
+// Effect core
+// ---------------------------------------------------------------------------
+
+const archiveSourceEffect = (
   input: ArchiveSourceInput,
   deps: RouteArchiveDependencies,
-): Promise<JsonRouteResult<ArchiveSourceBody>> {
-  const user = await deps.requireUser()
-  const workspace = await deps.ensureWorkspace(user.id)
-  const source = await deps.sourceService.findInWorkspace(
-    workspace.id,
-    input.sourceId,
-  )
-
-  if (!source) {
-    const catalog = await deps.demoApi.fetchCatalog()
-    const isDemoSource = catalog.sources.some(
-      (candidate) => candidate.demoSourceId === input.sourceId,
+) =>
+  Effect.gen(function* () {
+    const user = yield* Effect.tryPromise(() => deps.requireUser())
+    const workspace = yield* Effect.tryPromise(() =>
+      deps.ensureWorkspace(user.id),
     )
-    if (isDemoSource) {
-      await deps.sourceService.hideDemoSource(workspace.id, input.sourceId)
-      return routeResult.ok({ id: input.sourceId, archived: true })
+    const source = yield* Effect.tryPromise(() =>
+      deps.sourceService.findInWorkspace(workspace.id, input.sourceId),
+    )
+
+    if (!source) {
+      const catalog = yield* Effect.tryPromise(() => deps.demoApi.fetchCatalog())
+      const isDemoSource = catalog.sources.some(
+        (candidate) => candidate.demoSourceId === input.sourceId,
+      )
+      if (isDemoSource) {
+        yield* Effect.tryPromise(() =>
+          deps.sourceService.hideDemoSource(workspace.id, input.sourceId),
+        )
+        return routeResult.ok({ id: input.sourceId, archived: true as const })
+      }
+
+      return routeResult.error(404, "Source not found.")
     }
 
-    return routeResult.error(404, "Source not found.")
-  }
-
-  if (source.knowhereDocumentId) {
-    const client = await getClientForWorkspace(
-      workspace.id,
-      input.cookieHeader,
-      deps,
-    )
-    await client.documents.archive(source.knowhereDocumentId)
-  }
-
-  await deps.sourceService.softDelete(workspace.id, input.sourceId)
-  if (source.demoKey) {
-    await deps.sourceService.hideDemoSource(workspace.id, source.demoKey)
-  }
-  if (source.originalBlobPathname) {
-    try {
-      await deps.deleteBlob(source.originalBlobPathname)
-    } catch {
-      // Source archival already succeeded; Blob cleanup is best-effort.
+    if (source.knowhereDocumentId) {
+      const client = yield* Effect.tryPromise(() =>
+        getClientForWorkspace(workspace.id, input.cookieHeader, deps),
+      )
+      yield* Effect.tryPromise(() =>
+        client.documents.archive(source.knowhereDocumentId!),
+      )
     }
-  }
 
-  return routeResult.ok({ id: input.sourceId, archived: true })
-}
+    yield* Effect.tryPromise(() =>
+      deps.sourceService.softDelete(workspace.id, input.sourceId),
+    )
+    if (source.demoKey) {
+      yield* Effect.tryPromise(() =>
+        deps.sourceService.hideDemoSource(workspace.id, source.demoKey!),
+      )
+    }
+    if (source.originalBlobPathname) {
+      yield* Effect.tryPromise(() =>
+        deps.deleteBlob(source.originalBlobPathname!),
+      ).pipe(Effect.catchAllCause(() => Effect.void))
+    }
+
+    return routeResult.ok({ id: input.sourceId, archived: true as const })
+  })
 
 export { createRouteArchive }

@@ -41,7 +41,6 @@ export function useWorkspaceSourceWorkflow({
   const initialSourceRows = useMemo(() => [...initialSources], [initialSources])
   const initialSelectedSourceId = workspaceSourceState.getInitialSelectedSourceId(
     initialSourceRows,
-    isGuest,
   )
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(
     initialSelectedSourceId,
@@ -68,6 +67,11 @@ export function useWorkspaceSourceWorkflow({
     sourceRows,
     sourceExclusionById,
   )
+  const resolvedSelectedSourceId =
+    workspaceSourceState.getResolvedSelectedSourceId(
+      sourceRows,
+      selectedSourceId,
+    )
   const sourceTitlesByDocumentId = useMemo<Readonly<Record<string, string>>>(
     () =>
       Object.fromEntries(
@@ -142,6 +146,7 @@ export function useWorkspaceSourceWorkflow({
         workspaceSourceState.archiveSource({
           sourceId,
           selectedSourceId: current,
+          sources: sourceRows,
           sourceExclusionById,
         }).selectedSourceId,
       )
@@ -149,6 +154,7 @@ export function useWorkspaceSourceWorkflow({
         workspaceSourceState.archiveSource({
           sourceId,
           selectedSourceId,
+          sources: sourceRows,
           sourceExclusionById: current,
         }).sourceExclusionById,
       )
@@ -169,7 +175,7 @@ export function useWorkspaceSourceWorkflow({
     handleSourceUploaded,
     handleToggleIncluded,
     readySourceCount,
-    selectedSourceId,
+    selectedSourceId: resolvedSelectedSourceId,
     setSelectedSourceId,
     sourceTitlesByDocumentId,
     sources,

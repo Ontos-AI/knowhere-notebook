@@ -13,6 +13,7 @@ import { getCurrentUser, requireUser } from "@/infrastructure/auth"
 import { workspaceService } from "@/domains/workspace/service"
 import { sourceViewOptionsBySourceId as getDefaultSourceViewOptionsBySourceId } from "./counts"
 import { reconcileSourcesForWorkspace as reconcileDefaultSourcesForWorkspace } from "./reconcile"
+import { sourceWorkflowRuntime } from "./workflow-runtime"
 import { sourceService as defaultSourceService } from "./service"
 import type {
   SourceRouteKnowhereClient,
@@ -35,6 +36,7 @@ const defaultDependencies: SourceRouteServiceDependencies = {
   loadChunksForSource,
   makeKnowhereClient: (apiKey: string) =>
     makeDefaultKnowhereClient(apiKey) as SourceRouteKnowhereClient,
+  listSourcesForWorkspace: sourceWorkflowRuntime.listForWorkspace,
   reconcileSourcesForWorkspace: (workspace, client) =>
     reconcileDefaultSourcesForWorkspace(
       workspace,

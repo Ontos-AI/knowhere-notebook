@@ -159,6 +159,64 @@ describe("WorkspaceShell", () => {
     ).toBeTruthy();
   });
 
+  it("shows the first ready document chunks on workspace load", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
+      const url = getRequestURL(input);
+
+      if (url.pathname === "/api/sources/source_1/chunks") {
+        return Response.json({
+          chunks: [
+            {
+              chunkId: "source_1:chunk_1",
+              documentId: "doc_1",
+              sectionPath: "Overview",
+              type: "text",
+              content: "First document chunk content.",
+              sourceTitle: "first.pdf",
+            },
+          ],
+          pagination: {
+            page: Number(url.searchParams.get("page") ?? "1"),
+            pageSize: 100,
+            total: 1,
+            totalPages: 1,
+          },
+        });
+      }
+
+      return Response.json({ message: "Unexpected request" }, { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    render(
+      React.createElement(C, {
+        sources: [
+          {
+            id: "source_1",
+            title: "first.pdf",
+            status: "ready",
+            documentId: "doc_1",
+          },
+          {
+            id: "source_2",
+            title: "second.pdf",
+            status: "ready",
+            documentId: "doc_2",
+          },
+        ],
+      }),
+    );
+
+    const desktopChunksPanel = within(screen.getByTestId("desktop-chunks-panel"));
+    await waitFor(() => {
+      expect(
+        desktopChunksPanel.getByText("First document chunk content."),
+      ).toBeTruthy();
+    });
+    expect(countFetches(fetch, "/api/sources/source_1/chunks")).toBe(1);
+    expect(countFetches(fetch, "/api/sources/source_2/chunks")).toBe(0);
+  });
+
   it("focuses guest citations on desktop using loaded demo chunks", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
       const url = getRequestURL(input);

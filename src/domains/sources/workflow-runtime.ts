@@ -31,6 +31,7 @@ type UploadRepositoryRuntime = {
     workspaceId: string,
     sourceId: string,
     reason: string,
+    requiredStatus?: string,
   ) => Promise<Source | null>
 }
 
@@ -133,9 +134,10 @@ const markFailed: SourceWorkflowRuntime["markFailed"] = (
   workspaceId: string,
   sourceId: string,
   reason: string,
+  requiredStatus?: string,
 ) =>
   databaseRuntime.runPromise(
-    sourceRepository.markFailedEffect(workspaceId, sourceId, reason),
+    sourceRepository.markFailedEffect(workspaceId, sourceId, reason, requiredStatus),
   )
 
 const clearStagedBlob: SourceWorkflowRuntime["clearStagedBlob"] = (

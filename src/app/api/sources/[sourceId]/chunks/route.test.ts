@@ -199,6 +199,218 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
     })
   })
 
+  it("serves API-owned demo chunks for authenticated canonical demo sources", async () => {
+    mocks.getCurrentUser.mockResolvedValue({
+      id: "knowhere-api-key-dev-user",
+      email: null,
+      name: "Knowhere API Key Development",
+    })
+    mocks.ensureWorkspace.mockResolvedValue({
+      id: "workspace_1",
+      userId: "knowhere-api-key-dev-user",
+      namespace: "notebook-workspace_1",
+      createdAt: new Date("2026-05-10T00:00:00.000Z"),
+    })
+    mocks.findSourceInWorkspace.mockResolvedValue(null)
+    mocks.fetchDemoChunkPage.mockResolvedValue({
+      demoSourceId: "demo-tsla-q4-2025",
+      canonicalDocumentId: "demo-doc-tsla-q4-2025",
+      title: "TSLA-Q4-2025-Update.pdf",
+      mimeType: "application/pdf",
+      chunks: [
+        {
+          id: "demo-tsla-q4-2025:chunk_1",
+          chunkId: "chunk_1",
+          chunkType: "text",
+          content: "Tesla demo content",
+          sectionPath: "Summary",
+          sourceChunkPath: "Summary",
+          filePath: null,
+          sortOrder: 0,
+          metadata: {},
+          assetUrl: null,
+        },
+      ],
+      pagination: {
+        page: 1,
+        pageSize: 100,
+        total: 70,
+        totalPages: 1,
+      },
+    })
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost:3001/api/sources/demo-tsla-q4-2025/chunks?page=1&pageSize=100",
+      ),
+      { params: Promise.resolve({ sourceId: "demo-tsla-q4-2025" }) },
+    )
+
+    await expect(response.json()).resolves.toMatchObject({
+      chunks: [
+        {
+          chunkId: "demo-tsla-q4-2025:chunk_1",
+          documentId: "demo-doc-tsla-q4-2025",
+          sourceTitle: "TSLA-Q4-2025-Update.pdf",
+        },
+      ],
+      pagination: {
+        page: 1,
+        pageSize: 100,
+        total: 70,
+      },
+    })
+    expect(response.status).toBe(200)
+    expect(mocks.fetchDemoChunkPage).toHaveBeenCalledWith({
+      demoSourceId: "demo-tsla-q4-2025",
+      page: 1,
+      pageSize: 100,
+    })
+    expect(mocks.findSourceInWorkspace).not.toHaveBeenCalled()
+    expect(mocks.ensureApiKeyForWorkspace).not.toHaveBeenCalled()
+    expect(mocks.makeKnowhereClient).not.toHaveBeenCalled()
+    expect(mocks.getSourceParseAssetUrls).not.toHaveBeenCalled()
+  })
+
+  it("serves demo chunks for authenticated materialized demo sources", async () => {
+    mocks.getCurrentUser.mockResolvedValue({
+      id: "user_1",
+      email: null,
+      name: null,
+    })
+    mocks.ensureWorkspace.mockResolvedValue({
+      id: "workspace_1",
+      userId: "user_1",
+      namespace: "notebook-workspace_1",
+      createdAt: new Date("2026-05-10T00:00:00.000Z"),
+    })
+    mocks.findSourceInWorkspace.mockResolvedValue({
+      id: "00000000-0000-0000-0000-000000000001",
+      workspaceId: "workspace_1",
+      title: "TSLA-Q4-2025-Update.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 1024,
+      status: "ready",
+      failureReason: null,
+      knowhereJobId: null,
+      knowhereDocumentId: "copied-doc-tsla-q4-2025",
+      stagedBlobPathname: null,
+      stagedBlobUrl: null,
+      originalBlobPathname: null,
+      originalBlobUrl: "/api/demo-sources/demo-tsla-q4-2025/original",
+      demoKey: "demo-tsla-q4-2025",
+      createdAt: new Date("2026-05-10T00:00:00.000Z"),
+      updatedAt: new Date("2026-05-10T00:00:00.000Z"),
+      deletedAt: null,
+    })
+    mocks.fetchDemoChunkPage.mockResolvedValue({
+      demoSourceId: "demo-tsla-q4-2025",
+      canonicalDocumentId: "demo-doc-tsla-q4-2025",
+      title: "TSLA-Q4-2025-Update.pdf",
+      mimeType: "application/pdf",
+      chunks: [
+        {
+          id: "demo-tsla-q4-2025:chunk_1",
+          chunkId: "chunk_1",
+          chunkType: "text",
+          content: "Tesla demo content",
+          sectionPath: "Summary",
+          sourceChunkPath: "Summary",
+          filePath: null,
+          sortOrder: 0,
+          metadata: {},
+          assetUrl: null,
+        },
+      ],
+      pagination: {
+        page: 1,
+        pageSize: 100,
+        total: 70,
+        totalPages: 1,
+      },
+    })
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost:3001/api/sources/00000000-0000-0000-0000-000000000001/chunks?page=1&pageSize=100",
+      ),
+      { params: Promise.resolve({ sourceId: "00000000-0000-0000-0000-000000000001" }) },
+    )
+
+    await expect(response.json()).resolves.toMatchObject({
+      chunks: [
+        {
+          chunkId: "demo-tsla-q4-2025:chunk_1",
+          documentId: "copied-doc-tsla-q4-2025",
+          sourceTitle: "TSLA-Q4-2025-Update.pdf",
+        },
+      ],
+      pagination: {
+        page: 1,
+        pageSize: 100,
+        total: 70,
+      },
+    })
+    expect(response.status).toBe(200)
+    expect(mocks.fetchDemoChunkPage).toHaveBeenCalledWith({
+      demoSourceId: "demo-tsla-q4-2025",
+      page: 1,
+      pageSize: 100,
+    })
+    expect(mocks.ensureApiKeyForWorkspace).not.toHaveBeenCalled()
+    expect(mocks.makeKnowhereClient).not.toHaveBeenCalled()
+    expect(mocks.getSourceParseAssetUrls).not.toHaveBeenCalled()
+  })
+
+  it("logs the demo chunk load failure before returning 404", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+    try {
+      mocks.getCurrentUser.mockResolvedValue({
+        id: "knowhere-api-key-dev-user",
+        email: null,
+        name: "Knowhere API Key Development",
+      })
+      mocks.ensureWorkspace.mockResolvedValue({
+        id: "workspace_1",
+        userId: "knowhere-api-key-dev-user",
+        namespace: "notebook-workspace_1",
+        createdAt: new Date("2026-05-10T00:00:00.000Z"),
+      })
+      mocks.findSourceInWorkspace.mockResolvedValue(null)
+      mocks.fetchDemoChunkPage.mockRejectedValue(
+        new Error("Knowhere demo API failed: status=404"),
+      )
+
+      const response = await GET(
+        new NextRequest(
+          "http://localhost:3001/api/sources/demo-tsla-q4-2025/chunks?page=1&pageSize=100",
+        ),
+        { params: Promise.resolve({ sourceId: "demo-tsla-q4-2025" }) },
+      )
+
+      expect(response.status).toBe(404)
+      const line = String(warnSpy.mock.calls[0]?.[0] ?? "")
+      const log = JSON.parse(line) as {
+        readonly msg?: unknown
+        readonly sourceId?: unknown
+        readonly page?: unknown
+        readonly pageSize?: unknown
+        readonly shouldLoadAll?: unknown
+        readonly error?: unknown
+      }
+      expect(log).toMatchObject({
+        msg: "sources: demo chunk load failed",
+        sourceId: "demo-tsla-q4-2025",
+        page: 1,
+        pageSize: 100,
+        shouldLoadAll: false,
+        error: "Knowhere demo API failed: status=404",
+      })
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+
   it("loads authenticated workspace chunks without probing the demo endpoint first", async () => {
     const knowhereClient = {
       documents: {
@@ -237,7 +449,7 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
       createdAt: new Date("2026-05-10T00:00:00.000Z"),
     })
     mocks.findSourceInWorkspace.mockResolvedValue({
-      id: "source_1",
+      id: "00000000-0000-0000-0000-000000000002",
       workspaceId: "workspace_1",
       title: "notes.pdf",
       mimeType: "application/pdf",
@@ -261,9 +473,9 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
 
     const response = await GET(
       new NextRequest(
-        "http://localhost:3001/api/sources/source_1/chunks?page=1&pageSize=1",
+        "http://localhost:3001/api/sources/00000000-0000-0000-0000-000000000002/chunks?page=1&pageSize=1",
       ),
-      { params: Promise.resolve({ sourceId: "source_1" }) },
+      { params: Promise.resolve({ sourceId: "00000000-0000-0000-0000-000000000002" }) },
     )
 
     await expect(response.json()).resolves.toMatchObject({

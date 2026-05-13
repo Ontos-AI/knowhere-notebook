@@ -59,6 +59,7 @@ type SourceRowRepository = {
     workspaceId: string,
     sourceId: string,
     reason: string,
+    requiredStatus?: string,
   ) => Effect.Effect<Source | null, never, DbClient>
   readonly clearStagedBlobEffect: (
     workspaceId: string,
@@ -68,6 +69,7 @@ type SourceRowRepository = {
     workspaceId: string,
     sourceId: string,
   ) => Effect.Effect<boolean, never, DbClient>
+  readonly isWorkspaceSourceId: (sourceId: string) => boolean
   readonly findInWorkspaceWithDb: (
     db: Db,
     workspaceId: string,
@@ -78,6 +80,7 @@ type SourceRowRepository = {
     workspaceId: string,
     sourceId: string,
     values: SourceUpdate,
+    requiredStatus?: string,
   ) => Promise<Source | null>
   readonly requireSource: (source: Source | null, message: string) => Source
 }
@@ -161,17 +164,18 @@ const markReadyEffect: SourceRowRepository["markReadyEffect"] = (
     status: "ready",
     knowhereDocumentId: documentId,
     failureReason: null,
-  })
+  }, "parsing")
 
 const markFailedEffect: SourceRowRepository["markFailedEffect"] = (
   workspaceId: string,
   sourceId: string,
   reason: string,
+  requiredStatus?: string,
 ) =>
   updateInWorkspaceEffect(workspaceId, sourceId, {
     status: "failed",
     failureReason: reason,
-  })
+  }, requiredStatus)
 
 const clearStagedBlobEffect: SourceRowRepository["clearStagedBlobEffect"] = (
   workspaceId: string,
@@ -187,6 +191,8 @@ const softDeleteEffect: SourceRowRepository["softDeleteEffect"] = (
   sourceId: string,
 ) =>
   Effect.gen(function* () {
+    if (!isWorkspaceSourceId(sourceId)) return false
+
     const db = yield* DbClient
     const result = yield* Effect.promise(() =>
       db
@@ -209,11 +215,12 @@ const updateInWorkspaceEffect = (
   workspaceId: string,
   sourceId: string,
   values: SourceUpdate,
+  requiredStatus?: string,
 ) =>
   Effect.gen(function* () {
     const db = yield* DbClient
     return yield* Effect.promise(() =>
-      updateInWorkspaceWithDb(db, workspaceId, sourceId, values),
+      updateInWorkspaceWithDb(db, workspaceId, sourceId, values, requiredStatus),
     )
   })
 
@@ -222,6 +229,8 @@ async function findInWorkspaceWithDb(
   workspaceId: string,
   sourceId: string,
 ): Promise<Source | null> {
+  if (!isWorkspaceSourceId(sourceId)) return null
+
   const row = await db
     .select()
     .from(sources)
@@ -242,20 +251,36 @@ async function updateInWorkspaceWithDb(
   workspaceId: string,
   sourceId: string,
   values: SourceUpdate,
+  requiredStatus?: string,
 ): Promise<Source | null> {
+  if (!isWorkspaceSourceId(sourceId)) return null
+
+  // Layer 3 — Atomic status guard.
+  // When requiredStatus is set, the UPDATE only matches if the source is still in
+  // the expected status. Two concurrent workflows will race; only one wins.
+  const conditions = [
+    eq(sources.id, sourceId),
+    eq(sources.workspaceId, workspaceId),
+    isNull(sources.deletedAt),
+  ]
+  if (requiredStatus) {
+    conditions.push(eq(sources.status, requiredStatus))
+  }
+
   const [source] = await db
     .update(sources)
     .set({ ...values, updatedAt: sql`now()` })
-    .where(
-      and(
-        eq(sources.id, sourceId),
-        eq(sources.workspaceId, workspaceId),
-        isNull(sources.deletedAt),
-      ),
-    )
+    .where(and(...conditions))
     .returning()
 
   return source ?? null
+}
+
+const WORKSPACE_SOURCE_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu
+
+function isWorkspaceSourceId(sourceId: string): boolean {
+  return WORKSPACE_SOURCE_ID_PATTERN.test(sourceId)
 }
 
 function requireSource(source: Source | null, message: string): Source {
@@ -272,6 +297,7 @@ export const sourceRowRepository: SourceRowRepository = {
   markFailedEffect,
   clearStagedBlobEffect,
   softDeleteEffect,
+  isWorkspaceSourceId,
   findInWorkspaceWithDb,
   updateInWorkspaceWithDb,
   requireSource,
