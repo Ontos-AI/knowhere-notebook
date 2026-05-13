@@ -17,6 +17,7 @@ import type {
   ChatMessageView,
   ChatThreadView,
 } from "@/domains/chat/types"
+import type { ParsedChunkView } from "@/domains/chunks/types"
 import type { SourceView } from "@/domains/sources/types"
 
 export type { PanelId } from "@/components/workspace-shell-layout"
@@ -41,6 +42,7 @@ export type WorkspaceShellProps = {
   activeChatThreadId?: string | null
   chatMessages?: ChatMessageView[]
   dashboardUrl?: string
+  initialPrefetchedChunksBySourceId?: Record<string, ParsedChunkView[]>
   isGuest?: boolean
   loginUrl?: string
 }
@@ -68,6 +70,7 @@ function WorkspaceShellContent({
   activeChatThreadId,
   chatMessages: initialChatMessages,
   dashboardUrl,
+  initialPrefetchedChunksBySourceId,
   isGuest = false,
   loginUrl,
 }: WorkspaceShellProps): ReactElement {
@@ -80,6 +83,8 @@ function WorkspaceShellContent({
   })
   const citationFocus = useWorkspaceCitationFocus({
     fetchChunks: workspaceClient.fetchChunks,
+    initialPrefetchedChunksBySourceId:
+      initialPrefetchedChunksBySourceId ?? undefined,
     onSelectSource: sourceWorkflow.setSelectedSourceId,
     selectedSourceId: sourceWorkflow.selectedSourceId,
     sources: sourceWorkflow.sources,

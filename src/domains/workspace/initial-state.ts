@@ -1,8 +1,10 @@
 import "server-only"
 
+import { unstable_cache } from "next/cache"
 import { Effect } from "effect"
 
 import type { ChatMessageView } from "@/domains/chat/types"
+import type { ParsedChunkView } from "@/domains/chunks/types"
 import { demoView } from "@/domains/demo/view"
 import {
   getMaterializedDemoSourceViewOptionsBySourceId,
@@ -33,6 +35,7 @@ type WorkspaceShellInitialState = {
   readonly chatMessages?: ChatMessageView[]
   readonly chatThreads?: ReturnType<typeof toChatThreadView>[]
   readonly dashboardUrl?: string
+  readonly initialPrefetchedChunksBySourceId?: Record<string, ParsedChunkView[]>
   readonly isGuest?: boolean
   readonly loginUrl?: string
   readonly sources?: SourceView[]
@@ -46,6 +49,38 @@ type WorkspaceShellInitialState = {
     readonly namespace: string
   }
 }
+
+const getCachedDemoChunksForSource = (demoSourceId: string) =>
+  unstable_cache(
+    async (): Promise<ParsedChunkView[]> => {
+      const chunkPage = await knowhereDemoApi.fetchChunkPage({
+        demoSourceId,
+        page: 1,
+        pageSize: 100,
+      })
+      const sourceView = demoView.toSourceView({
+        demoSourceId: chunkPage.demoSourceId,
+        canonicalDocumentId: chunkPage.canonicalDocumentId,
+        title: chunkPage.title,
+        mimeType: chunkPage.mimeType,
+        sizeBytes: 0,
+        status: "ready",
+        chunkCount: chunkPage.pagination.total,
+        originalFile: {
+          url: "",
+          mimeType: "",
+          sizeBytes: 0,
+          canDownload: false,
+        },
+        examples: [],
+      })
+      return chunkPage.chunks.map((chunk) =>
+        demoView.toParsedChunkView(sourceView, chunk),
+      )
+    },
+    ["demo-chunks", demoSourceId],
+    { revalidate: false },
+  )()
 
 type WorkspaceShellInitialStateClient =
   Parameters<typeof getSourceViewOptionsBySourceId>[1]
@@ -117,11 +152,32 @@ export const loadWorkspaceShellInitialStateEffect = (
         deps.fetchDemoCatalog(),
       )
       const guestContext = yield* Effect.tryPromise(() => deps.getGuest())
+
+      const firstDemoSource = demoCatalog.sources[0]
+      let initialPrefetchedChunksBySourceId: Record<
+        string,
+        ParsedChunkView[]
+      > = {}
+      if (firstDemoSource) {
+        const chunks = yield* Effect.catchAll(
+          Effect.tryPromise(() =>
+            getCachedDemoChunksForSource(firstDemoSource.demoSourceId),
+          ),
+          () => Effect.succeed([] as ParsedChunkView[]),
+        )
+        if (chunks.length > 0) {
+          initialPrefetchedChunksBySourceId = {
+            [firstDemoSource.demoSourceId]: chunks,
+          }
+        }
+      }
+
       return {
         isGuest: true,
         sources: demoCatalog.sources.map(demoView.toSourceView),
         chatMessages: demoView.toChatMessages(demoCatalog),
         dashboardUrl: resolveDashboardUrl(),
+        initialPrefetchedChunksBySourceId,
         loginUrl: guestContext.loginUrl,
       }
     }
