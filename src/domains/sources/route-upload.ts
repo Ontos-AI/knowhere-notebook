@@ -1,7 +1,7 @@
 import type { Source, Workspace } from "@/infrastructure/db/schema"
 import { routeResult } from "@/lib/route-result"
+import { startBackgroundReconciliation } from "./background-reconcile"
 import { validateSourceBlobUploadInput } from "./blob-upload"
-import { getClientForWorkspace } from "./route-dependencies"
 import type {
   JsonRouteResult,
   SourceRouteKnowhereClient,
@@ -56,15 +56,17 @@ async function uploadSource(
   }
 
   const workspace = await deps.ensureWorkspace(user.id)
-  const client = await getClientForWorkspace(
+  const apiKey = await deps.ensureApiKeyForWorkspace(
     workspace.id,
     input.cookieHeader,
-    deps,
   )
+  const client = deps.makeKnowhereClient(apiKey)
   const source = await uploadToKnowhere(workspace, input.upload, client, deps)
     .finally(() => {
       input.onUploadFinished?.()
     })
+
+  startBackgroundReconciliation(workspace.id, source.id, apiKey)
 
   return routeResult.ok({ source: toSourceView(source) }, 201)
 }

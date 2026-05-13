@@ -7,9 +7,9 @@ import {
   resolveWorkspaceDemoSources,
 } from "@/domains/demo/workspace-source-resolution"
 import { routeResult } from "@/lib/route-result"
-import type { DemoCatalog } from "@/integrations/knowhere-demo"
+import { knowhereDemoApi } from "@/integrations/knowhere-demo"
 import { toSourceView } from "./view"
-import { getClientForWorkspace } from "./route-dependencies"
+import { reconcileStaleSources } from "./background-reconcile"
 import type {
   JsonRouteResult,
   ListSourcesBody,
@@ -23,8 +23,8 @@ type RouteListingDependencies = Pick<
   | "ensureWorkspace"
   | "getCurrentUser"
   | "getSourceViewOptionsBySourceId"
+  | "listSourcesForWorkspace"
   | "makeKnowhereClient"
-  | "reconcileSourcesForWorkspace"
 > & {
   readonly demoApi: Pick<SourceRouteServiceDependencies["demoApi"], "fetchCatalog">
   readonly sourceService: Pick<
@@ -38,8 +38,6 @@ type RouteListing = {
     input: ListSourcesInput,
   ) => Promise<JsonRouteResult<ListSourcesBody>>
 }
-
-const emptyDemoCatalog: DemoCatalog = { sources: [] }
 
 function createRouteListing(deps: RouteListingDependencies): RouteListing {
   return {
@@ -57,14 +55,9 @@ async function listSources(
     return routeResult.ok({ sources: catalog.sources.map(demoView.toSourceView) })
   }
 
-  const catalog = await fetchOptionalDemoCatalog(deps.demoApi.fetchCatalog)
+  const catalog = await knowhereDemoApi.fetchOptionalCatalog(deps.demoApi.fetchCatalog)
   const workspace = await deps.ensureWorkspace(user.id)
-  const client = await getClientForWorkspace(
-    workspace.id,
-    input.cookieHeader,
-    deps,
-  )
-  const sources = await deps.reconcileSourcesForWorkspace(workspace, client)
+  const sources = await deps.listSourcesForWorkspace(workspace.id)
   const demoSourceResolution = resolveWorkspaceDemoSources(sources, catalog)
   const sourcesNeedingKnowhereChunkCount =
     getWorkspaceSourcesNeedingKnowhereChunkCount(
@@ -75,6 +68,12 @@ async function listSources(
       demoSourceResolution.workspaceSources,
       catalog,
     )
+  const apiKey = await deps.ensureApiKeyForWorkspace(
+    workspace.id,
+    input.cookieHeader,
+  )
+  const client = deps.makeKnowhereClient(apiKey)
+  void reconcileStaleSources(workspace.id, apiKey)
   const sourceOptions = await Effect.runPromise(
     deps.getSourceViewOptionsBySourceId(
       sourcesNeedingKnowhereChunkCount,
@@ -104,16 +103,6 @@ async function listSources(
       ),
     ],
   })
-}
-
-async function fetchOptionalDemoCatalog(
-  fetchDemoCatalog: () => Promise<DemoCatalog>,
-): Promise<DemoCatalog> {
-  try {
-    return await fetchDemoCatalog()
-  } catch {
-    return emptyDemoCatalog
-  }
 }
 
 export { createRouteListing }

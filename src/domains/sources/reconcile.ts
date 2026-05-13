@@ -4,7 +4,7 @@ import { del } from "@vercel/blob"
 import type Knowhere from "@ontos-ai/knowhere-sdk"
 import type { JobResult } from "@ontos-ai/knowhere-sdk"
 
-import type { Source, Workspace } from "@/infrastructure/db/schema"
+import type { Source } from "@/infrastructure/db/schema"
 import {
   storeParsedResultAssets,
   type StoreParsedResultAssetsInput,
@@ -30,7 +30,7 @@ type SourceReconcileDependencies = {
 }
 
 export async function reconcileSourcesForWorkspace(
-  workspace: Workspace,
+  workspace: { readonly id: string },
   client: Knowhere,
   deps: SourceReconcileDependencies = {},
 ): Promise<Source[]> {

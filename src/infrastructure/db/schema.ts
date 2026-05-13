@@ -111,13 +111,9 @@ export const sources = pgTable(
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
   (t) => [
-    // Sidebar list query: per workspace, newest first, soft-deleted
-    // rows hidden. Partial index keeps the hot path lean.
     index("sources_workspace_created_idx")
       .on(t.workspaceId, t.createdAt.desc())
       .where(sql`deleted_at IS NULL`),
-    // Reconcile sweep picks up anything still in `uploading` or
-    // `parsing`. Small cardinality, small index.
     index("sources_workspace_status_idx").on(t.workspaceId, t.status),
     uniqueIndex("sources_workspace_demo_key_idx").on(t.workspaceId, t.demoKey),
   ],

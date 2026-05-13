@@ -81,7 +81,7 @@ describe("loadWorkspaceShellInitialState", () => {
       },
     ])
     expect(state.loginUrl).toBe("/login")
-    expect(deps.reconcileSourcesForWorkspace).not.toHaveBeenCalled()
+    expect(deps.listSourcesForWorkspace).not.toHaveBeenCalled()
   })
 
   it("exposes the configured Dashboard origin to the shell", async () => {
@@ -98,7 +98,7 @@ describe("loadWorkspaceShellInitialState", () => {
     const thread = makeThread(workspace.id)
     const deps = createDependencies({
       listChatThreads: vi.fn(async () => [thread]),
-      reconcileSourcesForWorkspace: vi.fn(async () => [source]),
+      listSourcesForWorkspace: vi.fn(async () => [source]),
       sourceViewOptionsBySourceId: vi.fn(() =>
         Effect.succeed(new Map([[source.id, { chunkCount: 2 }]])),
       ),
@@ -143,7 +143,7 @@ describe("loadWorkspaceShellInitialState", () => {
       fetchDemoCatalog: vi.fn(async () => {
         throw new Error("Demo API unavailable.")
       }),
-      reconcileSourcesForWorkspace: vi.fn(async () => [legacyFakeSource, source]),
+      listSourcesForWorkspace: vi.fn(async () => [legacyFakeSource, source]),
       sourceViewOptionsBySourceId,
     })
 
@@ -177,7 +177,7 @@ describe("loadWorkspaceShellInitialState", () => {
     const sourceViewOptionsBySourceId = vi.fn(() => Effect.succeed(new Map()))
     const deps = createDependencies({
       listHiddenDemoSourceIds: vi.fn(async () => ["another-demo"]),
-      reconcileSourcesForWorkspace: vi.fn(async () => [materializedSource]),
+      listSourcesForWorkspace: vi.fn(async () => [materializedSource]),
       sourceViewOptionsBySourceId,
     })
 
@@ -205,7 +205,7 @@ describe("loadWorkspaceShellInitialState", () => {
     })
     const sourceViewOptionsBySourceId = vi.fn(() => Effect.succeed(new Map()))
     const deps = createDependencies({
-      reconcileSourcesForWorkspace: vi.fn(async () => [legacyFakeSource]),
+      listSourcesForWorkspace: vi.fn(async () => [legacyFakeSource]),
       sourceViewOptionsBySourceId,
     })
 
@@ -233,7 +233,7 @@ describe("loadWorkspaceShellInitialState", () => {
     })
     const sourceViewOptionsBySourceId = vi.fn(() => Effect.succeed(new Map()))
     const deps = createDependencies({
-      reconcileSourcesForWorkspace: vi.fn(async () => [nonReadyLegacySource]),
+      listSourcesForWorkspace: vi.fn(async () => [nonReadyLegacySource]),
       sourceViewOptionsBySourceId,
     })
 
@@ -322,13 +322,13 @@ describe("loadWorkspaceShellInitialState", () => {
     ])
   })
 
-  it("reconciles source state during authenticated shell load", async () => {
+  it("lists workspace sources without blocking on reconciliation", async () => {
     const workspace = makeWorkspace()
     const readySource = makeSource(workspace.id, {
       status: "ready",
       knowhereDocumentId: "document_1",
     })
-    const reconcileSourcesForWorkspace = vi.fn(async () => [readySource])
+    const listSourcesForWorkspace = vi.fn(async () => [readySource])
     const deps = {
       ...createDependencies({
         getOptionalAuthenticated: vi.fn(async () => ({
@@ -340,15 +340,12 @@ describe("loadWorkspaceShellInitialState", () => {
           workspace,
         })),
       }),
-      reconcileSourcesForWorkspace,
+      listSourcesForWorkspace,
     } satisfies InitialStateDependencies
 
     const state = await loadWorkspaceShellInitialState(deps)
 
-    expect(reconcileSourcesForWorkspace).toHaveBeenCalledWith(
-      workspace,
-      expect.any(Object),
-    )
+    expect(listSourcesForWorkspace).toHaveBeenCalledWith(workspace.id)
     expect(state.sources).toEqual([
       expect.objectContaining({
         id: "demo-tsla-q4-2025",
@@ -379,14 +376,14 @@ function createDependencies(
 
   return {
     fetchDemoCatalog: vi.fn(async () => makeDemoCatalog()),
-    getClientForWorkspace: vi.fn(async () => ({ client })),
+    getClientForWorkspace: vi.fn(async () => ({ client, apiKey: "sk_test" })),
     getGuest: vi.fn(async () => ({ loginUrl: "/login" })),
     getOptionalAuthenticated: vi.fn(async () => ({ user, workspace })),
     ensureDemoChatThread: vi.fn(async () => null),
     listChatThreads: vi.fn(async () => []),
     listHiddenDemoSourceIds: vi.fn(async () => []),
     listMessages: vi.fn(async () => []),
-    reconcileSourcesForWorkspace: vi.fn(async () => []),
+    listSourcesForWorkspace: vi.fn(async () => []),
     sourceViewOptionsBySourceId: vi.fn(() => Effect.succeed(new Map())),
     ...overrides,
   }
@@ -482,6 +479,7 @@ function makeThread(
     title: "Revenue",
     createdAt: new Date("2026-05-10T00:00:00.000Z"),
     updatedAt: new Date("2026-05-10T00:00:00.000Z"),
+    
     deletedAt: null,
     ...overrides,
   }

@@ -175,8 +175,21 @@ type MaterializedDemoSourceResponse = {
 
 const DEFAULT_KNOWHERE_BASE_URL = "https://api.knowhereto.ai"
 
+const emptyCatalog: DemoCatalog = { sources: [] }
+
+async function fetchOptionalCatalog(
+  fetcher?: () => Promise<DemoCatalog>,
+): Promise<DemoCatalog> {
+  try {
+    return await (fetcher ?? fetchCatalog)()
+  } catch {
+    return emptyCatalog
+  }
+}
+
 export const knowhereDemoApi = {
   fetchCatalog,
+  fetchOptionalCatalog,
   fetchChunkPage,
   materializeSources,
   resolveApiURL,

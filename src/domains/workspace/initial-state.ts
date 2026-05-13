@@ -12,8 +12,9 @@ import {
 import { chatThreadService } from "@/domains/chat/thread-service"
 import { toChatMessageView, toChatThreadView } from "@/domains/chat/view"
 import { sourceViewOptionsBySourceId as getSourceViewOptionsBySourceId } from "@/domains/sources/counts"
-import { reconcileSourcesForWorkspace as reconcileDefaultSourcesForWorkspace } from "@/domains/sources/reconcile"
 import { sourceService } from "@/domains/sources/service"
+import { sourceWorkflowRuntime } from "@/domains/sources/workflow-runtime"
+import { reconcileStaleSources } from "@/domains/sources/background-reconcile"
 import type { SourceView } from "@/domains/sources/types"
 import { toSourceView } from "@/domains/sources/view"
 import type { AuthUser } from "@/infrastructure/auth"
@@ -46,14 +47,13 @@ type WorkspaceShellInitialState = {
 }
 
 type WorkspaceShellInitialStateClient =
-  Parameters<typeof getSourceViewOptionsBySourceId>[1] &
-    Parameters<typeof reconcileDefaultSourcesForWorkspace>[1]
+  Parameters<typeof getSourceViewOptionsBySourceId>[1]
 
 type WorkspaceShellInitialStateDependencies = {
   readonly fetchDemoCatalog: () => Promise<DemoCatalog>
   readonly getClientForWorkspace: (
     workspace: Workspace,
-  ) => Promise<{ readonly client: WorkspaceShellInitialStateClient }>
+  ) => Promise<{ readonly apiKey: string; readonly client: WorkspaceShellInitialStateClient }>
   readonly getGuest: () => Promise<{ readonly loginUrl: string }>
   readonly getOptionalAuthenticated: () => Promise<{
     readonly user: AuthUser
@@ -72,10 +72,7 @@ type WorkspaceShellInitialStateDependencies = {
     workspaceId: string,
     threadId: string,
   ) => Promise<readonly ChatMessage[] | null>
-  readonly reconcileSourcesForWorkspace: (
-    workspace: Workspace,
-    client: WorkspaceShellInitialStateClient,
-  ) => Promise<readonly Source[]>
+  readonly listSourcesForWorkspace: (workspaceId: string) => Promise<readonly Source[]>
   readonly sourceViewOptionsBySourceId: (
     sources: readonly Source[],
     client: WorkspaceShellInitialStateClient,
@@ -91,11 +88,9 @@ const defaultDependencies: WorkspaceShellInitialStateDependencies = {
   listChatThreads: chatThreadService.listForWorkspace,
   listHiddenDemoSourceIds: sourceService.listHiddenDemoSourceIds,
   listMessages: chatThreadService.listMessages,
-  reconcileSourcesForWorkspace: reconcileDefaultSourcesForWorkspace,
+  listSourcesForWorkspace: sourceWorkflowRuntime.listForWorkspace,
   sourceViewOptionsBySourceId: getSourceViewOptionsBySourceId,
 }
-
-const emptyDemoCatalog: DemoCatalog = { sources: [] }
 
 export async function loadWorkspaceShellInitialState(
   deps: WorkspaceShellInitialStateDependencies = defaultDependencies,
@@ -115,9 +110,8 @@ export async function loadWorkspaceShellInitialState(
   }
 
   const { user, workspace } = context
-  const demoCatalog = await fetchOptionalDemoCatalog(deps.fetchDemoCatalog)
-  const { client } = await deps.getClientForWorkspace(workspace)
-  const sources = await deps.reconcileSourcesForWorkspace(workspace, client)
+  const demoCatalog = await knowhereDemoApi.fetchOptionalCatalog(deps.fetchDemoCatalog)
+  const sources = await deps.listSourcesForWorkspace(workspace.id)
   const demoSourceResolution = resolveWorkspaceDemoSources(
     sources,
     demoCatalog,
@@ -160,6 +154,8 @@ export async function loadWorkspaceShellInitialState(
       demoSourceResolution.workspaceSources,
       demoCatalog,
     )
+  const { client, apiKey } = await deps.getClientForWorkspace(workspace)
+  void reconcileStaleSources(workspace.id, apiKey)
   const sourceOptions = await Effect.runPromise(
     deps.sourceViewOptionsBySourceId(sourcesNeedingKnowhereChunkCount, client),
   )
@@ -193,14 +189,4 @@ export async function loadWorkspaceShellInitialState(
 
 function resolveDashboardUrl(): string | undefined {
   return process.env.DASHBOARD_ORIGIN
-}
-
-async function fetchOptionalDemoCatalog(
-  fetchDemoCatalog: () => Promise<DemoCatalog>,
-): Promise<DemoCatalog> {
-  try {
-    return await fetchDemoCatalog()
-  } catch {
-    return emptyDemoCatalog
-  }
 }
