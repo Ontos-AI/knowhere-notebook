@@ -39,7 +39,7 @@ export function TopNav({
           <a
             href={dashboardUrl}
             aria-label="Open Dashboard"
-            className="flex h-10 w-10 items-center justify-center gap-2 rounded-lg border-x-2 border-t-2 border-b-[4px] border-[#e7e5e4] bg-white px-0 pb-0.5 font-mono-display text-xs font-semibold leading-5 text-[#292524] shadow-none transition-[transform,border-width,background-color] hover:-translate-y-px hover:bg-[#fafafa] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8e51ff]/25 dark:border-[#3f3f46] dark:bg-[#18181b] dark:text-[#fafafa] dark:hover:bg-[#27272a] sm:w-auto sm:px-3"
+            className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8e51ff]/25"
           >
             <LayoutDashboard className="size-4" strokeWidth={1.75} />
             <span className="hidden sm:inline">Dashboard</span>
