@@ -18,6 +18,10 @@ type WorkspaceSourceWorkflow = {
   readonly archivingSourceIds: string[]
   readonly handleArchiveSource: (sourceId: string) => Promise<void>
   readonly handleSelectedSourceChange: (sourceId: string | null) => void
+  readonly handleSourcesMaterialized: (
+    demoSourceIds: readonly string[],
+    materializedSources: readonly SourceView[],
+  ) => void
   readonly handleSourceUploaded: (source: SourceView) => void
   readonly handleToggleIncluded: (sourceId: string, included: boolean) => void
   readonly readySourceCount: number
@@ -37,7 +41,6 @@ export function useWorkspaceSourceWorkflow({
   const initialSourceRows = useMemo(() => [...initialSources], [initialSources])
   const initialSelectedSourceId = workspaceSourceState.getInitialSelectedSourceId(
     initialSourceRows,
-    isGuest,
   )
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(
     initialSelectedSourceId,
@@ -64,6 +67,11 @@ export function useWorkspaceSourceWorkflow({
     sourceRows,
     sourceExclusionById,
   )
+  const resolvedSelectedSourceId =
+    workspaceSourceState.getResolvedSelectedSourceId(
+      sourceRows,
+      selectedSourceId,
+    )
   const sourceTitlesByDocumentId = useMemo<Readonly<Record<string, string>>>(
     () =>
       Object.fromEntries(
@@ -88,6 +96,28 @@ export function useWorkspaceSourceWorkflow({
       { revalidate: false },
     )
     void mutateSources()
+  }
+
+  function handleSourcesMaterialized(
+    demoSourceIds: readonly string[],
+    materializedSources: readonly SourceView[],
+  ): void {
+    const materializedDemoSourceIdSet = new Set(demoSourceIds)
+    void mutateSources(
+      (current) => [
+        ...(current ?? sourceRows).filter(
+          (source) =>
+            !source.demoSourceId ||
+            !materializedDemoSourceIdSet.has(source.demoSourceId),
+        ),
+        ...materializedSources,
+      ],
+      { revalidate: false },
+    )
+    setSelectedSourceId((current) => {
+      if (!current || !materializedDemoSourceIdSet.has(current)) return current
+      return materializedSources[0]?.id ?? current
+    })
   }
 
   function handleToggleIncluded(sourceId: string, included: boolean): void {
@@ -116,6 +146,7 @@ export function useWorkspaceSourceWorkflow({
         workspaceSourceState.archiveSource({
           sourceId,
           selectedSourceId: current,
+          sources: sourceRows,
           sourceExclusionById,
         }).selectedSourceId,
       )
@@ -123,6 +154,7 @@ export function useWorkspaceSourceWorkflow({
         workspaceSourceState.archiveSource({
           sourceId,
           selectedSourceId,
+          sources: sourceRows,
           sourceExclusionById: current,
         }).sourceExclusionById,
       )
@@ -139,10 +171,11 @@ export function useWorkspaceSourceWorkflow({
     archivingSourceIds,
     handleArchiveSource,
     handleSelectedSourceChange,
+    handleSourcesMaterialized,
     handleSourceUploaded,
     handleToggleIncluded,
     readySourceCount,
-    selectedSourceId,
+    selectedSourceId: resolvedSelectedSourceId,
     setSelectedSourceId,
     sourceTitlesByDocumentId,
     sources,

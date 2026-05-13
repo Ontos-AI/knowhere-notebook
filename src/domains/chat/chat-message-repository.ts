@@ -32,6 +32,10 @@ type ChatMessageRepository = {
     workspaceId: string,
     input: AppendChatMessageInput,
   ) => Effect.Effect<ChatMessage | null, never, DbClient>
+  readonly updateMessageCitationsEffect: (
+    messageId: string,
+    citations: CitationView[] | null,
+  ) => Effect.Effect<ChatMessage | null, never, DbClient>
 }
 
 const listMessagesForThreadEffect: ChatMessageRepository["listMessagesForThreadEffect"] =
@@ -92,7 +96,22 @@ const appendMessageToThreadEffect: ChatMessageRepository["appendMessageToThreadE
       )
     })
 
+const updateMessageCitationsEffect: ChatMessageRepository["updateMessageCitationsEffect"] =
+  (messageId: string, citations: CitationView[] | null) =>
+    Effect.gen(function* () {
+      const db = yield* DbClient
+      const [updated] = yield* Effect.promise(() =>
+        db
+          .update(chatMessages)
+          .set({ citations })
+          .where(eq(chatMessages.id, messageId))
+          .returning(),
+      )
+      return updated ?? null
+    })
+
 export const chatMessageRepository: ChatMessageRepository = {
   listMessagesForThreadEffect,
   appendMessageToThreadEffect,
+  updateMessageCitationsEffect,
 }

@@ -2,6 +2,7 @@ import "server-only"
 
 import path from "node:path"
 import { put } from "@vercel/blob"
+import { Effect } from "effect"
 import type { JobResult } from "@ontos-ai/knowhere-sdk"
 
 export type StoredParsedResultAssets = {
@@ -52,6 +53,73 @@ export type StoreParsedResultAssetsInput = {
 
 const parsedResultDirectoryName = "parsed-result"
 
+// ---------------------------------------------------------------------------
+// Effect core
+// ---------------------------------------------------------------------------
+
+export const storeParsedResultAssetsEffect = Effect.fn(
+  "storeParsedResultAssets",
+)(
+  function* ({
+    workspaceId,
+    sourceId,
+    job,
+    client,
+    blobStore = vercelBlobStore,
+  }: StoreParsedResultAssetsInput) {
+    const parseResult = (yield* Effect.tryPromise(() =>
+      client.jobs.load(job),
+    )) as ParsedResultWithAssets
+    const blobPrefix = getParsedResultBlobPrefix(workspaceId, sourceId)
+    const resultBlob = yield* Effect.tryPromise(() =>
+      blobStore.put(
+        `${blobPrefix}/result.zip`,
+        parseResult.rawZip,
+        getBlobPutOptions("application/zip"),
+      ),
+    )
+
+    const assetUrlsByFilePath: Record<string, string> = {}
+
+    for (const image of parseResult.imageChunks ?? []) {
+      const filePath = normalizeParsedAssetPath(image.filePath)
+      if (!filePath || !image.data) continue
+
+      const blob = yield* Effect.tryPromise(() =>
+        blobStore.put(
+          `${blobPrefix}/${filePath}`,
+          image.data!,
+          getBlobPutOptions(getContentTypeForPath(filePath)),
+        ),
+      )
+      assetUrlsByFilePath[filePath] = blob.url
+    }
+
+    for (const table of parseResult.tableChunks ?? []) {
+      const filePath = normalizeParsedAssetPath(table.filePath)
+      if (!filePath || typeof table.html !== "string") continue
+
+      const blob = yield* Effect.tryPromise(() =>
+        blobStore.put(
+          `${blobPrefix}/${filePath}`,
+          table.html!,
+          getBlobPutOptions("text/html; charset=utf-8"),
+        ),
+      )
+      assetUrlsByFilePath[filePath] = blob.url
+    }
+
+    return {
+      resultBlobUrl: resultBlob.url,
+      assetUrlsByFilePath,
+    }
+  },
+)
+
+// ---------------------------------------------------------------------------
+// Async wrapper (backward-compatible)
+// ---------------------------------------------------------------------------
+
 export async function storeParsedResultAssets({
   workspaceId,
   sourceId,
@@ -59,45 +127,20 @@ export async function storeParsedResultAssets({
   client,
   blobStore = vercelBlobStore,
 }: StoreParsedResultAssetsInput): Promise<StoredParsedResultAssets> {
-  const parseResult = (await client.jobs.load(job)) as ParsedResultWithAssets
-  const blobPrefix = getParsedResultBlobPrefix(workspaceId, sourceId)
-  const resultBlob = await blobStore.put(
-    `${blobPrefix}/result.zip`,
-    parseResult.rawZip,
-    getBlobPutOptions("application/zip"),
+  return Effect.runPromise(
+    storeParsedResultAssetsEffect({
+      workspaceId,
+      sourceId,
+      job,
+      client,
+      blobStore,
+    }),
   )
-
-  const assetUrlsByFilePath: Record<string, string> = {}
-
-  for (const image of parseResult.imageChunks ?? []) {
-    const filePath = normalizeParsedAssetPath(image.filePath)
-    if (!filePath || !image.data) continue
-
-    const blob = await blobStore.put(
-      `${blobPrefix}/${filePath}`,
-      image.data,
-      getBlobPutOptions(getContentTypeForPath(filePath)),
-    )
-    assetUrlsByFilePath[filePath] = blob.url
-  }
-
-  for (const table of parseResult.tableChunks ?? []) {
-    const filePath = normalizeParsedAssetPath(table.filePath)
-    if (!filePath || typeof table.html !== "string") continue
-
-    const blob = await blobStore.put(
-      `${blobPrefix}/${filePath}`,
-      table.html,
-      getBlobPutOptions("text/html; charset=utf-8"),
-    )
-    assetUrlsByFilePath[filePath] = blob.url
-  }
-
-  return {
-    resultBlobUrl: resultBlob.url,
-    assetUrlsByFilePath,
-  }
 }
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 function getParsedResultBlobPrefix(
   workspaceId: string,

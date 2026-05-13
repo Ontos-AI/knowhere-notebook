@@ -6,9 +6,15 @@
 
 @theme inline {
   --color-background: var(--background);
+  --color-background-secondary: var(--background-secondary);
+  --color-background-tertiary: var(--background-tertiary);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-mono: var(--font-mono);
+  --font-mono-display: var(--font-mono-display);
+  --font-mono-readable: var(--font-mono-readable);
+  --font-accent: var(--font-accent);
+  --font-brand: var(--font-brand);
   --font-heading: var(--font-sans);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
@@ -29,12 +35,16 @@
   --color-destructive: var(--destructive);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
+  --color-accent-light: var(--accent-light);
+  --color-accent-dark: var(--accent-dark);
   --color-muted-foreground: var(--muted-foreground);
   --color-muted: var(--muted);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-secondary: var(--secondary);
   --color-primary-foreground: var(--primary-foreground);
   --color-primary: var(--primary);
+  --color-primary-light: var(--primary-light);
+  --color-primary-dark: var(--primary-dark);
   --color-popover-foreground: var(--popover-foreground);
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
@@ -51,6 +61,25 @@
 :root {
   color-scheme: light;
   --radius: 0.5rem;
+  --font-sans:
+    var(--font-geist-sans), "Geist", "Inter", "Segoe UI", "Helvetica Neue",
+    Arial, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono:
+    var(--font-geist-mono), "Azeret Mono", "JetBrains Mono", "SFMono-Regular",
+    "SF Mono", "Cascadia Code", Menlo, Consolas, ui-monospace, monospace;
+  --font-mono-display:
+    "Azeret Mono", var(--font-geist-mono), "JetBrains Mono", "SFMono-Regular",
+    "SF Mono", "Cascadia Code", Menlo, Consolas, ui-monospace, monospace;
+  --font-mono-readable:
+    "Azeret Mono", "Atkinson Hyperlegible Mono", var(--font-geist-mono),
+    "JetBrains Mono", "SFMono-Regular", "SF Mono", "Cascadia Code", Menlo,
+    Consolas, ui-monospace, monospace;
+  --font-accent:
+    "Anuphan", "Avenir Next", "Segoe UI", "Helvetica Neue", Arial, system-ui,
+    sans-serif;
+  --font-brand:
+    var(--font-geist-sans), "Geist", "Ysabeau", "Iowan Old Style",
+    "Palatino Linotype", "Book Antiqua", Georgia, ui-serif, serif;
 }
 
 .dark {
@@ -130,6 +159,8 @@
 
   .dark {
     --background: hsl(222.2 47.4% 11.2%);
+    --background-secondary: hsl(217.2 32.6% 17.5%);
+    --background-tertiary: hsl(215.3 25% 26.7%);
     --foreground: hsl(210 40% 98%);
     --card: hsl(222.2 47.4% 11.2%);
     --card-foreground: hsl(210 40% 98%);
@@ -137,6 +168,8 @@
     --popover-foreground: hsl(210 40% 98%);
 
     --primary: hsl(217.2 91.2% 59.8%);
+    --primary-light: hsl(213.1 93.9% 67.8%);
+    --primary-dark: hsl(221.2 83.2% 53.3%);
     --primary-foreground: hsl(222.2 47.4% 11.2%);
 
     --secondary: hsl(217.2 32.6% 17.5%);
@@ -144,6 +177,8 @@
     --muted: hsl(217.2 32.6% 17.5%);
     --muted-foreground: hsl(215 20.2% 65.1%);
     --accent: hsl(217.2 32.6% 17.5%);
+    --accent-light: hsl(215.3 25% 26.7%);
+    --accent-dark: hsl(222.2 47.4% 11.2%);
     --accent-foreground: hsl(210 40% 98%);
 
     --destructive: hsl(0 72.2% 50.6%);

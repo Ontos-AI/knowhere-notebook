@@ -9,7 +9,7 @@ import { defineConfig } from "drizzle-kit";
  *   pnpm db:migrate    # apply migrations to DATABASE_URL (prod deploy)
  */
 export default defineConfig({
-  schema: "./src/lib/schema.ts",
+  schema: "./src/infrastructure/db/schema.ts",
   out: "./drizzle",
   dialect: "postgresql",
   dbCredentials: {

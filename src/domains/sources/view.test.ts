@@ -39,6 +39,7 @@ describe("toSourceView", () => {
       ),
     ).toEqual({
       id: "source_1",
+      kind: "workspace",
       title: "notes.pdf",
       mimeType: "application/pdf",
       status: "ready",
@@ -63,6 +64,7 @@ describe("toSourceView", () => {
       ),
     ).toEqual({
       id: "source_1",
+      kind: "workspace",
       title: "notes.pdf",
       mimeType: "application/pdf",
       status: "parsing",
@@ -75,20 +77,20 @@ describe("toSourceView", () => {
       toSourceView(
         makeSource({
           demoKey: "demo-tsla-q4-2025",
-          title: "TSLA-Q4-2025-Update(1).pdf",
+          title: "TSLA-Q4-2025-Update.pdf",
           mimeType: "application/pdf",
           sizeBytes: 5648867,
-          knowhereDocumentId: "demo-doc-tsla-q4-2025",
-          originalBlobUrl: "/demo-sources/tsla-q4-2025/original.pdf",
+          knowhereDocumentId: "doc_user_copy",
+          originalBlobUrl: "/api/demo-sources/demo-tsla-q4-2025/original",
         }),
         { chunkCount: 70 },
       ),
     ).toMatchObject({
-      title: "TSLA-Q4-2025-Update(1).pdf",
-      documentId: "demo-doc-tsla-q4-2025",
+      title: "TSLA-Q4-2025-Update.pdf",
+      documentId: "doc_user_copy",
       chunkCount: 70,
       originalFile: {
-        url: "/demo-sources/tsla-q4-2025/original.pdf",
+        url: "/api/demo-sources/demo-tsla-q4-2025/original",
         canDownload: false,
       },
     });

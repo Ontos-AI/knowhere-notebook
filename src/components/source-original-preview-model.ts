@@ -15,6 +15,7 @@ const textPreviewByteLimit = 1024 * 1024;
 const docxPreviewByteLimit = 10 * 1024 * 1024;
 
 export const sourceOriginalPreviewModel = {
+  canPreviewOriginalFile,
   pdfPageAspectRatio,
   getInitialPdfPageWidth,
   getOriginalDownloadUrl,
@@ -28,6 +29,18 @@ export const sourceOriginalPreviewModel = {
   isWithinPreviewByteLimit,
   normalizeMarkdownPreviewText,
 } as const;
+
+function canPreviewOriginalFile(
+  sourceTitle: string | null | undefined,
+  file: SourceOriginalFileView | null | undefined,
+): boolean {
+  if (!file) return false;
+
+  const kind = getPreviewKind(sourceTitle ?? "", file.mimeType);
+  if (kind === "unsupported") return false;
+
+  return isWithinPreviewByteLimit(kind, file);
+}
 
 function getPreviewKind(title: string, mimeType: string): PreviewKind {
   const extension = getExtension(title);

@@ -1,5 +1,6 @@
 import "server-only"
 
+import { Effect } from "effect"
 import { NextResponse } from "next/server"
 
 import { formatUnknownForLog } from "./format-log-value"
@@ -10,13 +11,20 @@ export async function withApiErrorResponse(
   handler: () => Promise<NextResponse>,
   fallbackMessage: string = "Something went wrong. Please try again.",
 ): Promise<NextResponse> {
-  try {
-    return await handler()
-  } catch (error) {
-    logger.error("api: unhandled request failure", {
-      context,
-      error: formatUnknownForLog(error),
-    })
-    return NextResponse.json({ message: fallbackMessage }, { status: 500 })
-  }
+  return Effect.runPromise(
+    Effect.tryPromise(handler).pipe(
+      Effect.catchAll((error) =>
+        Effect.sync(() => {
+          logger.error("api: unhandled request failure", {
+            context,
+            error: formatUnknownForLog(error),
+          })
+          return NextResponse.json(
+            { message: fallbackMessage },
+            { status: 500 },
+          )
+        }),
+      ),
+    ),
+  )
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  type DragEvent,
   useId,
   type ReactElement,
 } from "react";
@@ -20,10 +21,19 @@ import type { SourceView } from "@/domains/sources/types";
 
 export type SourceUploadDialogProps = {
   readonly onSourceUploaded?: (source: SourceView) => void;
+  readonly renderTrigger?: (props: SourceUploadDialogTriggerProps) => ReactElement;
+};
+
+export type SourceUploadDialogTriggerProps = {
+  readonly isUploading: boolean;
+  readonly onClick: () => void;
+  readonly onDragOver: (event: DragEvent<HTMLElement>) => void;
+  readonly onDrop: (event: DragEvent<HTMLElement>) => void;
 };
 
 export function SourceUploadDialog({
   onSourceUploaded,
+  renderTrigger,
 }: SourceUploadDialogProps): ReactElement {
   const {
     inputRef,
@@ -31,8 +41,8 @@ export function SourceUploadDialog({
     isUploading,
     message,
     selectedFileName,
-    handleDialogDragOver,
-    handleDialogDrop,
+    handleUploadDragOver,
+    handleUploadDrop,
     handleDialogOpenChange,
     handleFileInputChange,
     handleSubmit,
@@ -45,19 +55,30 @@ export function SourceUploadDialog({
       open={isDialogOpen}
       onOpenChange={handleDialogOpenChange}
     >
-      <Button
-        type="button"
-        onClick={handleUploadDialogOpen}
-        size="sm"
-        className="flex w-full items-center justify-center gap-2 shadow-xs"
-      >
-        <Plus className="size-4" />
-        Upload Document
-      </Button>
+      {renderTrigger ? (
+        renderTrigger({
+          isUploading,
+          onClick: handleUploadDialogOpen,
+          onDragOver: handleUploadDragOver,
+          onDrop: handleUploadDrop,
+        })
+      ) : (
+        <Button
+          type="button"
+          onClick={handleUploadDialogOpen}
+          onDragOver={handleUploadDragOver}
+          onDrop={handleUploadDrop}
+          size="sm"
+          className="flex w-full items-center justify-center gap-2 shadow-xs"
+        >
+          <Plus className="size-4" />
+          Upload Document
+        </Button>
+      )}
       <DialogContent
         className="flex max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] flex-col overflow-hidden p-0 sm:max-w-[425px]"
-        onDragOver={handleDialogDragOver}
-        onDrop={handleDialogDrop}
+        onDragOver={handleUploadDragOver}
+        onDrop={handleUploadDrop}
       >
         <DialogHeader className="shrink-0 px-6 pt-6">
           <DialogTitle>Add source</DialogTitle>

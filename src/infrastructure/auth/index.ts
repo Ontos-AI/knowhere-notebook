@@ -11,6 +11,7 @@ import {
 import { authURLs } from "./urls"
 import { sessionCookieNames } from "./session-cookie-names"
 import { logger } from "@/lib/logger"
+import { knowhereApiKeyOverride } from "@/integrations/knowhere-api-key"
 import { setEmptyJsonBody } from "@/integrations/dashboard/orpc-request"
 import { formatUnknownForLog } from "@/lib/format-log-value"
 
@@ -57,6 +58,9 @@ const DASHBOARD_SESSION_TIMEOUT_MS = 3_000
 // ---- Effect implementation ------------------------------------------------
 
 export const getCurrentUserEffect = Effect.gen(function* () {
+  const developmentUser = knowhereApiKeyOverride.getDevelopmentUser()
+  if (developmentUser) return developmentUser
+
   const origin = process.env.DASHBOARD_ORIGIN
   if (!origin) {
     return yield* Effect.die(
@@ -147,6 +151,14 @@ export const authLayer = Layer.effect(
 // ---- Public API (Promise-based, for Next.js compatibility) ----------------
 
 export async function getCurrentUser(): Promise<AuthUser | null> {
+  const developmentUser = knowhereApiKeyOverride.getDevelopmentUser()
+  if (developmentUser) {
+    logger.info("auth: using KNOWHERE_API_KEY development user", {
+      userId: developmentUser.id,
+    })
+    return developmentUser
+  }
+
   const cookieHeader = (await headers()).get("cookie") ?? ""
   if (cookieHeader.length === 0) {
     logger.info("dashboard: POST /api/orpc/users/getCurrentUser skipped (no session cookie)")
@@ -202,6 +214,8 @@ export async function requireUser(): Promise<AuthUser> {
  * `getCurrentUser` / `requireUser` before trusting identity.
  */
 export async function hasSessionCookie(): Promise<boolean> {
+  if (knowhereApiKeyOverride.hasApiKey()) return true
+
   const jar = await cookies()
   for (const name of sessionCookieNames()) {
     if (jar.get(name) !== undefined) return true

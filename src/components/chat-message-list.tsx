@@ -23,6 +23,7 @@ export type ChatMessageListProps = {
     citationId: string,
   ) => void;
   readonly pendingCitationId?: string | null;
+  readonly pendingStatusText?: string | null;
   readonly sourceTitlesByDocumentId?: Readonly<Record<string, string>>;
 };
 
@@ -33,6 +34,7 @@ export function ChatMessageList({
   needsLogin = false,
   onCitationClick,
   pendingCitationId = null,
+  pendingStatusText = null,
   sourceTitlesByDocumentId = {},
 }: ChatMessageListProps): ReactElement {
   const {
@@ -61,6 +63,7 @@ export function ChatMessageList({
                 key={virtualItem.key}
                 virtualItem={virtualItem}
                 measureElement={measureElement}
+                pendingStatusText={pendingStatusText}
               />
             ) : (
               <VirtualMessageRow
@@ -83,9 +86,11 @@ export function ChatMessageList({
 function VirtualThinkingRow({
   virtualItem,
   measureElement,
+  pendingStatusText,
 }: {
   readonly virtualItem: VirtualItem;
   readonly measureElement: (node: HTMLDivElement | null) => void;
+  readonly pendingStatusText?: string | null;
 }): ReactElement {
   const rowStyle: CSSProperties = {
     position: "absolute",
@@ -100,12 +105,16 @@ function VirtualThinkingRow({
       style={rowStyle}
       className="min-w-0 pb-4 sm:pb-5"
     >
-      <ThinkingProgressBubble />
+      <ThinkingProgressBubble pendingStatusText={pendingStatusText} />
     </div>
   );
 }
 
-function ThinkingProgressBubble(): ReactElement {
+function ThinkingProgressBubble({
+  pendingStatusText,
+}: {
+  readonly pendingStatusText?: string | null;
+}): ReactElement {
   return (
     <div className="flex min-w-0 flex-col items-start">
       <div
@@ -113,7 +122,9 @@ function ThinkingProgressBubble(): ReactElement {
         aria-label="Thinking"
         className="inline-flex max-w-[92%] items-center gap-2 rounded-2xl rounded-tl-sm border border-border/70 bg-card px-3 py-2.5 text-sm text-muted-foreground shadow-xs sm:max-w-[90%] sm:px-4 sm:py-3"
       >
-        <span className="font-medium text-foreground">Thinking</span>
+        <span className="font-medium text-foreground">
+          {pendingStatusText ?? "Thinking"}
+        </span>
         <span aria-hidden="true" className="inline-flex items-center gap-1">
           <span className="size-1.5 rounded-full bg-primary/60 animate-pulse" />
           <span className="size-1.5 rounded-full bg-primary/60 animate-pulse [animation-delay:150ms]" />
@@ -243,7 +254,7 @@ function MessageBubble({
                     type="button"
                     disabled={!onCitationClick || isPending}
                     onClick={() => onCitationClick?.(cite, citationId)}
-                    className="inline-flex max-w-full cursor-pointer items-center gap-1.5 whitespace-normal rounded-lg border border-border bg-muted px-2 py-0 text-left text-[10px] font-medium text-muted-foreground shadow-2xs transition-colors hover:bg-muted/70 focus:outline-none focus:ring-4 focus:ring-ring/15 focus:ring-offset-2 focus:ring-offset-background disabled:cursor-wait disabled:opacity-75"
+                    className="inline-flex max-w-full cursor-pointer items-center gap-1 whitespace-normal rounded-sm px-0.5 py-0 text-left text-[11px] font-semibold text-primary underline decoration-primary/45 underline-offset-4 transition-colors hover:text-primary/80 hover:decoration-primary focus:outline-none focus:ring-4 focus:ring-ring/15 focus:ring-offset-2 focus:ring-offset-background disabled:cursor-wait disabled:opacity-75"
                     aria-label={`Open source ${label}`}
                   >
                     {isPending && <Spinner className="size-3" />}

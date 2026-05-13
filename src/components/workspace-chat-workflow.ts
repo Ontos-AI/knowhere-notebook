@@ -22,6 +22,10 @@ type WorkspaceChatWorkflowInput = {
   readonly initialChatMessages?: readonly ChatMessageView[]
   readonly initialChatThreads?: readonly ChatThreadView[]
   readonly isGuest?: boolean
+  readonly onSourcesMaterialized?: (
+    demoSourceIds: readonly string[],
+    materializedSources: readonly SourceView[],
+  ) => void
   readonly sources: readonly SourceView[]
 }
 
@@ -48,6 +52,7 @@ export function useWorkspaceChatWorkflow({
   initialChatMessages = [],
   initialChatThreads = [],
   isGuest = false,
+  onSourcesMaterialized,
   sources,
 }: WorkspaceChatWorkflowInput): WorkspaceChatWorkflow {
   const [loadingThreadId, setLoadingThreadId] = useState<string | null>(null)
@@ -210,6 +215,40 @@ export function useWorkspaceChatWorkflow({
   }
 
   async function handleChatSend(text: string): Promise<void> {
+    const demoSourceIds = getMaterializableDemoSourceIds(sources)
+    if (demoSourceIds.length > 0) {
+      setChat((current) =>
+        workspaceChatState.prepareSend(current, "Thinking"),
+      )
+      try {
+        const materializedSources =
+          await workspaceClient.materializeDemoSources({ demoSourceIds })
+        onSourcesMaterialized?.(demoSourceIds, materializedSources)
+        if (chat.threadId) {
+          try {
+            const fresh = await workspaceClient.fetchChatThread(chat.threadId)
+            setChat((current) => {
+              if (current.threadId !== fresh.requestedThreadId) return current
+              if (!fresh.thread || !Array.isArray(fresh.messages))
+                return current
+              return { ...current, messages: [...fresh.messages] }
+            })
+          } catch {
+            // stale citations until page reload — materialization succeeded
+          }
+        }
+      } catch {
+        setChat((current) => ({
+          ...current,
+          isSending: false,
+          isLoading: false,
+          pendingStatusText: null,
+          error: "Demo sources could not be prepared right now.",
+        }))
+        return
+      }
+    }
+
     optimisticMessageSequence.current += 1
     const optimisticId = `pending-${optimisticMessageSequence.current}`
     setChat((current) =>
@@ -279,6 +318,17 @@ export function useWorkspaceChatWorkflow({
     isCreatingThread,
     loadingThreadId,
   }
+}
+
+function getMaterializableDemoSourceIds(
+  sources: readonly SourceView[],
+): string[] {
+  const demoSourceIds = sources
+    .filter((source) => source.kind === "demo")
+    .filter((source) => !source.excludedFromQuery)
+    .map((source) => source.demoSourceId ?? source.id)
+
+  return Array.from(new Set(demoSourceIds))
 }
 
 function fetchChatThreadByKey([

@@ -9,10 +9,13 @@ import type { ParsedChunkView } from "@/domains/chunks/types"
 import type { SourceView } from "@/domains/sources/types"
 import type { AuthUser } from "@/infrastructure/auth"
 import type { Source, Workspace } from "@/infrastructure/db/schema"
+import type {
+  DemoCatalog,
+  DemoChunkPage,
+} from "@/integrations/knowhere-demo"
 import type { RouteResult } from "@/lib/route-result"
 import type { SourceBlobUploadInput } from "./blob-upload"
 import type { sourceViewOptionsBySourceId } from "./counts"
-import type { DemoSourceSeed } from "./demo-data"
 import type { UploadKnowhereClient } from "./upload"
 
 type SourceRouteKnowhereClient = UploadKnowhereClient &
@@ -128,24 +131,36 @@ type SourceWorkflowService = {
     workspaceId: string,
     sourceId: string,
   ) => Promise<Readonly<Record<string, string>>>
+  readonly hideDemoSource: (
+    workspaceId: string,
+    demoSourceId: string,
+  ) => Promise<void>
+  readonly listHiddenDemoSourceIds: (workspaceId: string) => Promise<string[]>
+  readonly upsertMaterializedDemoSource: (
+    workspaceId: string,
+    input: {
+      readonly demoSourceId: string
+      readonly title: string
+      readonly mimeType: string
+      readonly sizeBytes: number
+      readonly knowhereDocumentId: string
+      readonly originalBlobUrl: string
+    },
+  ) => Promise<Source>
 }
 
-type SourceRouteDemoData = {
-  readonly getSourceSeedByDemoKey: (
-    demoKey: string | null | undefined,
-  ) => DemoSourceSeed | null
-  readonly listSources: () => readonly SourceView[]
-  readonly loadChunksForDocumentId: (
-    documentId: string | null | undefined,
-  ) => Promise<readonly ParsedChunkView[] | null>
-  readonly loadChunksForSource: (
-    sourceId: string,
-  ) => Promise<readonly ParsedChunkView[] | null>
+type SourceRouteDemoApi = {
+  readonly fetchCatalog: () => Promise<DemoCatalog>
+  readonly fetchChunkPage: (input: {
+    readonly demoSourceId: string
+    readonly page: number
+    readonly pageSize: number
+  }) => Promise<DemoChunkPage>
 }
 
 type SourceRouteServiceDependencies = {
   readonly deleteBlob: (pathname: string) => Promise<unknown>
-  readonly demoData: SourceRouteDemoData
+  readonly demoApi: SourceRouteDemoApi
   readonly ensureApiKeyForWorkspace: (
     workspaceId: string,
     cookieHeader: string,
@@ -159,6 +174,7 @@ type SourceRouteServiceDependencies = {
   readonly loadChunkPageForSource: typeof loadChunkPageForSource
   readonly loadChunksForSource: typeof loadChunksForSource
   readonly makeKnowhereClient: (apiKey: string) => SourceRouteKnowhereClient
+  readonly listSourcesForWorkspace: (workspaceId: string) => Promise<Source[]>
   readonly reconcileSourcesForWorkspace: (
     workspace: Workspace,
     client: SourceRouteKnowhereClient,
@@ -168,9 +184,9 @@ type SourceRouteServiceDependencies = {
 }
 
 type SourceRouteServiceOverrides = Partial<
-  Omit<SourceRouteServiceDependencies, "demoData" | "sourceService">
+  Omit<SourceRouteServiceDependencies, "demoApi" | "sourceService">
 > & {
-  readonly demoData?: Partial<SourceRouteDemoData>
+  readonly demoApi?: Partial<SourceRouteDemoApi>
   readonly sourceService?: Partial<SourceWorkflowService>
 }
 
@@ -182,7 +198,7 @@ export type {
   ListSourcesInput,
   LoadSourceChunksInput,
   SourceChunksBody,
-  SourceRouteDemoData,
+  SourceRouteDemoApi,
   SourceRouteKnowhereClient,
   SourceRouteService,
   SourceRouteServiceDependencies,

@@ -5,6 +5,7 @@ type SourceExclusionState = Readonly<Record<string, boolean>>
 type ArchiveSourceInput = {
   readonly sourceId: string
   readonly selectedSourceId: string | null
+  readonly sources: readonly SourceView[]
   readonly sourceExclusionById: SourceExclusionState
 }
 
@@ -14,9 +15,15 @@ type ArchiveSourceResult = {
 }
 
 type WorkspaceSourceStateModule = {
+  readonly getFirstReadySourceId: (
+    sources: readonly SourceView[],
+  ) => string | null
   readonly getInitialSelectedSourceId: (
     sources: readonly SourceView[],
-    isGuest: boolean,
+  ) => string | null
+  readonly getResolvedSelectedSourceId: (
+    sources: readonly SourceView[],
+    selectedSourceId: string | null,
   ) => string | null
   readonly applyQueryExclusions: (
     sources: readonly SourceView[],
@@ -38,13 +45,22 @@ type WorkspaceSourceStateModule = {
   ) => Record<string, T>
 }
 
-function getInitialSelectedSourceId(
-  sources: readonly SourceView[],
-  isGuest: boolean,
-): string | null {
-  if (!isGuest) return null
+function getInitialSelectedSourceId(sources: readonly SourceView[]): string | null {
+  return getFirstReadySourceId(sources)
+}
 
+function getFirstReadySourceId(sources: readonly SourceView[]): string | null {
   return sources.find((source) => source.status === "ready")?.id ?? null
+}
+
+function getResolvedSelectedSourceId(
+  sources: readonly SourceView[],
+  selectedSourceId: string | null,
+): string | null {
+  const selectedSource = sources.find((source) => source.id === selectedSourceId)
+  if (selectedSource?.status === "ready") return selectedSource.id
+
+  return getFirstReadySourceId(sources)
 }
 
 function applyQueryExclusions(
@@ -66,9 +82,14 @@ function upsertSource(
 }
 
 function archiveSource(input: ArchiveSourceInput): ArchiveSourceResult {
+  const remainingSources = input.sources.filter(
+    (source) => source.id !== input.sourceId,
+  )
   return {
     selectedSourceId:
-      input.selectedSourceId === input.sourceId ? null : input.selectedSourceId,
+      input.selectedSourceId === input.sourceId
+        ? getFirstReadySourceId(remainingSources)
+        : getResolvedSelectedSourceId(remainingSources, input.selectedSourceId),
     sourceExclusionById: removeRecordKey(
       input.sourceExclusionById,
       input.sourceId,
@@ -96,7 +117,9 @@ function removeRecordKey<T>(
 }
 
 export const workspaceSourceState: WorkspaceSourceStateModule = {
+  getFirstReadySourceId,
   getInitialSelectedSourceId,
+  getResolvedSelectedSourceId,
   applyQueryExclusions,
   upsertSource,
   archiveSource,

@@ -1,3 +1,5 @@
+import { Effect } from "effect"
+
 import { chatThreadService } from "@/domains/chat/thread-service"
 import { toChatMessageView, toChatThreadView } from "@/domains/chat/view"
 import { notebookRequestContext } from "@/domains/workspace/request-context"
@@ -48,67 +50,102 @@ type ChatThreadRouteService = {
   readonly listThreads: () => Promise<RouteResponse<ListThreadsBody>>
 }
 
-async function listThreads(): Promise<RouteResponse<ListThreadsBody>> {
-  const { workspace } = await notebookRequestContext.getAuthenticated()
-  const threads = await chatThreadService.listForWorkspace(workspace.id)
+// ---------------------------------------------------------------------------
+// Effect core
+// ---------------------------------------------------------------------------
+
+const listThreadsEffect = Effect.gen(function* () {
+  const { workspace } = yield* Effect.tryPromise(() =>
+    notebookRequestContext.getAuthenticated(),
+  )
+  const threads = yield* Effect.tryPromise(() =>
+    chatThreadService.listForWorkspace(workspace.id),
+  )
 
   return routeResult.ok({
     threads: threads.map(toChatThreadView),
   })
-}
+})
 
-async function createThread(): Promise<RouteResponse<CreateThreadBody>> {
-  const { workspace } = await notebookRequestContext.getAuthenticated()
-  const thread = await chatThreadService.create(workspace.id)
+const createThreadEffect = Effect.gen(function* () {
+  const { workspace } = yield* Effect.tryPromise(() =>
+    notebookRequestContext.getAuthenticated(),
+  )
+  const thread = yield* Effect.tryPromise(() =>
+    chatThreadService.create(workspace.id),
+  )
 
   return routeResult.ok({
     thread: toChatThreadView(thread),
-    messages: [],
+    messages: [] as unknown as [],
   })
+})
+
+const getThreadEffect = (input: ThreadInput) =>
+  Effect.gen(function* () {
+    const { workspace } = yield* Effect.tryPromise(() =>
+      notebookRequestContext.getAuthenticated(),
+    )
+    const thread = yield* Effect.tryPromise(() =>
+      chatThreadService.findInWorkspace(workspace.id, input.threadId),
+    )
+
+    if (!thread) {
+      return routeResult.error(404, "Chat thread not found.")
+    }
+
+    const messages = yield* Effect.tryPromise(() =>
+      chatThreadService.listMessages(workspace.id, input.threadId),
+    )
+    if (!messages) {
+      return routeResult.error(404, "Chat thread not found.")
+    }
+
+    return routeResult.ok({
+      thread: toChatThreadView(thread),
+      messages: messages.map((message): ChatMessageView =>
+        toChatMessageView(message),
+      ),
+    })
+  })
+
+const archiveThreadEffect = (input: ArchiveThreadInput) =>
+  Effect.gen(function* () {
+    const { workspace } = yield* Effect.tryPromise(() =>
+      notebookRequestContext.getAuthenticated(),
+    )
+    const archived = yield* Effect.tryPromise(() =>
+      chatThreadService.softDelete(workspace.id, input.threadId),
+    )
+    if (!archived) {
+      return routeResult.error(404, "Chat thread not found.")
+    }
+
+    return routeResult.ok({ id: input.threadId, archived: true as const })
+  })
+
+// ---------------------------------------------------------------------------
+// Async wrappers (backward-compatible)
+// ---------------------------------------------------------------------------
+
+async function listThreads(): Promise<RouteResponse<ListThreadsBody>> {
+  return Effect.runPromise(listThreadsEffect)
+}
+
+async function createThread(): Promise<RouteResponse<CreateThreadBody>> {
+  return Effect.runPromise(createThreadEffect)
 }
 
 async function getThread(
   input: ThreadInput,
 ): Promise<RouteResponse<GetThreadBody | MessageBody>> {
-  const { workspace } = await notebookRequestContext.getAuthenticated()
-  const thread = await chatThreadService.findInWorkspace(
-    workspace.id,
-    input.threadId,
-  )
-
-  if (!thread) {
-    return routeResult.error(404, "Chat thread not found.")
-  }
-
-  const messages = await chatThreadService.listMessages(
-    workspace.id,
-    input.threadId,
-  )
-  if (!messages) {
-    return routeResult.error(404, "Chat thread not found.")
-  }
-
-  return routeResult.ok({
-    thread: toChatThreadView(thread),
-    messages: messages.map((message): ChatMessageView =>
-      toChatMessageView(message),
-    ),
-  })
+  return Effect.runPromise(getThreadEffect(input))
 }
 
 async function archiveThread(
   input: ArchiveThreadInput,
 ): Promise<RouteResponse<ArchiveThreadBody | MessageBody>> {
-  const { workspace } = await notebookRequestContext.getAuthenticated()
-  const archived = await chatThreadService.softDelete(
-    workspace.id,
-    input.threadId,
-  )
-  if (!archived) {
-    return routeResult.error(404, "Chat thread not found.")
-  }
-
-  return routeResult.ok({ id: input.threadId, archived: true })
+  return Effect.runPromise(archiveThreadEffect(input))
 }
 
 export const chatThreadRouteService: ChatThreadRouteService = {

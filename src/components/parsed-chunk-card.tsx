@@ -22,11 +22,13 @@ type TextChunkReferencePart = Extract<
 export function ParsedChunkCard({
   chunk,
   isFocused,
+  isOriginalPreviewAvailable = false,
   onChunkClick,
   onReferenceClick,
 }: {
   readonly chunk: ParsedChunkView;
   readonly isFocused: boolean;
+  readonly isOriginalPreviewAvailable?: boolean;
   readonly onChunkClick?: (chunk: ParsedChunkView) => void;
   readonly onReferenceClick: (chunkId: string) => void;
 }): ReactNode {
@@ -36,6 +38,7 @@ export function ParsedChunkCard({
         <ImageChunkCard
           chunk={chunk}
           isFocused={isFocused}
+          isOriginalPreviewAvailable={isOriginalPreviewAvailable}
           onChunkClick={onChunkClick}
         />
       </ChunkCardShell>
@@ -47,6 +50,7 @@ export function ParsedChunkCard({
         <TableChunkCard
           chunk={chunk}
           isFocused={isFocused}
+          isOriginalPreviewAvailable={isOriginalPreviewAvailable}
           onChunkClick={onChunkClick}
         />
       </ChunkCardShell>
@@ -57,6 +61,7 @@ export function ParsedChunkCard({
       <TextChunkCard
         chunk={chunk}
         isFocused={isFocused}
+        isOriginalPreviewAvailable={isOriginalPreviewAvailable}
         onChunkClick={onChunkClick}
         onReferenceClick={onReferenceClick}
       />
@@ -84,11 +89,13 @@ function ChunkCardShell({
 function ChunkCardFrame({
   chunk,
   isFocused,
+  isOriginalPreviewAvailable,
   onChunkClick,
   children,
 }: {
   readonly chunk: ParsedChunkView;
   readonly isFocused: boolean;
+  readonly isOriginalPreviewAvailable: boolean;
   readonly onChunkClick?: (chunk: ParsedChunkView) => void;
   readonly children: ReactNode;
 }): ReactNode {
@@ -100,7 +107,11 @@ function ChunkCardFrame({
       )}
     >
       <CardContent className="space-y-3 p-3 sm:p-4">
-        <ChunkSourcePanel chunk={chunk} onChunkClick={onChunkClick} />
+        <ChunkSourcePanel
+          chunk={chunk}
+          isOriginalPreviewAvailable={isOriginalPreviewAvailable}
+          onChunkClick={onChunkClick}
+        />
         {children}
       </CardContent>
     </Card>
@@ -109,9 +120,11 @@ function ChunkCardFrame({
 
 function ChunkSourcePanel({
   chunk,
+  isOriginalPreviewAvailable,
   onChunkClick,
 }: {
   readonly chunk: ParsedChunkView;
+  readonly isOriginalPreviewAvailable: boolean;
   readonly onChunkClick?: (chunk: ParsedChunkView) => void;
 }): ReactNode {
   const sourceMetadata = parsedChunkCardModel.getSourceMetadata(chunk);
@@ -156,7 +169,11 @@ function ChunkSourcePanel({
           </div>
         </div>
         {onChunkClick ? (
-          <OpenOriginalButton chunk={chunk} onChunkClick={onChunkClick} />
+          <OpenOriginalButton
+            chunk={chunk}
+            isOriginalPreviewAvailable={isOriginalPreviewAvailable}
+            onChunkClick={onChunkClick}
+          />
         ) : null}
       </div>
     </section>
@@ -165,9 +182,11 @@ function ChunkSourcePanel({
 
 function OpenOriginalButton({
   chunk,
+  isOriginalPreviewAvailable,
   onChunkClick,
 }: {
   readonly chunk: ParsedChunkView;
+  readonly isOriginalPreviewAvailable: boolean;
   readonly onChunkClick: (chunk: ParsedChunkView) => void;
 }): ReactNode {
   return (
@@ -175,23 +194,33 @@ function OpenOriginalButton({
       type="button"
       variant="outline"
       size="sm"
-      className="h-8 shrink-0 rounded-md px-2.5 text-xs"
+      className={cn(
+        "h-8 shrink-0 rounded-md px-2.5 text-xs",
+        isOriginalPreviewAvailable
+          ? "border-primary/40 bg-primary/5 font-semibold text-primary hover:bg-primary/10 hover:text-primary"
+          : "font-normal text-muted-foreground",
+      )}
       onClick={() => onChunkClick(chunk)}
     >
       <FileSearch className="size-3.5" />
-      {getOpenOriginalButtonLabel(chunk)}
+      {getOpenOriginalButtonLabel(chunk, isOriginalPreviewAvailable)}
     </Button>
   );
 }
 
-function getOpenOriginalButtonLabel(chunk: ParsedChunkView): string {
+function getOpenOriginalButtonLabel(
+  chunk: ParsedChunkView,
+  isOriginalPreviewAvailable: boolean,
+): string {
+  if (!isOriginalPreviewAvailable) return "Open original file";
+
   const pageNums = chunk.pageNums ?? [];
   const validPageNums = pageNums.filter(
     (pageNum) => Number.isFinite(pageNum) && pageNum > 0,
   );
-  if (validPageNums.length === 0) return "Open original";
+  if (validPageNums.length === 0) return "Open original file";
 
-  return `Open page ${Math.min(...validPageNums)}`;
+  return `Open page ${Math.min(...validPageNums)} in original file`;
 }
 
 function ChunkSummaryPanel({
@@ -207,7 +236,9 @@ function ChunkSummaryPanel({
       className="rounded-lg border border-border/70 bg-muted/35 p-3"
     >
       <SectionLabel icon={<TextQuote className="size-3.5" />} label="Summary" />
-      <p className="mt-2 text-sm leading-6 text-foreground/85">{chunk.summary}</p>
+      <p className="mt-2 text-sm leading-6 text-foreground/85">
+        {chunk.summary}
+      </p>
     </section>
   );
 }
@@ -290,11 +321,13 @@ function SectionLabel({
 function TextChunkCard({
   chunk,
   isFocused,
+  isOriginalPreviewAvailable,
   onChunkClick,
   onReferenceClick,
 }: {
   readonly chunk: ParsedChunkView;
   readonly isFocused: boolean;
+  readonly isOriginalPreviewAvailable: boolean;
   readonly onChunkClick?: (chunk: ParsedChunkView) => void;
   readonly onReferenceClick: (chunkId: string) => void;
 }): ReactNode {
@@ -302,6 +335,7 @@ function TextChunkCard({
     <ChunkCardFrame
       chunk={chunk}
       isFocused={isFocused}
+      isOriginalPreviewAvailable={isOriginalPreviewAvailable}
       onChunkClick={onChunkClick}
     >
       <ChunkSummaryPanel chunk={chunk} />
@@ -318,16 +352,19 @@ function TextChunkCard({
 function ImageChunkCard({
   chunk,
   isFocused,
+  isOriginalPreviewAvailable,
   onChunkClick,
 }: {
   readonly chunk: ParsedChunkView;
   readonly isFocused: boolean;
+  readonly isOriginalPreviewAvailable: boolean;
   readonly onChunkClick?: (chunk: ParsedChunkView) => void;
 }): ReactNode {
   return (
     <ChunkCardFrame
       chunk={chunk}
       isFocused={isFocused}
+      isOriginalPreviewAvailable={isOriginalPreviewAvailable}
       onChunkClick={onChunkClick}
     >
       <ChunkSummaryPanel chunk={chunk} />
@@ -349,7 +386,9 @@ function ImageChunkCard({
                 Image chunk
               </p>
               <p className="mt-1 max-w-xs text-xs text-muted-foreground">
-                {chunk.summary ?? "Image content is not available in this view."}
+                {chunk.summary
+                  ? chunk.summary
+                  : "Image content is not available in this view."}
               </p>
             </div>
           </div>
@@ -365,10 +404,14 @@ function renderTextChunkContent(
   onReferenceClick: (chunkId: string) => void,
 ): ReactNode {
   const parts = parsedChunkCardModel.getTextContentParts(chunk);
-  if (parts.length === 1 && parts[0]?.type === "text") return parts[0].text;
+  if (parts.length === 1 && parts[0]?.type === "text") {
+    return parts[0].text;
+  }
 
   return parts.map((part) => {
-    if (part.type === "text") return part.text;
+    if (part.type === "text") {
+      return part.text;
+    }
 
     return (
       <ChunkReferenceButton
@@ -406,10 +449,12 @@ function ChunkReferenceButton({
 function TableChunkCard({
   chunk,
   isFocused,
+  isOriginalPreviewAvailable,
   onChunkClick,
 }: {
   readonly chunk: ParsedChunkView;
   readonly isFocused: boolean;
+  readonly isOriginalPreviewAvailable: boolean;
   readonly onChunkClick?: (chunk: ParsedChunkView) => void;
 }): ReactNode {
   const safeHtml = useMemo(
@@ -421,6 +466,7 @@ function TableChunkCard({
     <ChunkCardFrame
       chunk={chunk}
       isFocused={isFocused}
+      isOriginalPreviewAvailable={isOriginalPreviewAvailable}
       onChunkClick={onChunkClick}
     >
       <ChunkSummaryPanel chunk={chunk} />
@@ -439,7 +485,9 @@ function TableChunkCard({
                 Table chunk
               </p>
               <p className="mt-1 max-w-xs text-xs text-muted-foreground">
-                {chunk.summary ?? "Table content is not available in this view."}
+                {chunk.summary
+                  ? chunk.summary
+                  : "Table content is not available in this view."}
               </p>
             </div>
           </div>

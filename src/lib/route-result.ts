@@ -1,3 +1,5 @@
+import { Effect } from "effect"
+
 export type RouteResult<TBody = unknown> = {
   readonly status: number
   readonly body: TBody
@@ -31,22 +33,39 @@ function badRequest(message: string): RouteResult<MessageBody> {
   return error(400, message)
 }
 
+// ---------------------------------------------------------------------------
+// Effect core
+// ---------------------------------------------------------------------------
+
+const readJsonEffect = (
+  request: Request,
+): Effect.Effect<ReadJsonResult, never> =>
+  Effect.tryPromise(() => request.json()).pipe(
+    Effect.map(
+      (value): ReadJsonResult => ({ ok: true, value }),
+    ),
+    Effect.catchAllCause(
+      (): Effect.Effect<ReadJsonResult, never> => Effect.succeed({ ok: false }),
+    ),
+  )
+
+const readJsonOrNullEffect = (
+  request: Request,
+): Effect.Effect<unknown, never> =>
+  readJsonEffect(request).pipe(
+    Effect.map((body) => (body.ok ? body.value : null)),
+  )
+
+// ---------------------------------------------------------------------------
+// Async wrappers (backward-compatible)
+// ---------------------------------------------------------------------------
+
 async function readJson(request: Request): Promise<ReadJsonResult> {
-  try {
-    return {
-      ok: true,
-      value: await request.json(),
-    }
-  } catch {
-    return { ok: false }
-  }
+  return Effect.runPromise(readJsonEffect(request))
 }
 
 async function readJsonOrNull(request: Request): Promise<unknown> {
-  const body = await readJson(request)
-  if (!body.ok) return null
-
-  return body.value
+  return Effect.runPromise(readJsonOrNullEffect(request))
 }
 
 export const routeResult = {

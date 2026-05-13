@@ -63,12 +63,65 @@ describe("ChunksPanel", () => {
     expect(screen.getByText(/Showing all parsed chunks from/)).toBeTruthy();
   });
 
-  it("switches to a download-only original file state for unsupported previews", async () => {
+  it("shows a large upload target when no document is selected", async () => {
     const user = userEvent.setup();
 
     render(
       React.createElement(C, {
         chunks: [],
+        selectedSource: null,
+        onSourceUploaded: vi.fn(),
+      }),
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: /Upload a document/i }),
+    );
+
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(screen.getByText("Add source")).toBeTruthy();
+  });
+
+  it("accepts dropped files from the empty chunk upload target", async () => {
+    render(
+      React.createElement(C, {
+        chunks: [],
+        selectedSource: null,
+        onSourceUploaded: vi.fn(),
+      }),
+    );
+
+    const dropTarget = screen.getByRole("button", {
+      name: /Upload a document/i,
+    });
+    const dropEvent = createFileDropEvent(
+      new File(["hello"], "drop.pdf", { type: "application/pdf" }),
+    );
+
+    await act(async () => {
+      dropTarget.dispatchEvent(dropEvent);
+    });
+
+    expect(dropEvent.defaultPrevented).toBe(true);
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(await screen.findByText("Selected: drop.pdf")).toBeTruthy();
+  });
+
+  it("switches to a download-only original file state for unsupported previews", async () => {
+    mockVisibleVirtualViewport();
+    const user = userEvent.setup();
+
+    render(
+      React.createElement(C, {
+        chunks: [
+          {
+            chunkId: "chunk_1",
+            type: "text",
+            content: "Legacy report details live in the original file.",
+            sourceTitle: "brief.doc",
+            pageNums: [2],
+          },
+        ],
         selectedSource: "brief.doc",
         selectedSourceFile: {
           url: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.doc",
@@ -77,7 +130,14 @@ describe("ChunksPanel", () => {
       }),
     );
 
-    await user.click(screen.getByRole("button", { name: "Original" }));
+    const openOriginalButton = screen.getByRole("button", {
+      name: "Open original file",
+    });
+
+    expect(openOriginalButton.className).toContain("font-normal");
+    expect(openOriginalButton.className).not.toContain("font-semibold");
+
+    await user.click(openOriginalButton);
 
     const downloadLink = screen.getByRole("link", {
       name: "Download original file",
@@ -141,7 +201,9 @@ describe("ChunksPanel", () => {
       }),
     );
 
-    await user.click(screen.getByRole("button", { name: "Open page 2" }));
+    await user.click(
+      screen.getByRole("button", { name: "Open page 2 in original file" }),
+    );
 
     expect(screen.getByRole("heading", { name: "Original File" })).toBeTruthy();
     expect(screen.getByTestId("source-original-preview").getAttribute(
@@ -180,7 +242,9 @@ describe("ChunksPanel", () => {
       }),
     );
 
-    await user.click(screen.getByRole("button", { name: "Open page 2" }));
+    await user.click(
+      screen.getByRole("button", { name: "Open page 2 in original file" }),
+    );
 
     const mountedOriginalPreview = screen.getByTestId("source-original-preview");
 
@@ -495,6 +559,56 @@ describe("ChunksPanel", () => {
     ).toBe("true");
   });
 
+  it("lets in-chunk table references override the current citation focus", async () => {
+    mockVisibleVirtualViewport();
+    const user = userEvent.setup();
+
+    render(
+      React.createElement(C, {
+        chunks: [
+          {
+            chunkId: "text_1",
+            parserChunkId: "parser_text_1",
+            type: "text",
+            content: "See [tables/table-1.html] for Roadster details.",
+            sourceTitle: "manual.pdf",
+            connections: [
+              {
+                targetParserChunkId: "parser_table_1",
+                targetChunkId: "table_1",
+                relation: "embeds",
+                ref: "[tables/table-1.html]",
+                position: { start: 4, end: 25 },
+              },
+            ],
+          },
+          {
+            chunkId: "table_1",
+            parserChunkId: "parser_table_1",
+            type: "table",
+            content:
+              "<table><tbody><tr><td>Roadster</td><td>TBD</td></tr></tbody></table>",
+            sourceTitle: "manual.pdf",
+          },
+        ],
+        selectedSource: "manual.pdf",
+        focusedChunkId: "text_1",
+        focusedChunkRequestId: 1,
+      }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Table 1" }));
+
+    await waitFor(() => {
+      const focusedRow = screen
+        .getByTestId("chunk-card-shell-table_1")
+        .closest("[data-index]");
+
+      expect(focusedRow?.getAttribute("data-index")).toBe("0");
+      expect(focusedRow?.getAttribute("data-focused-chunk")).toBe("true");
+    });
+  });
+
   it("renders a focused virtual chunk outside the initial range first", async () => {
     mockVisibleVirtualViewport();
 
@@ -789,6 +903,22 @@ describe("ChunksPanel", () => {
 
 function mockVisibleVirtualViewport(): void {
   mockVirtualViewportWithChunkHeights({});
+}
+
+function createFileDropEvent(file: File): Event {
+  const event = new Event("drop", { bubbles: true, cancelable: true });
+  const files: Pick<FileList, "length" | "item"> & { readonly 0: File } = {
+    0: file,
+    length: 1,
+    item: (index: number): File | null => (index === 0 ? file : null),
+  };
+  Object.defineProperty(event, "dataTransfer", {
+    value: {
+      files,
+      types: ["Files"],
+    },
+  });
+  return event;
 }
 
 function mockVirtualViewportWithChunkHeights(

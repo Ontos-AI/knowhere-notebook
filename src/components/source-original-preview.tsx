@@ -49,7 +49,7 @@ export function SourceOriginalPreview({
     <div
       data-testid="source-original-preview"
       data-target-page={targetPageNumber ?? undefined}
-      className="mx-auto flex w-[90%] min-w-0 max-w-[1600px] flex-col gap-3 p-3 sm:p-6"
+      className={getPreviewShellClassName()}
     >
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/70 bg-background/80 p-3">
         <div className="min-w-0">
@@ -82,6 +82,10 @@ export function SourceOriginalPreview({
       </div>
     </div>
   );
+}
+
+function getPreviewShellClassName(): string {
+  return "mx-auto flex w-[90%] min-w-0 max-w-[1600px] flex-col gap-3 p-3 sm:p-6";
 }
 
 function renderPreview(
@@ -119,14 +123,25 @@ function renderPreview(
         />
       );
     case "markdown":
-      return <SourceOriginalTextPreview file={file} variant="markdown" />;
+      return renderReadingPreview(file, "markdown");
     case "text":
-      return <SourceOriginalTextPreview file={file} variant="text" />;
+      return renderReadingPreview(file, "text");
     case "docx":
       return <SourceOriginalDocxPreview file={file} />;
     case "unsupported":
       return <UnsupportedPreview />;
   }
+}
+
+function renderReadingPreview(
+  file: SourceOriginalFileView,
+  variant: "markdown" | "text",
+): ReactNode {
+  return (
+    <div className="mx-auto w-full min-w-0 max-w-4xl">
+      <SourceOriginalTextPreview file={file} variant={variant} />
+    </div>
+  );
 }
 
 function UnsupportedPreview(): ReactNode {

@@ -13,7 +13,6 @@ type ArchiveConfirmationState = {
 }
 
 type NextSelectedSourceInput = {
-  readonly selectedSourceId: string | null
   readonly sourceId: string
 }
 
@@ -48,11 +47,8 @@ function getArchiveConfirmationState({
   }
 }
 
-function getNextSelectedSourceId({
-  selectedSourceId,
-  sourceId,
-}: NextSelectedSourceInput): string | null {
-  return sourceId === selectedSourceId ? null : sourceId
+function getNextSelectedSourceId({ sourceId }: NextSelectedSourceInput): string | null {
+  return sourceId
 }
 
 function shouldCloseArchiveConfirmation(

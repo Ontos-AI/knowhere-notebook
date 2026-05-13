@@ -23,18 +23,16 @@ describe("sourcePanelState", () => {
     expect(state.archivingSourceIdSet.has("source_1")).toBe(true);
   });
 
-  it("selects or clears the current Source from a row click", () => {
+  it("selects a Source from a row click without clearing the current selection", () => {
     expect(
       sourcePanelState.getNextSelectedSourceId({
         sourceId: "source_1",
-        selectedSourceId: null,
       }),
     ).toBe("source_1");
     expect(
       sourcePanelState.getNextSelectedSourceId({
         sourceId: "source_1",
-        selectedSourceId: "source_1",
       }),
-    ).toBeNull();
+    ).toBe("source_1");
   });
 });

@@ -8,11 +8,12 @@ import {
 } from "@/domains/chunks"
 import { ensureApiKeyForWorkspace } from "@/integrations/dashboard/api-key-service"
 import { makeKnowhereClient as makeDefaultKnowhereClient } from "@/integrations/knowhere"
+import { knowhereDemoApi } from "@/integrations/knowhere-demo"
 import { getCurrentUser, requireUser } from "@/infrastructure/auth"
 import { workspaceService } from "@/domains/workspace/service"
 import { sourceViewOptionsBySourceId as getDefaultSourceViewOptionsBySourceId } from "./counts"
-import { demoData as defaultDemoData } from "./demo-data"
 import { reconcileSourcesForWorkspace as reconcileDefaultSourcesForWorkspace } from "./reconcile"
+import { sourceWorkflowRuntime } from "./workflow-runtime"
 import { sourceService as defaultSourceService } from "./service"
 import type {
   SourceRouteKnowhereClient,
@@ -22,7 +23,7 @@ import type {
 
 const defaultDependencies: SourceRouteServiceDependencies = {
   deleteBlob: del,
-  demoData: defaultDemoData,
+  demoApi: knowhereDemoApi,
   ensureApiKeyForWorkspace,
   ensureWorkspace: workspaceService.ensureWorkspace,
   getCurrentUser,
@@ -35,6 +36,7 @@ const defaultDependencies: SourceRouteServiceDependencies = {
   loadChunksForSource,
   makeKnowhereClient: (apiKey: string) =>
     makeDefaultKnowhereClient(apiKey) as SourceRouteKnowhereClient,
+  listSourcesForWorkspace: sourceWorkflowRuntime.listForWorkspace,
   reconcileSourcesForWorkspace: (workspace, client) =>
     reconcileDefaultSourcesForWorkspace(
       workspace,
@@ -44,7 +46,11 @@ const defaultDependencies: SourceRouteServiceDependencies = {
   sourceService: {
     findInWorkspace: defaultSourceService.findInWorkspace,
     getParseAssetUrls: defaultSourceService.getParseAssetUrls,
+    hideDemoSource: defaultSourceService.hideDemoSource,
+    listHiddenDemoSourceIds: defaultSourceService.listHiddenDemoSourceIds,
     softDelete: defaultSourceService.softDelete,
+    upsertMaterializedDemoSource:
+      defaultSourceService.upsertMaterializedDemoSource,
     uploadSourceBlobToKnowhere: defaultSourceService.uploadSourceBlobToKnowhere,
     uploadSourceToKnowhere: defaultSourceService.uploadSourceToKnowhere,
   },
@@ -56,9 +62,9 @@ function createSourceRouteDependencies(
   return {
     ...defaultDependencies,
     ...overrides,
-    demoData: {
-      ...defaultDependencies.demoData,
-      ...overrides.demoData,
+    demoApi: {
+      ...defaultDependencies.demoApi,
+      ...overrides.demoApi,
     },
     sourceService: {
       ...defaultDependencies.sourceService,

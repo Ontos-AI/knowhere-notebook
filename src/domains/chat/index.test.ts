@@ -340,6 +340,23 @@ describe("buildGroundedPrompt", () => {
     expect(prompt).toContain("requirements.txt");
     expect(prompt).toContain("don't answer the question, say so directly");
   });
+
+  it("asks the model to answer naturally and directly", () => {
+    const prompt = buildGroundedPrompt({
+      question: "How about the TBD?",
+      results: [
+        makeRetrievalResult({
+          content: "Roadster location: TBD. Status: Design development.",
+        }),
+      ],
+    });
+
+    expect(prompt).toContain("Answer in a natural, friendly, and direct tone.");
+    expect(prompt).toContain("Start with the answer first.");
+    expect(prompt).toContain("Avoid meta phrases like \"Based on the sources\"");
+    expect(prompt).toContain("Keep answers concise by default");
+    expect(prompt).toContain("I don't see more detail in these sources");
+  });
 });
 
 describe("buildRetrievalQueryPrompt", () => {

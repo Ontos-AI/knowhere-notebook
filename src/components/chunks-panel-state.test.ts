@@ -92,4 +92,5 @@ describe("chunksPanelState", () => {
       chunksPanelState.formatReferenceLabel("[images/image-12.png?token=abc]"),
     ).toBe("Image 12")
   })
+
 })
