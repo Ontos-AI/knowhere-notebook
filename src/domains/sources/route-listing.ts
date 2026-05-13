@@ -7,6 +7,7 @@ import {
   resolveWorkspaceDemoSources,
 } from "@/domains/demo/workspace-source-resolution"
 import { routeResult } from "@/lib/route-result"
+import { logger } from "@/lib/logger"
 import { knowhereDemoApi } from "@/integrations/knowhere-demo"
 import { toSourceView } from "./view"
 import { startBackgroundReconciliation } from "./background-reconcile"
@@ -89,14 +90,22 @@ const listSourcesEffect = (
       deps.ensureApiKeyForWorkspace(workspace.id, input.cookieHeader),
     )
     const client = deps.makeKnowhereClient(apiKey)
-    for (const source of sources) {
-      if (source.status === "parsing" && source.knowhereJobId) {
-        yield* Effect.fork(
-          Effect.tryPromise(() =>
-            startBackgroundReconciliation(workspace.id, source.id, apiKey),
-          ),
-        )
-      }
+    const parsingSources = sources.filter(
+      (source) => source.status === "parsing" && source.knowhereJobId,
+    )
+    if (parsingSources.length > 0) {
+      logger.info("route-listing: re-triggering reconciliation for parsing sources", {
+        workspaceId: workspace.id,
+        count: parsingSources.length,
+        sourceIds: parsingSources.map((s) => s.id),
+      })
+    }
+    for (const source of parsingSources) {
+      yield* Effect.fork(
+        Effect.tryPromise(() =>
+          startBackgroundReconciliation(workspace.id, source.id, apiKey),
+        ),
+      )
     }
     const sourceOptions = yield* deps.getSourceViewOptionsBySourceId(
       sourcesNeedingKnowhereChunkCount,

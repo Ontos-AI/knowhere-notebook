@@ -5,6 +5,7 @@ import { Effect } from "effect"
 
 import { DbClient, type Db } from "@/infrastructure/db"
 import { sources, type Source } from "@/infrastructure/db/schema"
+import { logger } from "@/lib/logger"
 
 type CreateUploadingSourceInput = {
   readonly title: string
@@ -272,6 +273,18 @@ async function updateInWorkspaceWithDb(
     .set({ ...values, updatedAt: sql`now()` })
     .where(and(...conditions))
     .returning()
+
+  if (!source && requiredStatus) {
+    logger.warn(
+      "source-repository: status transition skipped — atomic guard mismatch",
+      {
+        sourceId,
+        workspaceId,
+        requiredStatus,
+        attemptedStatus: values.status,
+      },
+    )
+  }
 
   return source ?? null
 }
