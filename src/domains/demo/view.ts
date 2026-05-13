@@ -53,7 +53,7 @@ function toChatMessages(catalog: DemoCatalog): ChatMessageView[] {
             ? { description: citation.description }
             : {}),
           source: {
-            documentId: citation.source.documentId,
+            documentId: citation.canonicalDocumentId,
             sourceFileName: citation.source.sourceFileName,
             sectionPath: citation.source.sectionPath,
           },
