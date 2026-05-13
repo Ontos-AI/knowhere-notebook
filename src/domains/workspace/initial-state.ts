@@ -1,6 +1,5 @@
 import "server-only"
 
-import { cacheLife, cacheTag } from "next/cache"
 import { Effect } from "effect"
 
 import type { ChatMessageView } from "@/domains/chat/types"
@@ -54,13 +53,9 @@ type WorkspaceShellInitialState = {
 // prefetch doesn't overlap with the first client-side page request.
 const DEMO_CHUNK_PREFETCH_PAGE_SIZE = 50
 
-async function getCachedDemoChunksForSource(
+async function getDemoChunksForSource(
   demoSourceId: string,
 ): Promise<ParsedChunkView[]> {
-  "use cache"
-  cacheLife("max")
-  cacheTag("demo-chunks", demoSourceId)
-
   const chunkPage = await knowhereDemoApi.fetchChunkPage({
     demoSourceId,
     page: 1,
@@ -161,7 +156,7 @@ export const loadWorkspaceShellInitialStateEffect = (
       if (firstDemoSource) {
         const chunks = yield* Effect.catchAll(
           Effect.tryPromise(() =>
-            getCachedDemoChunksForSource(firstDemoSource.demoSourceId),
+            getDemoChunksForSource(firstDemoSource.demoSourceId),
           ),
           () => Effect.succeed([] as ParsedChunkView[]),
         )
