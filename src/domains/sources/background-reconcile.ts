@@ -3,8 +3,15 @@ import "server-only"
 import { Effect } from "effect"
 import { Client } from "@upstash/workflow"
 
-import { sourceWorkflowRuntime } from "./workflow-runtime"
 import { logger } from "@/lib/logger"
+
+// Re-trigger protection: Layers 1 & 2.
+//
+// Layer 1 — Upstash idempotency via workflowRunId=sourceId ensures at most one
+// running workflow per source, even across process restarts or multiple instances.
+//
+// Layer 2 — In-memory Set avoids the network call entirely when the same process
+// already triggered a workflow for this source.
 
 const triggeredSourceIds = new Set<string>()
 
@@ -33,6 +40,7 @@ const startBackgroundReconciliationEffect = (
       createClient().trigger({
         url: `${resolveBaseURL()}/api/sources/reconcile`,
         body: { workspaceId, sourceId, apiKey },
+        workflowRunId: sourceId,
         retries: 3,
       }),
     )
@@ -51,27 +59,6 @@ const startBackgroundReconciliationEffect = (
     ),
   )
 
-const reconcileStaleSourcesEffect = (
-  workspaceId: string,
-  apiKey: string,
-): Effect.Effect<void> =>
-  Effect.gen(function* () {
-    const sources = yield* Effect.tryPromise(() =>
-      sourceWorkflowRuntime.listForWorkspace(workspaceId),
-    )
-    for (const source of sources) {
-      if (source.status === "parsing" && source.knowhereJobId) {
-        yield* Effect.fork(
-          startBackgroundReconciliationEffect(workspaceId, source.id, apiKey),
-        )
-      }
-    }
-  }).pipe(Effect.catchAllCause(() => Effect.void))
-
-// ---------------------------------------------------------------------------
-// Async wrappers (backward-compatible)
-// ---------------------------------------------------------------------------
-
 export async function startBackgroundReconciliation(
   workspaceId: string,
   sourceId: string,
@@ -80,11 +67,4 @@ export async function startBackgroundReconciliation(
   return Effect.runPromise(
     startBackgroundReconciliationEffect(workspaceId, sourceId, apiKey),
   )
-}
-
-export async function reconcileStaleSources(
-  workspaceId: string,
-  apiKey: string,
-): Promise<void> {
-  return Effect.runPromise(reconcileStaleSourcesEffect(workspaceId, apiKey))
 }

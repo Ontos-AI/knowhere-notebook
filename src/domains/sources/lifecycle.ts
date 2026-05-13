@@ -24,6 +24,7 @@ type SourceLifecycleRepository = {
     workspaceId: string,
     sourceId: string,
     reason: string,
+    requiredStatus?: string,
   ): Promise<unknown>
   clearSourceStagedBlob(workspaceId: string, sourceId: string): Promise<unknown>
 }
@@ -64,6 +65,10 @@ export const applyKnowhereJobToSourceEffect = Effect.fn(
     parsedResultStore,
     blobStore,
   }: ApplyKnowhereJobToSourceInput) {
+    // Best-effort early exit: skip expensive asset uploads when the source has
+    // already been resolved. The atomic guard (Layer 3) is in the DB UPDATE below.
+    if (source.status !== "parsing") return
+
     if (job.isDone || job.status === "done") {
       if (job.documentId) {
         const stored = yield* Effect.tryPromise(() =>
@@ -94,6 +99,7 @@ export const applyKnowhereJobToSourceEffect = Effect.fn(
           workspaceId,
           source.id,
           "Parsing finished but no document was published.",
+          "parsing",
         ),
       )
       yield* cleanupStagedBlobEffect(workspaceId, source, repository, blobStore)
@@ -106,6 +112,7 @@ export const applyKnowhereJobToSourceEffect = Effect.fn(
           workspaceId,
           source.id,
           job.error?.message ?? "Parsing failed.",
+          "parsing",
         ),
       )
       yield* cleanupStagedBlobEffect(workspaceId, source, repository, blobStore)

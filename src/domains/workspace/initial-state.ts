@@ -13,8 +13,9 @@ import { chatThreadService } from "@/domains/chat/thread-service"
 import { toChatMessageView, toChatThreadView } from "@/domains/chat/view"
 import { sourceViewOptionsBySourceId as getSourceViewOptionsBySourceId } from "@/domains/sources/counts"
 import { sourceService } from "@/domains/sources/service"
+import { startBackgroundReconciliation } from "@/domains/sources/background-reconcile"
 import { sourceWorkflowRuntime } from "@/domains/sources/workflow-runtime"
-import { reconcileStaleSources } from "@/domains/sources/background-reconcile"
+
 import type { SourceView } from "@/domains/sources/types"
 import { toSourceView } from "@/domains/sources/view"
 import type { AuthUser } from "@/infrastructure/auth"
@@ -185,9 +186,15 @@ export const loadWorkspaceShellInitialStateEffect = (
     const { client, apiKey } = yield* Effect.tryPromise(() =>
       deps.getClientForWorkspace(workspace),
     )
-    yield* Effect.fork(
-      Effect.tryPromise(() => reconcileStaleSources(workspace.id, apiKey)),
-    )
+    for (const source of sources) {
+      if (source.status === "parsing" && source.knowhereJobId) {
+        yield* Effect.fork(
+          Effect.tryPromise(() =>
+            startBackgroundReconciliation(workspace.id, source.id, apiKey),
+          ),
+        )
+      }
+    }
     const sourceOptions = yield* deps.sourceViewOptionsBySourceId(
       sourcesNeedingKnowhereChunkCount,
       client,

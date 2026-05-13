@@ -9,7 +9,7 @@ import {
 import { routeResult } from "@/lib/route-result"
 import { knowhereDemoApi } from "@/integrations/knowhere-demo"
 import { toSourceView } from "./view"
-import { reconcileStaleSources } from "./background-reconcile"
+import { startBackgroundReconciliation } from "./background-reconcile"
 import type {
   JsonRouteResult,
   ListSourcesBody,
@@ -89,9 +89,15 @@ const listSourcesEffect = (
       deps.ensureApiKeyForWorkspace(workspace.id, input.cookieHeader),
     )
     const client = deps.makeKnowhereClient(apiKey)
-    yield* Effect.fork(
-      Effect.tryPromise(() => reconcileStaleSources(workspace.id, apiKey)),
-    )
+    for (const source of sources) {
+      if (source.status === "parsing" && source.knowhereJobId) {
+        yield* Effect.fork(
+          Effect.tryPromise(() =>
+            startBackgroundReconciliation(workspace.id, source.id, apiKey),
+          ),
+        )
+      }
+    }
     const sourceOptions = yield* deps.getSourceViewOptionsBySourceId(
       sourcesNeedingKnowhereChunkCount,
       client,
