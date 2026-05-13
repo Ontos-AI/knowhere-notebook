@@ -1,6 +1,11 @@
 import { Effect } from "effect"
 import type { NextResponse } from "next/server"
 
+import { chatCitationPersistence } from "@/domains/chat/chat-citation-persistence"
+import { chatMessageRepository } from "@/domains/chat/chat-message-repository"
+import { chatThreadRepository } from "@/domains/chat/chat-thread-repository"
+import type { ChatCitationView } from "@/domains/chat/types"
+import { databaseRuntime } from "@/domains/workspace/database-runtime"
 import { sourceService } from "@/domains/sources/service"
 import { toSourceView } from "@/domains/sources/view"
 import { notebookRequestContext } from "@/domains/workspace/request-context"
@@ -75,6 +80,13 @@ export async function POST(request: Request): Promise<NextResponse> {
         { concurrency: "unbounded" },
       )
 
+      // After materialization, remap seeded demo-thread citations from their
+      // canonical document IDs to the new materialized document IDs so source
+      // citation resolution continues to work.
+      yield* Effect.tryPromise(() =>
+        fixDemoThreadCitations(workspace.id, materializedSources),
+      ).pipe(Effect.catchAllCause(() => Effect.void))
+
       return nextRouteResponse.toNextResponse(routeResult.ok({ sources }))
     }).pipe(
       Effect.catchAll(() =>
@@ -103,4 +115,61 @@ function getDemoSourceIds(value: unknown): string[] {
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === "object" && value !== null
+}
+
+const seededDemoChatKey = "knowhere-demo-chat"
+
+async function fixDemoThreadCitations(
+  workspaceId: string,
+  materializedSources: ReadonlyArray<{
+    readonly demoSourceId: string
+    readonly documentId: string
+  }>,
+): Promise<void> {
+  const catalog = await knowhereDemoApi.fetchCatalog()
+  const canonicalIdByDemoSourceId = new Map(
+    catalog.sources.map((s) => [s.demoSourceId, s.canonicalDocumentId]),
+  )
+  const documentIdMap = new Map<string, string>()
+  for (const source of materializedSources) {
+    const canonical = canonicalIdByDemoSourceId.get(source.demoSourceId)
+    if (canonical) {
+      documentIdMap.set(canonical, source.documentId)
+    }
+  }
+  if (documentIdMap.size === 0) return
+
+  const thread = await databaseRuntime.runPromise(
+    chatThreadRepository.findThreadByDemoKeyEffect(
+      workspaceId,
+      seededDemoChatKey,
+    ),
+  )
+  if (!thread) return
+
+  const messages = await databaseRuntime.runPromise(
+    chatMessageRepository.listMessagesForThreadEffect(workspaceId, thread.id),
+  )
+  if (!messages || messages.length === 0) return
+
+  await Promise.all(
+    messages.map(async (message) => {
+      const currentCitations = message.citations as
+        | ChatCitationView[]
+        | null
+        | undefined
+      const updated = chatCitationPersistence.replaceDemoCitationDocumentId(
+        currentCitations ?? undefined,
+        documentIdMap,
+      )
+      if (!updated) return
+
+      await databaseRuntime.runPromise(
+        chatMessageRepository.updateMessageCitationsEffect(
+          message.id,
+          chatCitationPersistence.normalizeCitations(updated),
+        ),
+      )
+    }),
+  )
 }

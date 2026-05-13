@@ -52,6 +52,10 @@ type ChatThreadRepository = {
     workspaceId: string,
     threadId: string,
   ) => Effect.Effect<boolean, never, DbClient>
+  readonly findThreadByDemoKeyEffect: (
+    workspaceId: string,
+    demoKey: string,
+  ) => Effect.Effect<ChatThread | null, never, DbClient>
 }
 
 const chatThreadListLimit = 50
@@ -249,6 +253,26 @@ const softDeleteThreadEffect: ChatThreadRepository["softDeleteThreadEffect"] = (
     return result.length > 0
   })
 
+const findThreadByDemoKeyEffect: ChatThreadRepository["findThreadByDemoKeyEffect"] =
+  (workspaceId: string, demoKey: string) =>
+    Effect.gen(function* () {
+      const db = yield* DbClient
+      const row = yield* Effect.promise(() =>
+        db
+          .select()
+          .from(chatThreads)
+          .where(
+            and(
+              eq(chatThreads.workspaceId, workspaceId),
+              eq(chatThreads.demoKey, demoKey),
+              isNull(chatThreads.deletedAt),
+            ),
+          )
+          .limit(1),
+      )
+      return row[0] ?? null
+    })
+
 export const chatThreadRepository: ChatThreadRepository = {
   findThreadInWorkspaceEffect,
   listThreadsForWorkspaceEffect,
@@ -256,4 +280,5 @@ export const chatThreadRepository: ChatThreadRepository = {
   ensureDefaultThreadEffect,
   ensureDemoThreadEffect,
   softDeleteThreadEffect,
+  findThreadByDemoKeyEffect,
 }
