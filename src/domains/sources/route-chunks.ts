@@ -69,6 +69,7 @@ const loadSourceChunksEffect = (
         input,
         deps,
         source.demoKey,
+        source.knowhereDocumentId,
       )
       return demoResult ?? sourceNotFound()
     }
@@ -100,6 +101,7 @@ const loadDemoChunkPageEffect = (
   input: LoadSourceChunksInput,
   deps: RouteChunksDependencies,
   demoSourceId: string = input.sourceId,
+  documentIdOverride?: string | null,
 ) =>
   Effect.gen(function* () {
     const pages = input.shouldLoadAll
@@ -124,7 +126,7 @@ const loadDemoChunkPageEffect = (
       title: page.title,
       mimeType: page.mimeType,
       status: "ready" as const,
-      documentId: page.canonicalDocumentId,
+      documentId: documentIdOverride ?? page.canonicalDocumentId,
     }
     const chunks = pages.flatMap((demoChunkPage) =>
       demoChunkPage.chunks.map((chunk) =>

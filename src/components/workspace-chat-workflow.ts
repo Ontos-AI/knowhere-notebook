@@ -218,12 +218,25 @@ export function useWorkspaceChatWorkflow({
     const demoSourceIds = getMaterializableDemoSourceIds(sources)
     if (demoSourceIds.length > 0) {
       setChat((current) =>
-        workspaceChatState.prepareSend(current, "Preparing demo sources..."),
+        workspaceChatState.prepareSend(current, "Thinking"),
       )
       try {
         const materializedSources =
           await workspaceClient.materializeDemoSources({ demoSourceIds })
         onSourcesMaterialized?.(demoSourceIds, materializedSources)
+        if (chat.threadId) {
+          try {
+            const fresh = await workspaceClient.fetchChatThread(chat.threadId)
+            setChat((current) => {
+              if (current.threadId !== fresh.requestedThreadId) return current
+              if (!fresh.thread || !Array.isArray(fresh.messages))
+                return current
+              return { ...current, messages: [...fresh.messages] }
+            })
+          } catch {
+            // stale citations until page reload — materialization succeeded
+          }
+        }
       } catch {
         setChat((current) => ({
           ...current,
