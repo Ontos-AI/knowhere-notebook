@@ -720,7 +720,7 @@ describe("WorkspaceShell", () => {
     );
     await waitFor(() => {
       expect(
-        countFetchesWithSearch(fetch, "/api/sources/source_1/chunks", "?page=1&pageSize=100"),
+        countFetchesWithSearch(fetch, "/api/sources/source_1/chunks", "?page=1&pageSize=50"),
       ).toBeGreaterThan(0);
     });
 
