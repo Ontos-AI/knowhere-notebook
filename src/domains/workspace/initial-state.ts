@@ -50,36 +50,40 @@ type WorkspaceShellInitialState = {
   }
 }
 
+// Aligned with workspaceClientConfig.sourceChunkPageSize so the SSR
+// prefetch doesn't overlap with the first client-side page request.
+const DEMO_CHUNK_PREFETCH_PAGE_SIZE = 50
+
+// Migrate to "use cache" + cacheLife("max") + cacheTag("demo-chunks")
+// when cacheComponents is enabled in next.config.ts.
 const getCachedDemoChunksForSource = (demoSourceId: string) =>
   unstable_cache(
     async (): Promise<ParsedChunkView[]> => {
       const chunkPage = await knowhereDemoApi.fetchChunkPage({
         demoSourceId,
         page: 1,
-        pageSize: 100,
+        pageSize: DEMO_CHUNK_PREFETCH_PAGE_SIZE,
       })
-      const sourceView = demoView.toSourceView({
+      // Only title and documentId are consumed by toParsedChunkView,
+      // so a minimal SourceView is sufficient.
+      const sourceView: SourceView = {
+        id: chunkPage.demoSourceId,
+        kind: "demo",
         demoSourceId: chunkPage.demoSourceId,
-        canonicalDocumentId: chunkPage.canonicalDocumentId,
         title: chunkPage.title,
         mimeType: chunkPage.mimeType,
-        sizeBytes: 0,
         status: "ready",
-        chunkCount: chunkPage.pagination.total,
-        originalFile: {
-          url: "",
-          mimeType: "",
-          sizeBytes: 0,
-          canDownload: false,
-        },
-        examples: [],
-      })
+        documentId: chunkPage.canonicalDocumentId,
+      }
       return chunkPage.chunks.map((chunk) =>
         demoView.toParsedChunkView(sourceView, chunk),
       )
     },
     ["demo-chunks", demoSourceId],
-    { revalidate: false },
+    {
+      revalidate: false,
+      tags: ["demo-chunks"],
+    },
   )()
 
 type WorkspaceShellInitialStateClient =
