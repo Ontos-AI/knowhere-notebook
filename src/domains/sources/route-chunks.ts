@@ -56,6 +56,10 @@ async function loadSourceChunks(
     return (await loadDemoChunkPage(input, deps)) ?? sourceNotFound()
   }
 
+  if (source.demoKey) {
+    return (await loadDemoChunkPage(input, deps, source.demoKey)) ?? sourceNotFound()
+  }
+
   const client = await getClientForWorkspace(
     workspace.id,
     input.cookieHeader,
@@ -84,13 +88,14 @@ async function loadSourceChunks(
 async function loadDemoChunkPage(
   input: LoadSourceChunksInput,
   deps: RouteChunksDependencies,
+  demoSourceId: string = input.sourceId,
 ): Promise<JsonRouteResult<SourceChunksBody> | null> {
   try {
     const pages = input.shouldLoadAll
-      ? await loadAllDemoChunkPages(input, deps)
+      ? await loadAllDemoChunkPages(input, deps, demoSourceId)
       : [
           await deps.demoApi.fetchChunkPage({
-            demoSourceId: input.sourceId,
+            demoSourceId,
             page: input.pageParams.page,
             pageSize: input.pageParams.pageSize,
           }),
@@ -123,6 +128,7 @@ async function loadDemoChunkPage(
   } catch (error) {
     logger.warn("sources: demo chunk load failed", {
       sourceId: input.sourceId,
+      demoSourceId,
       page: input.pageParams.page,
       pageSize: input.pageParams.pageSize,
       shouldLoadAll: input.shouldLoadAll,
@@ -136,10 +142,11 @@ async function loadDemoChunkPage(
 async function loadAllDemoChunkPages(
   input: LoadSourceChunksInput,
   deps: RouteChunksDependencies,
+  demoSourceId: string,
 ): Promise<DemoChunkPage[]> {
   const pageSize = 200
   const firstPage = await deps.demoApi.fetchChunkPage({
-    demoSourceId: input.sourceId,
+    demoSourceId,
     page: 1,
     pageSize,
   })
@@ -151,7 +158,7 @@ async function loadAllDemoChunkPages(
   ) {
     pages.push(
       await deps.demoApi.fetchChunkPage({
-        demoSourceId: input.sourceId,
+        demoSourceId,
         page: pageNumber,
         pageSize,
       }),

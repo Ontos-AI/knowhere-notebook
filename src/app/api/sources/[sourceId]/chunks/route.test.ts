@@ -275,6 +275,96 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
     expect(mocks.getSourceParseAssetUrls).not.toHaveBeenCalled()
   })
 
+  it("serves demo chunks for authenticated materialized demo sources", async () => {
+    mocks.getCurrentUser.mockResolvedValue({
+      id: "user_1",
+      email: null,
+      name: null,
+    })
+    mocks.ensureWorkspace.mockResolvedValue({
+      id: "workspace_1",
+      userId: "user_1",
+      namespace: "notebook-workspace_1",
+      createdAt: new Date("2026-05-10T00:00:00.000Z"),
+    })
+    mocks.findSourceInWorkspace.mockResolvedValue({
+      id: "source_materialized_demo",
+      workspaceId: "workspace_1",
+      title: "TSLA-Q4-2025-Update.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 1024,
+      status: "ready",
+      failureReason: null,
+      knowhereJobId: null,
+      knowhereDocumentId: "copied-doc-tsla-q4-2025",
+      stagedBlobPathname: null,
+      stagedBlobUrl: null,
+      originalBlobPathname: null,
+      originalBlobUrl: "/api/demo-sources/demo-tsla-q4-2025/original",
+      demoKey: "demo-tsla-q4-2025",
+      createdAt: new Date("2026-05-10T00:00:00.000Z"),
+      updatedAt: new Date("2026-05-10T00:00:00.000Z"),
+      deletedAt: null,
+    })
+    mocks.fetchDemoChunkPage.mockResolvedValue({
+      demoSourceId: "demo-tsla-q4-2025",
+      canonicalDocumentId: "demo-doc-tsla-q4-2025",
+      title: "TSLA-Q4-2025-Update.pdf",
+      mimeType: "application/pdf",
+      chunks: [
+        {
+          id: "demo-tsla-q4-2025:chunk_1",
+          chunkId: "chunk_1",
+          chunkType: "text",
+          content: "Tesla demo content",
+          sectionPath: "Summary",
+          sourceChunkPath: "Summary",
+          filePath: null,
+          sortOrder: 0,
+          metadata: {},
+          assetUrl: null,
+        },
+      ],
+      pagination: {
+        page: 1,
+        pageSize: 100,
+        total: 70,
+        totalPages: 1,
+      },
+    })
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost:3001/api/sources/source_materialized_demo/chunks?page=1&pageSize=100",
+      ),
+      { params: Promise.resolve({ sourceId: "source_materialized_demo" }) },
+    )
+
+    await expect(response.json()).resolves.toMatchObject({
+      chunks: [
+        {
+          chunkId: "demo-tsla-q4-2025:chunk_1",
+          documentId: "demo-doc-tsla-q4-2025",
+          sourceTitle: "TSLA-Q4-2025-Update.pdf",
+        },
+      ],
+      pagination: {
+        page: 1,
+        pageSize: 100,
+        total: 70,
+      },
+    })
+    expect(response.status).toBe(200)
+    expect(mocks.fetchDemoChunkPage).toHaveBeenCalledWith({
+      demoSourceId: "demo-tsla-q4-2025",
+      page: 1,
+      pageSize: 100,
+    })
+    expect(mocks.ensureApiKeyForWorkspace).not.toHaveBeenCalled()
+    expect(mocks.makeKnowhereClient).not.toHaveBeenCalled()
+    expect(mocks.getSourceParseAssetUrls).not.toHaveBeenCalled()
+  })
+
   it("logs the demo chunk load failure before returning 404", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined)
     try {
