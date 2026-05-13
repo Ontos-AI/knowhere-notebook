@@ -16,7 +16,7 @@ const workspaceClientKeys = {
 } as const
 
 const workspaceClientConfig = {
-  sourceChunkPageSize: 100,
+  sourceChunkPageSize: 50,
 } as const
 
 type SourceChunksResponse = {

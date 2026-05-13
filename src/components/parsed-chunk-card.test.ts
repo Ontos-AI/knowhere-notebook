@@ -24,7 +24,6 @@ describe("ParsedChunkCard", () => {
           keywords: ["Supercharging", "AI training capacity"],
         },
         isFocused: true,
-        searchQuery: "capacity",
         onReferenceClick: vi.fn(),
       }),
     );
@@ -44,9 +43,6 @@ describe("ParsedChunkCard", () => {
     expect(screen.getByTestId("chunk-card-shell-text_1").className).toContain(
       "min-w-0",
     );
-    expect(
-      container.querySelectorAll('mark[data-chunk-search-match="true"]').length,
-    ).toBeGreaterThan(0);
   });
 
   it("routes resolved artifact reference clicks to the target chunk", async () => {

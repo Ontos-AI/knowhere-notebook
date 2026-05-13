@@ -9,19 +9,10 @@ type RenderableReference = {
   readonly connection: ParsedChunkConnection
 }
 
-export type ChunkSearchMatch = {
-  readonly chunkId: string
-  readonly matchCount: number
-}
-
 type ChunksPanelStateModule = {
   readonly formatChunkSectionPath: (
     sectionPath: ParsedChunkView["sectionPath"],
   ) => string | null
-  readonly getChunkSearchMatches: (
-    chunks: readonly ParsedChunkView[],
-    query: string,
-  ) => readonly ChunkSearchMatch[]
   readonly formatReferenceLabel: (ref: string) => string
   readonly getChunksWithFocusedFirst: (
     chunks: readonly ParsedChunkView[],
@@ -31,7 +22,6 @@ type ChunksPanelStateModule = {
   readonly getRenderableReferences: (
     chunk: ParsedChunkView,
   ) => RenderableReference[]
-  readonly normalizeChunkSearchQuery: (query: string) => string
 }
 
 function getChunksWithFocusedFirst(
@@ -139,58 +129,6 @@ function getRenderableReferences(
   return nonOverlapping
 }
 
-function getChunkSearchMatches(
-  chunks: readonly ParsedChunkView[],
-  query: string,
-): readonly ChunkSearchMatch[] {
-  const normalizedQuery = normalizeChunkSearchQuery(query)
-  if (!normalizedQuery) return []
-
-  return chunks.flatMap((chunk): ChunkSearchMatch[] => {
-    const matchCount = countChunkSearchMatches(chunk, normalizedQuery)
-    if (matchCount === 0) return []
-    return [{ chunkId: chunk.chunkId, matchCount }]
-  })
-}
-
-function normalizeChunkSearchQuery(query: string): string {
-  return query.trim().replace(/\s+/g, " ").toLocaleLowerCase()
-}
-
-function countChunkSearchMatches(
-  chunk: ParsedChunkView,
-  normalizedQuery: string,
-): number {
-  return getChunkSearchText(chunk).reduce(
-    (total, text) => total + countTextMatches(text, normalizedQuery),
-    0,
-  )
-}
-
-function getChunkSearchText(chunk: ParsedChunkView): readonly string[] {
-  return [
-    chunk.content,
-    chunk.summary ?? "",
-    ...(chunk.keywords ?? []),
-  ].filter((text) => text.trim().length > 0)
-}
-
-function countTextMatches(text: string, normalizedQuery: string): number {
-  const normalizedText = text.toLocaleLowerCase()
-  let count = 0
-  let cursor = 0
-
-  while (cursor < normalizedText.length) {
-    const matchIndex = normalizedText.indexOf(normalizedQuery, cursor)
-    if (matchIndex < 0) return count
-
-    count += 1
-    cursor = matchIndex + normalizedQuery.length
-  }
-
-  return count
-}
-
 function getReferenceRange(
   content: string,
   connection: ParsedChunkConnection,
@@ -253,10 +191,8 @@ function capitalize(value: string): string {
 
 export const chunksPanelState: ChunksPanelStateModule = {
   formatChunkSectionPath,
-  getChunkSearchMatches,
   formatReferenceLabel,
   getChunksWithFocusedFirst,
   getReferenceLabel,
   getRenderableReferences,
-  normalizeChunkSearchQuery,
 }

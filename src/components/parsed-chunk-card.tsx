@@ -23,14 +23,12 @@ export function ParsedChunkCard({
   chunk,
   isFocused,
   isOriginalPreviewAvailable = false,
-  searchQuery = "",
   onChunkClick,
   onReferenceClick,
 }: {
   readonly chunk: ParsedChunkView;
   readonly isFocused: boolean;
   readonly isOriginalPreviewAvailable?: boolean;
-  readonly searchQuery?: string;
   readonly onChunkClick?: (chunk: ParsedChunkView) => void;
   readonly onReferenceClick: (chunkId: string) => void;
 }): ReactNode {
@@ -41,7 +39,6 @@ export function ParsedChunkCard({
           chunk={chunk}
           isFocused={isFocused}
           isOriginalPreviewAvailable={isOriginalPreviewAvailable}
-          searchQuery={searchQuery}
           onChunkClick={onChunkClick}
         />
       </ChunkCardShell>
@@ -54,7 +51,6 @@ export function ParsedChunkCard({
           chunk={chunk}
           isFocused={isFocused}
           isOriginalPreviewAvailable={isOriginalPreviewAvailable}
-          searchQuery={searchQuery}
           onChunkClick={onChunkClick}
         />
       </ChunkCardShell>
@@ -66,7 +62,6 @@ export function ParsedChunkCard({
         chunk={chunk}
         isFocused={isFocused}
         isOriginalPreviewAvailable={isOriginalPreviewAvailable}
-        searchQuery={searchQuery}
         onChunkClick={onChunkClick}
         onReferenceClick={onReferenceClick}
       />
@@ -230,10 +225,8 @@ function getOpenOriginalButtonLabel(
 
 function ChunkSummaryPanel({
   chunk,
-  searchQuery,
 }: {
   readonly chunk: ParsedChunkView;
-  readonly searchQuery: string;
 }): ReactNode {
   if (!chunk.summary) return null;
 
@@ -244,7 +237,7 @@ function ChunkSummaryPanel({
     >
       <SectionLabel icon={<TextQuote className="size-3.5" />} label="Summary" />
       <p className="mt-2 text-sm leading-6 text-foreground/85">
-        {renderHighlightedSearchText(chunk.summary, searchQuery)}
+        {chunk.summary}
       </p>
     </section>
   );
@@ -270,10 +263,8 @@ function ChunkContentPanel({
 
 function ChunkKeywords({
   chunk,
-  searchQuery,
 }: {
   readonly chunk: ParsedChunkView;
-  readonly searchQuery: string;
 }): ReactNode {
   if (!chunk.keywords || chunk.keywords.length === 0) return null;
 
@@ -295,7 +286,7 @@ function ChunkKeywords({
             variant="secondary"
             className={keywordBadgeClassName}
           >
-            {renderHighlightedSearchText(keyword, searchQuery)}
+            {keyword}
           </Badge>
         ))}
       </div>
@@ -331,14 +322,12 @@ function TextChunkCard({
   chunk,
   isFocused,
   isOriginalPreviewAvailable,
-  searchQuery,
   onChunkClick,
   onReferenceClick,
 }: {
   readonly chunk: ParsedChunkView;
   readonly isFocused: boolean;
   readonly isOriginalPreviewAvailable: boolean;
-  readonly searchQuery: string;
   readonly onChunkClick?: (chunk: ParsedChunkView) => void;
   readonly onReferenceClick: (chunkId: string) => void;
 }): ReactNode {
@@ -349,13 +338,13 @@ function TextChunkCard({
       isOriginalPreviewAvailable={isOriginalPreviewAvailable}
       onChunkClick={onChunkClick}
     >
-      <ChunkSummaryPanel chunk={chunk} searchQuery={searchQuery} />
+      <ChunkSummaryPanel chunk={chunk} />
       <ChunkContentPanel chunk={chunk}>
         <pre className="whitespace-pre-wrap break-words font-sans text-[13px] leading-relaxed text-foreground sm:text-sm">
-          {renderTextChunkContent(chunk, searchQuery, onReferenceClick)}
+          {renderTextChunkContent(chunk, onReferenceClick)}
         </pre>
       </ChunkContentPanel>
-      <ChunkKeywords chunk={chunk} searchQuery={searchQuery} />
+      <ChunkKeywords chunk={chunk} />
     </ChunkCardFrame>
   );
 }
@@ -364,13 +353,11 @@ function ImageChunkCard({
   chunk,
   isFocused,
   isOriginalPreviewAvailable,
-  searchQuery,
   onChunkClick,
 }: {
   readonly chunk: ParsedChunkView;
   readonly isFocused: boolean;
   readonly isOriginalPreviewAvailable: boolean;
-  readonly searchQuery: string;
   readonly onChunkClick?: (chunk: ParsedChunkView) => void;
 }): ReactNode {
   return (
@@ -380,7 +367,7 @@ function ImageChunkCard({
       isOriginalPreviewAvailable={isOriginalPreviewAvailable}
       onChunkClick={onChunkClick}
     >
-      <ChunkSummaryPanel chunk={chunk} searchQuery={searchQuery} />
+      <ChunkSummaryPanel chunk={chunk} />
       <ChunkContentPanel chunk={chunk}>
         {chunk.assetUrl ? (
           <figure className="overflow-hidden rounded-lg border border-border bg-muted/30">
@@ -400,31 +387,30 @@ function ImageChunkCard({
               </p>
               <p className="mt-1 max-w-xs text-xs text-muted-foreground">
                 {chunk.summary
-                  ? renderHighlightedSearchText(chunk.summary, searchQuery)
+                  ? chunk.summary
                   : "Image content is not available in this view."}
               </p>
             </div>
           </div>
         )}
       </ChunkContentPanel>
-      <ChunkKeywords chunk={chunk} searchQuery={searchQuery} />
+      <ChunkKeywords chunk={chunk} />
     </ChunkCardFrame>
   );
 }
 
 function renderTextChunkContent(
   chunk: ParsedChunkView,
-  searchQuery: string,
   onReferenceClick: (chunkId: string) => void,
 ): ReactNode {
   const parts = parsedChunkCardModel.getTextContentParts(chunk);
   if (parts.length === 1 && parts[0]?.type === "text") {
-    return renderHighlightedSearchText(parts[0].text, searchQuery);
+    return parts[0].text;
   }
 
   return parts.map((part) => {
     if (part.type === "text") {
-      return renderHighlightedSearchText(part.text, searchQuery);
+      return part.text;
     }
 
     return (
@@ -464,13 +450,11 @@ function TableChunkCard({
   chunk,
   isFocused,
   isOriginalPreviewAvailable,
-  searchQuery,
   onChunkClick,
 }: {
   readonly chunk: ParsedChunkView;
   readonly isFocused: boolean;
   readonly isOriginalPreviewAvailable: boolean;
-  readonly searchQuery: string;
   readonly onChunkClick?: (chunk: ParsedChunkView) => void;
 }): ReactNode {
   const safeHtml = useMemo(
@@ -485,7 +469,7 @@ function TableChunkCard({
       isOriginalPreviewAvailable={isOriginalPreviewAvailable}
       onChunkClick={onChunkClick}
     >
-      <ChunkSummaryPanel chunk={chunk} searchQuery={searchQuery} />
+      <ChunkSummaryPanel chunk={chunk} />
       <ChunkContentPanel chunk={chunk}>
         {safeHtml ? (
           <div
@@ -502,54 +486,16 @@ function TableChunkCard({
               </p>
               <p className="mt-1 max-w-xs text-xs text-muted-foreground">
                 {chunk.summary
-                  ? renderHighlightedSearchText(chunk.summary, searchQuery)
+                  ? chunk.summary
                   : "Table content is not available in this view."}
               </p>
             </div>
           </div>
         )}
       </ChunkContentPanel>
-      <ChunkKeywords chunk={chunk} searchQuery={searchQuery} />
+      <ChunkKeywords chunk={chunk} />
     </ChunkCardFrame>
   );
-}
-
-function renderHighlightedSearchText(
-  text: string,
-  searchQuery: string,
-): ReactNode {
-  const normalizedQuery = searchQuery.trim().toLocaleLowerCase();
-  if (!normalizedQuery) return text;
-
-  const normalizedText = text.toLocaleLowerCase();
-  const parts: ReactNode[] = [];
-  let cursor = 0;
-  let matchIndex = normalizedText.indexOf(normalizedQuery, cursor);
-
-  while (matchIndex >= 0) {
-    if (matchIndex > cursor) {
-      parts.push(text.slice(cursor, matchIndex));
-    }
-
-    const matchEnd = matchIndex + normalizedQuery.length;
-    parts.push(
-      <mark
-        key={`${matchIndex}-${matchEnd}`}
-        data-chunk-search-match="true"
-        className="rounded bg-[#fef08a] px-0.5 text-inherit dark:bg-[#854d0e]/80"
-      >
-        {text.slice(matchIndex, matchEnd)}
-      </mark>,
-    );
-    cursor = matchEnd;
-    matchIndex = normalizedText.indexOf(normalizedQuery, cursor);
-  }
-
-  if (cursor < text.length) {
-    parts.push(text.slice(cursor));
-  }
-
-  return parts.length === 1 ? parts[0] : parts;
 }
 
 function renderChunkIcon(type: ParsedChunkView["type"]): ReactNode {

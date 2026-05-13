@@ -2,32 +2,21 @@
 
 import {
   type CSSProperties,
-  type ChangeEvent,
   type ReactNode,
   useCallback,
   useEffect,
-  useId,
-  useMemo,
   useState,
 } from "react";
 import { type VirtualItem } from "@tanstack/react-virtual";
 import {
-  ChevronDown,
-  ChevronUp,
   FilePlus2,
   Layers,
-  Search,
   UploadCloud,
-  X,
 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SourceOriginalPreview } from "@/components/source-original-preview";
 import { SourceUploadDialog } from "@/components/source-upload-dialog";
 import { useChunksPanelWorkflow } from "@/components/chunks-panel-workflow";
-import {
-  chunksPanelState,
-  type ChunkSearchMatch,
-} from "@/components/chunks-panel-state";
 import { ParsedChunkCard } from "@/components/parsed-chunk-card";
 import { useSourceOriginalPreviewWarmup } from "@/components/source-original-preview-warmup";
 import { sourceOriginalPreviewModel } from "@/components/source-original-preview-model";
@@ -71,32 +60,6 @@ export function ChunksPanel({
   const [mountedOriginalPreviewKey, setMountedOriginalPreviewKey] = useState<
     string | null
   >(null);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [activeSearchMatchIndex, setActiveSearchMatchIndex] = useState(-1);
-  const normalizedSearchQuery = chunksPanelState.normalizeChunkSearchQuery(
-    searchQuery,
-  );
-  const searchMatches = useMemo(
-    () => chunksPanelState.getChunkSearchMatches(chunks, searchQuery),
-    [chunks, searchQuery],
-  );
-  const totalSearchHitCount = useMemo(
-    () =>
-      searchMatches.reduce(
-        (total, searchMatch) => total + searchMatch.matchCount,
-        0,
-      ),
-    [searchMatches],
-  );
-  const effectiveActiveSearchMatchIndex = getEffectiveSearchMatchIndex(
-    activeSearchMatchIndex,
-    searchMatches,
-    normalizedSearchQuery,
-  );
-  const activeSearchMatch =
-    effectiveActiveSearchMatchIndex >= 0
-      ? (searchMatches[effectiveActiveSearchMatchIndex] ?? null)
-      : null;
   const {
     activeFocusedChunkId,
     handleChunkSelected: selectChunk,
@@ -125,20 +88,6 @@ export function ChunksPanel({
     onLoadMore,
   });
 
-  useEffect(() => {
-    if (!normalizedSearchQuery) {
-      requestChunkFocus(null);
-      return;
-    }
-
-    if (!activeSearchMatch) {
-      requestChunkFocus(null);
-      return;
-    }
-
-    requestChunkFocus(activeSearchMatch.chunkId);
-  }, [activeSearchMatch, normalizedSearchQuery, requestChunkFocus]);
-
   useSourceOriginalPreviewWarmup({
     sourceTitle: selectedSource,
     file: selectedSourceFile,
@@ -161,31 +110,6 @@ export function ChunksPanel({
     rememberOriginalPreview();
     selectOriginalView();
   }, [rememberOriginalPreview, selectOriginalView]);
-  const handleSearchQueryChange = useCallback(
-    (query: string): void => {
-      const nextMatches = chunksPanelState.getChunkSearchMatches(chunks, query);
-      setSearchQuery(query);
-      setActiveSearchMatchIndex(nextMatches.length > 0 ? 0 : -1);
-      if (visibleView === "original") handleParsedViewSelected();
-    },
-    [chunks, handleParsedViewSelected, visibleView],
-  );
-  const handleSearchCleared = useCallback((): void => {
-    setSearchQuery("");
-    setActiveSearchMatchIndex(-1);
-    requestChunkFocus(null);
-  }, [requestChunkFocus]);
-  const handlePreviousSearchMatch = useCallback((): void => {
-    setActiveSearchMatchIndex((currentIndex) =>
-      getRelativeSearchMatchIndex(currentIndex, searchMatches, -1),
-    );
-  }, [searchMatches]);
-  const handleNextSearchMatch = useCallback((): void => {
-    setActiveSearchMatchIndex((currentIndex) =>
-      getRelativeSearchMatchIndex(currentIndex, searchMatches, 1),
-    );
-  }, [searchMatches]);
-
   const headerTitle = focusedChunkId ? "Referenced Chunks" : "Parsed Chunks";
   const shouldMountOriginalPreview =
     visibleView === "original" ||
@@ -230,20 +154,6 @@ export function ChunksPanel({
           </p>
         </div>
         <div className="flex min-w-0 shrink-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
-          <ChunkSearchControl
-            activeMatchOrdinal={
-              effectiveActiveSearchMatchIndex >= 0
-                ? effectiveActiveSearchMatchIndex + 1
-                : 0
-            }
-            matchCount={searchMatches.length}
-            query={searchQuery}
-            totalHitCount={totalSearchHitCount}
-            onClear={handleSearchCleared}
-            onNext={handleNextSearchMatch}
-            onPrevious={handlePreviousSearchMatch}
-            onQueryChange={handleSearchQueryChange}
-          />
           {hasOriginalFile ? (
             <div className="flex shrink-0 rounded-lg border border-border bg-muted/40 p-0.5">
               <button
@@ -301,7 +211,6 @@ export function ChunksPanel({
                       chunk={visibleChunks[virtualItem.index]}
                       focusedChunkId={activeFocusedChunkId}
                       isOriginalPreviewAvailable={isOriginalPreviewAvailable}
-                      searchQuery={normalizedSearchQuery}
                       measureElement={measureVirtualChunkElement}
                       onChunkClick={
                         hasOriginalFile ? handleChunkSelected : undefined
@@ -335,139 +244,6 @@ export function ChunksPanel({
     </main>
   );
 }
-
-function ChunkSearchControl({
-  activeMatchOrdinal,
-  matchCount,
-  query,
-  totalHitCount,
-  onClear,
-  onNext,
-  onPrevious,
-  onQueryChange,
-}: {
-  readonly activeMatchOrdinal: number;
-  readonly matchCount: number;
-  readonly query: string;
-  readonly totalHitCount: number;
-  readonly onClear: () => void;
-  readonly onNext: () => void;
-  readonly onPrevious: () => void;
-  readonly onQueryChange: (query: string) => void;
-}): ReactNode {
-  const searchInputId = useId();
-  const hasQuery = query.trim().length > 0;
-  const hasMatches = matchCount > 0;
-  const resultLabel = getSearchResultLabel({
-    activeMatchOrdinal,
-    hasQuery,
-    matchCount,
-    totalHitCount,
-  });
-
-  return (
-    <div className="flex min-w-0 items-center gap-2">
-      <label htmlFor={searchInputId} className="sr-only">
-        Search parsed chunks
-      </label>
-      <div className="relative min-w-0 flex-1 sm:w-64 sm:flex-none">
-        <Search
-          aria-hidden="true"
-          className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-          strokeWidth={1.75}
-        />
-        <input
-          id={searchInputId}
-          type="search"
-          value={query}
-          placeholder="Search chunks"
-          className="h-9 w-full rounded-lg border border-border bg-background px-8 font-mono-readable text-xs text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-[#8e51ff]/50 focus:border-[#8e51ff] focus:ring-4 focus:ring-[#8e51ff]/15"
-          onChange={(event: ChangeEvent<HTMLInputElement>) => {
-            onQueryChange(event.target.value);
-          }}
-        />
-        {hasQuery ? (
-          <button
-            type="button"
-            aria-label="Clear chunk search"
-            className="absolute right-1.5 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8e51ff]/25"
-            onClick={onClear}
-          >
-            <X className="size-3.5" strokeWidth={1.75} />
-          </button>
-        ) : null}
-      </div>
-      <span
-        aria-live="polite"
-        className="hidden min-w-[6.5rem] text-right text-[11px] font-medium text-muted-foreground sm:block"
-      >
-        {resultLabel}
-      </span>
-      <div className="flex shrink-0 rounded-lg border border-border bg-muted/40 p-0.5">
-        <button
-          type="button"
-          aria-label="Previous chunk search match"
-          disabled={!hasMatches}
-          className={searchNavigationButtonClassName}
-          onClick={onPrevious}
-        >
-          <ChevronUp className="size-3.5" strokeWidth={1.75} />
-        </button>
-        <button
-          type="button"
-          aria-label="Next chunk search match"
-          disabled={!hasMatches}
-          className={searchNavigationButtonClassName}
-          onClick={onNext}
-        >
-          <ChevronDown className="size-3.5" strokeWidth={1.75} />
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function getSearchResultLabel({
-  activeMatchOrdinal,
-  hasQuery,
-  matchCount,
-  totalHitCount,
-}: {
-  readonly activeMatchOrdinal: number;
-  readonly hasQuery: boolean;
-  readonly matchCount: number;
-  readonly totalHitCount: number;
-}): string {
-  if (!hasQuery) return "Search chunks";
-  if (matchCount === 0) return "No matches";
-
-  const hitLabel = totalHitCount === 1 ? "hit" : "hits";
-  return `${activeMatchOrdinal}/${matchCount} chunks · ${totalHitCount} ${hitLabel}`;
-}
-
-function getRelativeSearchMatchIndex(
-  currentIndex: number,
-  matches: readonly ChunkSearchMatch[],
-  delta: number,
-): number {
-  if (matches.length === 0) return -1;
-
-  const startingIndex = currentIndex >= 0 ? currentIndex : 0;
-  return (startingIndex + delta + matches.length) % matches.length;
-}
-
-function getEffectiveSearchMatchIndex(
-  currentIndex: number,
-  matches: readonly ChunkSearchMatch[],
-  normalizedSearchQuery: string,
-): number {
-  if (!normalizedSearchQuery || matches.length === 0) return -1;
-  if (currentIndex < 0) return 0;
-  return Math.min(currentIndex, matches.length - 1);
-}
-
-const searchNavigationButtonClassName =
-  "flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8e51ff]/25 disabled:pointer-events-none disabled:opacity-40";
 
 function EmptySourceUploadState({
   onLoginClick,
@@ -614,7 +390,6 @@ function VirtualChunkRow({
   chunk,
   focusedChunkId,
   isOriginalPreviewAvailable,
-  searchQuery,
   measureElement,
   onChunkClick,
   onReferenceClick,
@@ -623,7 +398,6 @@ function VirtualChunkRow({
   chunk: ParsedChunkView | undefined;
   focusedChunkId: string | null;
   isOriginalPreviewAvailable: boolean;
-  searchQuery: string;
   measureElement: (node: HTMLDivElement | null) => void;
   onChunkClick?: (chunk: ParsedChunkView) => void;
   onReferenceClick: (chunkId: string) => void;
@@ -651,7 +425,6 @@ function VirtualChunkRow({
         chunk={chunk}
         isFocused={chunk.chunkId === focusedChunkId}
         isOriginalPreviewAvailable={isOriginalPreviewAvailable}
-        searchQuery={searchQuery}
         onChunkClick={onChunkClick}
         onReferenceClick={onReferenceClick}
       />

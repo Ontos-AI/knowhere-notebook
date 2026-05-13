@@ -21,6 +21,7 @@ export function NotebookLogoMark({ width, className }: NotebookLogoMarkProps) {
       className={className}
       width={width}
       height={height}
+      style={{ height: "auto" }}
     />
   );
 }
