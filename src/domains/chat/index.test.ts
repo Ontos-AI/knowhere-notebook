@@ -285,7 +285,7 @@ describe("generateContextualRetrievalQuery", () => {
     });
 
     expect(generateText).toHaveBeenCalledWith({
-      model: "deepseek/deepseek-v4-flash",
+      model: "google/gemini-3-flash",
       prompt: expect.stringContaining("Knowhere retrieval is stateless"),
     });
     expect(query).toBe("Tesla Q4 2025 Update energy storage deployments");
@@ -311,7 +311,7 @@ describe("generateGroundedAnswer", () => {
     });
 
     expect(generateText).toHaveBeenCalledWith({
-      model: "deepseek/deepseek-v4-flash",
+      model: "google/gemini-3-flash",
       prompt: expect.stringContaining("PR-E wires chat to Knowhere retrieval."),
     });
     expect(answer).toBe("PR-E wires chat to retrieval.");
