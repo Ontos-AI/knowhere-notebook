@@ -267,7 +267,7 @@ const fetchOptionalCatalogEffect = (
 
 async function fetchCatalog(): Promise<DemoCatalog> {
   "use cache"
-  cacheLife("hours")
+  cacheLife("max")
   cacheTag("demo-catalog")
 
   return Effect.runPromise(fetchCatalogEffect())
@@ -291,7 +291,7 @@ async function fetchChunkPage(input: {
   readonly pageSize: number
 }): Promise<DemoChunkPage> {
   "use cache"
-  cacheLife("hours")
+  cacheLife("max")
   cacheTag("demo-chunks", input.demoSourceId)
 
   return Effect.runPromise(fetchChunkPageEffect(input))

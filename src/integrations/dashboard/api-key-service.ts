@@ -85,26 +85,35 @@ export const fetchKnowhereJwtEffect = (cookieHeader: string) =>
       ),
     )
 
-    return body.json.token
+    return body.json
   })
 
-// Cached for a fixed 1-minute window regardless of the JWT's expiresInSeconds.
-// Dashboard JWTs are typically long-lived (15+ minutes), so a 1-minute cache
-// reduces issuance calls without risking expired-token propagation. If short-lived
-// JWTs are introduced, this should switch to an inline cacheLife profile driven
-// by the actual expiration.
+type KnowhereJwt = {
+  readonly token: string
+  readonly expiresInSeconds: number
+}
+
+const minimumJwtCacheSeconds = 30
+const jwtExpirationSafetySeconds = 15
+const maximumJwtRefreshSeconds = 60
+
+// Cache only inside the issued JWT's lifetime. The cache profile is computed
+// after Dashboard responds so short-lived JWTs cannot outlive their expiration.
 async function fetchKnowhereJwtCached(
   cookieHeader: string,
-): Promise<string> {
+): Promise<KnowhereJwt> {
   "use cache"
-  cacheLife("minutes")
   cacheTag("knowhere-jwt")
 
-  return Effect.runPromise(
+  const jwt = await Effect.runPromise(
     fetchKnowhereJwtEffect(cookieHeader).pipe(
       Effect.provide(FetchHttpClient.layer),
     ),
   )
+  const cacheSeconds = normalizeJwtCacheSeconds(jwt.expiresInSeconds)
+  cacheLife(getJwtCacheLife(cacheSeconds))
+
+  return jwt
 }
 
 /**
@@ -115,11 +124,11 @@ export async function fetchKnowhereJwt(
 ): Promise<string> {
   const start = Date.now()
   try {
-    const token = await fetchKnowhereJwtCached(cookieHeader)
+    const jwt = await fetchKnowhereJwtCached(cookieHeader)
     logger.info("dashboard: POST /api/orpc/users/issueServiceJwt ok", {
       durationMs: Date.now() - start,
     })
-    return token
+    return jwt.token
   } catch (error) {
     logger.error("dashboard: POST /api/orpc/users/issueServiceJwt failed", {
       durationMs: Date.now() - start,
@@ -173,4 +182,28 @@ export function isAuthError(error: unknown): boolean {
       return true
   }
   return false
+}
+
+function normalizeJwtCacheSeconds(expiresInSeconds: number): number {
+  if (!Number.isFinite(expiresInSeconds)) return minimumJwtCacheSeconds
+  return Math.max(1, Math.floor(expiresInSeconds))
+}
+
+function getJwtCacheLife(expiresInSeconds: number): {
+  readonly stale: number
+  readonly revalidate: number
+  readonly expire: number
+} {
+  const refreshSeconds = Math.max(
+    1,
+    Math.min(
+      maximumJwtRefreshSeconds,
+      expiresInSeconds - jwtExpirationSafetySeconds,
+    ),
+  )
+  return {
+    stale: refreshSeconds,
+    revalidate: refreshSeconds,
+    expire: expiresInSeconds,
+  }
 }
