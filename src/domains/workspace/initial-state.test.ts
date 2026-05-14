@@ -10,6 +10,7 @@ import type {
   Workspace,
 } from "@/infrastructure/db/schema"
 import type { DemoCatalog } from "@/integrations/knowhere-demo"
+import { formatUnknownForLog } from "@/lib/format-log-value"
 
 type InitialStateDependencies = NonNullable<
   Parameters<typeof loadWorkspaceShellInitialState>[0]
@@ -360,6 +361,45 @@ describe("loadWorkspaceShellInitialState", () => {
         documentId: "document_1",
       },
     ])
+  })
+
+  it("adds operation context when initial state loading fails", async () => {
+    const deps = createDependencies({
+      listSourcesForWorkspace: vi.fn(async () => {
+        throw new Error("database connection refused")
+      }),
+    })
+
+    try {
+      await loadWorkspaceShellInitialState(deps)
+      throw new Error("Expected initial state loading to fail.")
+    } catch (error) {
+      const formatted = formatUnknownForLog(error)
+
+      expect(formatted).toContain("listSourcesForWorkspace")
+      expect(formatted).toContain("database connection refused")
+    }
+  })
+
+  it("adds operation context when chunk-count lookup fails", async () => {
+    const deps = createDependencies({
+      listSourcesForWorkspace: vi.fn(async () => [makeSource("workspace_1")]),
+      sourceViewOptionsBySourceId: vi.fn(() =>
+        Effect.die(new Error("Knowhere document list timed out")),
+      ),
+    })
+
+    try {
+      await loadWorkspaceShellInitialState(deps)
+      throw new Error("Expected initial state loading to fail.")
+    } catch (error) {
+      const formatted = formatUnknownForLog(error)
+
+      expect(formatted).toContain(
+        "Workspace initial state sourceViewOptionsBySourceId failed",
+      )
+      expect(formatted).toContain("Knowhere document list timed out")
+    }
   })
 })
 

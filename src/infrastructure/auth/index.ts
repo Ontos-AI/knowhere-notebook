@@ -2,7 +2,6 @@ import "server-only"
 
 import { cookies, headers } from "next/headers"
 import { redirect } from "next/navigation"
-import { cacheLife, cacheTag } from "next/cache"
 import { Context, Effect, Either, Layer, Schedule, Schema } from "effect"
 import {
   FetchHttpClient,
@@ -154,20 +153,6 @@ export const authLayer = Layer.effect(
 
 // ---- Public API (Promise-based, for Next.js compatibility) ----------------
 
-async function getCurrentUserCached(
-  cookieHeader: string,
-): Promise<AuthUser | null> {
-  "use cache"
-  cacheLife("minutes")
-  cacheTag("current-user")
-
-  return Effect.runPromise(
-    callGetCurrentUser(cookieHeader).pipe(
-      Effect.provide(FetchHttpClient.layer),
-    ),
-  )
-}
-
 export async function getCurrentUser(): Promise<AuthUser | null> {
   const developmentUser = knowhereApiKeyOverride.getDevelopmentUser()
   if (developmentUser) {
@@ -184,7 +169,11 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
   }
 
   const start = Date.now()
-  const user = await getCurrentUserCached(cookieHeader)
+  const user = await Effect.runPromise(
+    callGetCurrentUser(cookieHeader).pipe(
+      Effect.provide(FetchHttpClient.layer),
+    ),
+  )
 
   if (user === null) {
     logger.info("dashboard: POST /api/orpc/users/getCurrentUser -> no valid session", {

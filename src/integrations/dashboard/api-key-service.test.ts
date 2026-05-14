@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-vi.mock("next/cache", () => ({
-  cacheLife: () => {},
-  cacheTag: () => {},
+const nextCacheMocks = vi.hoisted(() => ({
+  cacheLife: vi.fn(),
+  cacheTag: vi.fn(),
 }))
+
+vi.mock("next/cache", () => nextCacheMocks)
 
 import {
   ensureApiKeyForWorkspace,
@@ -92,6 +94,8 @@ describe("fetchKnowhereJwt", () => {
 
   afterEach(() => {
     globalThis.fetch = originalFetch
+    nextCacheMocks.cacheLife.mockClear()
+    nextCacheMocks.cacheTag.mockClear()
     if (originalOrigin === undefined)
       delete process.env.DASHBOARD_ORIGIN
     else process.env.DASHBOARD_ORIGIN = originalOrigin
@@ -167,6 +171,46 @@ describe("fetchKnowhereJwt", () => {
     await expect(
       fetchKnowhereJwt("session=x"),
     ).rejects.toThrow(/Dashboard JWT issuance: schema mismatch .*"token":""/)
+  })
+
+  it("sets cache expiration from the Dashboard JWT lifetime", async () => {
+    process.env.DASHBOARD_ORIGIN = "https://dashboard.example"
+    globalThis.fetch = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          json: { token: "jwt-short", expiresInSeconds: 45 },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    )
+
+    await expect(fetchKnowhereJwt("session=x")).resolves.toBe("jwt-short")
+
+    expect(nextCacheMocks.cacheLife).toHaveBeenCalledWith({
+      stale: 30,
+      revalidate: 30,
+      expire: 45,
+    })
+  })
+
+  it("refreshes long-lived Dashboard JWTs before expiration", async () => {
+    process.env.DASHBOARD_ORIGIN = "https://dashboard.example"
+    globalThis.fetch = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          json: { token: "jwt-long", expiresInSeconds: 900 },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    )
+
+    await expect(fetchKnowhereJwt("session=x")).resolves.toBe("jwt-long")
+
+    expect(nextCacheMocks.cacheLife).toHaveBeenCalledWith({
+      stale: 60,
+      revalidate: 60,
+      expire: 900,
+    })
   })
 })
 

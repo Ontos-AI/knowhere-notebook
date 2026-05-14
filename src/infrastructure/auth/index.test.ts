@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-vi.mock("next/cache", () => ({
-  cacheLife: () => {},
-  cacheTag: () => {},
+const nextCacheMocks = vi.hoisted(() => ({
+  cacheLife: vi.fn(),
+  cacheTag: vi.fn(),
 }))
+
+vi.mock("next/cache", () => nextCacheMocks)
 
 /**
  * Tests for the auth module.
@@ -160,6 +162,8 @@ describe("getCurrentUser", () => {
 
   afterEach(() => {
     globalThis.fetch = originalFetch
+    nextCacheMocks.cacheLife.mockClear()
+    nextCacheMocks.cacheTag.mockClear()
     if (originalOrigin === undefined) delete process.env.DASHBOARD_ORIGIN
     else process.env.DASHBOARD_ORIGIN = originalOrigin
     if (originalApiKey === undefined) delete process.env.KNOWHERE_API_KEY
@@ -243,6 +247,37 @@ describe("getCurrentUser", () => {
       "application/json",
     )
     expect(await readBodyText((init as RequestInit | undefined)?.body)).toBe("{}")
+  })
+
+  it("does not reuse a stale user after Dashboard invalidates the session", async () => {
+    const fetchSpy = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ json: { user: { id: "u1", email: "a@b" } } }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ json: { user: null } }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      )
+    globalThis.fetch = fetchSpy
+    const { getCurrentUser } = await loadWithCookie(
+      "better-auth.session_token=abc",
+    )
+
+    await expect(getCurrentUser()).resolves.toEqual({
+      id: "u1",
+      email: "a@b",
+      name: null,
+    })
+    await expect(getCurrentUser()).resolves.toBeNull()
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
+    expect(nextCacheMocks.cacheLife).not.toHaveBeenCalled()
+    expect(nextCacheMocks.cacheTag).not.toHaveBeenCalled()
   })
 
   it("returns null on Dashboard non-2xx response", async () => {
