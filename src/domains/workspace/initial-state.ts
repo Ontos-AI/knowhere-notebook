@@ -27,6 +27,7 @@ import type {
   Workspace,
 } from "@/infrastructure/db/schema"
 import { knowhereDemoApi, type DemoCatalog } from "@/integrations/knowhere-demo"
+import { effectOperation } from "@/lib/effect-operation"
 import { notebookRequestContext } from "./request-context"
 
 type WorkspaceShellInitialState = {
@@ -52,6 +53,7 @@ type WorkspaceShellInitialState = {
 // Aligned with workspaceClientConfig.sourceChunkPageSize so the SSR
 // prefetch doesn't overlap with the first client-side page request.
 const DEMO_CHUNK_PREFETCH_PAGE_SIZE = 50
+const workspaceInitialStateContext = "Workspace initial state"
 
 async function getDemoChunksForSource(
   demoSourceId: string,
@@ -138,15 +140,29 @@ export const loadWorkspaceShellInitialStateEffect = (
   deps: WorkspaceShellInitialStateDependencies = defaultDependencies,
 ) =>
   Effect.gen(function* () {
-    const context = yield* Effect.tryPromise(() =>
-      deps.getOptionalAuthenticated(),
+    const context = yield* effectOperation.tryPromise(
+      {
+        context: workspaceInitialStateContext,
+        operation: "getOptionalAuthenticated",
+      },
+      () => deps.getOptionalAuthenticated(),
     )
 
     if (!context) {
-      const demoCatalog = yield* Effect.tryPromise(() =>
-        deps.fetchDemoCatalog(),
+      const demoCatalog = yield* effectOperation.tryPromise(
+        {
+          context: workspaceInitialStateContext,
+          operation: "fetchDemoCatalog",
+        },
+        () => deps.fetchDemoCatalog(),
       )
-      const guestContext = yield* Effect.tryPromise(() => deps.getGuest())
+      const guestContext = yield* effectOperation.tryPromise(
+        {
+          context: workspaceInitialStateContext,
+          operation: "getGuest",
+        },
+        () => deps.getGuest(),
+      )
 
       const firstDemoSource = demoCatalog.sources[0]
       let initialPrefetchedChunksBySourceId: Record<
@@ -155,8 +171,12 @@ export const loadWorkspaceShellInitialStateEffect = (
       > = {}
       if (firstDemoSource) {
         const chunks = yield* Effect.catchAll(
-          Effect.tryPromise(() =>
-            getDemoChunksForSource(firstDemoSource.demoSourceId),
+          effectOperation.tryPromise(
+            {
+              context: workspaceInitialStateContext,
+              operation: "getDemoChunksForSource",
+            },
+            () => getDemoChunksForSource(firstDemoSource.demoSourceId),
           ),
           () => Effect.succeed([] as ParsedChunkView[]),
         )
@@ -178,19 +198,31 @@ export const loadWorkspaceShellInitialStateEffect = (
     }
 
     const { user, workspace } = context
-    const demoCatalog = yield* Effect.tryPromise(() =>
-      knowhereDemoApi.fetchOptionalCatalog(deps.fetchDemoCatalog),
+    const demoCatalog = yield* effectOperation.tryPromise(
+      {
+        context: workspaceInitialStateContext,
+        operation: "fetchOptionalCatalog",
+      },
+      () => knowhereDemoApi.fetchOptionalCatalog(deps.fetchDemoCatalog),
     )
-    const sources = yield* Effect.tryPromise(() =>
-      deps.listSourcesForWorkspace(workspace.id),
+    const sources = yield* effectOperation.tryPromise(
+      {
+        context: workspaceInitialStateContext,
+        operation: "listSourcesForWorkspace",
+      },
+      () => deps.listSourcesForWorkspace(workspace.id),
     )
     const demoSourceResolution = resolveWorkspaceDemoSources(
       sources,
       demoCatalog,
     )
     const hiddenDemoSourceIds = new Set(
-      yield* Effect.tryPromise(() =>
-        deps.listHiddenDemoSourceIds(workspace.id),
+      yield* effectOperation.tryPromise(
+        {
+          context: workspaceInitialStateContext,
+          operation: "listHiddenDemoSourceIds",
+        },
+        () => deps.listHiddenDemoSourceIds(workspace.id),
       ),
     )
     const visibleDemoCatalogSources = demoCatalog.sources
@@ -202,13 +234,21 @@ export const loadWorkspaceShellInitialStateEffect = (
       )
       .filter((source) => !hiddenDemoSourceIds.has(source.demoSourceId))
     const demoSources = visibleDemoCatalogSources.map(demoView.toSourceView)
-    const listedChatThreads = yield* Effect.tryPromise(() =>
-      deps.listChatThreads(workspace.id),
+    const listedChatThreads = yield* effectOperation.tryPromise(
+      {
+        context: workspaceInitialStateContext,
+        operation: "listChatThreads",
+      },
+      () => deps.listChatThreads(workspace.id),
     )
     const seededDemoChatThread =
       listedChatThreads.length === 0
-        ? yield* Effect.tryPromise(() =>
-            deps.ensureDemoChatThread(workspace.id, demoCatalog),
+        ? yield* effectOperation.tryPromise(
+            {
+              context: workspaceInitialStateContext,
+              operation: "ensureDemoChatThread",
+            },
+            () => deps.ensureDemoChatThread(workspace.id, demoCatalog),
           )
         : null
     const chatThreads = seededDemoChatThread
@@ -218,8 +258,12 @@ export const loadWorkspaceShellInitialStateEffect = (
     const activeChatMessages = seededDemoChatThread
       ? seededDemoChatThread.messages
       : activeChatThread
-        ? yield* Effect.tryPromise(() =>
-            deps.listMessages(workspace.id, activeChatThread.id),
+        ? yield* effectOperation.tryPromise(
+            {
+              context: workspaceInitialStateContext,
+              operation: "listMessages",
+            },
+            () => deps.listMessages(workspace.id, activeChatThread.id),
           )
         : []
     const chatMessages = activeChatMessages
@@ -234,21 +278,35 @@ export const loadWorkspaceShellInitialStateEffect = (
         demoSourceResolution.workspaceSources,
         demoCatalog,
       )
-    const { client, apiKey } = yield* Effect.tryPromise(() =>
-      deps.getClientForWorkspace(workspace),
+    const { client, apiKey } = yield* effectOperation.tryPromise(
+      {
+        context: workspaceInitialStateContext,
+        operation: "getClientForWorkspace",
+      },
+      () => deps.getClientForWorkspace(workspace),
     )
     for (const source of sources) {
       if (source.status === "parsing" && source.knowhereJobId) {
         yield* Effect.fork(
-          Effect.tryPromise(() =>
-            startBackgroundReconciliation(workspace.id, source.id, apiKey),
+          effectOperation.tryPromise(
+            {
+              context: workspaceInitialStateContext,
+              operation: "startBackgroundReconciliation",
+            },
+            () => startBackgroundReconciliation(workspace.id, source.id, apiKey),
           ),
         )
       }
     }
-    const sourceOptions = yield* deps.sourceViewOptionsBySourceId(
-      sourcesNeedingKnowhereChunkCount,
-      client,
+    const sourceOptions = yield* effectOperation.addContext(
+      {
+        context: workspaceInitialStateContext,
+        operation: "sourceViewOptionsBySourceId",
+      },
+      deps.sourceViewOptionsBySourceId(
+        sourcesNeedingKnowhereChunkCount,
+        client,
+      ),
     )
 
     return {
