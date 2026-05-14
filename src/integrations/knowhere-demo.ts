@@ -1,6 +1,7 @@
 import "server-only"
 
 import { Effect } from "effect"
+import { cacheLife, cacheTag } from "next/cache"
 
 export type DemoCitation = {
   readonly demoSourceId: string
@@ -185,10 +186,7 @@ const emptyCatalog: DemoCatalog = { sources: [] }
 
 const fetchCatalogEffect = Effect.fn("knowhereDemo.fetchCatalog")(function* () {
   const response = yield* Effect.tryPromise(() =>
-    fetch(resolveApiURL("/api/v1/demo/catalog"), {
-      cache: "force-cache",
-      next: { revalidate: 300 },
-    }),
+    fetch(resolveApiURL("/api/v1/demo/catalog")),
   )
   yield* assertOkEffect(response)
 
@@ -215,7 +213,6 @@ const fetchChunkPageEffect = Effect.fn("knowhereDemo.fetchChunkPage")(
         resolveApiURL(
           `/api/v1/demo/sources/${encodeURIComponent(input.demoSourceId)}/chunks?${params.toString()}`,
         ),
-        { cache: "force-cache", next: { revalidate: 300 } },
       ),
     )
     yield* assertOkEffect(response)
@@ -269,6 +266,10 @@ const fetchOptionalCatalogEffect = (
 // ---------------------------------------------------------------------------
 
 async function fetchCatalog(): Promise<DemoCatalog> {
+  "use cache"
+  cacheLife("max")
+  cacheTag("demo-catalog")
+
   return Effect.runPromise(fetchCatalogEffect())
 }
 
@@ -289,6 +290,10 @@ async function fetchChunkPage(input: {
   readonly page: number
   readonly pageSize: number
 }): Promise<DemoChunkPage> {
+  "use cache"
+  cacheLife("max")
+  cacheTag("demo-chunks", input.demoSourceId)
+
   return Effect.runPromise(fetchChunkPageEffect(input))
 }
 

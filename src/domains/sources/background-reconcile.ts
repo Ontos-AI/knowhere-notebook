@@ -48,14 +48,24 @@ const startBackgroundReconciliationEffect = (
       workspaceId,
       url,
     })
-    yield* Effect.tryPromise(() =>
-      new Client({ token }).trigger({
-        url,
-        body: { workspaceId, sourceId, apiKey },
-        workflowRunId: sourceId,
-        retries: 3,
-      }),
-    )
+    yield* Effect.tryPromise(async () => {
+      try {
+        return await new Client({ token }).trigger({
+          url,
+          body: { workspaceId, sourceId, apiKey },
+          workflowRunId: sourceId,
+          retries: 3,
+        })
+      } catch (err) {
+        logger.error("background-reconcile: Upstash trigger threw", {
+          sourceId,
+          workspaceId,
+          message: err instanceof Error ? err.message : String(err),
+          stack: err instanceof Error ? err.stack : undefined,
+        })
+        throw err
+      }
+    })
     yield* Effect.logInfo(
       `background-reconcile: workflow triggered for ${sourceId}`,
     )

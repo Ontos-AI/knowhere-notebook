@@ -285,7 +285,7 @@ describe("generateContextualRetrievalQuery", () => {
     });
 
     expect(generateText).toHaveBeenCalledWith({
-      model: "deepseek/deepseek-v4-flash",
+      model: "google/gemini-3-flash",
       prompt: expect.stringContaining("Knowhere retrieval is stateless"),
     });
     expect(query).toBe("Tesla Q4 2025 Update energy storage deployments");
@@ -311,7 +311,7 @@ describe("generateGroundedAnswer", () => {
     });
 
     expect(generateText).toHaveBeenCalledWith({
-      model: "deepseek/deepseek-v4-flash",
+      model: "google/gemini-3-flash",
       prompt: expect.stringContaining("PR-E wires chat to Knowhere retrieval."),
     });
     expect(answer).toBe("PR-E wires chat to retrieval.");
@@ -338,7 +338,10 @@ describe("buildGroundedPrompt", () => {
     expect(prompt).toContain("Retrieval query used: What is PR-E?");
     expect(prompt).toContain("PR-E wires chat to Knowhere retrieval.");
     expect(prompt).toContain("requirements.txt");
-    expect(prompt).toContain("don't answer the question, say so directly");
+    expect(prompt).toContain(
+      "Use the retrieved source excerpts as helpful context, not as the only allowed information.",
+    );
+    expect(prompt).not.toContain("grounded only in the sources");
   });
 
   it("asks the model to answer naturally and directly", () => {
@@ -355,7 +358,9 @@ describe("buildGroundedPrompt", () => {
     expect(prompt).toContain("Start with the answer first.");
     expect(prompt).toContain("Avoid meta phrases like \"Based on the sources\"");
     expect(prompt).toContain("Keep answers concise by default");
-    expect(prompt).toContain("I don't see more detail in these sources");
+    expect(prompt).toContain(
+      "If the sources are related but incomplete, answer what you can and briefly say what is not covered.",
+    );
   });
 });
 

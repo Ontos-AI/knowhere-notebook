@@ -54,8 +54,7 @@ const loadSourceChunksEffect = (
 
     const user = yield* Effect.tryPromise(() => deps.getCurrentUser())
     if (!user) {
-      const demoResult = yield* loadDemoChunkPageEffect(input, deps)
-      return demoResult ?? sourceNotFound()
+      return sourceNotFound()
     }
 
     const workspace = yield* Effect.tryPromise(() =>
@@ -66,8 +65,7 @@ const loadSourceChunksEffect = (
     )
 
     if (!source) {
-      const demoResult = yield* loadDemoChunkPageEffect(input, deps)
-      return demoResult ?? sourceNotFound()
+      return sourceNotFound()
     }
 
     if (source.demoKey) {

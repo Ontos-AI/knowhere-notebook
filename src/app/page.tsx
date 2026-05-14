@@ -1,8 +1,37 @@
+import { Suspense } from "react"
 import { WorkspaceShell } from "@/components/workspace-shell"
 import { loadWorkspaceShellInitialState } from "@/domains/workspace/initial-state"
+import { effectOperation } from "@/lib/effect-operation"
+import { formatUnknownForLog } from "@/lib/format-log-value"
+import { logger } from "@/lib/logger"
+import { connection } from "next/server"
 
-export const dynamic = "force-dynamic"
+export default function Home() {
+  return (
+    <Suspense>
+      <HomeContent />
+    </Suspense>
+  )
+}
 
-export default async function Home() {
-  return <WorkspaceShell {...(await loadWorkspaceShellInitialState())} />
+export async function HomeContent() {
+  await connection()
+  const initialState = await loadWorkspaceInitialState()
+  return <WorkspaceShell {...initialState} />
+}
+
+async function loadWorkspaceInitialState(): ReturnType<
+  typeof loadWorkspaceShellInitialState
+> {
+  try {
+    return await loadWorkspaceShellInitialState()
+  } catch (error) {
+    logger.error("workspace: initial state failed", {
+      error: formatUnknownForLog(error),
+    })
+    throw effectOperation.createBoundaryError(
+      "Workspace initial state failed",
+      error,
+    )
+  }
 }

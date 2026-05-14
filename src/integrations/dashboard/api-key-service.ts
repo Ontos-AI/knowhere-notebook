@@ -1,6 +1,7 @@
 import "server-only"
 
 import { Effect, Either, Schema } from "effect"
+import { cacheLife, cacheTag } from "next/cache"
 import {
   FetchHttpClient,
   HttpClient,
@@ -84,8 +85,36 @@ export const fetchKnowhereJwtEffect = (cookieHeader: string) =>
       ),
     )
 
-    return body.json.token
+    return body.json
   })
+
+type KnowhereJwt = {
+  readonly token: string
+  readonly expiresInSeconds: number
+}
+
+const minimumJwtCacheSeconds = 30
+const jwtExpirationSafetySeconds = 15
+const maximumJwtRefreshSeconds = 60
+
+// Cache only inside the issued JWT's lifetime. The cache profile is computed
+// after Dashboard responds so short-lived JWTs cannot outlive their expiration.
+async function fetchKnowhereJwtCached(
+  cookieHeader: string,
+): Promise<KnowhereJwt> {
+  "use cache"
+  cacheTag("knowhere-jwt")
+
+  const jwt = await Effect.runPromise(
+    fetchKnowhereJwtEffect(cookieHeader).pipe(
+      Effect.provide(FetchHttpClient.layer),
+    ),
+  )
+  const cacheSeconds = normalizeJwtCacheSeconds(jwt.expiresInSeconds)
+  cacheLife(getJwtCacheLife(cacheSeconds))
+
+  return jwt
+}
 
 /**
  * Async wrapper for Next.js boundary callers.
@@ -95,15 +124,11 @@ export async function fetchKnowhereJwt(
 ): Promise<string> {
   const start = Date.now()
   try {
-    const token = await Effect.runPromise(
-      fetchKnowhereJwtEffect(cookieHeader).pipe(
-        Effect.provide(FetchHttpClient.layer),
-      ),
-    )
+    const jwt = await fetchKnowhereJwtCached(cookieHeader)
     logger.info("dashboard: POST /api/orpc/users/issueServiceJwt ok", {
       durationMs: Date.now() - start,
     })
-    return token
+    return jwt.token
   } catch (error) {
     logger.error("dashboard: POST /api/orpc/users/issueServiceJwt failed", {
       durationMs: Date.now() - start,
@@ -157,4 +182,28 @@ export function isAuthError(error: unknown): boolean {
       return true
   }
   return false
+}
+
+function normalizeJwtCacheSeconds(expiresInSeconds: number): number {
+  if (!Number.isFinite(expiresInSeconds)) return minimumJwtCacheSeconds
+  return Math.max(1, Math.floor(expiresInSeconds))
+}
+
+function getJwtCacheLife(expiresInSeconds: number): {
+  readonly stale: number
+  readonly revalidate: number
+  readonly expire: number
+} {
+  const refreshSeconds = Math.max(
+    1,
+    Math.min(
+      maximumJwtRefreshSeconds,
+      expiresInSeconds - jwtExpirationSafetySeconds,
+    ),
+  )
+  return {
+    stale: refreshSeconds,
+    revalidate: refreshSeconds,
+    expire: expiresInSeconds,
+  }
 }

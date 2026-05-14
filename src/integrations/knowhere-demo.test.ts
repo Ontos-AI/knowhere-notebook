@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+const nextCacheMocks = vi.hoisted(() => ({
+  cacheLife: vi.fn(),
+  cacheTag: vi.fn(),
+}))
+
+vi.mock("next/cache", () => nextCacheMocks)
+
 import { knowhereDemoApi } from "./knowhere-demo"
 
 describe("knowhereDemoApi", () => {
@@ -9,6 +16,8 @@ describe("knowhereDemoApi", () => {
   afterEach(() => {
     restoreEnv("KNOWHERE_BASE_URL", originalBaseURL)
     globalThis.fetch = originalFetch
+    nextCacheMocks.cacheLife.mockClear()
+    nextCacheMocks.cacheTag.mockClear()
   })
 
   it("uses the configured Knowhere base URL for demo requests", () => {
@@ -25,6 +34,22 @@ describe("knowhereDemoApi", () => {
     const url = knowhereDemoApi.resolveApiURL("/api/v1/demo/catalog")
 
     expect(url).toBe("https://api.knowhereto.ai/api/v1/demo/catalog")
+  })
+
+  it("uses deploy-lifetime cache profiles for demo catalog data", async () => {
+    globalThis.fetch = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ sources: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    )
+
+    await expect(knowhereDemoApi.fetchCatalog()).resolves.toEqual({
+      sources: [],
+    })
+
+    expect(nextCacheMocks.cacheLife).toHaveBeenCalledWith("max")
+    expect(nextCacheMocks.cacheTag).toHaveBeenCalledWith("demo-catalog")
   })
 
   it("accepts empty demo chunk content from parser output", async () => {
@@ -70,6 +95,11 @@ describe("knowhereDemoApi", () => {
       id: "demo-tsla-q4-2025:chunk-empty",
       content: "",
     })
+    expect(nextCacheMocks.cacheLife).toHaveBeenCalledWith("max")
+    expect(nextCacheMocks.cacheTag).toHaveBeenCalledWith(
+      "demo-chunks",
+      "demo-tsla-q4-2025",
+    )
   })
 })
 
