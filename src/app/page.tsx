@@ -2,7 +2,7 @@ import { Suspense } from "react"
 import { WorkspaceShell } from "@/components/workspace-shell"
 import { loadWorkspaceShellInitialState } from "@/domains/workspace/initial-state"
 import { effectOperation } from "@/lib/effect-operation"
-import { formatUnknownForLog } from "@/lib/format-log-value"
+import { summarizeUnknownError } from "@/lib/format-log-value"
 import { logger } from "@/lib/logger"
 import { connection } from "next/server"
 
@@ -27,7 +27,7 @@ async function loadWorkspaceInitialState(): ReturnType<
     return await loadWorkspaceShellInitialState()
   } catch (error) {
     logger.error("workspace: initial state failed", {
-      error: formatUnknownForLog(error),
+      error: summarizeUnknownError(error),
     })
     throw effectOperation.createBoundaryError(
       "Workspace initial state failed",
