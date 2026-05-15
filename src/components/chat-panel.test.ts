@@ -101,6 +101,74 @@ describe("ChatPanel", () => {
     );
   });
 
+  it("deduplicates assistant sources by displayed label while keeping the first click target", async () => {
+    const user = userEvent.setup();
+    const onCitationClick = vi.fn();
+    const firstCitation = {
+      chunkType: "text",
+      score: 0.9,
+      description: "document-wDh6N9QBSgbdAjjweXN8xbw0vTTo5J.pdf",
+      source: {
+        documentId: "doc_micron_q1",
+        sourceFileName: "document-wDh6N9QBSgbdAjjweXN8xbw0vTTo5J.pdf",
+        sectionPath: "Root",
+      },
+    } as const;
+
+    render(
+      React.createElement(C, {
+        sourceTitlesByDocumentId: {
+          doc_micron_q1: "Micron Q1-26 Earnings Deck_R.pdf",
+          doc_micron_q2: "Q2 2026 Earnings Deck.pdf",
+        },
+        messages: [
+          {
+            id: "assistant_1",
+            role: "assistant",
+            content: "Diluted EPS is discussed in the earnings decks.",
+            citations: [
+              firstCitation,
+              {
+                chunkType: "text",
+                score: 0.86,
+                source: {
+                  documentId: "doc_micron_q1",
+                  sourceFileName: "Micron Q1-26 Earnings Deck_R.pdf",
+                  sectionPath: "Root",
+                },
+              },
+              {
+                chunkType: "text",
+                score: 0.82,
+                source: {
+                  documentId: "doc_micron_q2",
+                  sourceFileName: "Q2 2026 Earnings Deck.pdf",
+                  sectionPath: "Mark Murphy / Non-GAAP operating results",
+                },
+              },
+            ],
+          },
+        ],
+        onCitationClick,
+      }),
+    );
+
+    const duplicatedSourceLinks = screen.getAllByRole("button", {
+      name: "Open source Micron Q1-26 Earnings Deck_R.pdf",
+    });
+
+    expect(duplicatedSourceLinks).toHaveLength(1);
+    expect(
+      screen.getByRole("button", {
+        name: "Open source Q2 2026 Earnings Deck.pdf · Mark Murphy / Non-GAAP operating results",
+      }),
+    ).toBeTruthy();
+
+    await user.click(duplicatedSourceLinks[0]);
+
+    expect(onCitationClick).toHaveBeenCalledWith(firstCitation, "assistant_1:0");
+  });
+
   it("renders citation links as button-backed links with per-citation loading feedback", async () => {
     const user = userEvent.setup();
     const onCitationClick = vi.fn();

@@ -128,6 +128,7 @@ function ChunkSourcePanel({
   readonly onChunkClick?: (chunk: ParsedChunkView) => void;
 }): ReactNode {
   const sourceMetadata = parsedChunkCardModel.getSourceMetadata(chunk);
+  const firstPageNumber = getFirstValidPageNumber(chunk);
 
   return (
     <section
@@ -168,9 +169,10 @@ function ChunkSourcePanel({
             ) : null}
           </div>
         </div>
-        {onChunkClick ? (
+        {onChunkClick && firstPageNumber !== null ? (
           <OpenOriginalButton
             chunk={chunk}
+            firstPageNumber={firstPageNumber}
             isOriginalPreviewAvailable={isOriginalPreviewAvailable}
             onChunkClick={onChunkClick}
           />
@@ -180,12 +182,24 @@ function ChunkSourcePanel({
   );
 }
 
+function getFirstValidPageNumber(chunk: ParsedChunkView): number | null {
+  const pageNums = chunk.pageNums ?? [];
+  const validPageNums = pageNums.filter(
+    (pageNum) => Number.isFinite(pageNum) && pageNum > 0,
+  );
+  if (validPageNums.length === 0) return null;
+
+  return Math.min(...validPageNums);
+}
+
 function OpenOriginalButton({
   chunk,
+  firstPageNumber,
   isOriginalPreviewAvailable,
   onChunkClick,
 }: {
   readonly chunk: ParsedChunkView;
+  readonly firstPageNumber: number;
   readonly isOriginalPreviewAvailable: boolean;
   readonly onChunkClick: (chunk: ParsedChunkView) => void;
 }): ReactNode {
@@ -203,24 +217,18 @@ function OpenOriginalButton({
       onClick={() => onChunkClick(chunk)}
     >
       <FileSearch className="size-3.5" />
-      {getOpenOriginalButtonLabel(chunk, isOriginalPreviewAvailable)}
+      {getOpenOriginalButtonLabel(firstPageNumber, isOriginalPreviewAvailable)}
     </Button>
   );
 }
 
 function getOpenOriginalButtonLabel(
-  chunk: ParsedChunkView,
+  firstPageNumber: number,
   isOriginalPreviewAvailable: boolean,
 ): string {
   if (!isOriginalPreviewAvailable) return "Open original file";
 
-  const pageNums = chunk.pageNums ?? [];
-  const validPageNums = pageNums.filter(
-    (pageNum) => Number.isFinite(pageNum) && pageNum > 0,
-  );
-  if (validPageNums.length === 0) return "Open original file";
-
-  return `Open page ${Math.min(...validPageNums)} in original file`;
+  return `Open page ${firstPageNumber} in original file`;
 }
 
 function ChunkSummaryPanel({

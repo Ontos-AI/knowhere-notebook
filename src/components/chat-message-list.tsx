@@ -13,6 +13,12 @@ import type {
   ChatMessageView,
 } from "@/domains/chat/types";
 
+type DisplayCitation = {
+  readonly citation: ChatCitationView;
+  readonly citationId: string;
+  readonly label: string;
+};
+
 export type ChatMessageListProps = {
   readonly isDisabled?: boolean;
   readonly isSending?: boolean;
@@ -230,22 +236,22 @@ function MessageBubble({
     );
   }
 
+  const displayCitations = getDisplayCitations(
+    message,
+    sourceTitlesByDocumentId,
+  );
+
   return (
     <div className="flex min-w-0 flex-col items-start">
       <div className="max-w-[92%] overflow-hidden rounded-2xl rounded-tl-sm border border-border/70 bg-card px-3 py-2.5 text-sm leading-relaxed text-foreground shadow-xs sm:max-w-[90%] sm:px-4 sm:py-3">
         <p className="whitespace-pre-wrap break-words">{message.content}</p>
-        {message.citations && message.citations.length > 0 && (
+        {displayCitations.length > 0 && (
           <div className="mt-3 border-t border-border/70 pt-2.5">
             <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
               Sources used
             </p>
             <div className="flex flex-wrap gap-1.5">
-              {message.citations.map((cite, i) => {
-                const citationId = chatPanelModel.getCitationId(message.id, i);
-                const label = chatPanelModel.getCitationLabel(
-                  cite,
-                  sourceTitlesByDocumentId,
-                );
+              {displayCitations.map(({ citation, citationId, label }) => {
                 const isPending = citationId === pendingCitationId;
 
                 return (
@@ -253,7 +259,7 @@ function MessageBubble({
                     key={citationId}
                     type="button"
                     disabled={!onCitationClick || isPending}
-                    onClick={() => onCitationClick?.(cite, citationId)}
+                    onClick={() => onCitationClick?.(citation, citationId)}
                     className="inline-flex max-w-full cursor-pointer items-center gap-1 whitespace-normal rounded-sm px-0.5 py-0 text-left text-[11px] font-semibold text-primary underline decoration-primary/45 underline-offset-4 transition-colors hover:text-primary/80 hover:decoration-primary focus:outline-none focus:ring-4 focus:ring-ring/15 focus:ring-offset-2 focus:ring-offset-background disabled:cursor-wait disabled:opacity-75"
                     aria-label={`Open source ${label}`}
                   >
@@ -268,4 +274,29 @@ function MessageBubble({
       </div>
     </div>
   );
+}
+
+function getDisplayCitations(
+  message: ChatMessageView,
+  sourceTitlesByDocumentId: Readonly<Record<string, string>>,
+): readonly DisplayCitation[] {
+  const seenLabels = new Set<string>();
+  const displayCitations: DisplayCitation[] = [];
+
+  for (const [index, citation] of (message.citations ?? []).entries()) {
+    const label = chatPanelModel.getCitationLabel(
+      citation,
+      sourceTitlesByDocumentId,
+    );
+    if (seenLabels.has(label)) continue;
+
+    seenLabels.add(label);
+    displayCitations.push({
+      citation,
+      citationId: chatPanelModel.getCitationId(message.id, index),
+      label,
+    });
+  }
+
+  return displayCitations;
 }
