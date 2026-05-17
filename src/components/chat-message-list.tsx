@@ -280,7 +280,7 @@ function getDisplayCitations(
   message: ChatMessageView,
   sourceTitlesByDocumentId: Readonly<Record<string, string>>,
 ): readonly DisplayCitation[] {
-  const seenLabels = new Set<string>();
+  const seenKeys = new Set<string>();
   const displayCitations: DisplayCitation[] = [];
 
   for (const [index, citation] of (message.citations ?? []).entries()) {
@@ -288,9 +288,10 @@ function getDisplayCitations(
       citation,
       sourceTitlesByDocumentId,
     );
-    if (seenLabels.has(label)) continue;
+    const key = getCitationDisplayKey(citation, label);
+    if (seenKeys.has(key)) continue;
 
-    seenLabels.add(label);
+    seenKeys.add(key);
     displayCitations.push({
       citation,
       citationId: chatPanelModel.getCitationId(message.id, index),
@@ -299,4 +300,33 @@ function getDisplayCitations(
   }
 
   return displayCitations;
+}
+
+function getCitationDisplayKey(
+  citation: ChatCitationView,
+  label: string,
+): string {
+  const documentId = getTrimmedCitationField(citation.source.documentId);
+  if (documentId) {
+    return joinCitationDisplayKeyParts(["document", documentId, label]);
+  }
+
+  return joinCitationDisplayKeyParts([
+    "fallback",
+    getTrimmedCitationField(citation.source.sourceFileName) ?? "",
+    getTrimmedCitationField(citation.source.sectionPath) ?? "",
+    getTrimmedCitationField(citation.description) ?? "",
+    label,
+  ]);
+}
+
+function getTrimmedCitationField(value: string | undefined): string | null {
+  const trimmedValue = value?.trim() ?? "";
+  return trimmedValue.length > 0 ? trimmedValue : null;
+}
+
+function joinCitationDisplayKeyParts(parts: readonly string[]): string {
+  return parts
+    .map((part: string): string => `${part.length}:${part}`)
+    .join("|");
 }

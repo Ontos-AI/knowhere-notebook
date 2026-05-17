@@ -169,6 +169,60 @@ describe("ChatPanel", () => {
     expect(onCitationClick).toHaveBeenCalledWith(firstCitation, "assistant_1:0");
   });
 
+  it("keeps separate source links when different documents share one displayed label", async () => {
+    const user = userEvent.setup();
+    const onCitationClick = vi.fn();
+    const firstCitation = {
+      chunkType: "text",
+      score: 0.9,
+      source: {
+        documentId: "doc_first",
+        sourceFileName: "report.pdf",
+        sectionPath: "Root",
+      },
+    } as const;
+    const secondCitation = {
+      chunkType: "text",
+      score: 0.88,
+      source: {
+        documentId: "doc_second",
+        sourceFileName: "report.pdf",
+        sectionPath: "Root",
+      },
+    } as const;
+
+    render(
+      React.createElement(C, {
+        sourceTitlesByDocumentId: {
+          doc_first: "report.pdf",
+          doc_second: "report.pdf",
+        },
+        messages: [
+          {
+            id: "assistant_1",
+            role: "assistant",
+            content: "Both reports are relevant.",
+            citations: [firstCitation, secondCitation],
+          },
+        ],
+        onCitationClick,
+      }),
+    );
+
+    const duplicatedLabelLinks = screen.getAllByRole("button", {
+      name: "Open source report.pdf",
+    });
+
+    expect(duplicatedLabelLinks).toHaveLength(2);
+
+    await user.click(duplicatedLabelLinks[1]);
+
+    expect(onCitationClick).toHaveBeenCalledWith(
+      secondCitation,
+      "assistant_1:1",
+    );
+  });
+
   it("renders citation links as button-backed links with per-citation loading feedback", async () => {
     const user = userEvent.setup();
     const onCitationClick = vi.fn();
