@@ -1,5 +1,8 @@
 import { defineConfig, devices } from "@playwright/test"
 
+const shouldUseExternalWebServer =
+  process.env.PLAYWRIGHT_EXTERNAL_WEB_SERVER === "1"
+
 export default defineConfig({
   testDir: "./e2e",
   testMatch: "**/*.e2e.ts",
@@ -17,10 +20,14 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"] },
     },
   ],
-  webServer: {
-    command: "pnpm dev",
-    url: "http://localhost:3000",
-    reuseExistingServer: true,
-    timeout: 60_000,
-  },
+  ...(shouldUseExternalWebServer
+    ? {}
+    : {
+        webServer: {
+          command: "pnpm dev",
+          url: "http://localhost:3000",
+          reuseExistingServer: true,
+          timeout: 60_000,
+        },
+      }),
 })
