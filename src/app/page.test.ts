@@ -21,6 +21,7 @@ vi.mock("@/domains/workspace/initial-state", () => ({
 }))
 
 import { HomeContent } from "./page"
+import { makeWorkspaceInitialStateFailureFixture } from "@/test/workspace-initial-state-failure-fixture"
 
 describe("Home", () => {
   afterEach(() => {
@@ -42,18 +43,16 @@ describe("Home", () => {
   })
 
   it("logs a readable page-load failure before rethrowing", async () => {
-    mocks.loadWorkspaceShellInitialState.mockRejectedValue(
-      new Error("database connection refused"),
-    )
+    const failure = makeWorkspaceInitialStateFailureFixture()
 
-    await expect(HomeContent()).rejects.toThrow(
-      "Workspace initial state failed: database connection refused",
-    )
+    mocks.loadWorkspaceShellInitialState.mockRejectedValue(failure.error)
+
+    await expect(HomeContent()).rejects.toThrow(failure.boundaryMessage)
     expect(mocks.logger.error).toHaveBeenCalledWith(
       "workspace: initial state failed",
-      expect.objectContaining({
-        error: expect.stringContaining("database connection refused"),
-      }),
+      {
+        error: failure.rootCauseMessage,
+      },
     )
   })
 })

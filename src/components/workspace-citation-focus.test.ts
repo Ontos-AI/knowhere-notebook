@@ -93,6 +93,82 @@ describe("useWorkspaceCitationFocus", () => {
       requestId: 1,
     });
   });
+
+  it("opens the source without fetching chunks when the citation has no exact target hint", async () => {
+    const fetchChunks = vi.fn(async () => [prefetchedChunk]);
+    const selectSource = vi.fn();
+    const sourceOnlyCitation: ChatCitationView = {
+      chunkType: "text",
+      score: 0.5,
+      source: {
+        documentId: "document_1",
+        sourceFileName: "Contract.pdf",
+        sectionPath: "Root",
+      },
+    };
+
+    const { result } = renderHook(() =>
+      useWorkspaceCitationFocus({
+        fetchChunks,
+        initialPrefetchedChunksBySourceId: {
+          source_1: [prefetchedChunk],
+        },
+        onSelectSource: selectSource,
+        selectedSourceId: null,
+        sources: [readySource],
+      }),
+      { wrapper: createSWRWrapper },
+    );
+
+    await act(async () => {
+      await result.current.handleCitationClick(
+        sourceOnlyCitation,
+        "message_1:0",
+      );
+    });
+
+    expect(fetchChunks).not.toHaveBeenCalled();
+    expect(selectSource).toHaveBeenLastCalledWith("source_1");
+    expect(result.current.prefetchedChunksBySourceId).toEqual({});
+    expect(result.current.focusedChunk.chunkId).toBeNull();
+    expect(result.current.pendingCitationId).toBeNull();
+  });
+
+  it("reuses cached chunks for a different source without refetching", async () => {
+    const fetchChunks = vi.fn(async () => [prefetchedChunk]);
+    const selectSource = vi.fn();
+    const otherSource: SourceView = {
+      id: "source_2",
+      title: "Other.pdf",
+      mimeType: "application/pdf",
+      status: "ready",
+      documentId: "document_2",
+    };
+
+    const { result } = renderHook(() =>
+      useWorkspaceCitationFocus({
+        fetchChunks,
+        initialPrefetchedChunksBySourceId: {
+          source_1: [prefetchedChunk],
+        },
+        onSelectSource: selectSource,
+        selectedSourceId: "source_2",
+        sources: [readySource, otherSource],
+      }),
+      { wrapper: createSWRWrapper },
+    );
+
+    await act(async () => {
+      await result.current.handleCitationClick(citation, "message_1:0");
+    });
+
+    expect(fetchChunks).not.toHaveBeenCalled();
+    expect(selectSource).toHaveBeenLastCalledWith("source_1");
+    expect(result.current.focusedChunk.chunkId).toBe("chunk_1");
+    expect(Object.keys(result.current.prefetchedChunksBySourceId)).toContain(
+      "source_1",
+    );
+  });
 });
 
 function createSWRWrapper({
