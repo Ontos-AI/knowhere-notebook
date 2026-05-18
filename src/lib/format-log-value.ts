@@ -7,6 +7,7 @@ type LogValue =
   | { readonly [key: string]: LogValue }
 
 const maxDepth = 8
+const maxSummaryDepth = 16
 const maxStackLines = 12
 
 export function formatUnknownForLog(value: unknown): string {
@@ -117,21 +118,23 @@ function findErrorMessage(
   depth: number,
   seenObjects: WeakSet<object>,
 ): string | null {
-  if (depth >= maxDepth) return null
+  if (depth >= maxSummaryDepth) return null
   if (typeof value === "string" && value.trim().length > 0) return value
   if (typeof value !== "object" || value === null) return null
   if (seenObjects.has(value)) return null
   seenObjects.add(value)
 
   if (value instanceof Error) {
-    if (isSpecificMessage(value.message)) return value.message
-    return (
+    const nestedMessage =
       findErrorMessage(value.cause, depth + 1, seenObjects) ??
       findSymbolErrorMessage(value, depth, seenObjects)
-    )
+    const ownMessage = isSpecificMessage(value.message) ? value.message : null
+
+    if (ownMessage && !isWrapperMessage(value, ownMessage)) return ownMessage
+    return nestedMessage ?? ownMessage
   }
 
-  for (const key of ["failure", "error", "cause"] as const) {
+  for (const key of ["failure", "error", "cause", "defect"] as const) {
     const nestedMessage = findErrorMessage(
       readObjectProperty(value, key),
       depth + 1,
@@ -168,6 +171,18 @@ function isSpecificMessage(message: string): boolean {
   return (
     trimmedMessage.length > 0 &&
     trimmedMessage !== "An unknown error occurred in Effect.tryPromise"
+  )
+}
+
+function isWrapperMessage(error: Error, message: string): boolean {
+  const tag = readObjectProperty(error, "_tag")
+  return (
+    tag === "EffectOperationError" ||
+    error.name.includes("EffectOperationError") ||
+    error.name.includes("FiberFailure") ||
+    message.startsWith("Effect operation ") ||
+    message.startsWith("Failed query:") ||
+    message.endsWith(" failed")
   )
 }
 

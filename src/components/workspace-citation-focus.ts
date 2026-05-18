@@ -85,7 +85,7 @@ export function useWorkspaceCitationFocus({
       onSelectSource(sourceId)
       if (sourceId) {
         setPrefetchedChunksBySourceId((current) =>
-          removeRecordKey(current, sourceId),
+          workspaceCitationState.removePrefetchedChunks(current, sourceId),
         )
       }
       requestChunkFocus(null)
@@ -119,6 +119,37 @@ export function useWorkspaceCitationFocus({
           return
         }
 
+        if (!workspaceCitationState.hasExactCitationTargetHint(citation)) {
+          setPrefetchedChunksBySourceId((current) =>
+            workspaceCitationState.removePrefetchedChunks(current, source.id),
+          )
+          if (selectedSourceId !== source.id) onSelectSource(source.id)
+          requestChunkFocus(null)
+          return
+        }
+
+        const cachedChunks = prefetchedChunksBySourceId[source.id]
+        if (cachedChunks) {
+          const cachedFocusId =
+            workspaceCitationState.getLoadedCitationChunkId({
+              citation,
+              selectedSourceId: source.id,
+              sourceId: source.id,
+              selectedChunks: cachedChunks,
+              hasMoreSelectedChunks: false,
+            })
+          setPrefetchedChunksBySourceId((current) =>
+            workspaceCitationState.upsertPrefetchedChunks(
+              current,
+              source.id,
+              cachedChunks,
+            ),
+          )
+          if (selectedSourceId !== source.id) onSelectSource(source.id)
+          requestChunkFocus(cachedFocusId)
+          return
+        }
+
         requestChunkFocus(null)
         const chunks = await fetchChunks(source.id)
         setPrefetchedChunksBySourceId((current) =>
@@ -148,6 +179,7 @@ export function useWorkspaceCitationFocus({
       fetchChunks,
       hasMoreSelectedChunks,
       onSelectSource,
+      prefetchedChunksBySourceId,
       requestChunkFocus,
       selectedChunks,
       selectedSourceId,
@@ -169,13 +201,4 @@ export function useWorkspaceCitationFocus({
     selectedChunks,
     selectedSource,
   }
-}
-
-function removeRecordKey<TValue>(
-  record: Readonly<Record<string, TValue>>,
-  key: string,
-): Record<string, TValue> {
-  const nextRecord = { ...record }
-  delete nextRecord[key]
-  return nextRecord
 }

@@ -12,7 +12,7 @@ describe("ParsedChunkCard", () => {
   });
 
   it("renders text chunks with source, summary, content, and keywords", () => {
-    const { container } = render(
+    render(
       React.createElement(ParsedChunkCard, {
         chunk: {
           chunkId: "text_1",
@@ -106,6 +106,27 @@ describe("ParsedChunkCard", () => {
     await user.click(openOriginalButton);
     expect(onChunkClick).toHaveBeenCalledWith(chunk);
     expect(screen.getByTestId("chunk-card-shell-text_1").getAttribute("role")).toBeNull();
+  });
+
+  it("hides the original file button when a chunk has no page numbers", () => {
+    render(
+      React.createElement(ParsedChunkCard, {
+        chunk: {
+          chunkId: "text_1",
+          type: "text",
+          content: "Revenue details do not include page metadata.",
+          sourceTitle: "report.pdf",
+        },
+        isFocused: false,
+        isOriginalPreviewAvailable: true,
+        onChunkClick: vi.fn(),
+        onReferenceClick: vi.fn(),
+      }),
+    );
+
+    expect(
+      screen.queryByRole("button", { name: /original file/i }),
+    ).toBeNull();
   });
 
   it("keeps original file buttons quiet when preview is not supported", async () => {
