@@ -100,6 +100,7 @@ function WorkspaceShellContent({
   const {
     desktopPanelWidths,
     minimumDesktopPanelWidth,
+    handleDesktopLayoutElementChange,
     handleDesktopPanelElementChange,
     handleDesktopPanelResize,
     handleDesktopPanelResizeEnd,
@@ -150,6 +151,7 @@ function WorkspaceShellContent({
       onChatSend={chatWorkflow.handleChatSend}
       onCitationClick={citationFocus.handleCitationClick}
       onCreateChatThread={chatWorkflow.handleCreateChatThread}
+      onDesktopLayoutElementChange={handleDesktopLayoutElementChange}
       onDesktopPanelElementChange={handleDesktopPanelElementChange}
       onDesktopPanelResize={handleDesktopPanelResize}
       onDesktopPanelResizeEnd={handleDesktopPanelResizeEnd}

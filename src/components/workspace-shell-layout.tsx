@@ -1,4 +1,4 @@
-import type { ReactElement } from "react"
+import { useCallback, type ReactElement } from "react"
 
 import { ChatPanel } from "@/components/chat-panel"
 import { ChunksPanel } from "@/components/chunks-panel"
@@ -77,6 +77,7 @@ export type WorkspaceShellLayoutProps = {
     citationId: string,
   ) => void | Promise<void>
   readonly onCreateChatThread: () => void | Promise<void>
+  readonly onDesktopLayoutElementChange: (element: HTMLDivElement | null) => void
   readonly onDesktopPanelElementChange: (
     panel: DesktopPanelKey,
     element: HTMLDivElement | null,
@@ -103,6 +104,14 @@ export type WorkspaceShellLayoutProps = {
 export function WorkspaceShellLayout(
   props: WorkspaceShellLayoutProps,
 ): ReactElement {
+  const { onDesktopLayoutElementChange } = props
+  const handleDesktopLayoutRef = useCallback(
+    (element: HTMLDivElement | null): void => {
+      onDesktopLayoutElementChange(element)
+    },
+    [onDesktopLayoutElementChange],
+  )
+
   return (
     <div className="flex h-screen w-full flex-col overflow-hidden bg-background">
       <TopNav
@@ -115,7 +124,8 @@ export function WorkspaceShellLayout(
 
       <div
         data-testid="desktop-panel-layout"
-        className="relative hidden flex-1 overflow-x-auto overflow-y-hidden lg:block"
+        ref={handleDesktopLayoutRef}
+        className="relative hidden flex-1 overflow-x-auto overflow-y-hidden min-[1116px]:block"
       >
         <div
           data-testid="desktop-resizable-panels"
@@ -242,7 +252,7 @@ export function WorkspaceShellLayout(
         id="panel-sources"
         role="tabpanel"
         aria-labelledby="tab-sources"
-        className={`lg:hidden flex-1 overflow-hidden pb-14 ${
+        className={`min-[1116px]:hidden flex-1 overflow-hidden pb-14 ${
           props.mobilePanel === "sources" ? "flex flex-col" : "hidden"
         }`}
       >
@@ -264,7 +274,7 @@ export function WorkspaceShellLayout(
         id="panel-content"
         role="tabpanel"
         aria-labelledby="tab-content"
-        className={`lg:hidden flex-1 overflow-hidden pb-14 ${
+        className={`min-[1116px]:hidden flex-1 overflow-hidden pb-14 ${
           props.mobilePanel === "content" ? "flex flex-col" : "hidden"
         }`}
       >
@@ -286,7 +296,7 @@ export function WorkspaceShellLayout(
         id="panel-chat"
         role="tabpanel"
         aria-labelledby="tab-chat"
-        className={`lg:hidden flex-1 overflow-hidden pb-14 ${
+        className={`min-[1116px]:hidden flex-1 overflow-hidden pb-14 ${
           props.mobilePanel === "chat" ? "flex flex-col" : "hidden"
         }`}
       >
@@ -325,7 +335,7 @@ export function WorkspaceShellLayout(
       />
 
       {props.chat.error && (
-        <div className="fixed bottom-18 right-4 z-50 max-w-sm rounded-lg border border-destructive/30 bg-background px-4 py-3 text-sm text-destructive shadow-lg lg:bottom-4">
+        <div className="fixed bottom-18 right-4 z-50 max-w-sm rounded-lg border border-destructive/30 bg-background px-4 py-3 text-sm text-destructive shadow-lg min-[1116px]:bottom-4">
           {props.chat.error}
         </div>
       )}

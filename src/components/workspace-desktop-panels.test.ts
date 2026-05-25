@@ -5,6 +5,22 @@ import { describe, expect, it } from "vitest";
 import { useWorkspaceDesktopPanels } from "./workspace-desktop-panels";
 
 describe("useWorkspaceDesktopPanels", () => {
+  it("fits default desktop panel widths to the rendered layout width", () => {
+    const { result } = renderHook(() => useWorkspaceDesktopPanels());
+
+    act(() => {
+      result.current.handleDesktopLayoutElementChange(createPanelElement(1280));
+    });
+
+    const totalWidth =
+      result.current.desktopPanelWidths.sources +
+      result.current.desktopPanelWidths.chunks +
+      result.current.desktopPanelWidths.chat;
+
+    expect(totalWidth).toBe(1264);
+    expect(result.current.desktopPanelWidths.chat).toBeGreaterThanOrEqual(360);
+  });
+
   it("resizes desktop panels from their rendered widths during a drag", () => {
     const { result } = renderHook(() => useWorkspaceDesktopPanels());
 
