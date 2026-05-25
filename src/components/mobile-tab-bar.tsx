@@ -24,7 +24,7 @@ export function MobileTabBar({
 }: MobileTabBarProps) {
   return (
     <nav
-      className="fixed inset-x-0 bottom-0 z-50 flex h-14 shrink-0 items-center justify-around border-t border-border/70 bg-background/95 backdrop-blur-sm lg:hidden"
+      className="fixed inset-x-0 bottom-0 z-50 flex h-14 shrink-0 items-center justify-around border-t border-border/70 bg-background/95 backdrop-blur-sm min-[1116px]:hidden"
       aria-label="Panel navigation"
       role="tablist"
     >
