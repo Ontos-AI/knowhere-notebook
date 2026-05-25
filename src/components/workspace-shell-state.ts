@@ -16,6 +16,8 @@ type DesktopPanelKey = keyof typeof minimumDesktopPanelWidths
 
 type DesktopPanelWidths = Record<DesktopPanelKey, number>
 
+const desktopPanelKeys = ["sources", "chunks", "chat"] as const
+
 type DesktopPanelResizeInput = {
   readonly leftPanel: DesktopPanelKey
   readonly rightPanel: DesktopPanelKey
@@ -29,6 +31,9 @@ type WorkspaceShellStateModule = {
   readonly minimumDesktopPanelWidths: typeof minimumDesktopPanelWidths
   readonly defaultDesktopPanelWidths: typeof defaultDesktopPanelWidths
   readonly getMinimumDesktopPanelWidth: () => number
+  readonly fitDesktopPanelWidthsToContainer: (
+    containerWidth: number,
+  ) => DesktopPanelWidths
   readonly resizeDesktopPanelWidths: (
     currentWidths: Readonly<DesktopPanelWidths>,
     resize: DesktopPanelResizeInput,
@@ -42,6 +47,65 @@ function getMinimumDesktopPanelWidth(): number {
     minimumDesktopPanelWidths.chat +
     desktopPanelGutterWidth * 2
   )
+}
+
+function getDefaultDesktopPanelContentWidth(): number {
+  return (
+    defaultDesktopPanelWidths.sources +
+    defaultDesktopPanelWidths.chunks +
+    defaultDesktopPanelWidths.chat
+  )
+}
+
+function getMinimumDesktopPanelContentWidth(): number {
+  return (
+    minimumDesktopPanelWidths.sources +
+    minimumDesktopPanelWidths.chunks +
+    minimumDesktopPanelWidths.chat
+  )
+}
+
+function fitDesktopPanelWidthsToContainer(
+  containerWidth: number,
+): DesktopPanelWidths {
+  if (!Number.isFinite(containerWidth) || containerWidth <= 0) {
+    return { ...defaultDesktopPanelWidths }
+  }
+
+  const availableContentWidth = containerWidth - desktopPanelGutterWidth * 2
+  const defaultContentWidth = getDefaultDesktopPanelContentWidth()
+  if (availableContentWidth >= defaultContentWidth) {
+    return { ...defaultDesktopPanelWidths }
+  }
+
+  const minimumContentWidth = getMinimumDesktopPanelContentWidth()
+  if (availableContentWidth <= minimumContentWidth) {
+    return { ...minimumDesktopPanelWidths }
+  }
+
+  const defaultExtraWidth = defaultContentWidth - minimumContentWidth
+  const availableExtraWidth = availableContentWidth - minimumContentWidth
+  const fittedWidths = {} as DesktopPanelWidths
+  let assignedWidth = 0
+
+  for (const [index, panel] of desktopPanelKeys.entries()) {
+    const isLastPanel = index === desktopPanelKeys.length - 1
+    if (isLastPanel) {
+      fittedWidths[panel] = availableContentWidth - assignedWidth
+      break
+    }
+
+    const panelExtraWidth =
+      defaultDesktopPanelWidths[panel] - minimumDesktopPanelWidths[panel]
+    const fittedWidth = Math.round(
+      minimumDesktopPanelWidths[panel] +
+        (panelExtraWidth / defaultExtraWidth) * availableExtraWidth,
+    )
+    fittedWidths[panel] = fittedWidth
+    assignedWidth += fittedWidth
+  }
+
+  return fittedWidths
 }
 
 function resizeDesktopPanelWidths(
@@ -73,5 +137,6 @@ export const workspaceShellState: WorkspaceShellStateModule = {
   minimumDesktopPanelWidths,
   defaultDesktopPanelWidths,
   getMinimumDesktopPanelWidth,
+  fitDesktopPanelWidthsToContainer,
   resizeDesktopPanelWidths,
 }

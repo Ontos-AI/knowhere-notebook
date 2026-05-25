@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { workspaceShellState } from "@/components/workspace-shell-state";
 
@@ -17,6 +17,9 @@ type DesktopPanelResizeDrag = {
 type WorkspaceDesktopPanels = {
   readonly desktopPanelWidths: DesktopPanelWidths;
   readonly minimumDesktopPanelWidth: number;
+  readonly handleDesktopLayoutElementChange: (
+    element: HTMLDivElement | null,
+  ) => void;
   readonly handleDesktopPanelElementChange: (
     panel: DesktopPanelKey,
     element: HTMLDivElement | null,
@@ -37,7 +40,8 @@ export function useWorkspaceDesktopPanels(): WorkspaceDesktopPanels {
   const [desktopPanelWidths, setDesktopPanelWidths] =
     useState<DesktopPanelWidths>({
       ...workspaceShellState.defaultDesktopPanelWidths,
-    });
+  });
+  const desktopLayoutResizeObserver = useRef<ResizeObserver | null>(null);
   const desktopPanelElements = useRef<
     Record<DesktopPanelKey, HTMLDivElement | null>
   >({
@@ -46,6 +50,42 @@ export function useWorkspaceDesktopPanels(): WorkspaceDesktopPanels {
     chat: null,
   });
   const desktopPanelResizeDrag = useRef<DesktopPanelResizeDrag | null>(null);
+
+  const fitDesktopPanelWidthsToElement = useCallback(
+    (element: HTMLDivElement): void => {
+      const renderedWidth = element.getBoundingClientRect().width;
+      setDesktopPanelWidths(
+        workspaceShellState.fitDesktopPanelWidthsToContainer(renderedWidth),
+      );
+    },
+    [],
+  );
+
+  useEffect(() => {
+    return () => {
+      desktopLayoutResizeObserver.current?.disconnect();
+    };
+  }, []);
+
+  const handleDesktopLayoutElementChange = useCallback(
+    (element: HTMLDivElement | null): void => {
+      desktopLayoutResizeObserver.current?.disconnect();
+      desktopLayoutResizeObserver.current = null;
+
+      if (!element) return;
+
+      fitDesktopPanelWidthsToElement(element);
+
+      if (typeof ResizeObserver === "undefined") return;
+
+      const resizeObserver = new ResizeObserver(() => {
+        fitDesktopPanelWidthsToElement(element);
+      });
+      resizeObserver.observe(element);
+      desktopLayoutResizeObserver.current = resizeObserver;
+    },
+    [fitDesktopPanelWidthsToElement],
+  );
 
   function getRenderedDesktopPanelWidth(
     panel: DesktopPanelKey,
@@ -117,6 +157,7 @@ export function useWorkspaceDesktopPanels(): WorkspaceDesktopPanels {
   return {
     desktopPanelWidths,
     minimumDesktopPanelWidth: workspaceShellState.getMinimumDesktopPanelWidth(),
+    handleDesktopLayoutElementChange,
     handleDesktopPanelElementChange,
     handleDesktopPanelResize,
     handleDesktopPanelResizeEnd,

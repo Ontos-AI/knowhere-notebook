@@ -94,7 +94,7 @@ export function ChatPanel({
   return (
     <section
       data-testid="chat-panel"
-      className="relative z-0 flex h-full w-full max-w-full min-w-0 flex-col overflow-hidden border-border/70 bg-muted/40 lg:border-l"
+      className="relative z-0 flex h-full w-full max-w-full min-w-0 flex-col overflow-hidden border-border/70 bg-muted/40 min-[1116px]:border-l"
     >
       <AlertDialog
         open={confirmThreadId !== null}

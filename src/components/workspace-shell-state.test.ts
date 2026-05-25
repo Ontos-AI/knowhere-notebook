@@ -3,6 +3,26 @@ import { describe, expect, it } from "vitest";
 import { workspaceShellState } from "./workspace-shell-state";
 
 describe("workspaceShellState", () => {
+  it("fits default desktop panel widths inside a 13-inch viewport", () => {
+    const widths = workspaceShellState.fitDesktopPanelWidthsToContainer(1280);
+    const totalWidth =
+      widths.sources +
+      widths.chunks +
+      widths.chat +
+      workspaceShellState.desktopPanelGutterWidth * 2;
+
+    expect(totalWidth).toBeLessThanOrEqual(1280);
+    expect(widths.sources).toBeGreaterThanOrEqual(
+      workspaceShellState.minimumDesktopPanelWidths.sources,
+    );
+    expect(widths.chunks).toBeGreaterThanOrEqual(
+      workspaceShellState.minimumDesktopPanelWidths.chunks,
+    );
+    expect(widths.chat).toBeGreaterThanOrEqual(
+      workspaceShellState.minimumDesktopPanelWidths.chat,
+    );
+  });
+
   it("resizes neighboring desktop panels while preserving their combined width", () => {
     const resized = workspaceShellState.resizeDesktopPanelWidths(
       {

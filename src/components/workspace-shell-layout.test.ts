@@ -48,6 +48,7 @@ describe("WorkspaceShellLayout", () => {
         onChatSend: vi.fn(),
         onCitationClick: vi.fn(),
         onCreateChatThread: vi.fn(),
+        onDesktopLayoutElementChange: vi.fn(),
         onDesktopPanelElementChange: vi.fn(),
         onDesktopPanelResize: vi.fn(),
         onDesktopPanelResizeEnd: vi.fn(),
