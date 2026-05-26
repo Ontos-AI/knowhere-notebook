@@ -66,7 +66,7 @@ describe("WorkspaceShell", () => {
     );
   });
 
-  it("lets desktop users resize neighboring panels without folding below minimum widths", () => {
+  it("lets desktop users resize neighboring panels and collapse sources below the threshold", () => {
     render(React.createElement(C, { sources: [] }));
 
     const firstHandle = screen.getByRole("separator", {
@@ -82,13 +82,19 @@ describe("WorkspaceShell", () => {
     expect(sourcesPanel.style.width).toBe("470px");
     expect(chunksPanel.style.width).toBe("600px");
 
-    fireEvent.pointerDown(firstHandle, { clientX: 120 });
+    const resizedHandle = screen.getByRole("separator", {
+      name: "Resize sources and parsed chunks",
+    });
+    fireEvent.pointerDown(resizedHandle, { clientX: 120 });
     fireEvent.pointerMove(window, { clientX: -1000 });
     fireEvent.pointerUp(window);
 
-    expect(sourcesPanel.style.width).toBe(
-      `${DESKTOP_PANEL_MIN_WIDTHS.sources}px`,
+    expect(screen.getByTestId("desktop-sources-panel").style.width).toBe(
+      "72px",
     );
+    expect(
+      screen.getByRole("button", { name: "Show sources panel" }),
+    ).toBeTruthy();
   });
 
   it("lets desktop users expand the chat panel by shrinking parsed chunks further", () => {

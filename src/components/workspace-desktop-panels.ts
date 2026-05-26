@@ -6,6 +6,7 @@ import { workspaceShellState } from "@/components/workspace-shell-state";
 
 type DesktopPanelKey = keyof typeof workspaceShellState.minimumDesktopPanelWidths;
 type DesktopPanelWidths = Record<DesktopPanelKey, number>;
+type DesktopSidePanelKey = Exclude<DesktopPanelKey, "chunks">;
 
 type DesktopPanelResizeDrag = {
   readonly leftPanel: DesktopPanelKey;
@@ -24,6 +25,7 @@ type WorkspaceDesktopPanels = {
     panel: DesktopPanelKey,
     element: HTMLDivElement | null,
   ) => void;
+  readonly handleDesktopPanelExpand: (panel: DesktopSidePanelKey) => void;
   readonly handleDesktopPanelResize: (
     leftPanel: DesktopPanelKey,
     rightPanel: DesktopPanelKey,
@@ -54,8 +56,11 @@ export function useWorkspaceDesktopPanels(): WorkspaceDesktopPanels {
   const fitDesktopPanelWidthsToElement = useCallback(
     (element: HTMLDivElement): void => {
       const renderedWidth = element.getBoundingClientRect().width;
-      setDesktopPanelWidths(
-        workspaceShellState.fitDesktopPanelWidthsToContainer(renderedWidth),
+      setDesktopPanelWidths((current) =>
+        workspaceShellState.fitDesktopPanelWidthsToContainer(
+          renderedWidth,
+          current,
+        ),
       );
     },
     [],
@@ -147,6 +152,12 @@ export function useWorkspaceDesktopPanels(): WorkspaceDesktopPanels {
     desktopPanelResizeDrag.current = null;
   }
 
+  function handleDesktopPanelExpand(panel: DesktopSidePanelKey): void {
+    setDesktopPanelWidths((current) =>
+      workspaceShellState.expandDesktopPanelWidth(current, panel),
+    );
+  }
+
   function handleDesktopPanelElementChange(
     panel: DesktopPanelKey,
     element: HTMLDivElement | null,
@@ -156,9 +167,11 @@ export function useWorkspaceDesktopPanels(): WorkspaceDesktopPanels {
 
   return {
     desktopPanelWidths,
-    minimumDesktopPanelWidth: workspaceShellState.getMinimumDesktopPanelWidth(),
+    minimumDesktopPanelWidth:
+      workspaceShellState.getMinimumDesktopPanelWidth(desktopPanelWidths),
     handleDesktopLayoutElementChange,
     handleDesktopPanelElementChange,
+    handleDesktopPanelExpand,
     handleDesktopPanelResize,
     handleDesktopPanelResizeEnd,
     handleDesktopPanelResizeStart,

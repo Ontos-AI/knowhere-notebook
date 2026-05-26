@@ -30,8 +30,10 @@ type WorkspaceCitationFocus = {
     citationId: string,
   ) => Promise<void>
   readonly handleLoadMoreChunks: () => void
+  readonly handleLoadAllChunks: () => void
   readonly handleSourceSelected: (sourceId: string | null) => void
   readonly hasMoreSelectedChunks: boolean
+  readonly isSelectedAllChunksLoading: boolean
   readonly pendingCitationId: string | null
   readonly prefetchedChunksBySourceId: PrefetchedChunksBySourceId
   readonly requestChunkFocus: (chunkId: string | null) => void
@@ -55,6 +57,9 @@ export function useWorkspaceCitationFocus({
   const [pendingCitationId, setPendingCitationId] = useState<string | null>(
     null,
   )
+  const [fullChunkLoadingSourceId, setFullChunkLoadingSourceId] = useState<
+    string | null
+  >(null)
   const [prefetchedChunksBySourceId, setPrefetchedChunksBySourceId] =
     useState<PrefetchedChunksBySourceId>(initialPrefetchedChunksBySourceId)
   const {
@@ -92,6 +97,38 @@ export function useWorkspaceCitationFocus({
     },
     [onSelectSource, requestChunkFocus],
   )
+
+  const handleLoadAllChunks = useCallback((): void => {
+    if (
+      !selectedSourceId ||
+      prefetchedChunksBySourceId[selectedSourceId] ||
+      fullChunkLoadingSourceId === selectedSourceId
+    ) {
+      return
+    }
+
+    setFullChunkLoadingSourceId(selectedSourceId)
+    void fetchChunks(selectedSourceId)
+      .then((chunks) => {
+        setPrefetchedChunksBySourceId((current) =>
+          workspaceCitationState.upsertPrefetchedChunks(
+            current,
+            selectedSourceId,
+            chunks,
+          ),
+        )
+      })
+      .finally(() => {
+        setFullChunkLoadingSourceId((current) =>
+          current === selectedSourceId ? null : current,
+        )
+      })
+  }, [
+    fetchChunks,
+    fullChunkLoadingSourceId,
+    prefetchedChunksBySourceId,
+    selectedSourceId,
+  ])
 
   const handleCitationClick = useCallback(
     async (
@@ -190,9 +227,11 @@ export function useWorkspaceCitationFocus({
   return {
     focusedChunk,
     handleCitationClick,
+    handleLoadAllChunks,
     handleLoadMoreChunks,
     handleSourceSelected,
     hasMoreSelectedChunks,
+    isSelectedAllChunksLoading: fullChunkLoadingSourceId === selectedSourceId,
     isSelectedChunksLoading,
     isSelectedChunksLoadingMore,
     pendingCitationId,

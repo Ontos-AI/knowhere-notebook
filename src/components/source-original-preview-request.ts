@@ -12,8 +12,9 @@ const textCache = new Map<string, Promise<string>>();
 const arrayBufferCache = new Map<string, Promise<Uint8Array>>();
 
 async function getText(url: string, signal: AbortSignal): Promise<string> {
+  assertSignalIsActive(signal);
   return getCachedValue(textCache, url, () =>
-    Effect.runPromise(getTextEffect(url, signal)),
+    Effect.runPromise(getTextEffect(url)),
   );
 }
 
@@ -21,8 +22,9 @@ async function getArrayBuffer(
   url: string,
   signal: AbortSignal,
 ): Promise<ArrayBuffer> {
+  assertSignalIsActive(signal);
   const bytes = await getCachedValue(arrayBufferCache, url, async () =>
-    toUint8Array(await Effect.runPromise(getArrayBufferEffect(url, signal))),
+    toUint8Array(await Effect.runPromise(getArrayBufferEffect(url))),
   );
   return copyArrayBuffer(bytes);
 }
@@ -57,8 +59,8 @@ function getCachedValue<T>(
 }
 
 const getTextEffect = Effect.fn("getSourceOriginalText")(
-  function* (url: string, signal: AbortSignal) {
-    const response = yield* fetchSourceOriginal(url, signal, "Text");
+  function* (url: string) {
+    const response = yield* fetchSourceOriginal(url, "Text");
     if (!isSuccessfulStatus(response.status)) {
       return yield* new SourceOriginalPreviewRequestError({
         message: "Text download failed.",
@@ -76,8 +78,8 @@ const getTextEffect = Effect.fn("getSourceOriginalText")(
 );
 
 const getArrayBufferEffect = Effect.fn("getSourceOriginalArrayBuffer")(
-  function* (url: string, signal: AbortSignal) {
-    const response = yield* fetchSourceOriginal(url, signal, "Binary");
+  function* (url: string) {
+    const response = yield* fetchSourceOriginal(url, "Binary");
     if (!isSuccessfulStatus(response.status)) {
       return yield* new SourceOriginalPreviewRequestError({
         message: "Binary download failed.",
@@ -95,9 +97,12 @@ const getArrayBufferEffect = Effect.fn("getSourceOriginalArrayBuffer")(
 );
 
 const fetchSourceOriginal = Effect.fn("fetchSourceOriginal")(
-  function* (url: string, signal: AbortSignal, label: "Binary" | "Text") {
+  function* (url: string, label: "Binary" | "Text") {
     return yield* Effect.tryPromise({
-      try: () => fetch(url, { signal }),
+      // Downloads are shared between warmup and visible preview callers.
+      // A caller-owned AbortSignal must not cancel the cached request for all
+      // other consumers.
+      try: () => fetch(url),
       catch: () =>
         new SourceOriginalPreviewRequestError({
           message: `${label} download failed.`,
@@ -115,6 +120,12 @@ class SourceOriginalPreviewRequestError extends Schema.TaggedError<SourceOrigina
 
 function isSuccessfulStatus(status: number): boolean {
   return status >= 200 && status < 300;
+}
+
+function assertSignalIsActive(signal: AbortSignal): void {
+  if (signal.aborted) {
+    throw new DOMException("Aborted", "AbortError");
+  }
 }
 
 function toUint8Array(data: ArrayBuffer): Uint8Array {

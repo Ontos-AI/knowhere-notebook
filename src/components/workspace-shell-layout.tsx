@@ -1,4 +1,11 @@
 import { useCallback, type ReactElement } from "react"
+import {
+  Database,
+  FileText,
+  MessageSquare,
+  PanelLeftOpen,
+  PanelRightOpen,
+} from "lucide-react"
 
 import { ChatPanel } from "@/components/chat-panel"
 import { ChunksPanel } from "@/components/chunks-panel"
@@ -21,6 +28,7 @@ import type {
 export type PanelId = "sources" | "content" | "chat"
 
 type DesktopPanelKey = keyof typeof workspaceShellState.minimumDesktopPanelWidths
+type DesktopSidePanelKey = Exclude<DesktopPanelKey, "chunks">
 type DesktopPanelWidths = Record<DesktopPanelKey, number>
 
 type FocusedChunkState = {
@@ -55,6 +63,7 @@ export type WorkspaceShellLayoutProps = {
   readonly hasMoreSelectedChunks: boolean
   readonly isCreatingThread: boolean
   readonly isGuest: boolean
+  readonly isSelectedAllChunksLoading: boolean
   readonly isSelectedChunksLoading: boolean
   readonly isSelectedChunksLoadingMore: boolean
   readonly loadingThreadId: string | null
@@ -82,6 +91,7 @@ export type WorkspaceShellLayoutProps = {
     panel: DesktopPanelKey,
     element: HTMLDivElement | null,
   ) => void
+  readonly onDesktopPanelExpand: (panel: DesktopSidePanelKey) => void
   readonly onDesktopPanelResize: (
     leftPanel: DesktopPanelKey,
     rightPanel: DesktopPanelKey,
@@ -92,6 +102,7 @@ export type WorkspaceShellLayoutProps = {
     leftPanel: DesktopPanelKey,
     rightPanel: DesktopPanelKey,
   ) => void
+  readonly onLoadAllChunks: () => void
   readonly onLoadMoreChunks: () => void
   readonly onLoginClick: () => void
   readonly onMobilePanelChange: (panel: PanelId) => void
@@ -105,6 +116,13 @@ export function WorkspaceShellLayout(
   props: WorkspaceShellLayoutProps,
 ): ReactElement {
   const { onDesktopLayoutElementChange } = props
+  const isSourcesPanelCollapsed =
+    props.desktopPanelWidths.sources <=
+    workspaceShellState.desktopSidePanelCompactThreshold
+  const isChatPanelCollapsed =
+    props.desktopPanelWidths.chat <=
+    workspaceShellState.desktopSidePanelCompactThreshold
+  const isSourcesPanelNarrow = props.desktopPanelWidths.sources < 220
   const handleDesktopLayoutRef = useCallback(
     (element: HTMLDivElement | null): void => {
       onDesktopLayoutElementChange(element)
@@ -142,24 +160,36 @@ export function WorkspaceShellLayout(
             }}
             className="h-full shrink-0"
             style={{
-              minWidth: `${workspaceShellState.minimumDesktopPanelWidths.sources}px`,
+              minWidth: `${workspaceShellState.collapsedDesktopPanelWidth}px`,
               width: `${props.desktopPanelWidths.sources}px`,
             }}
           >
-            <SourcesPanel
-              sources={[...props.sources]}
-              onSourceUploaded={
-                props.isGuest ? undefined : props.onSourceUploaded
-              }
-              selectedSourceId={props.selectedSourceId}
-              onSelectSource={props.onSourceSelected}
-              onToggleIncluded={
-                props.isGuest ? undefined : props.onToggleIncluded
-              }
-              onArchiveSource={props.isGuest ? undefined : props.onArchiveSource}
-              archivingSourceIds={[...props.archivingSourceIds]}
-              onLoginClick={props.isGuest ? props.onLoginClick : undefined}
-            />
+            {isSourcesPanelCollapsed ? (
+              <CompactSourcesSidebar
+                sources={props.sources}
+                selectedSourceId={props.selectedSourceId}
+                onExpand={() => props.onDesktopPanelExpand("sources")}
+                onSourceSelected={props.onSourceSelected}
+              />
+            ) : (
+              <SourcesPanel
+                sources={[...props.sources]}
+                isNarrow={isSourcesPanelNarrow}
+                onSourceUploaded={
+                  props.isGuest ? undefined : props.onSourceUploaded
+                }
+                selectedSourceId={props.selectedSourceId}
+                onSelectSource={props.onSourceSelected}
+                onToggleIncluded={
+                  props.isGuest ? undefined : props.onToggleIncluded
+                }
+                onArchiveSource={
+                  props.isGuest ? undefined : props.onArchiveSource
+                }
+                archivingSourceIds={[...props.archivingSourceIds]}
+                onLoginClick={props.isGuest ? props.onLoginClick : undefined}
+              />
+            )}
           </div>
           <DesktopResizeHandle
             label="Resize sources and parsed chunks"
@@ -189,8 +219,10 @@ export function WorkspaceShellLayout(
               focusedChunkId={props.focusedChunk.chunkId}
               focusedChunkRequestId={props.focusedChunk.requestId}
               isLoading={props.isSelectedChunksLoading}
+              isLoadingAllChunks={props.isSelectedAllChunksLoading}
               isLoadingMore={props.isSelectedChunksLoadingMore}
               hasMoreChunks={props.hasMoreSelectedChunks}
+              onLoadAllChunks={props.onLoadAllChunks}
               onLoadMore={props.onLoadMoreChunks}
               onLoginClick={props.isGuest ? props.onLoginClick : undefined}
               onSourceUploaded={
@@ -215,35 +247,47 @@ export function WorkspaceShellLayout(
             }}
             className="h-full shrink-0"
             style={{
-              minWidth: `${workspaceShellState.minimumDesktopPanelWidths.chat}px`,
+              minWidth: `${workspaceShellState.collapsedDesktopPanelWidth}px`,
               width: `${props.desktopPanelWidths.chat}px`,
             }}
           >
-            <ChatPanel
-              messages={props.chat.messages}
-              threads={[...props.chatThreads]}
-              activeThreadId={props.chat.threadId}
-              isDisabled={props.isGuest || props.readySourceCount === 0}
-              isSending={props.chat.isSending}
-              isHistoryLoading={props.chat.isLoading}
-              isCreatingThread={props.isCreatingThread}
-              loadingThreadId={props.loadingThreadId}
-              archivingThreadIds={[...props.archivingThreadIds]}
-              pendingCitationId={props.pendingCitationId}
-              pendingStatusText={props.chat.pendingStatusText}
-              sourceCount={props.readySourceCount}
-              onSend={props.onChatSend}
-              onNewChat={props.isGuest ? undefined : props.onCreateChatThread}
-              onThreadSelect={
-                props.isGuest ? undefined : props.onSelectChatThread
-              }
-              onThreadArchive={
-                props.isGuest ? undefined : props.onArchiveChatThread
-              }
-              onCitationClick={props.onCitationClick}
-              onLoginClick={props.isGuest ? props.onLoginClick : undefined}
-              sourceTitlesByDocumentId={props.sourceTitlesByDocumentId}
-            />
+            {isChatPanelCollapsed ? (
+              <CompactChatSidebar
+                activeThreadId={props.chat.threadId}
+                threads={props.chatThreads}
+                onExpand={() => props.onDesktopPanelExpand("chat")}
+                onThreadSelected={(threadId) => {
+                  props.onSelectChatThread(threadId)
+                  props.onDesktopPanelExpand("chat")
+                }}
+              />
+            ) : (
+              <ChatPanel
+                messages={props.chat.messages}
+                threads={[...props.chatThreads]}
+                activeThreadId={props.chat.threadId}
+                isDisabled={props.isGuest || props.readySourceCount === 0}
+                isSending={props.chat.isSending}
+                isHistoryLoading={props.chat.isLoading}
+                isCreatingThread={props.isCreatingThread}
+                loadingThreadId={props.loadingThreadId}
+                archivingThreadIds={[...props.archivingThreadIds]}
+                pendingCitationId={props.pendingCitationId}
+                pendingStatusText={props.chat.pendingStatusText}
+                sourceCount={props.readySourceCount}
+                onSend={props.onChatSend}
+                onNewChat={props.isGuest ? undefined : props.onCreateChatThread}
+                onThreadSelect={
+                  props.isGuest ? undefined : props.onSelectChatThread
+                }
+                onThreadArchive={
+                  props.isGuest ? undefined : props.onArchiveChatThread
+                }
+                onCitationClick={props.onCitationClick}
+                onLoginClick={props.isGuest ? props.onLoginClick : undefined}
+                sourceTitlesByDocumentId={props.sourceTitlesByDocumentId}
+              />
+            )}
           </div>
         </div>
       </div>
@@ -285,8 +329,10 @@ export function WorkspaceShellLayout(
           focusedChunkId={props.focusedChunk.chunkId}
           focusedChunkRequestId={props.focusedChunk.requestId}
           isLoading={props.isSelectedChunksLoading}
+          isLoadingAllChunks={props.isSelectedAllChunksLoading}
           isLoadingMore={props.isSelectedChunksLoadingMore}
           hasMoreChunks={props.hasMoreSelectedChunks}
+          onLoadAllChunks={props.onLoadAllChunks}
           onLoadMore={props.onLoadMoreChunks}
           onLoginClick={props.isGuest ? props.onLoginClick : undefined}
           onSourceUploaded={props.isGuest ? undefined : props.onSourceUploaded}
@@ -381,4 +427,173 @@ function DesktopResizeHandle({
       <span className="h-10 w-0.5 rounded-full bg-muted-foreground/35 group-hover:bg-primary/60" />
     </button>
   )
+}
+
+function DesktopPanelRestoreButton({
+  label,
+  onClick,
+  side,
+}: {
+  readonly label: string
+  readonly onClick: () => void
+  readonly side: "left" | "right"
+}): ReactElement {
+  const Icon = side === "left" ? PanelLeftOpen : PanelRightOpen
+
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      className="inline-flex size-10 items-center justify-center rounded-lg border border-border bg-background text-muted-foreground shadow-sm transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+      onClick={onClick}
+    >
+      <Icon className="size-4" strokeWidth={1.8} />
+    </button>
+  )
+}
+
+function CompactSourcesSidebar({
+  onExpand,
+  onSourceSelected,
+  selectedSourceId,
+  sources,
+}: {
+  readonly onExpand: () => void
+  readonly onSourceSelected: (sourceId: string | null) => void
+  readonly selectedSourceId: string | null
+  readonly sources: readonly SourceView[]
+}): ReactElement {
+  return (
+    <aside className="flex h-full w-full flex-col items-center border-r border-border/70 bg-background px-2 py-3">
+      <DesktopPanelRestoreButton
+        label="Show sources panel"
+        side="left"
+        onClick={onExpand}
+      />
+      <div className="my-3 h-px w-9 bg-border" />
+      <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-2 overflow-y-auto">
+        {sources.length === 0 ? (
+          <span
+            aria-label="No sources"
+            className="inline-flex size-11 items-center justify-center rounded-lg border border-border bg-muted/40 text-muted-foreground"
+            role="img"
+          >
+            <Database className="size-4" strokeWidth={1.8} />
+          </span>
+        ) : (
+          sources.map((source) => (
+            <CompactSidebarButton
+              key={source.id}
+              ariaLabel={`Open source ${source.title}`}
+              isActive={source.id === selectedSourceId}
+              label={getCompactItemLabel(source.title)}
+              title={source.title}
+              onClick={() => onSourceSelected(source.id)}
+            >
+              <FileText className="size-4" strokeWidth={1.8} />
+            </CompactSidebarButton>
+          ))
+        )}
+      </div>
+    </aside>
+  )
+}
+
+function CompactChatSidebar({
+  activeThreadId,
+  onExpand,
+  onThreadSelected,
+  threads,
+}: {
+  readonly activeThreadId: string | null
+  readonly onExpand: () => void
+  readonly onThreadSelected: (threadId: string) => void
+  readonly threads: readonly ChatThreadView[]
+}): ReactElement {
+  return (
+    <aside className="flex h-full w-full flex-col items-center border-l border-border/70 bg-muted/40 px-2 py-3">
+      <DesktopPanelRestoreButton
+        label="Show chat panel"
+        side="right"
+        onClick={onExpand}
+      />
+      <div className="my-3 h-px w-9 bg-border" />
+      <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-2 overflow-y-auto">
+        {threads.length === 0 ? (
+          <span
+            aria-label="No chats"
+            className="inline-flex size-11 items-center justify-center rounded-lg border border-border bg-background/70 text-muted-foreground"
+            role="img"
+          >
+            <MessageSquare className="size-4" strokeWidth={1.8} />
+          </span>
+        ) : (
+          threads.map((thread) => (
+            <CompactSidebarButton
+              key={thread.id}
+              ariaLabel={`Open chat ${thread.title}`}
+              isActive={thread.id === activeThreadId}
+              label={getCompactItemLabel(thread.title)}
+              title={thread.title}
+              onClick={() => onThreadSelected(thread.id)}
+            >
+              <MessageSquare className="size-4" strokeWidth={1.8} />
+            </CompactSidebarButton>
+          ))
+        )}
+      </div>
+    </aside>
+  )
+}
+
+function CompactSidebarButton({
+  ariaLabel,
+  children,
+  isActive,
+  label,
+  onClick,
+  title,
+}: {
+  readonly ariaLabel: string
+  readonly children: ReactElement
+  readonly isActive: boolean
+  readonly label: string
+  readonly onClick: () => void
+  readonly title: string
+}): ReactElement {
+  return (
+    <button
+      type="button"
+      aria-label={ariaLabel}
+      title={title}
+      className={`flex h-[52px] w-[52px] flex-col items-center justify-center gap-1 rounded-lg border text-muted-foreground shadow-sm transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 ${
+        isActive
+          ? "border-primary/60 bg-primary/10 text-foreground"
+          : "border-border bg-background"
+      }`}
+      onClick={onClick}
+    >
+      {children}
+      <span className="max-w-10 truncate text-[10px] font-semibold leading-none">
+        {label}
+      </span>
+    </button>
+  )
+}
+
+function getCompactItemLabel(title: string): string {
+  const normalizedTitle = title.trim()
+  if (!normalizedTitle) return "?"
+
+  const words = normalizedTitle
+    .replace(/\.[a-z0-9]+$/i, "")
+    .split(/[\s._-]+/)
+    .filter(Boolean)
+
+  if (words.length >= 2) {
+    return `${words[0]![0] ?? ""}${words[1]![0] ?? ""}`.toUpperCase()
+  }
+
+  return normalizedTitle.slice(0, 2).toUpperCase()
 }

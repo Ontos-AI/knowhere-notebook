@@ -40,7 +40,7 @@ describe("SourceOriginalTextPreview", () => {
     expect(screen.queryByText(/<br>/)).toBeNull();
   });
 
-  it("aborts text downloads when the preview unmounts", async () => {
+  it("leaves shared text downloads uncancelled when the preview unmounts", async () => {
     const fetchSignals: Array<AbortSignal | undefined> = [];
     vi.stubGlobal(
       "fetch",
@@ -65,6 +65,6 @@ describe("SourceOriginalTextPreview", () => {
     });
     unmount();
 
-    expect(fetchSignals[0]?.aborted).toBe(true);
+    expect(fetchSignals[0]).toBeUndefined();
   });
 });

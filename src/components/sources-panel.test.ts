@@ -80,6 +80,24 @@ describe("SourcesPanel", () => {
     );
   });
 
+  it("keeps the narrow upload trigger visible as a primary icon button", () => {
+    render(
+      React.createElement(C, {
+        isNarrow: true,
+        sources: [],
+      }),
+    );
+
+    const uploadButton = screen.getByRole("button", {
+      name: "Upload Document",
+    });
+
+    expect(uploadButton.textContent).toBe("");
+    expect(uploadButton.className).toContain("bg-[#8E51FF]");
+    expect(uploadButton.className).toContain("px-0");
+    expect(uploadButton.querySelector("svg")).toBeTruthy();
+  });
+
   it("keeps upload confirmation controls visible inside the dialog viewport", async () => {
     const user = userEvent.setup();
 

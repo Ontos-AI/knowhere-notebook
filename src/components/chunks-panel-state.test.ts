@@ -93,4 +93,71 @@ describe("chunksPanelState", () => {
     ).toBe("Image 12")
   })
 
+  it("builds a section tree from slash and arrow separated Knowhere paths", () => {
+    type TestSectionTreeNode = {
+      readonly label: string
+      readonly chunks: readonly ParsedChunkView[]
+      readonly children: readonly TestSectionTreeNode[]
+    }
+    const buildSectionTree = (
+      chunksPanelState as typeof chunksPanelState & {
+        readonly buildSectionTree?: (
+          chunks: readonly ParsedChunkView[],
+          sourceTitle: string,
+        ) => TestSectionTreeNode
+      }
+    ).buildSectionTree
+    const tableChunk: ParsedChunkView = {
+      chunkId: "table_chunk",
+      parserChunkId: "parser_table",
+      type: "table",
+      content: "<table />",
+      sectionPath: "tables/table-1.html",
+      filePath: "tables/table-1.html",
+      sourceTitle: "manual.pdf",
+    }
+    const chunks: ParsedChunkView[] = [
+      {
+        chunkId: "overview_chunk",
+        parserChunkId: "parser_overview",
+        type: "text",
+        content: "Overview text",
+        sectionPath: "manual.pdf/Overview",
+        sourceTitle: "manual.pdf",
+      },
+      {
+        chunkId: "robotics_chunk",
+        parserChunkId: "parser_robotics",
+        type: "text",
+        content: "Robotics [tables/table-1.html]",
+        sectionPath: "manual.pdf-->Outlook/Product-->Robotics",
+        sourceTitle: "manual.pdf",
+        connections: [
+          {
+            targetParserChunkId: "parser_table",
+            targetChunkId: "table_chunk",
+            relation: "embeds",
+            ref: "[tables/table-1.html]",
+          },
+        ],
+      },
+      tableChunk,
+    ]
+
+    const tree = buildSectionTree?.(chunks, "manual.pdf")
+
+    expect(tree?.children.map((child) => child.label)).toEqual([
+      "Overview",
+      "Outlook",
+    ])
+    expect(tree?.children[0]?.chunks.map((chunk) => chunk.chunkId)).toEqual([
+      "overview_chunk",
+    ])
+    expect(tree?.children[1]?.children[0]?.label).toBe("Product")
+    expect(
+      tree?.children[1]?.children[0]?.children[0]?.chunks.map(
+        (chunk) => chunk.chunkId,
+      ),
+    ).toEqual(["robotics_chunk", "table_chunk"])
+  })
 })
