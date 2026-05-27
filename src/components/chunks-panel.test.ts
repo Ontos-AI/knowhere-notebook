@@ -63,6 +63,288 @@ describe("ChunksPanel", () => {
     expect(screen.getByText(/Showing all parsed chunks from/)).toBeTruthy();
   });
 
+  it("switches parsed chunks into a section tree view", async () => {
+    const user = userEvent.setup();
+
+    render(
+      React.createElement(C, {
+        chunks: [
+          {
+            chunkId: "overview_chunk",
+            parserChunkId: "parser_overview",
+            type: "text",
+            content: "Overview text",
+            sectionPath: "manual.pdf/Overview",
+            sourceTitle: "manual.pdf",
+          },
+          {
+            chunkId: "robotics_chunk",
+            parserChunkId: "parser_robotics",
+            type: "text",
+            content: "Robotics [tables/table-1.html]",
+            sectionPath: "manual.pdf-->Outlook/Product-->Robotics",
+            sourceTitle: "manual.pdf",
+            connections: [
+              {
+                targetParserChunkId: "parser_table",
+                targetChunkId: "table_chunk",
+                relation: "embeds",
+                ref: "[tables/table-1.html]",
+              },
+            ],
+          },
+          {
+            chunkId: "table_chunk",
+            parserChunkId: "parser_table",
+            type: "table",
+            content: "<table />",
+            sectionPath: "tables/table-1.html",
+            filePath: "tables/table-1.html",
+            sourceTitle: "manual.pdf",
+          },
+        ],
+        selectedSource: "manual.pdf",
+      }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Tree" }));
+
+    expect(
+      screen.getByRole("tree", { name: "Parsed chunk sections" }),
+    ).toBeTruthy();
+    expect(screen.getByText("Overview")).toBeTruthy();
+    expect(screen.getByText("Outlook")).toBeTruthy();
+    expect(
+      screen.getByRole("treeitem", {
+        name: /Robotics section with 2 chunks/i,
+      }),
+    ).toBeTruthy();
+  });
+
+  it("requests the full chunk list before showing the section tree", async () => {
+    const user = userEvent.setup();
+    const handleLoadAllChunks = vi.fn();
+
+    render(
+      React.createElement(C, {
+        chunks: [
+          {
+            chunkId: "chunk_1",
+            type: "text",
+            content: "Overview text",
+            sectionPath: "manual.pdf/Overview",
+            sourceTitle: "manual.pdf",
+          },
+        ],
+        selectedSource: "manual.pdf",
+        hasMoreChunks: true,
+        onLoadAllChunks: handleLoadAllChunks,
+      }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Tree" }));
+
+    expect(handleLoadAllChunks).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the section tree background as wide as the computed tree", async () => {
+    const user = userEvent.setup();
+
+    render(
+      React.createElement(C, {
+        chunks: [
+          {
+            chunkId: "chunk_1",
+            type: "text",
+            content: "Overview text",
+            sectionPath: "manual.pdf/Overview/Product/Robotics",
+            sourceTitle: "manual.pdf",
+          },
+        ],
+        selectedSource: "manual.pdf",
+      }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Tree" }));
+
+    const tree = screen.getByRole("tree", { name: "Parsed chunk sections" });
+    const card = tree.parentElement as HTMLElement;
+    const treeWidth = Number.parseInt(tree.style.width, 10);
+    const cardMinimumWidth = Number.parseInt(card.style.minWidth, 10);
+
+    expect(tree.style.width).not.toBe("");
+    expect(cardMinimumWidth).toBeGreaterThanOrEqual(treeWidth);
+  });
+
+  it("zooms the section tree while keeping the scaled surface measurable", async () => {
+    const user = userEvent.setup();
+
+    render(
+      React.createElement(C, {
+        chunks: [
+          {
+            chunkId: "chunk_1",
+            type: "text",
+            content: "Overview text",
+            sectionPath: "manual.pdf/Overview/Product/Robotics",
+            sourceTitle: "manual.pdf",
+          },
+        ],
+        selectedSource: "manual.pdf",
+      }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Tree" }));
+
+    const tree = screen.getByRole("tree", { name: "Parsed chunk sections" });
+    const surface = screen.getByTestId("chunk-section-tree-zoom-surface");
+    const initialSurfaceWidth = Number.parseInt(surface.style.width, 10);
+
+    expect(tree.style.transform).toBe("scale(1)");
+    expect(screen.getByText("100%")).toBeTruthy();
+
+    await user.click(
+      screen.getByRole("button", { name: "Zoom in section tree" }),
+    );
+
+    const zoomedInSurfaceWidth = Number.parseInt(surface.style.width, 10);
+
+    expect(tree.style.transform).toBe("scale(1.1)");
+    expect(screen.getByText("110%")).toBeTruthy();
+    expect(zoomedInSurfaceWidth).toBeGreaterThan(initialSurfaceWidth);
+
+    await user.click(
+      screen.getByRole("button", { name: "Zoom out section tree" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Zoom out section tree" }),
+    );
+
+    const zoomedOutSurfaceWidth = Number.parseInt(surface.style.width, 10);
+
+    expect(tree.style.transform).toBe("scale(0.9)");
+    expect(screen.getByText("90%")).toBeTruthy();
+    expect(zoomedOutSurfaceWidth).toBeLessThan(zoomedInSurfaceWidth);
+
+    await user.click(
+      screen.getByRole("button", { name: "Reset section tree zoom" }),
+    );
+
+    expect(tree.style.transform).toBe("scale(1)");
+    expect(screen.getByText("100%")).toBeTruthy();
+  });
+
+  it("allows the section tree to zoom out to 30 percent", async () => {
+    const user = userEvent.setup();
+
+    render(
+      React.createElement(C, {
+        chunks: [
+          {
+            chunkId: "chunk_1",
+            type: "text",
+            content: "Overview text",
+            sectionPath: "manual.pdf/Overview/Product/Robotics",
+            sourceTitle: "manual.pdf",
+          },
+        ],
+        selectedSource: "manual.pdf",
+      }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Tree" }));
+
+    const tree = screen.getByRole("tree", { name: "Parsed chunk sections" });
+    const surface = screen.getByTestId("chunk-section-tree-zoom-surface");
+    const initialSurfaceWidth = Number.parseInt(surface.style.width, 10);
+    const zoomOutButton = screen.getByRole("button", {
+      name: "Zoom out section tree",
+    });
+
+    for (let i = 0; i < 7; i += 1) {
+      await user.click(zoomOutButton);
+    }
+
+    const zoomedOutSurfaceWidth = Number.parseInt(surface.style.width, 10);
+
+    expect(tree.style.transform).toBe("scale(0.3)");
+    expect(screen.getByText("30%")).toBeTruthy();
+    expect(zoomedOutSurfaceWidth).toBeLessThan(initialSurfaceWidth);
+    expect(zoomOutButton.hasAttribute("disabled")).toBe(true);
+  });
+
+  it("keeps section tree zoom controls fixed at the chunk panel top left", async () => {
+    const user = userEvent.setup();
+
+    render(
+      React.createElement(C, {
+        chunks: [
+          {
+            chunkId: "chunk_1",
+            type: "text",
+            content: "Overview text",
+            sectionPath: "manual.pdf/Overview/Product/Robotics",
+            sourceTitle: "manual.pdf",
+          },
+        ],
+        selectedSource: "manual.pdf",
+      }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Tree" }));
+
+    const overlay = screen.getByTestId("chunk-section-tree-zoom-overlay");
+    const scrollContent = screen.getByTestId("chunks-scroll-content");
+
+    expect(overlay.className).toContain("absolute");
+    expect(overlay.className).toContain("left-3");
+    expect(overlay.className).not.toContain("right-3");
+    expect(overlay.className).toContain("top-3");
+    expect(scrollContent.contains(overlay)).toBe(false);
+    expect(
+      screen.getByRole("group", { name: "Section tree zoom" }),
+    ).toBeTruthy();
+  });
+
+  it("returns to the list and focuses a chunk when its tree node is clicked", async () => {
+    mockVisibleVirtualViewport();
+    const user = userEvent.setup();
+
+    render(
+      React.createElement(C, {
+        chunks: [
+          {
+            chunkId: "overview_chunk",
+            type: "text",
+            content: "Overview text",
+            sectionPath: "manual.pdf/Overview",
+            sourceTitle: "manual.pdf",
+          },
+          {
+            chunkId: "robotics_chunk",
+            type: "text",
+            content: "Robotics details",
+            sectionPath: "manual.pdf/Outlook/Robotics",
+            sourceTitle: "manual.pdf",
+          },
+        ],
+        selectedSource: "manual.pdf",
+      }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Tree" }));
+    await user.click(
+      screen.getByRole("button", { name: /Robotics details\s*Text/ }),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("tree", { name: "Parsed chunk sections" }),
+      ).toBeNull();
+    });
+    expect(screen.getByTestId("chunk-card-shell-robotics_chunk")).toBeTruthy();
+  });
+
   it("shows a large upload target when no document is selected", async () => {
     const user = userEvent.setup();
 

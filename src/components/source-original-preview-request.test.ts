@@ -40,29 +40,25 @@ describe("sourceOriginalPreviewRequest", () => {
     expect([...new Uint8Array(data)]).toEqual([1, 2]);
   });
 
-  it("passes cancellation signals to the underlying request", async () => {
+  it("does not bind caller cancellation signals to the shared request", async () => {
     const fetchSignals: Array<AbortSignal | null> = [];
     vi.stubGlobal(
       "fetch",
       vi.fn<typeof globalThis.fetch>((_input, init) => {
         fetchSignals.push(init?.signal ?? null);
-        return new Promise<Response>((_resolve, reject) => {
-          init?.signal?.addEventListener("abort", () => {
-            reject(new DOMException("Aborted", "AbortError"));
-          });
-        });
+        return Promise.resolve(new Response("hello", { status: 200 }));
       }),
     );
     const controller = new AbortController();
 
-    const request = sourceOriginalPreviewRequest
-      .getText("https://example.com/notes.txt", controller.signal)
-      .catch(() => undefined);
-    await Promise.resolve();
+    const text = await sourceOriginalPreviewRequest.getText(
+      "https://example.com/notes.txt",
+      controller.signal,
+    );
     controller.abort();
-    await request;
 
-    expect(fetchSignals[0]?.aborted).toBe(true);
+    expect(text).toBe("hello");
+    expect(fetchSignals[0]).toBeNull();
   });
 
   it("reuses a warmed binary download for the preview request", async () => {
@@ -80,6 +76,36 @@ describe("sourceOriginalPreviewRequest", () => {
       new AbortController().signal,
     );
 
+    expect(fetchOriginal).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a shared preview download alive when a warmup caller aborts", async () => {
+    let resolveFetch: (response: Response) => void = () => undefined;
+    const fetchOriginal = vi.fn<typeof globalThis.fetch>((_input, init) => {
+      return new Promise<Response>((resolve, reject) => {
+        resolveFetch = resolve;
+        init?.signal?.addEventListener("abort", () => {
+          reject(new DOMException("Aborted", "AbortError"));
+        });
+      });
+    });
+    vi.stubGlobal("fetch", fetchOriginal);
+    const warmupController = new AbortController();
+    const previewController = new AbortController();
+
+    sourceOriginalPreviewRequest.prefetchArrayBuffer(
+      "https://example.com/report.pdf",
+      warmupController.signal,
+    );
+    const preview = sourceOriginalPreviewRequest.getArrayBuffer(
+      "https://example.com/report.pdf",
+      previewController.signal,
+    );
+
+    warmupController.abort();
+    resolveFetch(new Response(new Uint8Array([1, 2]), { status: 200 }));
+
+    await expect(preview).resolves.toEqual(new Uint8Array([1, 2]).buffer);
     expect(fetchOriginal).toHaveBeenCalledTimes(1);
   });
 

@@ -24,6 +24,7 @@ import { SourceUploadDialog } from "@/components/source-upload-dialog";
 import type { SourceView } from "@/domains/sources/types";
 
 export type SourcesPanelProps = {
+  readonly isNarrow?: boolean;
   sources: SourceView[];
   onSourceUploaded?: (source: SourceView) => void;
   selectedSourceId?: string | null;
@@ -36,6 +37,7 @@ export type SourcesPanelProps = {
 };
 
 export function SourcesPanel({
+  isNarrow = false,
   sources = [],
   onSourceUploaded,
   selectedSourceId = null,
@@ -104,23 +106,49 @@ export function SourcesPanel({
         </AlertDialogContent>
       </AlertDialog>
 
-      <div className="border-b border-border/70 p-4">
+      <div className={`border-b border-border/70 ${isNarrow ? "p-2" : "p-4"}`}>
         {onLoginClick ? (
           <Button
             onClick={onLoginClick}
             size="sm"
-            className="flex w-full items-center justify-center gap-2 shadow-xs"
+            className={`flex w-full items-center justify-center gap-2 shadow-xs ${
+              isNarrow ? "px-0" : ""
+            }`}
+            title="Log in to upload"
           >
             <Plus className="size-4" />
-            Log in to upload
+            {isNarrow ? null : "Log in to upload"}
           </Button>
+        ) : isNarrow ? (
+          <SourceUploadDialog
+            onSourceUploaded={onSourceUploaded}
+            renderTrigger={({ isUploading, onClick, onDragOver, onDrop }) => (
+              <Button
+                type="button"
+                aria-label="Upload Document"
+                title="Upload Document"
+                onClick={onClick}
+                onDragOver={onDragOver}
+                onDrop={onDrop}
+                size="sm"
+                className="w-full px-0 shadow-xs"
+                disabled={isUploading}
+              >
+                {isUploading ? (
+                  <Spinner className="size-4" />
+                ) : (
+                  <Plus className="size-4" />
+                )}
+              </Button>
+            )}
+          />
         ) : (
           <SourceUploadDialog onSourceUploaded={onSourceUploaded} />
         )}
       </div>
       <ScrollArea className="flex-1">
-        <div className="px-4 py-4">
-          <h3 className="mb-3 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
+        <div className={isNarrow ? "px-2 py-3" : "px-4 py-4"}>
+          <h3 className="mb-3 truncate text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
             Sources
           </h3>
 
@@ -145,6 +173,7 @@ export function SourcesPanel({
                     onArchiveSource ? setConfirmSourceId : undefined
                   }
                   isArchiving={archivingSourceIdSet.has(source.id)}
+                  isNarrow={isNarrow}
                 />
               ))}
             </div>

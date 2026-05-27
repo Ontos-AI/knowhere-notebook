@@ -9,6 +9,7 @@ import type { SourceView } from "@/domains/sources/types";
 
 export type SourceRowProps = {
   readonly isArchiving: boolean;
+  readonly isNarrow?: boolean;
   readonly isSelected: boolean;
   readonly onArchiveClick?: (sourceId: string) => void;
   readonly onSelect: () => void;
@@ -19,6 +20,7 @@ export type SourceRowProps = {
 export function SourceRow({
   source,
   isSelected,
+  isNarrow = false,
   onSelect,
   onToggleIncluded,
   onArchiveClick,
@@ -32,10 +34,13 @@ export function SourceRow({
 
   return (
     <div
-      className={`flex w-full items-center gap-2.5 rounded-2xl border p-2 text-left transition-colors ${
+      data-testid="source-row"
+      className={`grid w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center text-left transition-colors ${
+        isNarrow ? "gap-1.5 rounded-lg p-1.5" : "gap-2 rounded-lg p-2"
+      } ${
         isSelected
-          ? "border-border/70 bg-muted/60 shadow-xs"
-          : "border-transparent hover:bg-muted/40"
+          ? "border border-border/70 bg-muted/60 shadow-xs"
+          : "border border-border/70 bg-background hover:bg-muted/40"
       } ${!isReady ? "opacity-90" : ""}`}
     >
       <div
@@ -55,11 +60,15 @@ export function SourceRow({
         type="button"
         onClick={onSelect}
         disabled={isArchiving}
-        className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
+        className={`grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center text-left ${
+          isNarrow ? "gap-1.5" : "gap-2"
+        }`}
         aria-label={`Open ${source.title} parsed chunks`}
       >
         <div
-          className={`flex size-8 shrink-0 items-center justify-center rounded-lg ${iconBg.bg} ${iconBg.fg}`}
+          className={`flex shrink-0 items-center justify-center rounded-lg ${iconBg.bg} ${iconBg.fg} ${
+            isNarrow ? "size-7" : "size-8"
+          }`}
         >
           <FileText className="size-4" />
         </div>
@@ -68,7 +77,7 @@ export function SourceRow({
             {source.title}
           </p>
           <p
-            className={`text-[10px] font-bold uppercase tracking-wider ${
+            className={`truncate text-[10px] font-bold uppercase tracking-wider ${
               isReady
                 ? "text-green-600"
                 : isFailed
@@ -97,7 +106,7 @@ export function SourceRow({
             if (isArchiving) return;
             onArchiveClick(source.id);
           }}
-          className="ml-auto shrink-0 rounded-lg p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:cursor-wait disabled:opacity-70"
+          className="shrink-0 justify-self-end rounded-lg p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:cursor-wait disabled:opacity-70"
           aria-label={`Delete ${source.title}`}
         >
           {isArchiving ? (
