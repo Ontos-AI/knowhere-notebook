@@ -2,10 +2,12 @@
 
 import {
   type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { type VirtualItem } from "@tanstack/react-virtual";
@@ -18,21 +20,11 @@ import {
 import {
   FilePlus2,
   Layers,
-  RotateCcw,
   UploadCloud,
-  ZoomIn,
-  ZoomOut,
 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SourceOriginalPreview } from "@/components/source-original-preview";
 import { SourceUploadDialog } from "@/components/source-upload-dialog";
-import { Button } from "@/components/ui/button";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { useChunksPanelWorkflow } from "@/components/chunks-panel-workflow";
 import { ParsedChunkCard } from "@/components/parsed-chunk-card";
 import { chunksPanelState } from "@/components/chunks-panel-state";
@@ -153,31 +145,24 @@ export function ChunksPanel({
     },
     [requestChunkFocus],
   );
-  const canZoomSectionTreeOut: boolean =
-    sectionTreeZoomPercent > sectionTreeMinimumZoomPercent;
-  const canZoomSectionTreeIn: boolean =
-    sectionTreeZoomPercent < sectionTreeMaximumZoomPercent;
-  const canResetSectionTreeZoom: boolean =
-    sectionTreeZoomPercent !== sectionTreeDefaultZoomPercent;
-  const handleSectionTreeZoomOut = useCallback((): void => {
-    setSectionTreeZoomPercent((currentZoomPercent) =>
-      Math.max(
-        sectionTreeMinimumZoomPercent,
-        currentZoomPercent - sectionTreeZoomStepPercent,
-      ),
-    );
-  }, []);
-  const handleSectionTreeZoomIn = useCallback((): void => {
-    setSectionTreeZoomPercent((currentZoomPercent) =>
-      Math.min(
-        sectionTreeMaximumZoomPercent,
-        currentZoomPercent + sectionTreeZoomStepPercent,
-      ),
-    );
-  }, []);
-  const handleSectionTreeZoomReset = useCallback((): void => {
-    setSectionTreeZoomPercent(sectionTreeDefaultZoomPercent);
-  }, []);
+  const handleSectionTreeWheelZoom = useCallback(
+    (direction: SectionTreeZoomDirection): void => {
+      setSectionTreeZoomPercent((currentZoomPercent) => {
+        if (direction === "in") {
+          return Math.min(
+            sectionTreeMaximumZoomPercent,
+            currentZoomPercent + sectionTreeZoomStepPercent,
+          );
+        }
+
+        return Math.max(
+          sectionTreeMinimumZoomPercent,
+          currentZoomPercent - sectionTreeZoomStepPercent,
+        );
+      });
+    },
+    [],
+  );
   const headerTitle = focusedChunkId ? "Referenced Chunks" : "Parsed Chunks";
   const shouldMountOriginalPreview =
     visibleView === "original" ||
@@ -312,12 +297,14 @@ export function ChunksPanel({
                 )
               ) : isTreeModeVisible ? (
                 <ChunkSectionTree
+                  key={selectedSource ?? "parsed-chunks"}
                   chunks={chunks}
                   focusedChunkId={activeFocusedChunkId}
                   isLoadingAllChunks={isLoadingAllChunks}
                   sourceTitle={selectedSource ?? "Parsed Chunks"}
                   zoomPercent={sectionTreeZoomPercent}
                   onChunkFocus={handleTreeChunkFocus}
+                  onWheelZoom={handleSectionTreeWheelZoom}
                 />
               ) : (
                 <div
@@ -348,24 +335,6 @@ export function ChunksPanel({
               )}
             </div>
           </ScrollArea>
-          {isTreeModeVisible ? (
-            <div
-              data-testid="chunk-section-tree-zoom-overlay"
-              className="pointer-events-none absolute left-3 top-3 z-20 sm:left-6 sm:top-6"
-            >
-              <div className="pointer-events-auto">
-                <SectionTreeZoomControls
-                  canResetZoom={canResetSectionTreeZoom}
-                  canZoomIn={canZoomSectionTreeIn}
-                  canZoomOut={canZoomSectionTreeOut}
-                  zoomPercent={sectionTreeZoomPercent}
-                  onZoomIn={handleSectionTreeZoomIn}
-                  onZoomOut={handleSectionTreeZoomOut}
-                  onZoomReset={handleSectionTreeZoomReset}
-                />
-              </div>
-            </div>
-          ) : null}
         </ViewPanel>
         {shouldMountOriginalPreview ? (
           <ViewPanel isActive={visibleView === "original"}>
@@ -406,6 +375,20 @@ type ChunkSectionTreeLayout = {
   readonly yOffset: number;
 };
 
+type SectionTreeZoomDirection = "in" | "out";
+
+type SectionTreePan = {
+  readonly x: number;
+  readonly y: number;
+};
+
+type SectionTreeDragState = {
+  readonly panStartX: number;
+  readonly panStartY: number;
+  readonly pointerStartX: number;
+  readonly pointerStartY: number;
+};
+
 const sectionTreeNodeWidth = 208;
 const sectionTreeNodeHeight = 58;
 const sectionTreeColumnGap = 254;
@@ -417,6 +400,10 @@ const sectionTreeDefaultZoomPercent = 100;
 const sectionTreeMinimumZoomPercent = 30;
 const sectionTreeMaximumZoomPercent = 140;
 const sectionTreeZoomStepPercent = 10;
+const initialSectionTreePan: SectionTreePan = {
+  x: 0,
+  y: 0,
+};
 const sectionTreePadding = {
   top: 38,
   right: 42,
@@ -431,6 +418,7 @@ function ChunkSectionTree({
   sourceTitle,
   zoomPercent,
   onChunkFocus,
+  onWheelZoom,
 }: {
   readonly chunks: readonly ParsedChunkView[];
   readonly focusedChunkId: string | null;
@@ -438,7 +426,13 @@ function ChunkSectionTree({
   readonly sourceTitle: string;
   readonly zoomPercent: number;
   readonly onChunkFocus: (chunkId: string | null) => void;
+  readonly onWheelZoom: (direction: SectionTreeZoomDirection) => void;
 }): ReactNode {
+  const [sectionTreePan, setSectionTreePan] =
+    useState<SectionTreePan>(initialSectionTreePan);
+  const [sectionTreeDragState, setSectionTreeDragState] =
+    useState<SectionTreeDragState | null>(null);
+  const sectionTreeZoomSurfaceRef = useRef<HTMLDivElement | null>(null);
   const sectionTree = useMemo(
     () => chunksPanelState.buildSectionTree(chunks, sourceTitle),
     [chunks, sourceTitle],
@@ -454,6 +448,70 @@ function ChunkSectionTree({
     (layout.height * zoomPercent) / 100,
   );
   const zoomScale: string = formatSectionTreeZoomScale(zoomPercent);
+  const handlePanStart = useCallback(
+    (event: ReactMouseEvent<HTMLDivElement>): void => {
+      if (event.button !== 0 || isInteractiveSectionTreeTarget(event.target)) {
+        return;
+      }
+
+      event.preventDefault();
+      setSectionTreeDragState({
+        pointerStartX: event.clientX,
+        pointerStartY: event.clientY,
+        panStartX: sectionTreePan.x,
+        panStartY: sectionTreePan.y,
+      });
+    },
+    [sectionTreePan.x, sectionTreePan.y],
+  );
+
+  useEffect(() => {
+    const zoomSurface = sectionTreeZoomSurfaceRef.current;
+    if (!zoomSurface) return;
+
+    const handleWheelZoom = (event: WheelEvent): void => {
+      if (event.deltaY === 0) return;
+
+      event.preventDefault();
+      onWheelZoom(event.deltaY < 0 ? "in" : "out");
+    };
+
+    zoomSurface.addEventListener("wheel", handleWheelZoom, {
+      passive: false,
+    });
+
+    return () => {
+      zoomSurface.removeEventListener("wheel", handleWheelZoom);
+    };
+  }, [onWheelZoom]);
+
+  useEffect(() => {
+    if (!sectionTreeDragState) return;
+
+    const handlePanMove = (event: MouseEvent): void => {
+      setSectionTreePan({
+        x:
+          sectionTreeDragState.panStartX +
+          event.clientX -
+          sectionTreeDragState.pointerStartX,
+        y:
+          sectionTreeDragState.panStartY +
+          event.clientY -
+          sectionTreeDragState.pointerStartY,
+      });
+    };
+    const handlePanEnd = (): void => {
+      setSectionTreeDragState(null);
+    };
+
+    window.addEventListener("mousemove", handlePanMove);
+    window.addEventListener("mouseup", handlePanEnd);
+
+    return () => {
+      window.removeEventListener("mousemove", handlePanMove);
+      window.removeEventListener("mouseup", handlePanEnd);
+    };
+  }, [sectionTreeDragState]);
 
   return (
     <div
@@ -468,8 +526,13 @@ function ChunkSectionTree({
         </div>
       ) : null}
       <div
+        ref={sectionTreeZoomSurfaceRef}
         data-testid="chunk-section-tree-zoom-surface"
-        className="relative overflow-visible"
+        className={cn(
+          "relative cursor-grab overflow-hidden select-none",
+          sectionTreeDragState ? "cursor-grabbing" : null,
+        )}
+        onMouseDown={handlePanStart}
         style={{
           height: scaledLayoutHeight,
           minWidth: scaledLayoutWidth,
@@ -482,8 +545,10 @@ function ChunkSectionTree({
           className="relative overflow-visible"
           style={{
             height: layout.height,
+            left: sectionTreePan.x,
             transform: `scale(${zoomScale})`,
             transformOrigin: "top left",
+            top: sectionTreePan.y,
             width: layout.width,
           }}
         >
@@ -516,86 +581,6 @@ function ChunkSectionTree({
         </div>
       </div>
     </div>
-  );
-}
-
-function SectionTreeZoomControls({
-  canResetZoom,
-  canZoomIn,
-  canZoomOut,
-  zoomPercent,
-  onZoomIn,
-  onZoomOut,
-  onZoomReset,
-}: {
-  readonly canResetZoom: boolean;
-  readonly canZoomIn: boolean;
-  readonly canZoomOut: boolean;
-  readonly zoomPercent: number;
-  readonly onZoomIn: () => void;
-  readonly onZoomOut: () => void;
-  readonly onZoomReset: () => void;
-}): ReactNode {
-  return (
-    <TooltipProvider>
-      <div
-        role="group"
-        aria-label="Section tree zoom"
-        className="flex shrink-0 items-center gap-1 rounded-lg border border-border bg-muted/35 p-1"
-      >
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              aria-label="Zoom out section tree"
-              disabled={!canZoomOut}
-              className="size-8 rounded-md text-muted-foreground hover:text-foreground"
-              onClick={onZoomOut}
-            >
-              <ZoomOut className="size-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Zoom out</TooltipContent>
-        </Tooltip>
-        <span className="min-w-11 text-center text-xs font-semibold tabular-nums text-muted-foreground">
-          {zoomPercent}%
-        </span>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              aria-label="Zoom in section tree"
-              disabled={!canZoomIn}
-              className="size-8 rounded-md text-muted-foreground hover:text-foreground"
-              onClick={onZoomIn}
-            >
-              <ZoomIn className="size-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Zoom in</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              aria-label="Reset section tree zoom"
-              disabled={!canResetZoom}
-              className="size-8 rounded-md text-muted-foreground hover:text-foreground"
-              onClick={onZoomReset}
-            >
-              <RotateCcw className="size-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Reset zoom</TooltipContent>
-        </Tooltip>
-      </div>
-    </TooltipProvider>
   );
 }
 
@@ -634,17 +619,17 @@ function SectionTreeItem({
         <button
           type="button"
           className={cn(
-            "flex h-[58px] w-full min-w-0 flex-col justify-center rounded-lg border bg-background px-3 text-left shadow-xs transition-colors hover:border-primary/40 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
+            "flex h-[58px] w-full min-w-0 cursor-pointer flex-col justify-center rounded-lg border border-violet-200 bg-violet-50 px-3 text-left text-violet-950 shadow-xs transition-colors hover:border-violet-400 hover:bg-violet-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-300 dark:border-violet-800/70 dark:bg-violet-950/35 dark:text-violet-50 dark:hover:border-violet-500/80 dark:hover:bg-violet-900/50",
             isFocusedChunk
-              ? "border-primary/70 bg-primary/10"
-              : "border-border",
+              ? "border-violet-500 bg-violet-100 dark:border-violet-400 dark:bg-violet-900/60"
+              : null,
           )}
           onClick={() => onChunkFocus(node.data.chunk!.chunkId)}
         >
-          <span className="truncate text-xs font-semibold text-foreground">
+          <span className="truncate text-xs font-semibold text-violet-950 dark:text-violet-50">
             {node.data.label}
           </span>
-          <span className="mt-1 truncate text-[11px] text-muted-foreground">
+          <span className="mt-1 truncate text-[11px] text-violet-700 dark:text-violet-200">
             {getChunkTreeDetail(node.data.chunk)}
           </span>
         </button>
@@ -666,6 +651,13 @@ function SectionTreeItem({
         </div>
       )}
     </div>
+  );
+}
+
+function isInteractiveSectionTreeTarget(target: EventTarget): boolean {
+  return (
+    target instanceof Element &&
+    target.closest("a,button,input,select,textarea,[role='button']") !== null
   );
 }
 
