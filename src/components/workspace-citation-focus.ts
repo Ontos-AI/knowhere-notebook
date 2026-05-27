@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useState } from "react"
+import { useCallback, useRef, useState } from "react"
 
 import { workspaceCitationState } from "@/components/workspace-citation-state"
 import { useWorkspaceSelectedChunks } from "@/components/workspace-selected-chunks"
@@ -14,6 +14,9 @@ type FocusedChunkState = {
 }
 
 type PrefetchedChunksBySourceId = Readonly<Record<string, ParsedChunkView[]>>
+type PrefetchedChunksUpdater = (
+  current: PrefetchedChunksBySourceId,
+) => PrefetchedChunksBySourceId
 
 type WorkspaceCitationFocusInput = {
   readonly fetchChunks: (sourceId: string) => Promise<ParsedChunkView[]>
@@ -60,8 +63,15 @@ export function useWorkspaceCitationFocus({
   const [fullChunkLoadingSourceId, setFullChunkLoadingSourceId] = useState<
     string | null
   >(null)
+  const fullChunkRequestsBySourceIdRef = useRef<
+    Map<string, Promise<ParsedChunkView[]>>
+  >(new Map())
+  const fullChunkRequestedSourceIdsRef = useRef<Set<string>>(new Set())
   const [prefetchedChunksBySourceId, setPrefetchedChunksBySourceId] =
     useState<PrefetchedChunksBySourceId>(initialPrefetchedChunksBySourceId)
+  const prefetchedChunksBySourceIdRef = useRef<PrefetchedChunksBySourceId>(
+    initialPrefetchedChunksBySourceId,
+  )
   const {
     hasMoreSelectedChunks,
     handleLoadMoreChunks,
@@ -85,48 +95,79 @@ export function useWorkspaceCitationFocus({
     [],
   )
 
+  const updatePrefetchedChunksBySourceId = useCallback(
+    (updater: PrefetchedChunksUpdater): void => {
+      const next = updater(prefetchedChunksBySourceIdRef.current)
+      prefetchedChunksBySourceIdRef.current = next
+      setPrefetchedChunksBySourceId(next)
+    },
+    [],
+  )
+
   const handleSourceSelected = useCallback(
     (sourceId: string | null): void => {
       onSelectSource(sourceId)
-      if (sourceId) {
-        setPrefetchedChunksBySourceId((current) =>
+      if (sourceId && sourceId !== selectedSourceId) {
+        fullChunkRequestedSourceIdsRef.current.delete(sourceId)
+        updatePrefetchedChunksBySourceId((current) =>
           workspaceCitationState.removePrefetchedChunks(current, sourceId),
         )
       }
       requestChunkFocus(null)
     },
-    [onSelectSource, requestChunkFocus],
+    [
+      onSelectSource,
+      requestChunkFocus,
+      selectedSourceId,
+      updatePrefetchedChunksBySourceId,
+    ],
+  )
+
+  const loadAllChunksForSource = useCallback(
+    (sourceId: string): Promise<ParsedChunkView[]> => {
+      const existingRequest =
+        fullChunkRequestsBySourceIdRef.current.get(sourceId)
+      if (existingRequest) return existingRequest
+
+      setFullChunkLoadingSourceId(sourceId)
+      const request = fetchChunks(sourceId)
+        .then((chunks) => {
+          updatePrefetchedChunksBySourceId((current) =>
+            workspaceCitationState.upsertPrefetchedChunks(
+              current,
+              sourceId,
+              chunks,
+            ),
+          )
+          return chunks
+        })
+        .finally(() => {
+          fullChunkRequestsBySourceIdRef.current.delete(sourceId)
+          setFullChunkLoadingSourceId((current) =>
+            current === sourceId ? null : current,
+          )
+        })
+
+      fullChunkRequestsBySourceIdRef.current.set(sourceId, request)
+      return request
+    },
+    [fetchChunks, updatePrefetchedChunksBySourceId],
   )
 
   const handleLoadAllChunks = useCallback((): void => {
     if (
       !selectedSourceId ||
-      prefetchedChunksBySourceId[selectedSourceId] ||
-      fullChunkLoadingSourceId === selectedSourceId
+      prefetchedChunksBySourceIdRef.current[selectedSourceId] ||
+      fullChunkRequestedSourceIdsRef.current.has(selectedSourceId) ||
+      fullChunkRequestsBySourceIdRef.current.has(selectedSourceId)
     ) {
       return
     }
 
-    setFullChunkLoadingSourceId(selectedSourceId)
-    void fetchChunks(selectedSourceId)
-      .then((chunks) => {
-        setPrefetchedChunksBySourceId((current) =>
-          workspaceCitationState.upsertPrefetchedChunks(
-            current,
-            selectedSourceId,
-            chunks,
-          ),
-        )
-      })
-      .finally(() => {
-        setFullChunkLoadingSourceId((current) =>
-          current === selectedSourceId ? null : current,
-        )
-      })
+    fullChunkRequestedSourceIdsRef.current.add(selectedSourceId)
+    void loadAllChunksForSource(selectedSourceId)
   }, [
-    fetchChunks,
-    fullChunkLoadingSourceId,
-    prefetchedChunksBySourceId,
+    loadAllChunksForSource,
     selectedSourceId,
   ])
 
@@ -157,7 +198,8 @@ export function useWorkspaceCitationFocus({
         }
 
         if (!workspaceCitationState.hasExactCitationTargetHint(citation)) {
-          setPrefetchedChunksBySourceId((current) =>
+          fullChunkRequestedSourceIdsRef.current.delete(source.id)
+          updatePrefetchedChunksBySourceId((current) =>
             workspaceCitationState.removePrefetchedChunks(current, source.id),
           )
           if (selectedSourceId !== source.id) onSelectSource(source.id)
@@ -165,7 +207,7 @@ export function useWorkspaceCitationFocus({
           return
         }
 
-        const cachedChunks = prefetchedChunksBySourceId[source.id]
+        const cachedChunks = prefetchedChunksBySourceIdRef.current[source.id]
         if (cachedChunks) {
           const cachedFocusId =
             workspaceCitationState.getLoadedCitationChunkId({
@@ -175,7 +217,7 @@ export function useWorkspaceCitationFocus({
               selectedChunks: cachedChunks,
               hasMoreSelectedChunks: false,
             })
-          setPrefetchedChunksBySourceId((current) =>
+          updatePrefetchedChunksBySourceId((current) =>
             workspaceCitationState.upsertPrefetchedChunks(
               current,
               source.id,
@@ -188,14 +230,7 @@ export function useWorkspaceCitationFocus({
         }
 
         requestChunkFocus(null)
-        const chunks = await fetchChunks(source.id)
-        setPrefetchedChunksBySourceId((current) =>
-          workspaceCitationState.upsertPrefetchedChunks(
-            current,
-            source.id,
-            chunks,
-          ),
-        )
+        const chunks = await loadAllChunksForSource(source.id)
         const prefetchedChunkId =
           workspaceCitationState.getLoadedCitationChunkId({
             citation,
@@ -213,14 +248,14 @@ export function useWorkspaceCitationFocus({
       }
     },
     [
-      fetchChunks,
       hasMoreSelectedChunks,
+      loadAllChunksForSource,
       onSelectSource,
-      prefetchedChunksBySourceId,
       requestChunkFocus,
       selectedChunks,
       selectedSourceId,
       sources,
+      updatePrefetchedChunksBySourceId,
     ],
   )
 
