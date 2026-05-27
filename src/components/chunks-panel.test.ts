@@ -63,9 +63,7 @@ describe("ChunksPanel", () => {
     expect(screen.getByText(/Showing all parsed chunks from/)).toBeTruthy();
   });
 
-  it("switches parsed chunks into a section tree view", async () => {
-    const user = userEvent.setup();
-
+  it("defaults parsed chunks into a section tree view", () => {
     render(
       React.createElement(C, {
         chunks: [
@@ -106,8 +104,6 @@ describe("ChunksPanel", () => {
         selectedSource: "manual.pdf",
       }),
     );
-
-    await user.click(screen.getByRole("button", { name: "Tree" }));
 
     expect(
       screen.getByRole("tree", { name: "Parsed chunk sections" }),
@@ -176,7 +172,7 @@ describe("ChunksPanel", () => {
     expect(cardMinimumWidth).toBeGreaterThanOrEqual(treeWidth);
   });
 
-  it("does not render section tree zoom controls over the canvas", async () => {
+  it("renders section tree zoom controls over the canvas", async () => {
     const user = userEvent.setup();
 
     render(
@@ -196,18 +192,22 @@ describe("ChunksPanel", () => {
 
     await user.click(screen.getByRole("button", { name: "Tree" }));
 
+    const overlay = screen.getByTestId("chunk-section-tree-zoom-overlay");
+    const scrollContent = screen.getByTestId("chunks-scroll-content");
+
+    expect(overlay.className).toContain("absolute");
+    expect(overlay.className).toContain("left-3");
+    expect(overlay.className).toContain("top-3");
+    expect(scrollContent.contains(overlay)).toBe(false);
     expect(
-      screen.queryByTestId("chunk-section-tree-zoom-overlay"),
-    ).toBeNull();
+      screen.getByRole("group", { name: "Section tree zoom" }),
+    ).toBeTruthy();
     expect(
-      screen.queryByRole("group", { name: "Section tree zoom" }),
-    ).toBeNull();
+      screen.getByRole("button", { name: "Zoom in section tree" }),
+    ).toBeTruthy();
     expect(
-      screen.queryByRole("button", { name: "Zoom in section tree" }),
-    ).toBeNull();
-    expect(
-      screen.queryByRole("button", { name: "Zoom out section tree" }),
-    ).toBeNull();
+      screen.getByRole("button", { name: "Zoom out section tree" }),
+    ).toBeTruthy();
   });
 
   it("allows the section tree to zoom out to 30 percent with the mouse wheel", async () => {
@@ -450,6 +450,7 @@ describe("ChunksPanel", () => {
         },
       }),
     );
+    selectListView();
 
     const openOriginalButton = screen.getByRole("button", {
       name: "Open original file",
@@ -521,6 +522,7 @@ describe("ChunksPanel", () => {
         },
       }),
     );
+    selectListView();
 
     await user.click(
       screen.getByRole("button", { name: "Open page 2 in original file" }),
@@ -562,6 +564,7 @@ describe("ChunksPanel", () => {
         },
       }),
     );
+    selectListView();
 
     await user.click(
       screen.getByRole("button", { name: "Open page 2 in original file" }),
@@ -605,6 +608,7 @@ describe("ChunksPanel", () => {
         selectedSourceFile,
       }),
     );
+    selectListView();
 
     await user.click(screen.getByRole("button", { name: "Original" }));
     expect(screen.getByRole("heading", { name: "Original File" })).toBeTruthy();
@@ -663,6 +667,7 @@ describe("ChunksPanel", () => {
         selectedSource: "demo.pdf",
       }),
     );
+    selectListView();
 
     expect(screen.getByTestId("chunks-scroll-content").className).toContain(
       "min-w-0",
@@ -693,6 +698,7 @@ describe("ChunksPanel", () => {
         ],
       }),
     );
+    selectListView();
 
     const sourcePanel = screen.getByTestId("chunk-source-panel-image_1");
 
@@ -727,6 +733,7 @@ describe("ChunksPanel", () => {
         selectedSource: "TSLA-Q4-2025-Update.pdf",
       }),
     );
+    selectListView();
 
     const financialSourcePanel = screen.getByTestId(
       "chunk-source-panel-text_1",
@@ -767,6 +774,7 @@ describe("ChunksPanel", () => {
         selectedSource: "TSLA-Q4-2025-UPDATE.PDF",
       }),
     );
+    selectListView();
 
     expect(screen.getByTestId("chunk-source-panel-text_1").textContent).toContain(
       "Installed Annual Capacity",
@@ -858,6 +866,7 @@ describe("ChunksPanel", () => {
         selectedSource: "manual.pdf",
       }),
     );
+    selectListView();
 
     const image = screen.getByRole("img", { name: "A wiring diagram." });
     expect(image.getAttribute("src")).toBe(
@@ -917,6 +926,7 @@ describe("ChunksPanel", () => {
         focusedChunkRequestId: 1,
       }),
     );
+    selectListView();
 
     await user.click(screen.getByRole("button", { name: "Table 1" }));
 
@@ -948,6 +958,7 @@ describe("ChunksPanel", () => {
         focusedChunkRequestId: 1,
       }),
     );
+    selectListView();
 
     await waitFor(() => {
       expect(screen.getByTestId("chunk-card-shell-chunk_50")).toBeTruthy();
@@ -977,6 +988,7 @@ describe("ChunksPanel", () => {
         selectedSource: "large.pdf",
       }),
     );
+    selectListView();
     const viewport = screen
       .getByTestId("chunks-panel")
       .querySelector<HTMLElement>("[data-radix-scroll-area-viewport]");
@@ -1039,6 +1051,7 @@ describe("ChunksPanel", () => {
         selectedSource: "large.pdf",
       }),
     );
+    selectListView();
 
     rerender(
       React.createElement(C, {
@@ -1106,6 +1119,7 @@ describe("ChunksPanel", () => {
         selectedSource: "large.pdf",
       }),
     );
+    selectListView();
     const viewport = screen
       .getByTestId("chunks-panel")
       .querySelector<HTMLElement>("[data-radix-scroll-area-viewport]");
@@ -1165,6 +1179,7 @@ describe("ChunksPanel", () => {
         selectedSource: "annual-report.pdf",
       }),
     );
+    selectListView();
 
     expect(
       screen.getByRole("button", {
@@ -1224,6 +1239,10 @@ describe("ChunksPanel", () => {
 
 function mockVisibleVirtualViewport(): void {
   mockVirtualViewportWithChunkHeights({});
+}
+
+function selectListView(): void {
+  fireEvent.click(screen.getByRole("button", { name: "List" }));
 }
 
 function createFileDropEvent(file: File): Event {
