@@ -69,7 +69,39 @@ describe("useWorkspaceCitationFocus", () => {
     expect(result.current.pendingCitationId).toBeNull();
   });
 
-  it("clears prefetched chunks and focus when the selected source changes", () => {
+  it("clears prefetched chunks and focus when selecting a different source", () => {
+    const selectSource = vi.fn();
+    const otherSource: SourceView = {
+      id: "source_2",
+      title: "Other.pdf",
+      mimeType: "application/pdf",
+      status: "ready",
+      documentId: "document_2",
+    };
+    const { result } = renderHook(() =>
+      useWorkspaceCitationFocus({
+        fetchChunks: vi.fn(async () => []),
+        initialPrefetchedChunksBySourceId: { source_1: [prefetchedChunk] },
+        onSelectSource: selectSource,
+        selectedSourceId: "source_2",
+        sources: [readySource, otherSource],
+      }),
+      { wrapper: createSWRWrapper },
+    );
+
+    act(() => {
+      result.current.handleSourceSelected("source_1");
+    });
+
+    expect(selectSource).toHaveBeenCalledWith("source_1");
+    expect(result.current.prefetchedChunksBySourceId).toEqual({});
+    expect(result.current.focusedChunk).toEqual({
+      chunkId: null,
+      requestId: 1,
+    });
+  });
+
+  it("keeps prefetched chunks when reselecting the selected source", () => {
     const selectSource = vi.fn();
     const { result } = renderHook(() =>
       useWorkspaceCitationFocus({
@@ -87,7 +119,9 @@ describe("useWorkspaceCitationFocus", () => {
     });
 
     expect(selectSource).toHaveBeenCalledWith("source_1");
-    expect(result.current.prefetchedChunksBySourceId).toEqual({});
+    expect(result.current.prefetchedChunksBySourceId).toEqual({
+      source_1: [prefetchedChunk],
+    });
     expect(result.current.focusedChunk).toEqual({
       chunkId: null,
       requestId: 1,

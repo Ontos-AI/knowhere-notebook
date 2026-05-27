@@ -62,6 +62,11 @@ export type ChunksPanelProps = {
 
 type ChunkDisplayMode = "list" | "tree";
 
+type ChunkDisplayModeState = {
+  readonly handledFocusedChunkRequestId: number;
+  readonly mode: ChunkDisplayMode;
+};
+
 export function ChunksPanel({
   chunks = [],
   selectedSource = null,
@@ -86,8 +91,12 @@ export function ChunksPanel({
   const [mountedOriginalPreviewKey, setMountedOriginalPreviewKey] = useState<
     string | null
   >(null);
-  const [chunkDisplayMode, setChunkDisplayMode] =
-    useState<ChunkDisplayMode>("tree");
+  const [chunkDisplayModeState, setChunkDisplayModeState] =
+    useState<ChunkDisplayModeState>(() => ({
+      handledFocusedChunkRequestId:
+        focusedChunkId === null ? focusedChunkRequestId : -1,
+      mode: "tree",
+    }));
   const [sectionTreeZoomPercent, setSectionTreeZoomPercent] =
     useState<number>(sectionTreeDefaultZoomPercent);
   const {
@@ -141,19 +150,28 @@ export function ChunksPanel({
     selectOriginalView();
   }, [rememberOriginalPreview, selectOriginalView]);
   const handleListModeSelected = useCallback((): void => {
-    setChunkDisplayMode("list");
-  }, []);
+    setChunkDisplayModeState({
+      handledFocusedChunkRequestId: focusedChunkRequestId,
+      mode: "list",
+    });
+  }, [focusedChunkRequestId]);
   const handleTreeModeSelected = useCallback((): void => {
-    setChunkDisplayMode("tree");
-  }, []);
+    setChunkDisplayModeState({
+      handledFocusedChunkRequestId: focusedChunkRequestId,
+      mode: "tree",
+    });
+  }, [focusedChunkRequestId]);
   const handleTreeChunkFocus = useCallback(
     (chunkId: string | null): void => {
       requestChunkFocus(chunkId);
       if (chunkId !== null) {
-        setChunkDisplayMode("list");
+        setChunkDisplayModeState({
+          handledFocusedChunkRequestId: focusedChunkRequestId,
+          mode: "list",
+        });
       }
     },
-    [requestChunkFocus],
+    [focusedChunkRequestId, requestChunkFocus],
   );
   const canZoomSectionTreeOut: boolean =
     sectionTreeZoomPercent > sectionTreeMinimumZoomPercent;
@@ -198,6 +216,12 @@ export function ChunksPanel({
     },
     [],
   );
+  const chunkDisplayMode: ChunkDisplayMode =
+    focusedChunkId !== null &&
+    chunkDisplayModeState.handledFocusedChunkRequestId !==
+      focusedChunkRequestId
+      ? "list"
+      : chunkDisplayModeState.mode;
   const headerTitle = focusedChunkId ? "Referenced Chunks" : "Parsed Chunks";
   const shouldMountOriginalPreview =
     visibleView === "original" ||
