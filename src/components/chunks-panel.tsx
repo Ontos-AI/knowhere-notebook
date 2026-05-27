@@ -20,21 +20,11 @@ import {
 import {
   FilePlus2,
   Layers,
-  RotateCcw,
   UploadCloud,
-  ZoomIn,
-  ZoomOut,
 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SourceOriginalPreview } from "@/components/source-original-preview";
 import { SourceUploadDialog } from "@/components/source-upload-dialog";
-import { Button } from "@/components/ui/button";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { useChunksPanelWorkflow } from "@/components/chunks-panel-workflow";
 import { ParsedChunkCard } from "@/components/parsed-chunk-card";
 import { chunksPanelState } from "@/components/chunks-panel-state";
@@ -155,31 +145,6 @@ export function ChunksPanel({
     },
     [requestChunkFocus],
   );
-  const canZoomSectionTreeOut: boolean =
-    sectionTreeZoomPercent > sectionTreeMinimumZoomPercent;
-  const canZoomSectionTreeIn: boolean =
-    sectionTreeZoomPercent < sectionTreeMaximumZoomPercent;
-  const canResetSectionTreeZoom: boolean =
-    sectionTreeZoomPercent !== sectionTreeDefaultZoomPercent;
-  const handleSectionTreeZoomOut = useCallback((): void => {
-    setSectionTreeZoomPercent((currentZoomPercent) =>
-      Math.max(
-        sectionTreeMinimumZoomPercent,
-        currentZoomPercent - sectionTreeZoomStepPercent,
-      ),
-    );
-  }, []);
-  const handleSectionTreeZoomIn = useCallback((): void => {
-    setSectionTreeZoomPercent((currentZoomPercent) =>
-      Math.min(
-        sectionTreeMaximumZoomPercent,
-        currentZoomPercent + sectionTreeZoomStepPercent,
-      ),
-    );
-  }, []);
-  const handleSectionTreeZoomReset = useCallback((): void => {
-    setSectionTreeZoomPercent(sectionTreeDefaultZoomPercent);
-  }, []);
   const handleSectionTreeWheelZoom = useCallback(
     (direction: SectionTreeZoomDirection): void => {
       setSectionTreeZoomPercent((currentZoomPercent) => {
@@ -370,24 +335,6 @@ export function ChunksPanel({
               )}
             </div>
           </ScrollArea>
-          {isTreeModeVisible ? (
-            <div
-              data-testid="chunk-section-tree-zoom-overlay"
-              className="pointer-events-none absolute left-3 top-3 z-20 sm:left-6 sm:top-6"
-            >
-              <div className="pointer-events-auto">
-                <SectionTreeZoomControls
-                  canResetZoom={canResetSectionTreeZoom}
-                  canZoomIn={canZoomSectionTreeIn}
-                  canZoomOut={canZoomSectionTreeOut}
-                  zoomPercent={sectionTreeZoomPercent}
-                  onZoomIn={handleSectionTreeZoomIn}
-                  onZoomOut={handleSectionTreeZoomOut}
-                  onZoomReset={handleSectionTreeZoomReset}
-                />
-              </div>
-            </div>
-          ) : null}
         </ViewPanel>
         {shouldMountOriginalPreview ? (
           <ViewPanel isActive={visibleView === "original"}>
@@ -634,86 +581,6 @@ function ChunkSectionTree({
         </div>
       </div>
     </div>
-  );
-}
-
-function SectionTreeZoomControls({
-  canResetZoom,
-  canZoomIn,
-  canZoomOut,
-  zoomPercent,
-  onZoomIn,
-  onZoomOut,
-  onZoomReset,
-}: {
-  readonly canResetZoom: boolean;
-  readonly canZoomIn: boolean;
-  readonly canZoomOut: boolean;
-  readonly zoomPercent: number;
-  readonly onZoomIn: () => void;
-  readonly onZoomOut: () => void;
-  readonly onZoomReset: () => void;
-}): ReactNode {
-  return (
-    <TooltipProvider>
-      <div
-        role="group"
-        aria-label="Section tree zoom"
-        className="flex shrink-0 items-center gap-1 rounded-lg border border-border bg-muted/35 p-1"
-      >
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              aria-label="Zoom out section tree"
-              disabled={!canZoomOut}
-              className="size-8 rounded-md text-muted-foreground hover:text-foreground"
-              onClick={onZoomOut}
-            >
-              <ZoomOut className="size-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Zoom out</TooltipContent>
-        </Tooltip>
-        <span className="min-w-11 text-center text-xs font-semibold tabular-nums text-muted-foreground">
-          {zoomPercent}%
-        </span>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              aria-label="Zoom in section tree"
-              disabled={!canZoomIn}
-              className="size-8 rounded-md text-muted-foreground hover:text-foreground"
-              onClick={onZoomIn}
-            >
-              <ZoomIn className="size-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Zoom in</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              aria-label="Reset section tree zoom"
-              disabled={!canResetZoom}
-              className="size-8 rounded-md text-muted-foreground hover:text-foreground"
-              onClick={onZoomReset}
-            >
-              <RotateCcw className="size-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Reset zoom</TooltipContent>
-        </Tooltip>
-      </div>
-    </TooltipProvider>
   );
 }
 

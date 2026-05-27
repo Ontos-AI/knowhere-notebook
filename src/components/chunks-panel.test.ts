@@ -176,7 +176,7 @@ describe("ChunksPanel", () => {
     expect(cardMinimumWidth).toBeGreaterThanOrEqual(treeWidth);
   });
 
-  it("zooms the section tree while keeping the scaled surface measurable", async () => {
+  it("does not render section tree zoom controls over the canvas", async () => {
     const user = userEvent.setup();
 
     render(
@@ -196,45 +196,21 @@ describe("ChunksPanel", () => {
 
     await user.click(screen.getByRole("button", { name: "Tree" }));
 
-    const tree = screen.getByRole("tree", { name: "Parsed chunk sections" });
-    const surface = screen.getByTestId("chunk-section-tree-zoom-surface");
-    const initialSurfaceWidth = Number.parseInt(surface.style.width, 10);
-
-    expect(tree.style.transform).toBe("scale(1)");
-    expect(screen.getByText("100%")).toBeTruthy();
-
-    await user.click(
-      screen.getByRole("button", { name: "Zoom in section tree" }),
-    );
-
-    const zoomedInSurfaceWidth = Number.parseInt(surface.style.width, 10);
-
-    expect(tree.style.transform).toBe("scale(1.1)");
-    expect(screen.getByText("110%")).toBeTruthy();
-    expect(zoomedInSurfaceWidth).toBeGreaterThan(initialSurfaceWidth);
-
-    await user.click(
-      screen.getByRole("button", { name: "Zoom out section tree" }),
-    );
-    await user.click(
-      screen.getByRole("button", { name: "Zoom out section tree" }),
-    );
-
-    const zoomedOutSurfaceWidth = Number.parseInt(surface.style.width, 10);
-
-    expect(tree.style.transform).toBe("scale(0.9)");
-    expect(screen.getByText("90%")).toBeTruthy();
-    expect(zoomedOutSurfaceWidth).toBeLessThan(zoomedInSurfaceWidth);
-
-    await user.click(
-      screen.getByRole("button", { name: "Reset section tree zoom" }),
-    );
-
-    expect(tree.style.transform).toBe("scale(1)");
-    expect(screen.getByText("100%")).toBeTruthy();
+    expect(
+      screen.queryByTestId("chunk-section-tree-zoom-overlay"),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("group", { name: "Section tree zoom" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Zoom in section tree" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Zoom out section tree" }),
+    ).toBeNull();
   });
 
-  it("allows the section tree to zoom out to 30 percent", async () => {
+  it("allows the section tree to zoom out to 30 percent with the mouse wheel", async () => {
     const user = userEvent.setup();
 
     render(
@@ -257,20 +233,15 @@ describe("ChunksPanel", () => {
     const tree = screen.getByRole("tree", { name: "Parsed chunk sections" });
     const surface = screen.getByTestId("chunk-section-tree-zoom-surface");
     const initialSurfaceWidth = Number.parseInt(surface.style.width, 10);
-    const zoomOutButton = screen.getByRole("button", {
-      name: "Zoom out section tree",
-    });
 
     for (let i = 0; i < 7; i += 1) {
-      await user.click(zoomOutButton);
+      fireEvent.wheel(surface, { deltaY: 120 });
     }
 
     const zoomedOutSurfaceWidth = Number.parseInt(surface.style.width, 10);
 
     expect(tree.style.transform).toBe("scale(0.3)");
-    expect(screen.getByText("30%")).toBeTruthy();
     expect(zoomedOutSurfaceWidth).toBeLessThan(initialSurfaceWidth);
-    expect(zoomOutButton.hasAttribute("disabled")).toBe(true);
   });
 
   it("zooms the section tree with the mouse wheel", async () => {
@@ -306,12 +277,10 @@ describe("ChunksPanel", () => {
 
     expect(zoomInEvent.defaultPrevented).toBe(true);
     expect(tree.style.transform).toBe("scale(1.1)");
-    expect(screen.getByText("110%")).toBeTruthy();
 
     fireEvent.wheel(surface, { deltaY: 120 });
 
     expect(tree.style.transform).toBe("scale(1)");
-    expect(screen.getByText("100%")).toBeTruthy();
   });
 
   it("pans the section tree canvas by dragging the background", async () => {
@@ -374,39 +343,6 @@ describe("ChunksPanel", () => {
     expect(chunkNode.className).toContain("border-violet-200");
     expect(chunkNode.className).toContain("bg-violet-50");
     expect(chunkNode.className).toContain("hover:bg-violet-100");
-  });
-
-  it("keeps section tree zoom controls fixed at the chunk panel top left", async () => {
-    const user = userEvent.setup();
-
-    render(
-      React.createElement(C, {
-        chunks: [
-          {
-            chunkId: "chunk_1",
-            type: "text",
-            content: "Overview text",
-            sectionPath: "manual.pdf/Overview/Product/Robotics",
-            sourceTitle: "manual.pdf",
-          },
-        ],
-        selectedSource: "manual.pdf",
-      }),
-    );
-
-    await user.click(screen.getByRole("button", { name: "Tree" }));
-
-    const overlay = screen.getByTestId("chunk-section-tree-zoom-overlay");
-    const scrollContent = screen.getByTestId("chunks-scroll-content");
-
-    expect(overlay.className).toContain("absolute");
-    expect(overlay.className).toContain("left-3");
-    expect(overlay.className).not.toContain("right-3");
-    expect(overlay.className).toContain("top-3");
-    expect(scrollContent.contains(overlay)).toBe(false);
-    expect(
-      screen.getByRole("group", { name: "Section tree zoom" }),
-    ).toBeTruthy();
   });
 
   it("returns to the list and focuses a chunk when its tree node is clicked", async () => {
