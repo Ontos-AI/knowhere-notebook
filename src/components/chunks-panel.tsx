@@ -613,7 +613,7 @@ function ChunkSectionTree({
         style={{
           height: scaledLayoutHeight,
           minWidth: scaledLayoutWidth,
-          width: scaledLayoutWidth,
+          width: "100%",
         }}
       >
         <div
