@@ -20,6 +20,7 @@ import {
 import {
   FilePlus2,
   Layers,
+  RotateCcw,
   UploadCloud,
   ZoomIn,
   ZoomOut,
@@ -158,6 +159,8 @@ export function ChunksPanel({
     sectionTreeZoomPercent > sectionTreeMinimumZoomPercent;
   const canZoomSectionTreeIn: boolean =
     sectionTreeZoomPercent < sectionTreeMaximumZoomPercent;
+  const canResetSectionTreeZoom: boolean =
+    sectionTreeZoomPercent !== sectionTreeDefaultZoomPercent;
   const handleSectionTreeZoomOut = useCallback((): void => {
     setSectionTreeZoomPercent((currentZoomPercent) =>
       Math.max(
@@ -173,6 +176,9 @@ export function ChunksPanel({
         currentZoomPercent + sectionTreeZoomStepPercent,
       ),
     );
+  }, []);
+  const handleSectionTreeZoomReset = useCallback((): void => {
+    setSectionTreeZoomPercent(sectionTreeDefaultZoomPercent);
   }, []);
   const handleSectionTreeWheelZoom = useCallback(
     (direction: SectionTreeZoomDirection): void => {
@@ -371,11 +377,13 @@ export function ChunksPanel({
             >
               <div className="pointer-events-auto">
                 <SectionTreeZoomControls
+                  canResetZoom={canResetSectionTreeZoom}
                   canZoomIn={canZoomSectionTreeIn}
                   canZoomOut={canZoomSectionTreeOut}
                   zoomPercent={sectionTreeZoomPercent}
                   onZoomIn={handleSectionTreeZoomIn}
                   onZoomOut={handleSectionTreeZoomOut}
+                  onZoomReset={handleSectionTreeZoomReset}
                 />
               </div>
             </div>
@@ -630,17 +638,21 @@ function ChunkSectionTree({
 }
 
 function SectionTreeZoomControls({
+  canResetZoom,
   canZoomIn,
   canZoomOut,
   zoomPercent,
   onZoomIn,
   onZoomOut,
+  onZoomReset,
 }: {
+  readonly canResetZoom: boolean;
   readonly canZoomIn: boolean;
   readonly canZoomOut: boolean;
   readonly zoomPercent: number;
   readonly onZoomIn: () => void;
   readonly onZoomOut: () => void;
+  readonly onZoomReset: () => void;
 }): ReactNode {
   return (
     <TooltipProvider>
@@ -683,6 +695,22 @@ function SectionTreeZoomControls({
             </Button>
           </TooltipTrigger>
           <TooltipContent>Zoom in</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label="Reset section tree zoom"
+              disabled={!canResetZoom}
+              className="size-8 rounded-md text-muted-foreground hover:text-foreground"
+              onClick={onZoomReset}
+            >
+              <RotateCcw className="size-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Reset zoom</TooltipContent>
         </Tooltip>
       </div>
     </TooltipProvider>

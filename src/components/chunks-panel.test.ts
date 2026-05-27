@@ -208,6 +208,49 @@ describe("ChunksPanel", () => {
     expect(
       screen.getByRole("button", { name: "Zoom out section tree" }),
     ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Reset section tree zoom" }),
+    ).toBeTruthy();
+  });
+
+  it("resets the section tree zoom from the zoom controls", async () => {
+    const user = userEvent.setup();
+
+    render(
+      React.createElement(C, {
+        chunks: [
+          {
+            chunkId: "chunk_1",
+            type: "text",
+            content: "Overview text",
+            sectionPath: "manual.pdf/Overview/Product/Robotics",
+            sourceTitle: "manual.pdf",
+          },
+        ],
+        selectedSource: "manual.pdf",
+      }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Tree" }));
+
+    const tree = screen.getByRole("tree", { name: "Parsed chunk sections" });
+    const resetButton = screen.getByRole("button", {
+      name: "Reset section tree zoom",
+    });
+
+    expect(resetButton.hasAttribute("disabled")).toBe(true);
+
+    await user.click(screen.getByRole("button", { name: "Zoom in section tree" }));
+
+    expect(tree.style.transform).toBe("scale(1.1)");
+    expect(screen.getByText("110%")).toBeTruthy();
+    expect(resetButton.hasAttribute("disabled")).toBe(false);
+
+    await user.click(resetButton);
+
+    expect(tree.style.transform).toBe("scale(1)");
+    expect(screen.getByText("100%")).toBeTruthy();
+    expect(resetButton.hasAttribute("disabled")).toBe(true);
   });
 
   it("allows the section tree to zoom out to 30 percent with the mouse wheel", async () => {
