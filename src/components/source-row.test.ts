@@ -74,4 +74,33 @@ describe("SourceRow", () => {
     expect(within(deleteButton).getByRole("status", { name: "Loading" }))
       .toBeTruthy();
   });
+
+  it("keeps the title truncating while the delete action stays in a trailing column", () => {
+    const { container } = render(
+      React.createElement(SourceRow, {
+        isArchiving: false,
+        isSelected: true,
+        onArchiveClick: vi.fn(),
+        onSelect: vi.fn(),
+        source: {
+          id: "source_1",
+          mimeType: "application/pdf",
+          title: "very-long-quarterly-report-filename.pdf",
+          status: "ready",
+          chunkCount: 3,
+        },
+      }),
+    );
+
+    const row = container.querySelector("[data-testid='source-row']");
+    const deleteButton = screen.getByRole("button", {
+      name: "Delete very-long-quarterly-report-filename.pdf",
+    });
+
+    expect(row?.className).toContain("grid-cols-[auto_minmax(0,1fr)_auto]");
+    expect(
+      screen.getByText("very-long-quarterly-report-filename.pdf").className,
+    ).toContain("truncate");
+    expect(deleteButton.className).toContain("shrink-0");
+  });
 });

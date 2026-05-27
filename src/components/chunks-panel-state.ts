@@ -9,7 +9,31 @@ type RenderableReference = {
   readonly connection: ParsedChunkConnection
 }
 
+type ChunkSectionTreeNodeKind = "root" | "section"
+
+type ChunkSectionTreeNode = {
+  readonly id: string
+  readonly kind: ChunkSectionTreeNodeKind
+  readonly label: string
+  readonly chunks: readonly ParsedChunkView[]
+  readonly children: readonly ChunkSectionTreeNode[]
+  readonly chunkCount: number
+}
+
+type MutableChunkSectionTreeNode = {
+  readonly id: string
+  readonly kind: ChunkSectionTreeNodeKind
+  readonly label: string
+  readonly chunks: ParsedChunkView[]
+  readonly children: MutableChunkSectionTreeNode[]
+  readonly childrenByKey: Map<string, MutableChunkSectionTreeNode>
+}
+
 type ChunksPanelStateModule = {
+  readonly buildSectionTree: (
+    chunks: readonly ParsedChunkView[],
+    sourceTitle: string,
+  ) => ChunkSectionTreeNode
   readonly formatChunkSectionPath: (
     sectionPath: ParsedChunkView["sectionPath"],
   ) => string | null
@@ -23,6 +47,9 @@ type ChunksPanelStateModule = {
     chunk: ParsedChunkView,
   ) => RenderableReference[]
 }
+
+const knowhereArrowSectionSeparator = /--!?>/
+const knowhereSectionSegmentSeparator = /--!?>|\/+/
 
 function getChunksWithFocusedFirst(
   chunks: readonly ParsedChunkView[],
@@ -67,6 +94,217 @@ function getChunksOrderedByPageNumber(
     .map(({ chunk }) => chunk)
 }
 
+function buildSectionTree(
+  chunks: readonly ParsedChunkView[],
+  sourceTitle: string,
+): ChunkSectionTreeNode {
+  const root = createMutableSectionTreeNode({
+    id: "root",
+    kind: "root",
+    label: sourceTitle.trim() || "Parsed Chunks",
+  })
+  const chunksByParserChunkId = new Map(
+    chunks
+      .filter((chunk) => chunk.parserChunkId)
+      .map((chunk) => [chunk.parserChunkId!, chunk]),
+  )
+  const chunksByChunkId = new Map(chunks.map((chunk) => [chunk.chunkId, chunk]))
+  const sectionSegmentsByChunkId = new Map<string, readonly string[]>()
+
+  chunks.forEach((chunk) => {
+    const sectionSegments = getChunkSectionSegments(chunk, sourceTitle)
+    if (sectionSegments.length > 0) {
+      sectionSegmentsByChunkId.set(chunk.chunkId, sectionSegments)
+    }
+  })
+
+  const embeddedSectionSegmentsByChunkId = getEmbeddedSectionSegmentsByChunkId({
+    chunks,
+    chunksByChunkId,
+    chunksByParserChunkId,
+    sectionSegmentsByChunkId,
+  })
+
+  chunks.forEach((chunk) => {
+    const sectionSegments =
+      embeddedSectionSegmentsByChunkId.get(chunk.chunkId) ??
+      sectionSegmentsByChunkId.get(chunk.chunkId) ??
+      getFallbackSectionSegments(chunk)
+    addChunkToSection(root, sectionSegments, chunk)
+  })
+
+  return toReadonlySectionTreeNode(root)
+}
+
+function createMutableSectionTreeNode(input: {
+  readonly id: string
+  readonly kind: ChunkSectionTreeNodeKind
+  readonly label: string
+}): MutableChunkSectionTreeNode {
+  return {
+    id: input.id,
+    kind: input.kind,
+    label: input.label,
+    chunks: [],
+    children: [],
+    childrenByKey: new Map(),
+  }
+}
+
+function getEmbeddedSectionSegmentsByChunkId(input: {
+  readonly chunks: readonly ParsedChunkView[]
+  readonly chunksByChunkId: ReadonlyMap<string, ParsedChunkView>
+  readonly chunksByParserChunkId: ReadonlyMap<string, ParsedChunkView>
+  readonly sectionSegmentsByChunkId: ReadonlyMap<string, readonly string[]>
+}): ReadonlyMap<string, readonly string[]> {
+  const embeddedSectionSegmentsByChunkId = new Map<string, readonly string[]>()
+
+  input.chunks.forEach((chunk) => {
+    const sourceSectionSegments = input.sectionSegmentsByChunkId.get(
+      chunk.chunkId,
+    )
+    if (!sourceSectionSegments || !chunk.connections) return
+
+    chunk.connections.forEach((connection) => {
+      const targetChunk =
+        getConnectionTargetChunk(connection, input.chunksByChunkId) ??
+        input.chunksByParserChunkId.get(connection.targetParserChunkId)
+      if (!targetChunk) return
+
+      if (!embeddedSectionSegmentsByChunkId.has(targetChunk.chunkId)) {
+        embeddedSectionSegmentsByChunkId.set(
+          targetChunk.chunkId,
+          sourceSectionSegments,
+        )
+      }
+    })
+  })
+
+  return embeddedSectionSegmentsByChunkId
+}
+
+function getConnectionTargetChunk(
+  connection: ParsedChunkConnection,
+  chunksByChunkId: ReadonlyMap<string, ParsedChunkView>,
+): ParsedChunkView | undefined {
+  return connection.targetChunkId
+    ? chunksByChunkId.get(connection.targetChunkId)
+    : undefined
+}
+
+function getChunkSectionSegments(
+  chunk: ParsedChunkView,
+  sourceTitle: string,
+): readonly string[] {
+  const sectionPath = chunk.sectionPath?.trim()
+  if (!sectionPath) return []
+  if (isAssetPath(sectionPath) && chunk.type !== "text") return []
+
+  const segments = sectionPath
+    .split(knowhereSectionSegmentSeparator)
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0)
+
+  return removeDocumentRootSegments(segments, sourceTitle)
+}
+
+function removeDocumentRootSegments(
+  segments: readonly string[],
+  sourceTitle: string,
+): readonly string[] {
+  const remainingSegments = [...segments]
+
+  if (remainingSegments[0] === "Default_Root") {
+    remainingSegments.shift()
+    if (remainingSegments.length > 1) {
+      remainingSegments.shift()
+    }
+  }
+
+  if (
+    remainingSegments.length > 1 &&
+    isSamePathSegment(remainingSegments[0]!, sourceTitle)
+  ) {
+    remainingSegments.shift()
+  }
+
+  return remainingSegments.length > 0 ? remainingSegments : ["Unsectioned"]
+}
+
+function isSamePathSegment(left: string, right: string): boolean {
+  return normalizePathSegment(left) === normalizePathSegment(right)
+}
+
+function normalizePathSegment(value: string): string {
+  return value.replace(/\s+/g, " ").trim().toLowerCase()
+}
+
+function isAssetPath(sectionPath: string): boolean {
+  return (
+    sectionPath.startsWith("images/") ||
+    sectionPath.startsWith("image/") ||
+    sectionPath.startsWith("tables/") ||
+    sectionPath.startsWith("table/")
+  )
+}
+
+function getFallbackSectionSegments(
+  chunk: ParsedChunkView,
+): readonly string[] {
+  if (chunk.type === "image") return ["Assets", "Images"]
+  if (chunk.type === "table") return ["Assets", "Tables"]
+  return ["Unsectioned"]
+}
+
+function addChunkToSection(
+  root: MutableChunkSectionTreeNode,
+  sectionSegments: readonly string[],
+  chunk: ParsedChunkView,
+): void {
+  const targetSection = sectionSegments.reduce(
+    (parent, sectionSegment) => getOrCreateChildSection(parent, sectionSegment),
+    root,
+  )
+  targetSection.chunks.push(chunk)
+}
+
+function getOrCreateChildSection(
+  parent: MutableChunkSectionTreeNode,
+  label: string,
+): MutableChunkSectionTreeNode {
+  const key = normalizePathSegment(label)
+  const existing = parent.childrenByKey.get(key)
+  if (existing) return existing
+
+  const child = createMutableSectionTreeNode({
+    id: `${parent.id}/${key}`,
+    kind: "section",
+    label,
+  })
+  parent.childrenByKey.set(key, child)
+  parent.children.push(child)
+  return child
+}
+
+function toReadonlySectionTreeNode(
+  node: MutableChunkSectionTreeNode,
+): ChunkSectionTreeNode {
+  const children = node.children.map(toReadonlySectionTreeNode)
+  const childChunkCount = children.reduce(
+    (total, child) => total + child.chunkCount,
+    0,
+  )
+
+  return {
+    id: node.id,
+    kind: node.kind,
+    label: node.label,
+    chunks: [...node.chunks],
+    children,
+    chunkCount: node.chunks.length + childChunkCount,
+  }
+}
+
 function getFirstPageNumber(chunk: ParsedChunkView): number | null {
   const pageNumbers = chunk.pageNums ?? []
   const finitePageNumbers = pageNumbers.filter(
@@ -84,7 +322,7 @@ function formatChunkSectionPath(
 
   const userVisiblePath = removeKnowhereDefaultRootPrefix(trimmedSectionPath)
   const readablePath = userVisiblePath
-    .split("-->")
+    .split(knowhereArrowSectionSeparator)
     .map((segment) => segment.trim())
     .filter((segment) => segment.length > 0)
     .join(" / ")
@@ -96,7 +334,7 @@ function removeKnowhereDefaultRootPrefix(sectionPath: string): string {
   const knowhereDefaultRootPrefix = "Default_Root/" as const
   if (!sectionPath.startsWith(knowhereDefaultRootPrefix)) return sectionPath
 
-  const sectionSegments = sectionPath.split("-->")
+  const sectionSegments = sectionPath.split(knowhereArrowSectionSeparator)
   if (sectionSegments.length <= 1) {
     return sectionPath.slice(knowhereDefaultRootPrefix.length)
   }
@@ -190,6 +428,7 @@ function capitalize(value: string): string {
 }
 
 export const chunksPanelState: ChunksPanelStateModule = {
+  buildSectionTree,
   formatChunkSectionPath,
   formatReferenceLabel,
   getChunksWithFocusedFirst,

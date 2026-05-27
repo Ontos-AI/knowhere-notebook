@@ -487,7 +487,7 @@ describe("SourceOriginalPreview", () => {
     });
   });
 
-  it("aborts text preview downloads when the preview unmounts", async () => {
+  it("leaves shared text preview downloads uncancelled when the preview unmounts", async () => {
     const fetchSignals: Array<AbortSignal | undefined> = [];
     vi.stubGlobal(
       "fetch",
@@ -510,11 +510,10 @@ describe("SourceOriginalPreview", () => {
     await waitFor(() => {
       expect(fetchSignals).toHaveLength(1);
     });
-    expect(fetchSignals[0]?.aborted).toBe(false);
 
     unmount();
 
-    expect(fetchSignals[0]?.aborted).toBe(true);
+    expect(fetchSignals[0]).toBeUndefined();
   });
 
   it("falls back to download-only for large text previews", () => {
@@ -633,7 +632,7 @@ describe("SourceOriginalPreview", () => {
     ).toBeTruthy();
   });
 
-  it("aborts DOCX preview downloads when the preview unmounts", async () => {
+  it("leaves shared DOCX preview downloads uncancelled when the preview unmounts", async () => {
     const fetchSignals: Array<AbortSignal | undefined> = [];
     vi.stubGlobal(
       "fetch",
@@ -657,11 +656,10 @@ describe("SourceOriginalPreview", () => {
     await waitFor(() => {
       expect(fetchSignals).toHaveLength(1);
     });
-    expect(fetchSignals[0]?.aborted).toBe(false);
 
     unmount();
 
-    expect(fetchSignals[0]?.aborted).toBe(true);
+    expect(fetchSignals[0]).toBeUndefined();
   });
 
   it("renders DOCX previews without the library fixed page width", async () => {

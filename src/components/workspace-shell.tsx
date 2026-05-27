@@ -102,6 +102,7 @@ function WorkspaceShellContent({
     minimumDesktopPanelWidth,
     handleDesktopLayoutElementChange,
     handleDesktopPanelElementChange,
+    handleDesktopPanelExpand,
     handleDesktopPanelResize,
     handleDesktopPanelResizeEnd,
     handleDesktopPanelResizeStart,
@@ -132,6 +133,7 @@ function WorkspaceShellContent({
       hasMoreSelectedChunks={citationFocus.hasMoreSelectedChunks}
       isCreatingThread={chatWorkflow.isCreatingThread}
       isGuest={isGuest}
+      isSelectedAllChunksLoading={citationFocus.isSelectedAllChunksLoading}
       isSelectedChunksLoading={citationFocus.isSelectedChunksLoading}
       isSelectedChunksLoadingMore={citationFocus.isSelectedChunksLoadingMore}
       loadingThreadId={chatWorkflow.loadingThreadId}
@@ -153,9 +155,11 @@ function WorkspaceShellContent({
       onCreateChatThread={chatWorkflow.handleCreateChatThread}
       onDesktopLayoutElementChange={handleDesktopLayoutElementChange}
       onDesktopPanelElementChange={handleDesktopPanelElementChange}
+      onDesktopPanelExpand={handleDesktopPanelExpand}
       onDesktopPanelResize={handleDesktopPanelResize}
       onDesktopPanelResizeEnd={handleDesktopPanelResizeEnd}
       onDesktopPanelResizeStart={handleDesktopPanelResizeStart}
+      onLoadAllChunks={citationFocus.handleLoadAllChunks}
       onLoadMoreChunks={citationFocus.handleLoadMoreChunks}
       onLoginClick={redirectToLogin}
       onMobilePanelChange={setMobilePanel}

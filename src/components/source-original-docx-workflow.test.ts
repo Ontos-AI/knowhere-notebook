@@ -77,17 +77,13 @@ describe("useSourceOriginalDocxWorkflow", () => {
     expect(document.querySelector("script")).toBeNull()
   })
 
-  it("aborts in-flight DOCX requests on cleanup", async () => {
-    const signals: AbortSignal[] = []
+  it("leaves shared DOCX requests uncancelled on cleanup", async () => {
+    const signals: Array<AbortSignal | undefined> = []
     vi.stubGlobal(
       "fetch",
       vi.fn<typeof globalThis.fetch>((_input, init) => {
-        if (init?.signal instanceof AbortSignal) signals.push(init.signal)
-        return new Promise<Response>((_resolve, reject) => {
-          init?.signal?.addEventListener("abort", () => {
-            reject(new DOMException("Aborted", "AbortError"))
-          })
-        })
+        signals.push(init?.signal ?? undefined)
+        return new Promise<Response>(() => undefined)
       }),
     )
 
@@ -100,7 +96,7 @@ describe("useSourceOriginalDocxWorkflow", () => {
 
     unmount()
 
-    expect(signals[0]?.aborted).toBe(true)
+    expect(signals[0]).toBeUndefined()
   })
 })
 

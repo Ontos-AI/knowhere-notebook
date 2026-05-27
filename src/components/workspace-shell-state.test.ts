@@ -46,7 +46,7 @@ describe("workspaceShellState", () => {
     });
   });
 
-  it("clamps desktop panel resizing to each panel minimum", () => {
+  it("allows the sources panel to narrow continuously before sidebar mode", () => {
     const resized = workspaceShellState.resizeDesktopPanelWidths(
       {
         sources: 350,
@@ -56,16 +56,99 @@ describe("workspaceShellState", () => {
       {
         leftPanel: "sources",
         rightPanel: "chunks",
-        deltaX: -1_000,
+        deltaX: -170,
         leftWidth: 350,
         rightWidth: 600,
       },
     );
 
     expect(resized).toEqual({
-      sources: workspaceShellState.minimumDesktopPanelWidths.sources,
-      chunks: 690,
+      sources: 180,
+      chunks: 770,
       chat: 420,
     });
+  });
+
+  it("allows the chat panel to narrow continuously before sidebar mode", () => {
+    const resized = workspaceShellState.resizeDesktopPanelWidths(
+      {
+        sources: 350,
+        chunks: 720,
+        chat: 420,
+      },
+      {
+        leftPanel: "chunks",
+        rightPanel: "chat",
+        deltaX: 240,
+        leftWidth: 650,
+        rightWidth: 420,
+      },
+    );
+
+    expect(resized).toEqual({
+      sources: 350,
+      chunks: 890,
+      chat: 180,
+    });
+  });
+
+  it("clamps the sources panel at the compact sidebar width", () => {
+    const resized = workspaceShellState.resizeDesktopPanelWidths(
+      {
+        sources: 350,
+        chunks: 720,
+        chat: 420,
+      },
+      {
+        leftPanel: "sources",
+        rightPanel: "chunks",
+        deltaX: -300,
+        leftWidth: 350,
+        rightWidth: 600,
+      },
+    );
+
+    expect(resized).toEqual({
+      sources: workspaceShellState.collapsedDesktopPanelWidth,
+      chunks: 950 - workspaceShellState.collapsedDesktopPanelWidth,
+      chat: 420,
+    });
+  });
+
+  it("clamps the chat panel at the compact sidebar width", () => {
+    const resized = workspaceShellState.resizeDesktopPanelWidths(
+      {
+        sources: 350,
+        chunks: 720,
+        chat: 420,
+      },
+      {
+        leftPanel: "chunks",
+        rightPanel: "chat",
+        deltaX: 400,
+        leftWidth: 650,
+        rightWidth: 420,
+      },
+    );
+
+    expect(resized).toEqual({
+      sources: 350,
+      chunks: 1_070 - workspaceShellState.collapsedDesktopPanelWidth,
+      chat: workspaceShellState.collapsedDesktopPanelWidth,
+    });
+  });
+
+  it("includes compact sidebars when calculating the minimum desktop width", () => {
+    const minimumWidth = workspaceShellState.getMinimumDesktopPanelWidth({
+      sources: workspaceShellState.collapsedDesktopPanelWidth,
+      chunks: 900,
+      chat: workspaceShellState.collapsedDesktopPanelWidth,
+    });
+
+    expect(minimumWidth).toBe(
+      workspaceShellState.collapsedDesktopPanelWidth * 2 +
+        workspaceShellState.minimumDesktopPanelWidths.chunks +
+        workspaceShellState.desktopPanelGutterWidth * 2,
+    );
   });
 });

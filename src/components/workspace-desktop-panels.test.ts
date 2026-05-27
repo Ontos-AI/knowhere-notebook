@@ -3,6 +3,7 @@ import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { useWorkspaceDesktopPanels } from "./workspace-desktop-panels";
+import { workspaceShellState } from "./workspace-shell-state";
 
 describe("useWorkspaceDesktopPanels", () => {
   it("fits default desktop panel widths to the rendered layout width", () => {
@@ -18,7 +19,10 @@ describe("useWorkspaceDesktopPanels", () => {
       result.current.desktopPanelWidths.chat;
 
     expect(totalWidth).toBe(1264);
-    expect(result.current.desktopPanelWidths.chat).toBeGreaterThanOrEqual(360);
+    expect(result.current.desktopPanelWidths.chat).toBeGreaterThanOrEqual(
+      workspaceShellState.collapsedDesktopPanelWidth,
+    );
+    expect(result.current.desktopPanelWidths.chat).toBeLessThan(360);
   });
 
   it("resizes desktop panels from their rendered widths during a drag", () => {

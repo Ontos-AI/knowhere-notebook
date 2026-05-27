@@ -1,9 +1,11 @@
 const desktopPanelGutterWidth = 8
+const collapsedDesktopPanelWidth = 72
+const desktopSidePanelCompactThreshold = 120
 
 const minimumDesktopPanelWidths = {
-  sources: 260,
+  sources: collapsedDesktopPanelWidth,
   chunks: 480,
-  chat: 360,
+  chat: collapsedDesktopPanelWidth,
 } as const
 
 const defaultDesktopPanelWidths = {
@@ -15,6 +17,7 @@ const defaultDesktopPanelWidths = {
 type DesktopPanelKey = keyof typeof minimumDesktopPanelWidths
 
 type DesktopPanelWidths = Record<DesktopPanelKey, number>
+type DesktopSidePanelKey = Exclude<DesktopPanelKey, "chunks">
 
 const desktopPanelKeys = ["sources", "chunks", "chat"] as const
 
@@ -28,11 +31,20 @@ type DesktopPanelResizeInput = {
 
 type WorkspaceShellStateModule = {
   readonly desktopPanelGutterWidth: number
+  readonly collapsedDesktopPanelWidth: number
+  readonly desktopSidePanelCompactThreshold: number
   readonly minimumDesktopPanelWidths: typeof minimumDesktopPanelWidths
   readonly defaultDesktopPanelWidths: typeof defaultDesktopPanelWidths
-  readonly getMinimumDesktopPanelWidth: () => number
+  readonly getMinimumDesktopPanelWidth: (
+    currentWidths?: Readonly<DesktopPanelWidths>,
+  ) => number
   readonly fitDesktopPanelWidthsToContainer: (
     containerWidth: number,
+    currentWidths?: Readonly<DesktopPanelWidths>,
+  ) => DesktopPanelWidths
+  readonly expandDesktopPanelWidth: (
+    currentWidths: Readonly<DesktopPanelWidths>,
+    panel: DesktopSidePanelKey,
   ) => DesktopPanelWidths
   readonly resizeDesktopPanelWidths: (
     currentWidths: Readonly<DesktopPanelWidths>,
@@ -40,69 +52,87 @@ type WorkspaceShellStateModule = {
   ) => DesktopPanelWidths
 }
 
-function getMinimumDesktopPanelWidth(): number {
+function getMinimumDesktopPanelWidth(
+  currentWidths: Readonly<DesktopPanelWidths> = defaultDesktopPanelWidths,
+): number {
   return (
-    minimumDesktopPanelWidths.sources +
-    minimumDesktopPanelWidths.chunks +
-    minimumDesktopPanelWidths.chat +
-    desktopPanelGutterWidth * 2
+    getMinimumDesktopPanelContentWidth(currentWidths) +
+    getVisibleDesktopPanelGutterCount(currentWidths) * desktopPanelGutterWidth
   )
 }
 
-function getDefaultDesktopPanelContentWidth(): number {
-  return (
-    defaultDesktopPanelWidths.sources +
-    defaultDesktopPanelWidths.chunks +
-    defaultDesktopPanelWidths.chat
+function getDefaultDesktopPanelContentWidth(
+  currentWidths: Readonly<DesktopPanelWidths>,
+): number {
+  return getVisibleDesktopPanelKeys(currentWidths).reduce(
+    (totalWidth, panel) =>
+      totalWidth + getDefaultDesktopPanelWidth(panel, currentWidths),
+    0,
   )
 }
 
-function getMinimumDesktopPanelContentWidth(): number {
-  return (
-    minimumDesktopPanelWidths.sources +
-    minimumDesktopPanelWidths.chunks +
-    minimumDesktopPanelWidths.chat
+function getMinimumDesktopPanelContentWidth(
+  currentWidths: Readonly<DesktopPanelWidths>,
+): number {
+  return getVisibleDesktopPanelKeys(currentWidths).reduce(
+    (totalWidth, panel) =>
+      totalWidth + getMinimumDesktopPanelWidthForPanel(panel, currentWidths),
+    0,
   )
 }
 
 function fitDesktopPanelWidthsToContainer(
   containerWidth: number,
+  currentWidths: Readonly<DesktopPanelWidths> = defaultDesktopPanelWidths,
 ): DesktopPanelWidths {
   if (!Number.isFinite(containerWidth) || containerWidth <= 0) {
-    return { ...defaultDesktopPanelWidths }
+    return getDefaultDesktopPanelWidths(currentWidths)
   }
 
-  const availableContentWidth = containerWidth - desktopPanelGutterWidth * 2
-  const defaultContentWidth = getDefaultDesktopPanelContentWidth()
+  const visiblePanels = getVisibleDesktopPanelKeys(currentWidths)
+  const availableContentWidth =
+    containerWidth -
+    getVisibleDesktopPanelGutterCount(currentWidths) * desktopPanelGutterWidth
+  const defaultContentWidth = getDefaultDesktopPanelContentWidth(currentWidths)
   if (availableContentWidth >= defaultContentWidth) {
-    return { ...defaultDesktopPanelWidths }
+    return getDefaultDesktopPanelWidths(currentWidths)
   }
 
-  const minimumContentWidth = getMinimumDesktopPanelContentWidth()
+  const minimumContentWidth = getMinimumDesktopPanelContentWidth(currentWidths)
   if (availableContentWidth <= minimumContentWidth) {
-    return { ...minimumDesktopPanelWidths }
+    return getMinimumDesktopPanelWidths(currentWidths)
   }
 
   const defaultExtraWidth = defaultContentWidth - minimumContentWidth
   const availableExtraWidth = availableContentWidth - minimumContentWidth
-  const fittedWidths = {} as DesktopPanelWidths
+  const fittedWidths = getMinimumDesktopPanelWidths(currentWidths)
+  const flexiblePanels = visiblePanels.filter(
+    (panel) =>
+      getDefaultDesktopPanelWidth(panel, currentWidths) >
+      getMinimumDesktopPanelWidthForPanel(panel, currentWidths),
+  )
   let assignedWidth = 0
 
-  for (const [index, panel] of desktopPanelKeys.entries()) {
-    const isLastPanel = index === desktopPanelKeys.length - 1
+  for (const [index, panel] of flexiblePanels.entries()) {
+    const isLastPanel = index === flexiblePanels.length - 1
     if (isLastPanel) {
-      fittedWidths[panel] = availableContentWidth - assignedWidth
+      fittedWidths[panel] =
+        getMinimumDesktopPanelWidthForPanel(panel, currentWidths) +
+        availableExtraWidth -
+        assignedWidth
       break
     }
 
     const panelExtraWidth =
-      defaultDesktopPanelWidths[panel] - minimumDesktopPanelWidths[panel]
+      getDefaultDesktopPanelWidth(panel, currentWidths) -
+      getMinimumDesktopPanelWidthForPanel(panel, currentWidths)
     const fittedWidth = Math.round(
-      minimumDesktopPanelWidths[panel] +
+      getMinimumDesktopPanelWidthForPanel(panel, currentWidths) +
         (panelExtraWidth / defaultExtraWidth) * availableExtraWidth,
     )
     fittedWidths[panel] = fittedWidth
-    assignedWidth += fittedWidth
+    assignedWidth +=
+      fittedWidth - getMinimumDesktopPanelWidthForPanel(panel, currentWidths)
   }
 
   return fittedWidths
@@ -128,15 +158,148 @@ function resizeDesktopPanelWidths(
   }
 }
 
+function expandDesktopPanelWidth(
+  currentWidths: Readonly<DesktopPanelWidths>,
+  panel: DesktopSidePanelKey,
+): DesktopPanelWidths {
+  if (panel === "sources") {
+    const totalWidth = currentWidths.sources + currentWidths.chunks
+    const expandedWidth = getExpandedSidePanelWidth(panel, totalWidth)
+
+    return {
+      ...currentWidths,
+      sources: expandedWidth,
+      chunks: Math.max(
+        minimumDesktopPanelWidths.chunks,
+        totalWidth - expandedWidth,
+      ),
+    }
+  }
+
+  const totalWidth = currentWidths.chunks + currentWidths.chat
+  const expandedWidth = getExpandedSidePanelWidth(panel, totalWidth)
+
+  return {
+    ...currentWidths,
+    chunks: Math.max(
+      minimumDesktopPanelWidths.chunks,
+      totalWidth - expandedWidth,
+    ),
+    chat: expandedWidth,
+  }
+}
+
+function getExpandedSidePanelWidth(
+  panel: DesktopSidePanelKey,
+  totalWidth: number,
+): number {
+  const preferredWidth = defaultDesktopPanelWidths[panel]
+  const minimumWidth = minimumDesktopPanelWidths[panel]
+  const maximumSideWidth = totalWidth - minimumDesktopPanelWidths.chunks
+
+  if (maximumSideWidth >= preferredWidth) return preferredWidth
+  if (maximumSideWidth >= minimumWidth) return maximumSideWidth
+  return minimumWidth
+}
+
+function getVisibleDesktopPanelKeys(
+  currentWidths: Readonly<DesktopPanelWidths>,
+): DesktopPanelKey[] {
+  return desktopPanelKeys.filter((panel) => {
+    if (panel === "chunks") return true
+    return currentWidths[panel] > 0
+  })
+}
+
+function getVisibleDesktopPanelGutterCount(
+  currentWidths: Readonly<DesktopPanelWidths>,
+): number {
+  return getVisibleDesktopPanelKeys(currentWidths).length - 1
+}
+
+function getDefaultDesktopPanelWidths(
+  currentWidths: Readonly<DesktopPanelWidths>,
+): DesktopPanelWidths {
+  return getDesktopPanelWidthsForVisibility(
+    currentWidths,
+    defaultDesktopPanelWidths,
+  )
+}
+
+function getMinimumDesktopPanelWidths(
+  currentWidths: Readonly<DesktopPanelWidths>,
+): DesktopPanelWidths {
+  return getDesktopPanelWidthsForVisibility(
+    currentWidths,
+    minimumDesktopPanelWidths,
+  )
+}
+
+function getDesktopPanelWidthsForVisibility(
+  currentWidths: Readonly<DesktopPanelWidths>,
+  visibleWidths: Readonly<DesktopPanelWidths>,
+): DesktopPanelWidths {
+  return {
+    sources:
+      isDesktopPanelCollapsed(currentWidths, "sources")
+        ? collapsedDesktopPanelWidth
+        : visibleWidths.sources,
+    chunks: visibleWidths.chunks,
+    chat:
+      isDesktopPanelCollapsed(currentWidths, "chat")
+        ? collapsedDesktopPanelWidth
+        : visibleWidths.chat,
+  }
+}
+
+function getDefaultDesktopPanelWidth(
+  panel: DesktopPanelKey,
+  currentWidths: Readonly<DesktopPanelWidths>,
+): number {
+  if (panel === "sources" || panel === "chat") {
+    if (isDesktopPanelCollapsed(currentWidths, panel)) {
+      return collapsedDesktopPanelWidth
+    }
+  }
+
+  return defaultDesktopPanelWidths[panel]
+}
+
+function getMinimumDesktopPanelWidthForPanel(
+  panel: DesktopPanelKey,
+  currentWidths: Readonly<DesktopPanelWidths>,
+): number {
+  if (panel === "sources" || panel === "chat") {
+    if (isDesktopPanelCollapsed(currentWidths, panel)) {
+      return collapsedDesktopPanelWidth
+    }
+  }
+
+  return minimumDesktopPanelWidths[panel]
+}
+
+function isDesktopPanelCollapsed(
+  currentWidths: Readonly<DesktopPanelWidths>,
+  panel: DesktopSidePanelKey,
+): boolean {
+  return (
+    currentWidths[panel] > 0 &&
+    currentWidths[panel] <= desktopSidePanelCompactThreshold
+  )
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max)
 }
 
 export const workspaceShellState: WorkspaceShellStateModule = {
   desktopPanelGutterWidth,
+  collapsedDesktopPanelWidth,
+  desktopSidePanelCompactThreshold,
   minimumDesktopPanelWidths,
   defaultDesktopPanelWidths,
   getMinimumDesktopPanelWidth,
   fitDesktopPanelWidthsToContainer,
+  expandDesktopPanelWidth,
   resizeDesktopPanelWidths,
 }
