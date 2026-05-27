@@ -89,6 +89,11 @@ describe("chunksPanelState", () => {
       ),
     ).toBe("Revenue / Table 1")
     expect(
+      chunksPanelState.formatChunkSectionPath(
+        "Default_Root/Document--!>Revenue--!>Table 1",
+      ),
+    ).toBe("Revenue / Table 1")
+    expect(
       chunksPanelState.formatReferenceLabel("[images/image-12.png?token=abc]"),
     ).toBe("Image 12")
   })

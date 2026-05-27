@@ -48,6 +48,9 @@ type ChunksPanelStateModule = {
   ) => RenderableReference[]
 }
 
+const knowhereArrowSectionSeparator = /--!?>/
+const knowhereSectionSegmentSeparator = /--!?>|\/+/
+
 function getChunksWithFocusedFirst(
   chunks: readonly ParsedChunkView[],
   focusedChunkId: string | null,
@@ -198,7 +201,7 @@ function getChunkSectionSegments(
   if (isAssetPath(sectionPath) && chunk.type !== "text") return []
 
   const segments = sectionPath
-    .split(/-->|\/+/)
+    .split(knowhereSectionSegmentSeparator)
     .map((segment) => segment.trim())
     .filter((segment) => segment.length > 0)
 
@@ -319,7 +322,7 @@ function formatChunkSectionPath(
 
   const userVisiblePath = removeKnowhereDefaultRootPrefix(trimmedSectionPath)
   const readablePath = userVisiblePath
-    .split("-->")
+    .split(knowhereArrowSectionSeparator)
     .map((segment) => segment.trim())
     .filter((segment) => segment.length > 0)
     .join(" / ")
@@ -331,7 +334,7 @@ function removeKnowhereDefaultRootPrefix(sectionPath: string): string {
   const knowhereDefaultRootPrefix = "Default_Root/" as const
   if (!sectionPath.startsWith(knowhereDefaultRootPrefix)) return sectionPath
 
-  const sectionSegments = sectionPath.split("-->")
+  const sectionSegments = sectionPath.split(knowhereArrowSectionSeparator)
   if (sectionSegments.length <= 1) {
     return sectionPath.slice(knowhereDefaultRootPrefix.length)
   }
