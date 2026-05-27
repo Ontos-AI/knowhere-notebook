@@ -273,6 +273,109 @@ describe("ChunksPanel", () => {
     expect(zoomOutButton.hasAttribute("disabled")).toBe(true);
   });
 
+  it("zooms the section tree with the mouse wheel", async () => {
+    const user = userEvent.setup();
+
+    render(
+      React.createElement(C, {
+        chunks: [
+          {
+            chunkId: "chunk_1",
+            type: "text",
+            content: "Overview text",
+            sectionPath: "manual.pdf/Overview/Product/Robotics",
+            sourceTitle: "manual.pdf",
+          },
+        ],
+        selectedSource: "manual.pdf",
+      }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Tree" }));
+
+    const tree = screen.getByRole("tree", { name: "Parsed chunk sections" });
+    const surface = screen.getByTestId("chunk-section-tree-zoom-surface");
+    const zoomInEvent = new WheelEvent("wheel", {
+      cancelable: true,
+      deltaY: -120,
+    });
+
+    act(() => {
+      surface.dispatchEvent(zoomInEvent);
+    });
+
+    expect(zoomInEvent.defaultPrevented).toBe(true);
+    expect(tree.style.transform).toBe("scale(1.1)");
+    expect(screen.getByText("110%")).toBeTruthy();
+
+    fireEvent.wheel(surface, { deltaY: 120 });
+
+    expect(tree.style.transform).toBe("scale(1)");
+    expect(screen.getByText("100%")).toBeTruthy();
+  });
+
+  it("pans the section tree canvas by dragging the background", async () => {
+    const user = userEvent.setup();
+
+    render(
+      React.createElement(C, {
+        chunks: [
+          {
+            chunkId: "chunk_1",
+            type: "text",
+            content: "Overview text",
+            sectionPath: "manual.pdf/Overview/Product/Robotics",
+            sourceTitle: "manual.pdf",
+          },
+        ],
+        selectedSource: "manual.pdf",
+      }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Tree" }));
+
+    const surface = screen.getByTestId("chunk-section-tree-zoom-surface");
+    const tree = screen.getByRole("tree", { name: "Parsed chunk sections" });
+
+    fireEvent.mouseDown(surface, { button: 0, clientX: 100, clientY: 90 });
+    fireEvent.mouseMove(window, { clientX: 142, clientY: 126 });
+    fireEvent.mouseUp(window);
+
+    expect(tree.style.left).toBe("42px");
+    expect(tree.style.top).toBe("36px");
+    expect(surface.className).toContain("cursor-grab");
+  });
+
+  it("uses pointer cursor and Violet colors for clickable section tree chunk nodes", async () => {
+    const user = userEvent.setup();
+
+    render(
+      React.createElement(C, {
+        chunks: [
+          {
+            chunkId: "robotics_chunk",
+            type: "text",
+            content: "Robotics details",
+            sectionPath: "manual.pdf/Outlook/Robotics",
+            sourceTitle: "manual.pdf",
+          },
+        ],
+        selectedSource: "manual.pdf",
+      }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Tree" }));
+
+    const chunkNode = screen.getByRole("button", {
+      name: /Robotics details\s*Text/,
+    });
+
+    expect(chunkNode.className).toContain("cursor-pointer");
+    expect(chunkNode.className).toContain("border-violet-200");
+    expect(chunkNode.className).toContain("bg-violet-50");
+    expect(chunkNode.className).toContain("hover:bg-violet-100");
+  });
+
   it("keeps section tree zoom controls fixed at the chunk panel top left", async () => {
     const user = userEvent.setup();
 
