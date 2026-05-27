@@ -172,6 +172,35 @@ describe("ChunksPanel", () => {
     expect(cardMinimumWidth).toBeGreaterThanOrEqual(treeWidth);
   });
 
+  it("fills the visible section tree card with the draggable canvas", async () => {
+    const user = userEvent.setup();
+
+    render(
+      React.createElement(C, {
+        chunks: [
+          {
+            chunkId: "chunk_1",
+            type: "text",
+            content: "Overview text",
+            sectionPath: "manual.pdf/Overview/Product/Robotics",
+            sourceTitle: "manual.pdf",
+          },
+        ],
+        selectedSource: "manual.pdf",
+      }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Tree" }));
+
+    const surface = screen.getByTestId("chunk-section-tree-zoom-surface");
+    const tree = screen.getByRole("tree", { name: "Parsed chunk sections" });
+    const treeWidth = Number.parseInt(tree.style.width, 10);
+    const surfaceMinimumWidth = Number.parseInt(surface.style.minWidth, 10);
+
+    expect(surface.style.width).toBe("100%");
+    expect(surfaceMinimumWidth).toBeGreaterThanOrEqual(treeWidth);
+  });
+
   it("renders section tree zoom controls over the canvas", async () => {
     const user = userEvent.setup();
 
@@ -275,16 +304,24 @@ describe("ChunksPanel", () => {
 
     const tree = screen.getByRole("tree", { name: "Parsed chunk sections" });
     const surface = screen.getByTestId("chunk-section-tree-zoom-surface");
-    const initialSurfaceWidth = Number.parseInt(surface.style.width, 10);
+    const initialSurfaceMinimumWidth = Number.parseInt(
+      surface.style.minWidth,
+      10,
+    );
 
     for (let i = 0; i < 7; i += 1) {
       fireEvent.wheel(surface, { deltaY: 120 });
     }
 
-    const zoomedOutSurfaceWidth = Number.parseInt(surface.style.width, 10);
+    const zoomedOutSurfaceMinimumWidth = Number.parseInt(
+      surface.style.minWidth,
+      10,
+    );
 
     expect(tree.style.transform).toBe("scale(0.3)");
-    expect(zoomedOutSurfaceWidth).toBeLessThan(initialSurfaceWidth);
+    expect(zoomedOutSurfaceMinimumWidth).toBeLessThan(
+      initialSurfaceMinimumWidth,
+    );
   });
 
   it("zooms the section tree with the mouse wheel", async () => {
