@@ -10,6 +10,12 @@ describe("handleChatTurn", () => {
     const retrieval = {
       query: vi.fn().mockResolvedValue({
         results: [makeRetrievalResult()],
+        evidenceText: "Grounding content",
+        referencedChunks: [],
+        namespace: "notebook-namespace",
+        query: "What does the document say?",
+        routerUsed: "workflow_single_step",
+        answerText: null,
       }),
     };
     const repository = makeRepository();
@@ -50,6 +56,7 @@ describe("handleChatTurn", () => {
       namespace: "notebook-namespace",
       query: "What does the document say?",
       topK: 8,
+      useAgentic: true,
       excludeDocumentIds: ["doc_excluded"],
     });
     expect(generateRetrievalQuery).toHaveBeenCalledWith({
@@ -65,7 +72,7 @@ describe("handleChatTurn", () => {
       question: "What does the document say?",
       retrievalQuery: "What does the document say?",
       messages: [],
-      results: [makeRetrievalResult()],
+      evidenceText: "Grounding content",
     });
     expect(repository.appendMessageToThread).toHaveBeenNthCalledWith(1, "workspace_1", {
       threadId: "thread_1",
@@ -137,6 +144,12 @@ describe("handleChatTurn", () => {
     const retrieval = {
       query: vi.fn().mockResolvedValue({
         results: [makeRetrievalResult()],
+        evidenceText: "Grounding content",
+        referencedChunks: [],
+        namespace: "notebook-namespace",
+        query: "Tesla Q4 2025 Update energy generation and storage deployments",
+        routerUsed: "workflow_single_step",
+        answerText: null,
       }),
     };
     const previousMessages = [
@@ -214,6 +227,7 @@ describe("handleChatTurn", () => {
       namespace: "notebook-namespace",
       query: "Tesla Q4 2025 Update energy generation and storage deployments",
       topK: 8,
+      useAgentic: true,
     });
   });
 });

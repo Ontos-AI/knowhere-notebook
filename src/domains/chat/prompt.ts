@@ -1,4 +1,3 @@
-import type { RetrievalResult } from "@ontos-ai/knowhere-sdk"
 import { generateText } from "ai"
 import { Effect } from "effect"
 
@@ -23,14 +22,14 @@ type GenerateGroundedAnswerInput = {
   question: string
   retrievalQuery: string
   messages: readonly ChatHistoryMessage[]
-  results: readonly RetrievalResult[]
+  evidenceText: string
 }
 
 type BuildGroundedPromptInput = {
   question: string
   retrievalQuery?: string
   messages?: readonly ChatHistoryMessage[]
-  results: readonly RetrievalResult[]
+  evidenceText: string
 }
 
 export const generateContextualRetrievalQueryEffect = (
@@ -127,23 +126,11 @@ export function buildRetrievalQueryPrompt(
 export function buildGroundedPrompt(input: BuildGroundedPromptInput): string {
   const retrievalQuery = input.retrievalQuery?.trim() || input.question
   const conversationContext = formatConversationContext(input.messages ?? [])
-  const sources = input.results
-    .map((result, index) => {
-      const sourceName = result.source.sourceFileName ?? "Unknown source"
-      const section = result.source.sectionPath
-        ? ` (${result.source.sectionPath})`
-        : ""
-      return [
-        `[${index + 1}] ${sourceName}${section}`,
-        result.content,
-      ].join("\n")
-    })
-    .join("\n\n")
 
   return [
     "You answer user questions.",
-    "Use the retrieved source excerpts as helpful context, not as the only allowed information.",
-    "Cite a source when it supports a claim.",
+    "Use the retrieved evidence as your primary context.",
+    "Cite document sections (e.g. [文档名 / 章节名]) when they support a claim.",
     "If the sources are related but incomplete, answer what you can and briefly say what is not covered.",
     "Do not invent document-specific facts that are not in the sources.",
     "Use the recent conversation only to resolve references like \"this document\"; do not use it as factual evidence.",
@@ -151,7 +138,7 @@ export function buildGroundedPrompt(input: BuildGroundedPromptInput): string {
     "Start with the answer first. Avoid meta phrases like \"Based on the sources\" or \"Based on the source excerpts\" unless the user asks how you know.",
     "Use plain language.",
     "Keep answers concise by default: 1-3 short paragraphs unless the user asks for detail.",
-    "CITATION FORMAT: After each sourced statement include a brief citation label like [Source N: what the source says]. Use only the provided source numbers.",
+    "CITATION FORMAT: Cite evidence by document and section path, e.g. [文档名 / 章节名].",
     "",
     `Question: ${input.question}`,
     `Retrieval query used: ${retrievalQuery}`,
@@ -159,8 +146,8 @@ export function buildGroundedPrompt(input: BuildGroundedPromptInput): string {
     "Recent conversation:",
     conversationContext,
     "",
-    "Source excerpts:",
-    sources,
+    "Retrieved evidence:",
+    input.evidenceText,
   ].join("\n")
 }
 

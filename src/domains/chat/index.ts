@@ -55,11 +55,13 @@ export const answerQuestionWithRetrieval = (
         namespace: input.namespace,
         query,
         topK: DEFAULT_TOP_K,
+        useAgentic: true,
         ...excludeDocuments(input.sources, input.excludedSourceIds),
       }),
     )
 
-    if (response.results.length === 0) {
+    const evidenceText = response.evidenceText ?? ""
+    if (response.results.length === 0 && !evidenceText) {
       return { answer: NO_RESULTS_ANSWER, citations: [] as ChatCitationView[] }
     }
 
@@ -69,7 +71,7 @@ export const answerQuestionWithRetrieval = (
         question,
         retrievalQuery: query,
         messages: input.messages,
-        results,
+        evidenceText,
       }),
     )
     return {
@@ -77,3 +79,4 @@ export const answerQuestionWithRetrieval = (
       citations: toChatCitationViews(results, answer),
     }
   })
+
