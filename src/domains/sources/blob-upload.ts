@@ -1,4 +1,5 @@
 import {
+  FILE_TOO_LARGE_MESSAGE,
   MAX_UPLOAD_BYTES,
   validateUploadFile,
   type UploadValidationResult,
@@ -123,7 +124,7 @@ export function validateSourceBlobUploadMetadata(
   if (input.sizeBytes > MAX_UPLOAD_BYTES) {
     return {
       ok: false,
-      message: "File is too large. Upload a document up to 100 MB.",
+      message: FILE_TOO_LARGE_MESSAGE,
     };
   }
 
