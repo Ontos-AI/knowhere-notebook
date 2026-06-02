@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { useSourceUploadDialogWorkflow } from "@/components/source-upload-dialog-workflow";
 import type { SourceView } from "@/domains/sources/types";
+import { MAX_UPLOAD_MB } from "@/domains/sources/validation";
 
 export type SourceUploadDialogProps = {
   readonly onSourceUploaded?: (source: SourceView) => void;
@@ -84,7 +85,8 @@ export function SourceUploadDialog({
           <DialogTitle>Add source</DialogTitle>
           <DialogDescription>
             Add a document to your notebook. Notebook accepts PDF, DOC, DOCX,
-            TXT, MD, XLS, XLSX, PPTX, images, and more files up to 100 MB.
+            TXT, MD, XLS, XLSX, PPTX, images, and more files up to{" "}
+            {MAX_UPLOAD_MB} MB.
           </DialogDescription>
         </DialogHeader>
         <form
@@ -117,7 +119,7 @@ export function SourceUploadDialog({
                     Click to select or drag and drop a document
                   </p>
                   <p className="mt-2 rounded-md border border-border bg-background px-2.5 py-1 text-[11px] font-medium text-muted-foreground shadow-sm">
-                    Max size: 100 MB
+                    Max size: {MAX_UPLOAD_MB} MB
                   </p>
                   {selectedFileName && (
                     <p className="mt-3 max-w-full truncate text-xs font-medium text-foreground">

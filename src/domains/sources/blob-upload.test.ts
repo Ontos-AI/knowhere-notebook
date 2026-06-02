@@ -4,6 +4,7 @@ import {
   getSourceUploadBlobPathname,
   validateSourceBlobUploadInput,
 } from "./blob-upload";
+import { FILE_TOO_LARGE_MESSAGE, MAX_UPLOAD_BYTES } from "./validation";
 
 describe("source Blob upload metadata", () => {
   afterEach(() => {
@@ -60,6 +61,21 @@ describe("source Blob upload metadata", () => {
     expect(wrongHost).toEqual({
       ok: false,
       message: "Invalid upload URL. Choose the document again.",
+    });
+  });
+
+  it("rejects staged upload metadata larger than the upload limit", () => {
+    const result = validateSourceBlobUploadInput({
+      pathname: "source-uploads/upload_1/document.pdf",
+      url: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
+      fileName: "oversized.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: MAX_UPLOAD_BYTES + 1,
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      message: FILE_TOO_LARGE_MESSAGE,
     });
   });
 });

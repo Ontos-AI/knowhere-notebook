@@ -1,10 +1,10 @@
-import type { RetrievalQueryParams, RetrievalResult } from "@ontos-ai/knowhere-sdk"
+import type { RetrievalQueryParams, RetrievalQueryResponse } from "@ontos-ai/knowhere-sdk"
 
 import type { Source } from "@/infrastructure/db/schema"
 import type { ChatCitationView } from "@/domains/chat/types"
 
 export type RetrievalClient = {
-  query(params: RetrievalQueryParams): Promise<{ results: RetrievalResult[] }>
+  query(params: RetrievalQueryParams): Promise<RetrievalQueryResponse>
 }
 
 export type ChatHistoryMessage = {
@@ -24,7 +24,7 @@ export type GenerateAnswer = (input: {
   question: string
   retrievalQuery: string
   messages: readonly ChatHistoryMessage[]
-  results: readonly RetrievalResult[]
+  evidenceText: string
 }) => Promise<string>
 
 export type AnswerQuestionInput = {
@@ -42,3 +42,4 @@ export type AnswerQuestionResult = {
   answer: string
   citations: ChatCitationView[]
 }
+

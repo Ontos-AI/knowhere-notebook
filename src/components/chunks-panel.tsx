@@ -38,6 +38,7 @@ import {
 import { useChunksPanelWorkflow } from "@/components/chunks-panel-workflow";
 import { ParsedChunkCard } from "@/components/parsed-chunk-card";
 import { chunksPanelState } from "@/components/chunks-panel-state";
+import { MAX_UPLOAD_MB } from "@/domains/sources/validation";
 import { useSourceOriginalPreviewWarmup } from "@/components/source-original-preview-warmup";
 import { sourceOriginalPreviewModel } from "@/components/source-original-preview-model";
 import type { ParsedChunkView } from "@/domains/chunks/types";
@@ -1006,7 +1007,8 @@ function EmptySourceUploadState({
             parsed chunks and chat.
           </span>
           <span className="rounded-md border border-border bg-background px-2.5 py-1 text-[11px] font-medium text-muted-foreground shadow-sm">
-            PDF, DOCX, TXT, MD, spreadsheets, slides, and images up to 100 MB
+            PDF, DOCX, TXT, MD, spreadsheets, slides, and images up to{" "}
+            {MAX_UPLOAD_MB} MB
           </span>
         </button>
       )}
