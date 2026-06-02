@@ -55,7 +55,7 @@ function getCitationDetail(
 }
 
 function normalizeCitationLabelPart(
-  value: string | undefined,
+  value: string | null | undefined,
   sourceName?: string,
 ): string | undefined {
   if (!value) return undefined;
