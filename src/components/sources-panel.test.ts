@@ -24,6 +24,9 @@ import { SourcesPanel } from "./sources-panel";
 
 const C = SourcesPanel as React.FC<Record<string, unknown>>;
 const originalResizeObserver = globalThis.ResizeObserver;
+const fileTooLargeMessage =
+  "File is too large. Upload a document up to 300 MB. " +
+  "For larger files, contact team@knowhereto.ai or open an issue at https://github.com/Ontos-AI/knowhere/issues.";
 
 describe("SourcesPanel", () => {
   beforeEach(() => {
@@ -131,10 +134,10 @@ describe("SourcesPanel", () => {
 
     expect(
       screen.getByText(
-        /Notebook accepts PDF, DOC, DOCX, TXT, MD, XLS, XLSX, PPTX, images, and more files up to 100 MB/,
+        /Notebook accepts PDF, DOC, DOCX, TXT, MD, XLS, XLSX, PPTX, images, and more files up to 300 MB/,
       ),
     ).toBeTruthy();
-    expect(screen.getByText("Max size: 100 MB")).toBeTruthy();
+    expect(screen.getByText("Max size: 300 MB")).toBeTruthy();
     expect(opened.container.textContent).not.toMatch(/Knowhere|parsing|indexing/i);
   });
 
@@ -383,7 +386,7 @@ describe("SourcesPanel", () => {
       }
 
       return Response.json(
-        { message: "File is too large. Upload a document up to 100 MB." },
+        { message: fileTooLargeMessage },
         { status: 400 },
       );
     });
@@ -407,11 +410,7 @@ describe("SourcesPanel", () => {
     }
     fireEvent.submit(form);
 
-    expect(
-      await screen.findByText(
-        "File is too large. Upload a document up to 100 MB.",
-      ),
-    ).toBeTruthy();
+    expect(await screen.findByText(fileTooLargeMessage)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Confirm" })).toBeTruthy();
   });
 });

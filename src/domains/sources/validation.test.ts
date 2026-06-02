@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  FILE_TOO_LARGE_MESSAGE,
   MAX_UPLOAD_BYTES,
+  MAX_UPLOAD_MB,
   validateUploadFile,
 } from "./validation";
 
 describe("validateUploadFile", () => {
-  it("accepts supported document extensions within 100 MB", () => {
+  it("accepts supported document extensions within the upload limit", () => {
     const result = validateUploadFile({
       name: "lecture-notes.PDF",
       type: "application/pdf",
@@ -70,7 +72,7 @@ describe("validateUploadFile", () => {
     });
   });
 
-  it("rejects files larger than the 100 MB limit", () => {
+  it("rejects files larger than the upload limit", () => {
     const result = validateUploadFile({
       name: "large.pdf",
       type: "application/pdf",
@@ -79,7 +81,8 @@ describe("validateUploadFile", () => {
 
     expect(result).toEqual({
       ok: false,
-      message: "File is too large. Upload a document up to 100 MB.",
+      message: FILE_TOO_LARGE_MESSAGE,
     });
+    expect(MAX_UPLOAD_MB).toBe(300);
   });
 });
