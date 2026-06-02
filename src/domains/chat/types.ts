@@ -5,12 +5,12 @@
 export type RetrievalResultView = {
   readonly content: string
   readonly chunkType: string
-  readonly score: number
+  readonly score: number | null
   readonly assetUrl?: string
   readonly source: {
-    readonly documentId?: string
-    readonly sourceFileName?: string
-    readonly sectionPath?: string
+    readonly documentId?: string | null
+    readonly sourceFileName?: string | null
+    readonly sectionPath?: string | null
   }
 }
 

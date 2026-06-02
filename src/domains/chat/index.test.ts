@@ -27,6 +27,12 @@ describe("answerQuestionWithRetrieval", () => {
     const retrieval = {
       query: vi.fn().mockResolvedValue({
         results: [makeRetrievalResult()],
+        evidenceText: "Grounding content from evidence tree",
+        referencedChunks: [],
+        namespace: "notebook-workspace",
+        query: "What does the document say?",
+        routerUsed: "workflow_single_step",
+        answerText: null,
       }),
     };
     const generateAnswer = vi.fn().mockResolvedValue("The answer is grounded.");
@@ -54,13 +60,14 @@ describe("answerQuestionWithRetrieval", () => {
       namespace: "notebook-workspace",
       query: "What does the document say?",
       topK: 8,
+      useAgentic: true,
       excludeDocumentIds: ["doc_excluded"],
     });
     expect(generateAnswer).toHaveBeenCalledWith({
       question: "What does the document say?",
       retrievalQuery: "What does the document say?",
       messages: [],
-      results: [makeRetrievalResult()],
+      evidenceText: "Grounding content from evidence tree",
     });
     expect(answer).toEqual({
       answer: "The answer is grounded.",
@@ -87,6 +94,12 @@ describe("answerQuestionWithRetrieval", () => {
     const retrieval = {
       query: vi.fn().mockResolvedValue({
         results: [firstResult, secondResult],
+        evidenceText: "Revenue grew. Gross margin improved.",
+        referencedChunks: [],
+        namespace: "notebook-workspace",
+        query: "What improved?",
+        routerUsed: "workflow_single_step",
+        answerText: null,
       }),
     };
     const generateAnswer = vi
@@ -124,7 +137,15 @@ describe("answerQuestionWithRetrieval", () => {
       },
     });
     const retrieval = {
-      query: vi.fn().mockResolvedValue({ results: [result] }),
+      query: vi.fn().mockResolvedValue({
+        results: [result],
+        evidenceText: "Tesla invested in xAI.",
+        referencedChunks: [],
+        namespace: "notebook-workspace",
+        query: "Tesla xAI investment",
+        routerUsed: "workflow_single_step",
+        answerText: null,
+      }),
     };
     const generateAnswer = vi
       .fn()
@@ -149,6 +170,12 @@ describe("answerQuestionWithRetrieval", () => {
       }),
     );
 
+    expect(generateAnswer).toHaveBeenCalledWith({
+      question: "What does the document say about xAI?",
+      retrievalQuery: "Tesla xAI investment",
+      messages: [],
+      evidenceText: "Tesla invested in xAI.",
+    });
     const expectedResult = {
       ...result,
       source: {
@@ -156,12 +183,6 @@ describe("answerQuestionWithRetrieval", () => {
         sourceFileName: "TSLA-Q4-2025-Update.pdf",
       },
     };
-    expect(generateAnswer).toHaveBeenCalledWith({
-      question: "What does the document say about xAI?",
-      retrievalQuery: "Tesla xAI investment",
-      messages: [],
-      results: [expectedResult],
-    });
     expect(answer.citations).toEqual([
       { ...expectedResult, description: "xAI investment" },
     ]);
@@ -169,7 +190,15 @@ describe("answerQuestionWithRetrieval", () => {
 
   it("returns a deterministic no-results answer without calling the model", async () => {
     const retrieval = {
-      query: vi.fn().mockResolvedValue({ results: [] }),
+      query: vi.fn().mockResolvedValue({
+        results: [],
+        evidenceText: "",
+        referencedChunks: [],
+        namespace: "notebook-workspace",
+        query: "Missing fact?",
+        routerUsed: "workflow_single_step",
+        answerText: null,
+      }),
     };
     const generateAnswer = vi.fn();
     const generateRetrievalQuery = vi.fn().mockResolvedValue("Missing fact?");
@@ -198,6 +227,12 @@ describe("answerQuestionWithRetrieval", () => {
     const retrieval = {
       query: vi.fn().mockResolvedValue({
         results: [makeRetrievalResult()],
+        evidenceText: "Energy storage deployments grew significantly.",
+        referencedChunks: [],
+        namespace: "notebook-workspace",
+        query: "Tesla Q4 2025 Update energy generation and storage deployments",
+        routerUsed: "workflow_single_step",
+        answerText: null,
       }),
     };
     const generateRetrievalQuery = vi
@@ -234,21 +269,14 @@ describe("answerQuestionWithRetrieval", () => {
       namespace: "notebook-workspace",
       query: "Tesla Q4 2025 Update energy generation and storage deployments",
       topK: 8,
+      useAgentic: true,
     });
     expect(generateAnswer).toHaveBeenCalledWith({
       question: "What about energy storage in this document?",
       retrievalQuery:
         "Tesla Q4 2025 Update energy generation and storage deployments",
       messages,
-      results: [
-        makeRetrievalResult({
-          source: {
-            documentId: "doc_included",
-            sourceFileName: "TSLA-Q4-2025-Update.pdf",
-            sectionPath: "Intro",
-          },
-        }),
-      ],
+      evidenceText: "Energy storage deployments grew significantly.",
     });
   });
 });
@@ -303,11 +331,7 @@ describe("generateGroundedAnswer", () => {
       question: "What is PR-E?",
       retrievalQuery: "PR-E retrieval",
       messages: [],
-      results: [
-        makeRetrievalResult({
-          content: "PR-E wires chat to Knowhere retrieval.",
-        }),
-      ],
+      evidenceText: "PR-E wires chat to Knowhere retrieval.",
     });
 
     expect(generateText).toHaveBeenCalledWith({
@@ -319,19 +343,10 @@ describe("generateGroundedAnswer", () => {
 });
 
 describe("buildGroundedPrompt", () => {
-  it("includes retrieved source content and forbids unsupported answers", () => {
+  it("includes evidence text and uses evidence-based citation format", () => {
     const prompt = buildGroundedPrompt({
       question: "What is PR-E?",
-      results: [
-        makeRetrievalResult({
-          content: "PR-E wires chat to Knowhere retrieval.",
-          source: {
-            documentId: "doc_1",
-            sourceFileName: "requirements.txt",
-            sectionPath: "N-005",
-          },
-        }),
-      ],
+      evidenceText: "PR-E wires chat to Knowhere retrieval.\n[Document] requirements.txt\n▸ [L1] N-005",
     });
 
     expect(prompt).toContain("What is PR-E?");
@@ -339,19 +354,16 @@ describe("buildGroundedPrompt", () => {
     expect(prompt).toContain("PR-E wires chat to Knowhere retrieval.");
     expect(prompt).toContain("requirements.txt");
     expect(prompt).toContain(
-      "Use the retrieved source excerpts as helpful context, not as the only allowed information.",
+      "Use the retrieved evidence as your primary context.",
     );
-    expect(prompt).not.toContain("grounded only in the sources");
+    expect(prompt).toContain("Retrieved evidence:");
+    expect(prompt).not.toContain("Source excerpts:");
   });
 
   it("asks the model to answer naturally and directly", () => {
     const prompt = buildGroundedPrompt({
       question: "How about the TBD?",
-      results: [
-        makeRetrievalResult({
-          content: "Roadster location: TBD. Status: Design development.",
-        }),
-      ],
+      evidenceText: "Roadster location: TBD. Status: Design development.",
     });
 
     expect(prompt).toContain("Answer in a natural, friendly, and direct tone.");

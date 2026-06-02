@@ -144,7 +144,7 @@ function getConnectionPosition(
 
 function findUniqueBySectionPath(
   chunks: readonly ParsedChunkView[],
-  sectionPath: string | undefined,
+  sectionPath: string | null | undefined,
 ): ParsedChunkView | null {
   if (!sectionPath) return null
   const normalized = normalizeText(sectionPath)

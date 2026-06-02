@@ -320,7 +320,7 @@ function getCitationDisplayKey(
   ]);
 }
 
-function getTrimmedCitationField(value: string | undefined): string | null {
+function getTrimmedCitationField(value: string | null | undefined): string | null {
   const trimmedValue = value?.trim() ?? "";
   return trimmedValue.length > 0 ? trimmedValue : null;
 }

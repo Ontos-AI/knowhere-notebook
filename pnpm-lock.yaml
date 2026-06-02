@@ -18,8 +18,8 @@ importers:
         specifier: ^1.1.0
         version: 1.1.0
       '@ontos-ai/knowhere-sdk':
-        specifier: ^0.4.0
-        version: 0.4.0
+        specifier: ^0.6.0
+        version: 0.6.0
       '@radix-ui/react-alert-dialog':
         specifier: ^1.1.15
         version: 1.1.15(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -1399,8 +1399,8 @@ packages:
     resolution: {integrity: sha512-nn5ozdjYQpUCZlWGuxcJY/KpxkWQs4DcbMCmKojjyrYDEAGy4Ce19NN4v5MduafTwJlbKc99UA8YhSVqq9yPZA==}
     engines: {node: '>=12.4.0'}
 
-  '@ontos-ai/knowhere-sdk@0.4.0':
-    resolution: {integrity: sha512-l6Ud9iYex3UCCHUJ74Bp1yZvLcqtf7gvKHFV50Sr7nSsmw+roiEFD4me/M0TdKTWxCq2QxSVY6ZJURahITPjxA==}
+  '@ontos-ai/knowhere-sdk@0.6.0':
+    resolution: {integrity: sha512-YqDgg+BKwGp7NepD50aquhEOmUgdDAQxpoyttqh0d+4tWjOgkSo74vEGiJVxt8v+LAcA/5CmxPeghX1Hx0v3wQ==}
     engines: {node: '>=20.19.0', npm: '>=10.0.0'}
 
   '@open-draft/deferred-promise@2.2.0':
@@ -6326,7 +6326,7 @@ snapshots:
 
   '@nolyfill/is-core-module@1.0.39': {}
 
-  '@ontos-ai/knowhere-sdk@0.4.0':
+  '@ontos-ai/knowhere-sdk@0.6.0':
     dependencies:
       axios: 1.16.0
       jszip: 3.10.1
