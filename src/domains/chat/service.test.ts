@@ -65,6 +65,7 @@ describe("handleChatTurn", () => {
       sources,
       excludedSourceIds: ["source_excluded"],
       searchSources: expect.any(Function),
+      readRetrievedChunk: expect.any(Function),
     });
     expect(repository.appendMessageToThread).toHaveBeenNthCalledWith(1, "workspace_1", {
       threadId: "thread_1",
@@ -213,6 +214,7 @@ describe("handleChatTurn", () => {
       sources,
       excludedSourceIds: [],
       searchSources: expect.any(Function),
+      readRetrievedChunk: expect.any(Function),
     });
     expect(retrieval.query).toHaveBeenCalledWith({
       namespace: "notebook-namespace",

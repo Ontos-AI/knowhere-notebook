@@ -74,6 +74,7 @@ describe("answerQuestionWithRetrieval", () => {
       sources,
       excludedSourceIds: ["source_2"],
       searchSources: expect.any(Function),
+      readRetrievedChunk: expect.any(Function),
     });
     expect(answer).toEqual({
       answer: "The answer is grounded.",
@@ -179,6 +180,7 @@ describe("answerQuestionWithRetrieval", () => {
       sources,
       excludedSourceIds: [],
       searchSources: expect.any(Function),
+      readRetrievedChunk: expect.any(Function),
     });
     const expectedResult = {
       ...result,
@@ -322,6 +324,7 @@ describe("answerQuestionWithRetrieval", () => {
       sources,
       excludedSourceIds: [],
       searchSources: expect.any(Function),
+      readRetrievedChunk: expect.any(Function),
     });
     expect(retrieval.query).toHaveBeenCalledWith({
       namespace: "notebook-workspace",
@@ -429,6 +432,7 @@ describe("answerQuestionWithRetrieval", () => {
       sources: [makeSource({ title: "TSLA-Q4-2025-Update.pdf" })],
       excludedSourceIds: [],
       searchSources: expect.any(Function),
+      readRetrievedChunk: expect.any(Function),
     });
   });
 
@@ -481,6 +485,77 @@ describe("answerQuestionWithRetrieval", () => {
     expect(JSON.stringify(queryInput)).not.toContain(
       "do-not-append-this-history-to-query",
     );
+  });
+
+  it("lets the agent read untruncated content from returned chunk ids", async () => {
+    const longContent = `${"Earlier context. ".repeat(160)}Critical obligation: retain source receipts.`;
+    const result = {
+      ...makeRetrievalResult({
+        content: longContent,
+        source: {
+          documentId: "doc_contract",
+          sourceFileName: "contract.pdf",
+          sectionPath: "Obligations",
+        },
+      }),
+      chunkId: "chunk_contract_1",
+    } as RetrievalResult & { readonly chunkId: string };
+    const retrieval = {
+      query: vi.fn().mockResolvedValue({
+        results: [result],
+        evidenceText: "Contract obligations were retrieved.",
+        referencedChunks: [],
+        namespace: "notebook-workspace",
+        query: "contract obligations",
+        routerUsed: "workflow_single_step",
+        answerText: null,
+      }),
+    };
+    const generateAnswer = vi.fn(
+      async ({ searchSources, readRetrievedChunk }) => {
+        const response = await searchSources({ query: "contract obligations" });
+        expect(response.chunkReferences[0]).toMatchObject({
+          id: "chunk_contract_1",
+          chunkId: "chunk_contract_1",
+          contentTruncated: true,
+          contentLength: longContent.length,
+        });
+
+        const detail = await readRetrievedChunk({
+          id: "chunk_contract_1",
+          offset: 2_000,
+          limit: 80,
+        });
+
+        expect(detail).toMatchObject({
+          id: "chunk_contract_1",
+          found: true,
+          offset: 2_000,
+          limit: 80,
+          contentLength: longContent.length,
+        });
+        return detail.contentSlice;
+      },
+    );
+
+    const answer = await Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "What obligation matters?",
+        namespace: "notebook-workspace",
+        sources: [
+          makeSource({
+            title: "contract.pdf",
+            knowhereDocumentId: "doc_contract",
+          }),
+        ],
+        excludedSourceIds: [],
+        retrieval,
+        generateAnswer,
+        messages: [],
+      }),
+    );
+
+    expect(answer.answer).toBe(longContent.slice(2_000, 2_080));
   });
 
   it("uses structured referenced chunks from RetrievalQueryResponse as citations", async () => {
@@ -649,6 +724,25 @@ describe("generateAgenticGroundedAnswer", () => {
       namespace: "notebook-workspace",
       query: "公民身份证 图片",
       routerUsed: "workflow_single_step",
+      chunkReferences: [
+        {
+          id: "chunk_identity_1",
+          chunkId: "chunk_identity_1",
+          kind: "result",
+          resultIndex: 1,
+          chunkType: "image",
+          score: 0.9,
+          source: {
+            documentId: "doc_identity",
+            sourceFileName: "document-generated.pdf",
+            sectionPath: "Assets / images / id-front.jpg",
+          },
+          hasAssetUrl: true,
+          contentLength: "Identity card image front side.".length,
+          contentPreview: "Identity card image front side.",
+          contentTruncated: false,
+        },
+      ],
       answerText:
         "The source includes identity card images. https://blob.example/images/id-front.jpg",
       stopReason: "answer_done",
@@ -660,6 +754,26 @@ describe("generateAgenticGroundedAnswer", () => {
           assetUrl: "https://blob.example/images/id-front.jpg",
         },
       ],
+    });
+    const readRetrievedChunk = vi.fn().mockResolvedValue({
+      id: "chunk_identity_1",
+      chunkId: "chunk_identity_1",
+      found: true,
+      chunkType: "image",
+      score: 0.9,
+      source: {
+        documentId: "doc_identity",
+        sourceFileName: "document-generated.pdf",
+        sectionPath: "Assets / images / id-front.jpg",
+      },
+      hasAssetUrl: true,
+      offset: 0,
+      limit: 80,
+      contentLength: 96,
+      contentSlice:
+        "Full identity card text. https://blob.example/images/id-front.jpg",
+      hasMoreContent: false,
+      nextOffset: null,
     });
 
     const answer = await generateAgenticGroundedAnswer({
@@ -673,6 +787,7 @@ describe("generateAgenticGroundedAnswer", () => {
       ],
       excludedSourceIds: [],
       searchSources,
+      readRetrievedChunk,
     });
 
     expect(answer).toBe("Here are the requested identity images.");
@@ -739,6 +854,25 @@ describe("generateAgenticGroundedAnswer", () => {
       agentGuidance: expect.stringContaining("Use this evidence"),
     });
     expect(JSON.stringify(toolOutput)).not.toContain("https://blob.example");
+
+    const chunkOutput = await getCapturedAgentTools(agent).readRetrievedChunk.execute({
+      id: "chunk_identity_1",
+      offset: 0,
+      limit: 80,
+    });
+
+    expect(readRetrievedChunk).toHaveBeenCalledWith({
+      id: "chunk_identity_1",
+      offset: 0,
+      limit: 80,
+    });
+    expect(chunkOutput).toMatchObject({
+      id: "chunk_identity_1",
+      found: true,
+      contentSlice: "Full identity card text. [media asset URL hidden]",
+      hasMoreContent: false,
+    });
+    expect(JSON.stringify(chunkOutput)).not.toContain("https://blob.example");
   });
 
   it("uses managed context for stored history and loop steps", async () => {
@@ -767,6 +901,7 @@ describe("generateAgenticGroundedAnswer", () => {
       sources: [makeSource()],
       excludedSourceIds: [],
       searchSources: vi.fn(),
+      readRetrievedChunk: vi.fn(),
     });
 
     const generateInput = getCapturedGenerateInput(capturedGenerateInput);
@@ -859,6 +994,7 @@ describe("buildAgenticChatSystemPrompt", () => {
     });
 
     expect(prompt).toContain("Always call searchSources")
+    expect(prompt).toContain("readRetrievedChunk")
     expect(prompt).toContain("evidenceText")
     expect(prompt).toContain("failureReason")
     expect(prompt).toContain("decisionTrace")
@@ -994,6 +1130,13 @@ type CapturedAgentTools = {
     readonly execute: (input: {
       readonly query: string
       readonly dataType?: number
+    }) => Promise<unknown>
+  }
+  readonly readRetrievedChunk: {
+    readonly execute: (input: {
+      readonly id: string
+      readonly offset?: number
+      readonly limit?: number
     }) => Promise<unknown>
   }
 }

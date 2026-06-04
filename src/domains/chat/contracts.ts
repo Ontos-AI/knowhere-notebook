@@ -1,4 +1,8 @@
-import type { RetrievalQueryParams, RetrievalQueryResponse } from "@ontos-ai/knowhere-sdk"
+import type {
+  RetrievalQueryParams,
+  RetrievalQueryResponse,
+  RetrievalSource,
+} from "@ontos-ai/knowhere-sdk"
 
 import type { Source } from "@/infrastructure/db/schema"
 import type { ChatCitationView } from "@/domains/chat/types"
@@ -24,9 +28,53 @@ export type AgenticRetrievalQuery = Pick<
   | "threshold"
 >
 
+export type RetrievedChunkReference = {
+  id: string
+  chunkId: string | null
+  kind: "result" | "referencedChunk"
+  resultIndex: number | null
+  chunkType: string
+  score: number | null
+  source: RetrievalSource
+  hasAssetUrl: boolean
+  contentLength: number
+  contentPreview: string
+  contentTruncated: boolean
+}
+
+export type AgenticRetrievalResponse = RetrievalQueryResponse & {
+  chunkReferences: readonly RetrievedChunkReference[]
+}
+
 export type SearchSources = (
   input: AgenticRetrievalQuery,
-) => Promise<RetrievalQueryResponse>
+) => Promise<AgenticRetrievalResponse>
+
+export type ReadRetrievedChunkInput = {
+  id: string
+  offset?: number
+  limit?: number
+}
+
+export type ReadRetrievedChunkResult = {
+  id: string
+  chunkId: string | null
+  found: boolean
+  chunkType: string | null
+  score: number | null
+  source: RetrievalSource | null
+  hasAssetUrl: boolean
+  offset: number
+  limit: number
+  contentLength: number
+  contentSlice: string
+  hasMoreContent: boolean
+  nextOffset: number | null
+}
+
+export type ReadRetrievedChunk = (
+  input: ReadRetrievedChunkInput,
+) => Promise<ReadRetrievedChunkResult>
 
 export type GenerateAnswer = (input: {
   question: string
@@ -34,6 +82,7 @@ export type GenerateAnswer = (input: {
   sources: readonly Source[]
   excludedSourceIds: readonly string[]
   searchSources: SearchSources
+  readRetrievedChunk: ReadRetrievedChunk
 }) => Promise<string>
 
 export type AnswerQuestionInput = {
