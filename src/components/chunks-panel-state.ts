@@ -55,7 +55,9 @@ function getChunksWithFocusedFirst(
   chunks: readonly ParsedChunkView[],
   focusedChunkId: string | null,
 ): readonly ParsedChunkView[] {
-  const orderedChunks = getChunksOrderedByPageNumber(chunks)
+  const orderedChunks = getChunksOrderedByPageNumber(
+    dedupeChunksById(chunks),
+  )
   if (!focusedChunkId) return orderedChunks
 
   const focusedIndex = orderedChunks.findIndex(
@@ -98,20 +100,23 @@ function buildSectionTree(
   chunks: readonly ParsedChunkView[],
   sourceTitle: string,
 ): ChunkSectionTreeNode {
+  const uniqueChunks = dedupeChunksById(chunks)
   const root = createMutableSectionTreeNode({
     id: "root",
     kind: "root",
     label: sourceTitle.trim() || "Parsed Chunks",
   })
   const chunksByParserChunkId = new Map(
-    chunks
+    uniqueChunks
       .filter((chunk) => chunk.parserChunkId)
       .map((chunk) => [chunk.parserChunkId!, chunk]),
   )
-  const chunksByChunkId = new Map(chunks.map((chunk) => [chunk.chunkId, chunk]))
+  const chunksByChunkId = new Map(
+    uniqueChunks.map((chunk) => [chunk.chunkId, chunk]),
+  )
   const sectionSegmentsByChunkId = new Map<string, readonly string[]>()
 
-  chunks.forEach((chunk) => {
+  uniqueChunks.forEach((chunk) => {
     const sectionSegments = getChunkSectionSegments(chunk, sourceTitle)
     if (sectionSegments.length > 0) {
       sectionSegmentsByChunkId.set(chunk.chunkId, sectionSegments)
@@ -119,13 +124,13 @@ function buildSectionTree(
   })
 
   const embeddedSectionSegmentsByChunkId = getEmbeddedSectionSegmentsByChunkId({
-    chunks,
+    chunks: uniqueChunks,
     chunksByChunkId,
     chunksByParserChunkId,
     sectionSegmentsByChunkId,
   })
 
-  chunks.forEach((chunk) => {
+  uniqueChunks.forEach((chunk) => {
     const sectionSegments =
       embeddedSectionSegmentsByChunkId.get(chunk.chunkId) ??
       sectionSegmentsByChunkId.get(chunk.chunkId) ??
@@ -134,6 +139,22 @@ function buildSectionTree(
   })
 
   return toReadonlySectionTreeNode(root)
+}
+
+function dedupeChunksById(
+  chunks: readonly ParsedChunkView[],
+): readonly ParsedChunkView[] {
+  const seenChunkIds = new Set<string>()
+  const uniqueChunks: ParsedChunkView[] = []
+
+  chunks.forEach((chunk) => {
+    if (seenChunkIds.has(chunk.chunkId)) return
+
+    seenChunkIds.add(chunk.chunkId)
+    uniqueChunks.push(chunk)
+  })
+
+  return uniqueChunks
 }
 
 function createMutableSectionTreeNode(input: {

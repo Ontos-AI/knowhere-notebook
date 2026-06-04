@@ -117,6 +117,48 @@ describe("ChunksPanel", () => {
     ).toBeTruthy();
   });
 
+  it("deduplicates repeated chunks before rendering section tree keys", () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    render(
+      React.createElement(C, {
+        chunks: [
+          {
+            chunkId: "duplicate_chunk",
+            type: "text",
+            content: "Overview text",
+            sectionPath: "manual.pdf/Overview",
+            sourceTitle: "manual.pdf",
+          },
+          {
+            chunkId: "duplicate_chunk",
+            type: "text",
+            content: "Duplicate overview text",
+            sectionPath: "manual.pdf/Overview",
+            sourceTitle: "manual.pdf",
+          },
+        ],
+        selectedSource: "manual.pdf",
+      }),
+    );
+
+    expect(
+      screen.getByRole("treeitem", {
+        name: "Overview section with 1 chunk",
+      }),
+    ).toBeTruthy();
+    expect(
+      screen.getAllByRole("treeitem", { name: "Overview text Text" }),
+    ).toHaveLength(1);
+    expect(
+      consoleError.mock.calls.some((call) =>
+        String(call[0]).includes("Encountered two children with the same key"),
+      ),
+    ).toBe(false);
+  });
+
   it("requests the full chunk list before showing the section tree", async () => {
     const user = userEvent.setup();
     const handleLoadAllChunks = vi.fn();

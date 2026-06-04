@@ -82,6 +82,63 @@ describe("chunksPanelState", () => {
     ])
   })
 
+  it("deduplicates repeated chunk ids before ordering and building the section tree", () => {
+    type TestSectionTreeNode = {
+      readonly chunkCount: number
+      readonly chunks: readonly ParsedChunkView[]
+      readonly children: readonly TestSectionTreeNode[]
+    }
+    const buildSectionTree = (
+      chunksPanelState as typeof chunksPanelState & {
+        readonly buildSectionTree?: (
+          chunks: readonly ParsedChunkView[],
+          sourceTitle: string,
+        ) => TestSectionTreeNode
+      }
+    ).buildSectionTree
+    const chunks: ParsedChunkView[] = [
+      {
+        chunkId: "duplicate_chunk",
+        type: "text",
+        content: "First copy.",
+        sectionPath: "manual.pdf/Overview",
+        sourceTitle: "manual.pdf",
+        pageNums: [1],
+      },
+      {
+        chunkId: "other_chunk",
+        type: "text",
+        content: "Other chunk.",
+        sectionPath: "manual.pdf/Overview",
+        sourceTitle: "manual.pdf",
+        pageNums: [2],
+      },
+      {
+        chunkId: "duplicate_chunk",
+        type: "text",
+        content: "Duplicate copy.",
+        sectionPath: "manual.pdf/Overview",
+        sourceTitle: "manual.pdf",
+        pageNums: [3],
+      },
+    ]
+
+    expect(
+      chunksPanelState
+        .getChunksWithFocusedFirst(chunks, null)
+        .map((chunk) => chunk.content),
+    ).toEqual(["First copy.", "Other chunk."])
+
+    const tree = buildSectionTree?.(chunks, "manual.pdf")
+    const overviewSection = tree?.children[0]
+
+    expect(tree?.chunkCount).toBe(2)
+    expect(overviewSection?.chunks.map((chunk) => chunk.content)).toEqual([
+      "First copy.",
+      "Other chunk.",
+    ])
+  })
+
   it("formats Knowhere section paths and reference labels for display", () => {
     expect(
       chunksPanelState.formatChunkSectionPath(
