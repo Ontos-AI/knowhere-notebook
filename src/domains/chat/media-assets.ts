@@ -78,6 +78,26 @@ export function isImageAssetUrl(assetUrl: string): boolean {
   return imageExtensions.some((extension) => pathname.endsWith(extension))
 }
 
+export function removeRetrievedMediaAssetUrls(
+  answer: string,
+  results: readonly RetrievalResult[],
+): string {
+  const assetUrls = Array.from(
+    new Set(
+      results
+        .map((result): string | null => getTrimmedString(result.assetUrl))
+        .filter((assetUrl): assetUrl is string => assetUrl !== null),
+    ),
+  )
+  if (assetUrls.length === 0) return answer
+
+  const sanitizedAnswer = assetUrls
+    .flatMap(getAssetUrlTextVariants)
+    .reduce(removeAssetUrlFromAnswer, answer)
+
+  return cleanSanitizedAnswer(sanitizedAnswer)
+}
+
 async function getCachedSourceAssetUrls(
   source: Source,
   loadSourceAssetUrls: LoadSourceAssetUrls,
@@ -236,4 +256,37 @@ function getUrlPathname(assetUrl: string): string {
 function getTrimmedString(value: string | null | undefined): string | null {
   const trimmedValue = value?.trim() ?? ""
   return trimmedValue.length > 0 ? trimmedValue : null
+}
+
+function getAssetUrlTextVariants(assetUrl: string): string[] {
+  return Array.from(new Set([assetUrl, decodeUrlText(assetUrl)]))
+}
+
+function removeAssetUrlFromAnswer(answer: string, assetUrl: string): string {
+  const escapedAssetUrl = escapeRegExp(assetUrl)
+  return answer
+    .replace(
+      new RegExp(`\\[([^\\]]+)\\]\\(\\s*${escapedAssetUrl}\\s*\\)`, "g"),
+      "$1",
+    )
+    .replace(new RegExp(`<\\s*${escapedAssetUrl}\\s*>`, "g"), "")
+    .replace(new RegExp(escapedAssetUrl, "g"), "")
+}
+
+function cleanSanitizedAnswer(answer: string): string {
+  const cleanedAnswer = answer
+    .replace(/[ \t]+([,.;:!?])/g, "$1")
+    .replace(/\(\s*\)/g, "")
+    .replace(/\[\s*\]/g, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\s+([,.;!?])/g, "$1")
+    .replace(/\s*[:：]\s*$/u, ".")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
+
+  return cleanedAnswer || "I found the relevant media asset in the sources."
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }

@@ -13,6 +13,7 @@ import {
 import {
   enrichRetrievalResultsWithAssetUrls,
   formatRetrievedMediaAssetContext,
+  removeRetrievedMediaAssetUrls,
 } from "./media-assets"
 
 const DEFAULT_TOP_K = 8
@@ -84,9 +85,10 @@ export const answerQuestionWithRetrieval = (
       evidenceText,
       ...(mediaAssetContext ? { mediaAssetContext } : {}),
     }
-    const answer = yield* Effect.tryPromise(() =>
+    const generatedAnswer = yield* Effect.tryPromise(() =>
       input.generateAnswer(generateAnswerInput),
     )
+    const answer = removeRetrievedMediaAssetUrls(generatedAnswer, results)
     return {
       answer,
       citations: toChatCitationViews(results, answer),

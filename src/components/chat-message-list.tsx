@@ -272,14 +272,6 @@ function MessageBubble({
                     <span className="block break-words text-[11px] font-semibold text-foreground">
                       {label}
                     </span>
-                    <a
-                      href={assetUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="mt-1 block break-all text-[10px] font-medium text-primary underline decoration-primary/45 underline-offset-4"
-                    >
-                      {assetUrl}
-                    </a>
                   </figcaption>
                 </figure>
               ))}

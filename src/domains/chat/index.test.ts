@@ -208,7 +208,11 @@ describe("answerQuestionWithRetrieval", () => {
         answerText: null,
       }),
     };
-    const generateAnswer = vi.fn().mockResolvedValue("Use this launch photo.");
+    const generateAnswer = vi
+      .fn()
+      .mockResolvedValue(
+        "Use this launch photo. https://blob.example/images/image-9-Night%20Rocket%20Launch.jpg",
+      );
     const generateRetrievalQuery = vi.fn().mockResolvedValue("SpaceX rocket photos");
     const loadSourceAssetUrls = vi.fn().mockResolvedValue({
       "images/image-9-Night Rocket Launch.jpg":
@@ -246,6 +250,7 @@ describe("answerQuestionWithRetrieval", () => {
       mediaAssetContext:
         "- spacex-s1.pdf / Assets / images / image-9-Night Rocket Launch.jpg: https://blob.example/images/image-9-Night%20Rocket%20Launch.jpg",
     });
+    expect(answer.answer).toBe("Use this launch photo.");
     expect(answer.citations).toEqual([
       {
         ...result,
@@ -446,7 +451,7 @@ describe("buildGroundedPrompt", () => {
     );
   });
 
-  it("includes retrieved media asset URLs when they are available", () => {
+  it("includes retrieved media asset references as internal metadata", () => {
     const prompt = buildGroundedPrompt({
       question: "Show me the launch image.",
       evidenceText: "A launch image was retrieved.",
@@ -454,12 +459,14 @@ describe("buildGroundedPrompt", () => {
         "- spacex-s1.pdf / Assets / images / launch.jpg: https://blob.example/images/launch.jpg",
     });
 
-    expect(prompt).toContain("Retrieved media asset URLs:");
     expect(prompt).toContain(
-      "When retrieved image or table asset URLs are relevant to the user's request, include the URL next to the matching source label.",
+      "Retrieved media asset references (internal; do not quote raw URLs):",
     );
     expect(prompt).toContain(
-      "Do not invent asset URLs; use only the retrieved media asset URLs listed below.",
+      "When retrieved image or table asset references are relevant to the user's request, cite the matching source label; the UI renders media from citation metadata.",
+    );
+    expect(prompt).toContain(
+      "Do not write raw media asset URLs in the answer. They are internal metadata only.",
     );
     expect(prompt).toContain("https://blob.example/images/launch.jpg");
   });

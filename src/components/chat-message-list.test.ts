@@ -90,13 +90,14 @@ describe("ChatMessageList", () => {
     expect(image.getAttribute("src")).toBe(
       "https://blob.example/images/launch.jpg",
     );
-
-    const link = screen.getByRole("link", {
-      name: "https://blob.example/images/launch.jpg",
-    });
-    expect(link.getAttribute("href")).toBe(
-      "https://blob.example/images/launch.jpg",
-    );
+    expect(
+      screen.queryByRole("link", {
+        name: "https://blob.example/images/launch.jpg",
+      }),
+    ).toBeNull();
+    expect(
+      screen.queryByText("https://blob.example/images/launch.jpg"),
+    ).toBeNull();
   });
 
   it("shows thinking progress after existing messages while sending", () => {

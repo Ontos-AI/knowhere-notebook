@@ -5,6 +5,7 @@ import {
   enrichRetrievalResultsWithAssetUrls,
   formatRetrievedMediaAssetContext,
   isImageAssetUrl,
+  removeRetrievedMediaAssetUrls,
 } from "./media-assets"
 import type { Source } from "@/infrastructure/db/schema"
 
@@ -66,6 +67,24 @@ describe("chat media assets", () => {
     expect(isImageAssetUrl("https://blob.example/tables/table-1.html")).toBe(
       false,
     )
+  })
+
+  it("removes retrieved raw asset URLs from generated answer text", () => {
+    const answer = removeRetrievedMediaAssetUrls(
+      "Use this launch photo. [Open image](https://blob.example/images/image-9-Night%20Rocket%20Launch.jpg) It is from the filing.",
+      [
+        makeRetrievalResult({
+          chunkType: "image",
+          assetUrl:
+            "https://blob.example/images/image-9-Night%20Rocket%20Launch.jpg",
+        }),
+      ],
+    )
+
+    expect(answer).toBe(
+      "Use this launch photo. Open image It is from the filing.",
+    )
+    expect(answer).not.toContain("https://blob.example")
   })
 })
 

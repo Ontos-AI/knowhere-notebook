@@ -134,8 +134,9 @@ export function buildGroundedPrompt(input: BuildGroundedPromptInput): string {
     "You answer user questions.",
     "Use the retrieved evidence as your primary context.",
     "Cite document sections (e.g. [文档名 / 章节名]) when they support a claim.",
-    "When retrieved image or table asset URLs are relevant to the user's request, include the URL next to the matching source label.",
-    "Do not invent asset URLs; use only the retrieved media asset URLs listed below.",
+    "When retrieved image or table asset references are relevant to the user's request, cite the matching source label; the UI renders media from citation metadata.",
+    "Do not write raw media asset URLs in the answer. They are internal metadata only.",
+    "Do not invent asset URLs; use only the retrieved media asset references listed below.",
     "If the sources are related but incomplete, answer what you can and briefly say what is not covered.",
     "Do not invent document-specific facts that are not in the sources.",
     "Use the recent conversation only to resolve references like \"this document\"; do not use it as factual evidence.",
@@ -156,7 +157,11 @@ export function buildGroundedPrompt(input: BuildGroundedPromptInput): string {
   ]
 
   if (mediaAssetContext) {
-    promptLines.push("", "Retrieved media asset URLs:", mediaAssetContext)
+    promptLines.push(
+      "",
+      "Retrieved media asset references (internal; do not quote raw URLs):",
+      mediaAssetContext,
+    )
   }
 
   return promptLines.join("\n")
