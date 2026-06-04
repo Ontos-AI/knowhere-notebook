@@ -10,6 +10,11 @@ import {
   excludeDocuments,
   normalizeRetrievalQuery,
 } from "./retrieval"
+import {
+  enrichRetrievalResultsWithAssetUrls,
+  formatRetrievedMediaAssetContext,
+  removeRetrievedMediaAssetUrls,
+} from "./media-assets"
 
 const DEFAULT_TOP_K = 8
 const NO_RESULTS_ANSWER = "I couldn't find that in your sources."
@@ -65,18 +70,27 @@ export const answerQuestionWithRetrieval = (
       return { answer: NO_RESULTS_ANSWER, citations: [] as ChatCitationView[] }
     }
 
-    const results = useNotebookSourceTitles(response.results, input.sources)
-    const answer = yield* Effect.tryPromise(() =>
-      input.generateAnswer({
-        question,
-        retrievalQuery: query,
-        messages: input.messages,
-        evidenceText,
+    const results = yield* Effect.tryPromise(() =>
+      enrichRetrievalResultsWithAssetUrls({
+        results: useNotebookSourceTitles(response.results, input.sources),
+        sources: input.sources,
+        loadSourceAssetUrls: input.loadSourceAssetUrls,
       }),
     )
+    const mediaAssetContext = formatRetrievedMediaAssetContext(results)
+    const generateAnswerInput = {
+      question,
+      retrievalQuery: query,
+      messages: input.messages,
+      evidenceText,
+      ...(mediaAssetContext ? { mediaAssetContext } : {}),
+    }
+    const generatedAnswer = yield* Effect.tryPromise(() =>
+      input.generateAnswer(generateAnswerInput),
+    )
+    const answer = removeRetrievedMediaAssetUrls(generatedAnswer, results)
     return {
       answer,
       citations: toChatCitationViews(results, answer),
     }
   })
-

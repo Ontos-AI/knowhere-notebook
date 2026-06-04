@@ -2,6 +2,7 @@ import type { RetrievalQueryParams, RetrievalQueryResponse } from "@ontos-ai/kno
 
 import type { Source } from "@/infrastructure/db/schema"
 import type { ChatCitationView } from "@/domains/chat/types"
+import type { LoadSourceAssetUrls } from "./media-assets"
 
 export type RetrievalClient = {
   query(params: RetrievalQueryParams): Promise<RetrievalQueryResponse>
@@ -25,6 +26,7 @@ export type GenerateAnswer = (input: {
   retrievalQuery: string
   messages: readonly ChatHistoryMessage[]
   evidenceText: string
+  mediaAssetContext?: string
 }) => Promise<string>
 
 export type AnswerQuestionInput = {
@@ -35,6 +37,7 @@ export type AnswerQuestionInput = {
   retrieval: RetrievalClient
   generateRetrievalQuery: GenerateRetrievalQuery
   generateAnswer: GenerateAnswer
+  loadSourceAssetUrls?: LoadSourceAssetUrls
   messages: readonly ChatHistoryMessage[]
 }
 
@@ -42,4 +45,3 @@ export type AnswerQuestionResult = {
   answer: string
   citations: ChatCitationView[]
 }
-

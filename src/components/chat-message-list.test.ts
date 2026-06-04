@@ -59,6 +59,47 @@ describe("ChatMessageList", () => {
     ).toBeTruthy();
   });
 
+  it("renders image citations as viewable image attachments", () => {
+    render(
+      React.createElement(ChatMessageList, {
+        messages: [
+          {
+            id: "assistant_1",
+            role: "assistant",
+            content: "Here is the launch image.",
+            citations: [
+              {
+                chunkType: "image",
+                score: 0.9,
+                assetUrl: "https://blob.example/images/launch.jpg",
+                source: {
+                  documentId: "doc_1",
+                  sourceFileName: "spacex-s1.pdf",
+                  sectionPath: "Assets / images / launch.jpg",
+                },
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    const image = screen.getByRole("img", {
+      name: "spacex-s1.pdf · Assets / images / launch.jpg",
+    });
+    expect(image.getAttribute("src")).toBe(
+      "https://blob.example/images/launch.jpg",
+    );
+    expect(
+      screen.queryByRole("link", {
+        name: "https://blob.example/images/launch.jpg",
+      }),
+    ).toBeNull();
+    expect(
+      screen.queryByText("https://blob.example/images/launch.jpg"),
+    ).toBeNull();
+  });
+
   it("shows thinking progress after existing messages while sending", () => {
     render(
       React.createElement(ChatMessageList, {

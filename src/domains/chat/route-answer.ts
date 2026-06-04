@@ -11,6 +11,7 @@ import {
 } from "@/domains/chat/service"
 import { chatTurnPersistence } from "@/domains/chat/chat-turn-persistence"
 import { reconcileSourcesForWorkspace } from "@/domains/sources/reconcile"
+import { sourceService } from "@/domains/sources/service"
 import { notebookRequestContext } from "@/domains/workspace/request-context"
 import { routeResult, type RouteResult } from "@/lib/route-result"
 
@@ -58,6 +59,8 @@ const answerChatEffect = (input: AnswerChatInput) =>
         retrieval: client.retrieval,
         generateRetrievalQuery: generateContextualRetrievalQuery,
         generateAnswer: generateGroundedAnswer,
+        loadSourceAssetUrls: (source) =>
+          sourceService.getParseAssetUrls(workspace.id, source.id),
         repository: chatTurnPersistence.createRepository(),
       }),
     ).pipe(

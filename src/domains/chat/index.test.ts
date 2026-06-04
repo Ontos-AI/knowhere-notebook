@@ -188,6 +188,82 @@ describe("answerQuestionWithRetrieval", () => {
     ]);
   });
 
+  it("passes retrieved image asset URLs to the answer prompt and citations", async () => {
+    const result = makeRetrievalResult({
+      chunkType: "image",
+      source: {
+        documentId: "doc_spacex",
+        sourceFileName: "document-generated.pdf",
+        sectionPath: "Assets / images / image-9-Night Rocket Launch.jpg",
+      },
+    });
+    const retrieval = {
+      query: vi.fn().mockResolvedValue({
+        results: [result],
+        evidenceText: "A SpaceX rocket launches at night.",
+        referencedChunks: [],
+        namespace: "notebook-workspace",
+        query: "SpaceX rocket photos",
+        routerUsed: "workflow_single_step",
+        answerText: null,
+      }),
+    };
+    const generateAnswer = vi
+      .fn()
+      .mockResolvedValue(
+        "Use this launch photo. https://blob.example/images/image-9-Night%20Rocket%20Launch.jpg",
+      );
+    const generateRetrievalQuery = vi.fn().mockResolvedValue("SpaceX rocket photos");
+    const loadSourceAssetUrls = vi.fn().mockResolvedValue({
+      "images/image-9-Night Rocket Launch.jpg":
+        "https://blob.example/images/image-9-Night%20Rocket%20Launch.jpg",
+    });
+
+    const answer = await Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "Show me the SpaceX rocket photos.",
+        namespace: "notebook-workspace",
+        sources: [
+          makeSource({
+            id: "source_spacex",
+            title: "spacex-s1.pdf",
+            knowhereDocumentId: "doc_spacex",
+          }),
+        ],
+        excludedSourceIds: [],
+        retrieval,
+        generateRetrievalQuery,
+        generateAnswer,
+        loadSourceAssetUrls,
+        messages: [],
+      }),
+    );
+
+    expect(loadSourceAssetUrls).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "source_spacex" }),
+    );
+    expect(generateAnswer).toHaveBeenCalledWith({
+      question: "Show me the SpaceX rocket photos.",
+      retrievalQuery: "SpaceX rocket photos",
+      messages: [],
+      evidenceText: "A SpaceX rocket launches at night.",
+      mediaAssetContext:
+        "- spacex-s1.pdf / Assets / images / image-9-Night Rocket Launch.jpg: https://blob.example/images/image-9-Night%20Rocket%20Launch.jpg",
+    });
+    expect(answer.answer).toBe("Use this launch photo.");
+    expect(answer.citations).toEqual([
+      {
+        ...result,
+        assetUrl:
+          "https://blob.example/images/image-9-Night%20Rocket%20Launch.jpg",
+        source: {
+          ...result.source,
+          sourceFileName: "spacex-s1.pdf",
+        },
+      },
+    ]);
+  });
+
   it("returns a deterministic no-results answer without calling the model", async () => {
     const retrieval = {
       query: vi.fn().mockResolvedValue({
@@ -373,6 +449,26 @@ describe("buildGroundedPrompt", () => {
     expect(prompt).toContain(
       "If the sources are related but incomplete, answer what you can and briefly say what is not covered.",
     );
+  });
+
+  it("includes retrieved media asset references as internal metadata", () => {
+    const prompt = buildGroundedPrompt({
+      question: "Show me the launch image.",
+      evidenceText: "A launch image was retrieved.",
+      mediaAssetContext:
+        "- spacex-s1.pdf / Assets / images / launch.jpg: https://blob.example/images/launch.jpg",
+    });
+
+    expect(prompt).toContain(
+      "Retrieved media asset references (internal; do not quote raw URLs):",
+    );
+    expect(prompt).toContain(
+      "When retrieved image or table asset references are relevant to the user's request, cite the matching source label; the UI renders media from citation metadata.",
+    );
+    expect(prompt).toContain(
+      "Do not write raw media asset URLs in the answer. They are internal metadata only.",
+    );
+    expect(prompt).toContain("https://blob.example/images/launch.jpg");
   });
 });
 

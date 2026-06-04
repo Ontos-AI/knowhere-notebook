@@ -2,7 +2,7 @@
 
 import { type CSSProperties, type ReactElement } from "react";
 import { type VirtualItem } from "@tanstack/react-virtual";
-import { MessageCircle } from "lucide-react";
+import { ImageIcon, MessageCircle } from "lucide-react";
 
 import { useChatMessageListWorkflow } from "@/components/chat-message-list-workflow";
 import { chatPanelModel } from "@/components/chat-panel-model";
@@ -17,6 +17,10 @@ type DisplayCitation = {
   readonly citation: ChatCitationView;
   readonly citationId: string;
   readonly label: string;
+};
+
+type DisplayImageCitation = DisplayCitation & {
+  readonly assetUrl: string;
 };
 
 export type ChatMessageListProps = {
@@ -240,11 +244,40 @@ function MessageBubble({
     message,
     sourceTitlesByDocumentId,
   );
+  const displayImageCitations = getDisplayImageCitations(displayCitations);
 
   return (
     <div className="flex min-w-0 flex-col items-start">
       <div className="max-w-[92%] overflow-hidden rounded-2xl rounded-tl-sm border border-border/70 bg-card px-3 py-2.5 text-sm leading-relaxed text-foreground shadow-xs sm:max-w-[90%] sm:px-4 sm:py-3">
         <p className="whitespace-pre-wrap break-words">{message.content}</p>
+        {displayImageCitations.length > 0 && (
+          <div className="mt-3 border-t border-border/70 pt-2.5">
+            <p className="mb-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+              <ImageIcon className="size-3" />
+              Images
+            </p>
+            <div className="grid gap-2">
+              {displayImageCitations.map(({ assetUrl, citationId, label }) => (
+                <figure
+                  key={`${citationId}-image`}
+                  className="overflow-hidden rounded-lg border border-border bg-muted/25"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element -- Chat image citation dimensions are not known before render. */}
+                  <img
+                    src={assetUrl}
+                    alt={label}
+                    className="max-h-64 w-full object-contain"
+                  />
+                  <figcaption className="border-t border-border/70 bg-background/80 px-2.5 py-2">
+                    <span className="block break-words text-[11px] font-semibold text-foreground">
+                      {label}
+                    </span>
+                  </figcaption>
+                </figure>
+              ))}
+            </div>
+          </div>
+        )}
         {displayCitations.length > 0 && (
           <div className="mt-3 border-t border-border/70 pt-2.5">
             <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
@@ -300,6 +333,49 @@ function getDisplayCitations(
   }
 
   return displayCitations;
+}
+
+function getDisplayImageCitations(
+  citations: readonly DisplayCitation[],
+): readonly DisplayImageCitation[] {
+  const seenAssetUrls = new Set<string>();
+  const imageCitations: DisplayImageCitation[] = [];
+
+  for (const citation of citations) {
+    const assetUrl = getTrimmedCitationField(citation.citation.assetUrl);
+    if (!assetUrl || !isImageCitation(citation.citation, assetUrl)) continue;
+    if (seenAssetUrls.has(assetUrl)) continue;
+
+    seenAssetUrls.add(assetUrl);
+    imageCitations.push({ ...citation, assetUrl });
+  }
+
+  return imageCitations;
+}
+
+function isImageCitation(
+  citation: ChatCitationView,
+  assetUrl: string,
+): boolean {
+  return (
+    citation.chunkType.toLowerCase() === "image" ||
+    hasImageFileExtension(assetUrl)
+  );
+}
+
+function hasImageFileExtension(assetUrl: string): boolean {
+  const pathname = getUrlPathname(assetUrl).toLowerCase();
+  return [".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg"].some(
+    (extension) => pathname.endsWith(extension),
+  );
+}
+
+function getUrlPathname(assetUrl: string): string {
+  try {
+    return new URL(assetUrl).pathname;
+  } catch {
+    return assetUrl.split("?")[0] ?? assetUrl;
+  }
 }
 
 function getCitationDisplayKey(
