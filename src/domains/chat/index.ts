@@ -29,6 +29,7 @@ import {
 } from "./retrieval"
 import {
   enrichRetrievalResultsWithAssetUrls,
+  isImageAssetUrl,
   removeRetrievedMediaAssetUrls,
 } from "./media-assets"
 
@@ -237,16 +238,192 @@ export const answerQuestionWithRetrieval = (
         evidenceText: formatRetrievalEvidenceText(retrievalResponses),
       }),
     )
-    const answer = removeRetrievedMediaAssetUrls(generatedAnswer, results)
+    const answer = sanitizeGeneratedAnswer({
+      answer: generatedAnswer,
+      question,
+      results,
+    })
+    const citationResults = selectCitationResultsForAnswer({
+      question,
+      results,
+    })
     logger.info("chat-agent: answer complete", {
       answerLength: answer.length,
-      citationCount: results.length,
+      citationCount: citationResults.length,
     })
     return {
       answer,
-      citations: toChatCitationViews(results, answer),
+      citations: toChatCitationViews(citationResults, answer),
     }
   })
+
+type GeneratedAnswerSanitizerInput = {
+  readonly answer: string
+  readonly question: string
+  readonly results: readonly RetrievalResult[]
+}
+
+function sanitizeGeneratedAnswer({
+  answer,
+  question,
+  results,
+}: GeneratedAnswerSanitizerInput): string {
+  const sanitizedAnswer = removeRetrievedMediaAssetUrls(answer, results)
+
+  if (
+    shouldUseConciseImageRequestAnswer({
+      answer: sanitizedAnswer,
+      question,
+      results,
+    })
+  ) {
+    return buildConciseImageRequestAnswer(question)
+  }
+
+  return sanitizedAnswer
+}
+
+function shouldUseConciseImageRequestAnswer({
+  answer,
+  question,
+  results,
+}: GeneratedAnswerSanitizerInput): boolean {
+  return (
+    isShowOrSendImageRequest(question) &&
+    !isExplicitPersonalDetailRequest(question) &&
+    hasImageCitationResult(results) &&
+    shouldSimplifyImageRequestAnswer(answer)
+  )
+}
+
+function selectCitationResultsForAnswer(input: {
+  readonly question: string
+  readonly results: readonly RetrievalResult[]
+}): readonly RetrievalResult[] {
+  if (!isShowOrSendImageRequest(input.question)) return input.results
+
+  const imageResults = input.results.filter(isImageCitationResult)
+  if (imageResults.length === 0) return input.results
+
+  const focusedImageResults = filterFocusedImageCitationResults(
+    input.question,
+    imageResults,
+  )
+  return focusedImageResults.length > 0 ? focusedImageResults : imageResults
+}
+
+function hasImageCitationResult(results: readonly RetrievalResult[]): boolean {
+  return results.some(isImageCitationResult)
+}
+
+function isImageCitationResult(result: RetrievalResult): boolean {
+  const assetUrl = result.assetUrl?.trim()
+  if (!assetUrl) return false
+
+  return result.chunkType.toLowerCase() === "image" || isImageAssetUrl(assetUrl)
+}
+
+function filterFocusedImageCitationResults(
+  question: string,
+  results: readonly RetrievalResult[],
+): readonly RetrievalResult[] {
+  const labelPattern = getFocusedImageCitationLabelPattern(question)
+  if (!labelPattern) return results
+
+  return results.filter((result): boolean =>
+    labelPattern.test(getImageCitationLabel(result)),
+  )
+}
+
+function getFocusedImageCitationLabelPattern(question: string): RegExp | null {
+  if (/身份证|公民身份|居民身份证|\bid card\b|\bidentity card\b/iu.test(question)) {
+    return /身份证|居民身份证|\bid card\b|\bidentity card\b/iu
+  }
+
+  return null
+}
+
+function getImageCitationLabel(result: RetrievalResult): string {
+  return [
+    result.source.sourceFileName,
+    result.source.sectionPath,
+    getAssetPathFromCitationUrl(result.assetUrl),
+  ]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .join(" ")
+}
+
+function getAssetPathFromCitationUrl(assetUrl: string | undefined): string | null {
+  if (!assetUrl) return null
+
+  try {
+    return decodeURIComponent(new URL(assetUrl).pathname)
+  } catch {
+    return assetUrl
+  }
+}
+
+function isShowOrSendImageRequest(question: string): boolean {
+  const normalizedQuestion = question.toLowerCase()
+  const hasImageTerm =
+    /图片|照片|图像|截图|身份证|\bimage\b|\bimages\b|\bphoto\b|\bphotos\b|\bpicture\b|\bpictures\b|\bscreenshot\b|\bid card\b|\bidentity card\b/u.test(
+      normalizedQuestion,
+    )
+  const hasActionTerm =
+    /请将|请把|发送|发给我|发来|给我看|展示|显示|看一下|\bshow\b|\bsend\b|\bdisplay\b|\battach\b|\bgive me\b/u.test(
+      normalizedQuestion,
+    )
+
+  return hasImageTerm && hasActionTerm
+}
+
+function isExplicitPersonalDetailRequest(question: string): boolean {
+  return /号码|身份证号|身份号码|住址|地址|出生|有效期限|签发机关|姓名|是什么|多少|\bid number\b|\bidentity number\b|\baddress\b|\bbirth\b|\bissuer\b|\bvalid/u.test(
+    question.toLowerCase(),
+  )
+}
+
+function containsPersonalDetailField(answer: string): boolean {
+  return /公民身份号码|身份号码|身份证号|身份证号码|住址|地址|出生日期|出生|有效期限|签发机关|性别|民族|姓名|\bid number\b|\bidentity number\b|\baddress\b|\bdate of birth\b|\bbirth date\b|\bissuer\b|\bissuing authority\b|\bvalid until\b|\bvalid through\b/i.test(
+    answer,
+  )
+}
+
+function shouldSimplifyImageRequestAnswer(answer: string): boolean {
+  const trimmedAnswer = answer.trim()
+  return (
+    containsPersonalDetailField(trimmedAnswer) ||
+    containsMarkdownList(trimmedAnswer) ||
+    containsSourceIndexReference(trimmedAnswer) ||
+    trimmedAnswer.length > getConciseImageAnswerLengthLimit(trimmedAnswer)
+  )
+}
+
+function containsMarkdownList(value: string): boolean {
+  return /\n\s*[-*]\s+/u.test(value)
+}
+
+function containsSourceIndexReference(value: string): boolean {
+  return /\bSource\s+\d+\b/iu.test(value)
+}
+
+function getConciseImageAnswerLengthLimit(answer: string): number {
+  return containsCjkText(answer) ? 120 : 220
+}
+
+function buildConciseImageRequestAnswer(question: string): string {
+  if (containsCjkText(question)) {
+    return question.includes("身份证")
+      ? "已找到相关身份证图片，见下方图片。"
+      : "已找到相关图片，见下方图片。"
+  }
+
+  return "I found the relevant image. See the image below."
+}
+
+function containsCjkText(value: string): boolean {
+  return /[\u3400-\u9fff]/u.test(value)
+}
 
 function formatKnowhereQueryResponseForLog(
   response: RetrievalQueryResponse,

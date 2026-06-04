@@ -134,6 +134,39 @@ describe("chat media assets", () => {
     )
   })
 
+  it("deduplicates equivalent media assets served from different URLs", async () => {
+    const results = await enrichRetrievalResultsWithAssetUrls({
+      results: [
+        makeRetrievalResult({
+          chunkType: "image",
+          assetUrl:
+            "https://knowhere-storage.example/results/job_1/images/id-front.jpg?AWSAccessKeyId=test",
+          source: {
+            documentId: "doc_identity",
+            sourceFileName: "商务标文件.pdf",
+            sectionPath: "Root",
+          },
+        }),
+        makeRetrievalResult({
+          chunkType: "image",
+          assetUrl:
+            "https://blob.example/workspaces/workspace_1/sources/source_1/parsed-result/images/id-front.jpg",
+          source: {
+            documentId: "doc_identity",
+            sourceFileName: "商务标文件.pdf",
+            sectionPath: "images/id-front.jpg",
+          },
+        }),
+      ],
+      sources: [],
+    })
+
+    expect(results.map((result) => result.assetUrl)).toEqual([
+      "https://blob.example/workspaces/workspace_1/sources/source_1/parsed-result/images/id-front.jpg",
+    ])
+    expect(results[0]?.source.sectionPath).toBe("images/id-front.jpg")
+  })
+
   it("formats a bounded media asset context for the grounded prompt", () => {
     const context = formatRetrievedMediaAssetContext([
       makeRetrievalResult({

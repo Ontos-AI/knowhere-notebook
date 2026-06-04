@@ -312,6 +312,7 @@ export function buildGroundedPrompt(input: BuildGroundedPromptInput): string {
     "Never output JSON metadata blocks for citations, images, tables, or media.",
     "Never mention asset_id, assetUrl, raw URLs, chunk ids, request-local ids, or retrieval internals.",
     "For image requests, answer briefly and let the UI render images from citation metadata.",
+    "For send/show image requests, do not transcribe personal details from the image; do not list identity numbers, addresses, birth dates, or document fields unless the user explicitly asks for those details.",
     "Do not invent asset URLs; use only the retrieved media asset references listed below.",
     "If the sources are related but incomplete, answer what you can and briefly say what is not covered.",
     "Do not invent document-specific facts that are not in the sources.",
@@ -386,6 +387,7 @@ export function buildAgenticChatSystemPrompt(
     "Never output JSON metadata blocks for citations, images, tables, or media.",
     "Never mention asset_id, assetUrl, raw URLs, chunk ids, Read IDs, tool parameters, or retrieval internals.",
     "For image requests, answer briefly and let the UI render images from citation metadata.",
+    "For send/show image requests, do not transcribe personal details from the image; do not list identity numbers, addresses, birth dates, or document fields unless the user explicitly asks for those details.",
     "Do not add unrelated personal details for send/show image requests unless the user asks.",
     "Use GitHub-flavored Markdown when it improves readability, such as short lists, tables, or code blocks. Keep simple answers as plain sentences.",
     "Start with the answer first. Keep answers concise unless the user asks for detail.",
@@ -665,13 +667,19 @@ function formatAgentLoopToolOutput(
   if (toolName === "searchSources") {
     return {
       kind: "searchSources",
-      output: buildAgentLoopPreview(output, AGENT_LOOP_TOOL_OUTPUT_LOG_LIMIT),
+      output: buildAgentLoopMarkdownPreview(
+        output,
+        AGENT_LOOP_TOOL_OUTPUT_LOG_LIMIT,
+      ),
     }
   }
   if (toolName === "readRetrievedChunk") {
     return {
       kind: "readRetrievedChunk",
-      output: buildAgentLoopPreview(output, AGENT_LOOP_TOOL_OUTPUT_LOG_LIMIT),
+      output: buildAgentLoopMarkdownPreview(
+        output,
+        AGENT_LOOP_TOOL_OUTPUT_LOG_LIMIT,
+      ),
     }
   }
   return buildAgentLoopPreview(output, AGENT_LOOP_TOOL_OUTPUT_LOG_LIMIT)
@@ -723,6 +731,19 @@ function buildAgentLoopPreview(
   const normalized = redactRawUrls(stringifyAgentLoopLogValue(value))
     .replace(/\s+/g, " ")
     .trim()
+  const truncated = normalized.length > limit
+  return {
+    charLength: normalized.length,
+    truncated,
+    preview: truncated ? `${normalized.slice(0, limit)}...` : normalized,
+  }
+}
+
+function buildAgentLoopMarkdownPreview(
+  value: unknown,
+  limit: number,
+): AgentLoopLogPreview {
+  const normalized = redactRawUrls(stringifyAgentLoopLogValue(value)).trim()
   const truncated = normalized.length > limit
   return {
     charLength: normalized.length,
@@ -1076,7 +1097,10 @@ function formatMediaAvailability(reference: RetrievedChunkReference): string {
 function logToolMarkdownOutput(toolName: string, output: string): void {
   logger.info("chat-agent: tool output", {
     toolName,
-    output: buildAgentLoopPreview(output, AGENT_LOOP_TOOL_OUTPUT_LOG_LIMIT),
+    output: buildAgentLoopMarkdownPreview(
+      output,
+      AGENT_LOOP_TOOL_OUTPUT_LOG_LIMIT,
+    ),
   })
 }
 

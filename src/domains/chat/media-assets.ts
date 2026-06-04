@@ -65,7 +65,7 @@ export function dedupeMediaCitationResults(
   results: readonly RetrievalResult[],
 ): RetrievalResult[] {
   const dedupedResults: RetrievalResult[] = []
-  const resultIndexesByAssetUrl = new Map<string, number>()
+  const resultIndexesByAssetKey = new Map<string, number>()
 
   for (const result of results) {
     const assetUrl = getTrimmedString(result.assetUrl)
@@ -74,17 +74,25 @@ export function dedupeMediaCitationResults(
       continue
     }
 
-    const existingIndex = resultIndexesByAssetUrl.get(assetUrl)
+    const assetKey = getMediaCitationDedupeKey(result, assetUrl)
+    const existingIndex = resultIndexesByAssetKey.get(assetKey)
     if (existingIndex === undefined) {
-      resultIndexesByAssetUrl.set(assetUrl, dedupedResults.length)
+      resultIndexesByAssetKey.set(assetKey, dedupedResults.length)
       dedupedResults.push(result)
       continue
     }
 
     const existingResult = dedupedResults[existingIndex]
+    const existingAssetUrl = getTrimmedString(existingResult?.assetUrl)
     if (
       existingResult &&
-      compareMediaCitationResult(result, existingResult, assetUrl) > 0
+      existingAssetUrl &&
+      compareMediaCitationResult(
+        result,
+        existingResult,
+        assetUrl,
+        existingAssetUrl,
+      ) > 0
     ) {
       dedupedResults[existingIndex] = result
     }
@@ -145,11 +153,12 @@ export function removeRetrievedMediaAssetUrls(
 function compareMediaCitationResult(
   candidate: RetrievalResult,
   current: RetrievalResult,
-  assetUrl: string,
+  candidateAssetUrl: string,
+  currentAssetUrl: string,
 ): number {
   return (
-    getMediaCitationResultScore(candidate, assetUrl) -
-    getMediaCitationResultScore(current, assetUrl)
+    getMediaCitationResultScore(candidate, candidateAssetUrl) -
+    getMediaCitationResultScore(current, currentAssetUrl)
   )
 }
 
@@ -170,13 +179,59 @@ function getMediaCitationResultScore(
   if (getTrimmedString(source.sourceFileName)) score += 20
 
   const sectionPath = getTrimmedString(source.sectionPath)
-  if (sectionPath) {
+  if (sectionPath && !isGenericSectionPath(sectionPath)) {
     score += 30
     if (!isAssetFilePath(sectionPath)) score += 15
     score += Math.min(sectionPath.length, 120) / 12
   }
+  if (isNotebookParsedAssetUrl(assetUrl)) score += 25
 
   return score
+}
+
+function getMediaCitationDedupeKey(
+  result: RetrievalResult,
+  assetUrl: string,
+): string {
+  const documentKey =
+    getTrimmedString(result.source.documentId) ??
+    getTrimmedString(result.source.sourceFileName) ??
+    "unknown"
+  const assetPath =
+    getCanonicalAssetPathFromSource(result) ?? getCanonicalAssetPathFromUrl(assetUrl)
+
+  return assetPath ? `asset:${documentKey}:${assetPath}` : `url:${assetUrl}`
+}
+
+function getCanonicalAssetPathFromSource(
+  result: RetrievalResult,
+): string | null {
+  const sectionPath = normalizeAssetLookupText(result.source.sectionPath)
+  return sectionPath && isSupportedAssetPath(sectionPath) ? sectionPath : null
+}
+
+function getCanonicalAssetPathFromUrl(assetUrl: string): string | null {
+  const normalizedPath = normalizeAssetLookupText(getUrlPathname(assetUrl))
+  if (!normalizedPath) return null
+
+  const pathMatch = /(?:^|\/)((?:images|tables)\/[^?#]+)$/.exec(normalizedPath)
+  if (pathMatch?.[1]) return pathMatch[1]
+
+  const basename = getNormalizedBasename(normalizedPath)
+  if (!basename) return null
+
+  if (isImageAssetUrl(assetUrl)) return `images/${basename}`
+  return null
+}
+
+function isGenericSectionPath(value: string): boolean {
+  return ["root", "unknown source"].includes(value.trim().toLowerCase())
+}
+
+function isNotebookParsedAssetUrl(assetUrl: string): boolean {
+  return normalizeAssetLookupText(getUrlPathname(assetUrl))?.includes(
+    "/parsed-result/",
+  ) === true
 }
 
 async function getCachedSourceAssetUrls(

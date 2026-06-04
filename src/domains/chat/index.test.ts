@@ -443,11 +443,10 @@ describe("answerQuestionWithRetrieval", () => {
       dataType: 3,
     });
     expect(answer.citations.map((citation) => citation.assetUrl)).toEqual([
-      undefined,
       "https://blob.example/images/image-6-id-front.jpg",
       "https://blob.example/images/image-7-id-back.jpg",
     ]);
-    expect(answer.citations.slice(1).map((citation) => citation.chunkType)).toEqual([
+    expect(answer.citations.map((citation) => citation.chunkType)).toEqual([
       "image",
       "image",
     ]);
@@ -456,6 +455,7 @@ describe("answerQuestionWithRetrieval", () => {
   it("sends requested identity-card images without exposing internal media metadata", async () => {
     const frontAssetUrl = "https://blob.example/images/feng-rongzhou-id-front.jpg";
     const backAssetUrl = "https://blob.example/images/feng-rongzhou-id-back.jpg";
+    const unrelatedAssetUrl = "https://blob.example/images/company-license.jpg";
     const textResult = makeRetrievalResult({
       content: "冯荣洲的法定代表人身份证明页包含居民身份证图片。",
       source: {
@@ -503,6 +503,19 @@ describe("answerQuestionWithRetrieval", () => {
       }),
       chunkId: "chunk_back",
     } as RetrievalResult & { readonly chunkId: string };
+    const unrelatedImageResult = {
+      ...makeRetrievalResult({
+        chunkType: "image",
+        content: "公司证照图片。",
+        assetUrl: unrelatedAssetUrl,
+        source: {
+          documentId: "doc_identity",
+          sourceFileName: "document-generated.pdf",
+          sectionPath: "images/company-license.jpg",
+        },
+      }),
+      chunkId: "chunk_company_license",
+    } as RetrievalResult & { readonly chunkId: string };
     const retrieval = {
       query: vi.fn().mockResolvedValue({
         results: [
@@ -510,6 +523,7 @@ describe("answerQuestionWithRetrieval", () => {
           duplicateFrontResult,
           richerDuplicateFrontResult,
           backResult,
+          unrelatedImageResult,
         ],
         evidenceText: "冯荣洲 身份证 图片",
         referencedChunks: [],
@@ -526,7 +540,11 @@ describe("answerQuestionWithRetrieval", () => {
         purpose: "查找冯荣洲的身份证图片。",
       });
       return [
-        "已找到冯荣洲的身份证图片。[商务标文件.pdf / 二、法定代表人身份证明]",
+        "为您找到冯荣洲的居民身份证图片，相关信息如下：",
+        "- **姓名**：冯荣洲",
+        "- **公民身份号码**：123456789012345678",
+        "- **签发机关**：某公安局",
+        "- **有效期限**：长期",
         `{"asset_id":"asset_front","assetUrl":"${frontAssetUrl}","chunkId":"chunk_front_direct"}`,
       ].join("\n");
     });
@@ -557,14 +575,14 @@ describe("answerQuestionWithRetrieval", () => {
       useAgentic: true,
       dataType: 3,
     });
-    expect(answer.answer).toBe(
-      "已找到冯荣洲的身份证图片。[商务标文件.pdf / 二、法定代表人身份证明]",
-    );
+    expect(answer.answer).toBe("已找到相关身份证图片，见下方图片。");
     expect(answer.answer).not.toMatch(
       /asset_id|assetUrl|asset_url|chunkId|chunk_id|https?:\/\//,
     );
+    expect(answer.answer).not.toMatch(
+      /姓名|公民身份号码|签发机关|有效期限|123456789012345678/,
+    );
     expect(answer.citations.map((citation) => citation.assetUrl)).toEqual([
-      undefined,
       frontAssetUrl,
       backAssetUrl,
     ]);
@@ -573,7 +591,7 @@ describe("answerQuestionWithRetrieval", () => {
         (citation) => citation.assetUrl === frontAssetUrl,
       ),
     ).toHaveLength(1);
-    expect(answer.citations[1]?.source).toMatchObject({
+    expect(answer.citations[0]?.source).toMatchObject({
       sourceFileName: "商务标文件.pdf",
       sectionPath: "二、法定代表人身份证明 / 身份证正面",
     });
@@ -1123,7 +1141,7 @@ describe("generateAgenticGroundedAnswer", () => {
     expect(getLoggerInfoMeta("chat-agent: tool output")).toMatchObject({
       toolName: "searchSources",
       output: expect.objectContaining({
-        preview: expect.stringContaining("## Retrieval Result"),
+        preview: expect.stringContaining("## Retrieval Result\n\nStatus"),
       }),
     });
 
@@ -1153,7 +1171,7 @@ describe("generateAgenticGroundedAnswer", () => {
     expect(getLoggerInfoMeta("chat-agent: tool output")).toMatchObject({
       toolName: "readRetrievedChunk",
       output: expect.objectContaining({
-        preview: expect.stringContaining("## Retrieved Content"),
+        preview: expect.stringContaining("## Retrieved Content\n\nStatus"),
       }),
     });
   });
@@ -1325,6 +1343,7 @@ describe("generateAgenticGroundedAnswer", () => {
     const searchSourcesOutput = stepLog.toolResults[0]
       ?.output as SearchSourcesToolOutputLogMeta;
     expect(searchSourcesOutput.output.preview).toContain("## Retrieval Result");
+    expect(searchSourcesOutput.output.preview).toContain("\n\n## Evidence");
     expect(searchSourcesOutput.output.preview).toContain(
       "Query: 冯荣洲 身份证 ID card",
     );
@@ -1437,6 +1456,7 @@ describe("buildGroundedPrompt", () => {
     );
     expect(prompt).toContain("Never output JSON metadata blocks");
     expect(prompt).toContain("Never mention asset_id, assetUrl");
+    expect(prompt).toContain("do not transcribe personal details");
     expect(prompt).toContain("https://blob.example/images/launch.jpg");
   });
 });
@@ -1461,6 +1481,7 @@ describe("buildAgenticChatSystemPrompt", () => {
     expect(prompt).toContain("For image requests, search visual content directly")
     expect(prompt).toContain("Never output JSON metadata blocks")
     expect(prompt).toContain("Use GitHub-flavored Markdown when it improves readability")
+    expect(prompt).toContain("do not transcribe personal details")
     expect(prompt).not.toContain("targetContent maps")
     expect(prompt).not.toContain("Read the tool output fields")
     expect(prompt).not.toContain("intent=overview")
