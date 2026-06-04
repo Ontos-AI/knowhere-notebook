@@ -14,6 +14,10 @@ import {
   parseChatRequestBody,
 } from "."
 import type { Source } from "@/infrastructure/db/schema"
+import type {
+  AgenticRetrievalQuery,
+  ReadRetrievedChunkInput,
+} from "./contracts"
 
 vi.mock("ai", async (importOriginal) => ({
   ...(await importOriginal<typeof import("ai")>()),
@@ -215,7 +219,12 @@ describe("answerQuestionWithRetrieval", () => {
       }),
     };
     const generateAnswer = vi.fn(async ({ searchSources }) => {
-      await searchSources({ query: "SpaceX rocket photos", dataType: 3 });
+      await searchSources({
+        query: "SpaceX rocket photos",
+        intent: "image",
+        purpose: "Find visual rocket launch chunks.",
+        priority: 5,
+      });
       return "Use this launch photo. https://blob.example/images/image-9-Night%20Rocket%20Launch.jpg";
     });
     const loadSourceAssetUrls = vi.fn().mockResolvedValue({
@@ -724,6 +733,11 @@ describe("generateAgenticGroundedAnswer", () => {
       namespace: "notebook-workspace",
       query: "公民身份证 图片",
       routerUsed: "workflow_single_step",
+      retrievalPlan: {
+        intent: "image",
+        purpose: "Find identity-card image evidence.",
+        priority: 5,
+      },
       chunkReferences: [
         {
           id: "chunk_identity_1",
@@ -799,6 +813,8 @@ describe("generateAgenticGroundedAnswer", () => {
     const generateInput = getCapturedGenerateInput(capturedGenerateInput);
 
     expect(settings.instructions).toContain("RetrievalQueryResponse")
+    expect(settings.instructions).toContain("L0/L1 retrieval")
+    expect(settings.instructions).toContain("typed retrieval plan")
     expect(settings.instructions).toContain("dataType=3")
     expect(settings.instructions).toContain(
       "Do not paste raw prior messages into searchSources.query",
@@ -819,15 +835,26 @@ describe("generateAgenticGroundedAnswer", () => {
 
     const toolOutput = await getCapturedAgentTools(agent).searchSources.execute({
       query: "公民身份证 图片",
+      intent: "image",
+      purpose: "Find identity-card image evidence.",
+      priority: 5,
       dataType: 3,
     });
 
     expect(searchSources).toHaveBeenCalledWith({
       query: "公民身份证 图片",
+      intent: "image",
+      purpose: "Find identity-card image evidence.",
+      priority: 5,
       dataType: 3,
     });
     expect(toolOutput).toMatchObject({
       query: "公民身份证 图片",
+      retrievalPlan: {
+        intent: "image",
+        purpose: "Find identity-card image evidence.",
+        priority: 5,
+      },
       routerUsed: "workflow_single_step",
       stopReason: "answer_done",
       failureReason: null,
@@ -995,6 +1022,8 @@ describe("buildAgenticChatSystemPrompt", () => {
 
     expect(prompt).toContain("Always call searchSources")
     expect(prompt).toContain("readRetrievedChunk")
+    expect(prompt).toContain("L0/L1 retrieval")
+    expect(prompt).toContain("typed retrieval plan")
     expect(prompt).toContain("evidenceText")
     expect(prompt).toContain("failureReason")
     expect(prompt).toContain("decisionTrace")
@@ -1002,7 +1031,7 @@ describe("buildAgenticChatSystemPrompt", () => {
     expect(prompt).toContain("person or section but not an image asset")
     expect(prompt).toContain("Do not paste raw prior messages")
     expect(prompt).toContain("身份证")
-    expect(prompt).toContain("For image requests use dataType=3")
+    expect(prompt).toContain("For image requests use intent=image")
     expect(prompt).toContain("商务标文件.pdf")
   });
 });
@@ -1127,17 +1156,10 @@ type CapturedAgentSettings = {
 
 type CapturedAgentTools = {
   readonly searchSources: {
-    readonly execute: (input: {
-      readonly query: string
-      readonly dataType?: number
-    }) => Promise<unknown>
+    readonly execute: (input: AgenticRetrievalQuery) => Promise<unknown>
   }
   readonly readRetrievedChunk: {
-    readonly execute: (input: {
-      readonly id: string
-      readonly offset?: number
-      readonly limit?: number
-    }) => Promise<unknown>
+    readonly execute: (input: ReadRetrievedChunkInput) => Promise<unknown>
   }
 }
 

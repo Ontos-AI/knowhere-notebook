@@ -14,6 +14,7 @@ import {
 } from "./citations"
 import type {
   AgenticRetrievalQuery,
+  AgenticRetrievalPlan,
   AgenticRetrievalResponse,
   AnswerQuestionInput,
   AnswerQuestionResult,
@@ -93,6 +94,7 @@ export const answerQuestionWithRetrieval = (
       queryInput: AgenticRetrievalQuery,
     ): Promise<AgenticRetrievalResponse> => {
       const startedAt = Date.now()
+      const retrievalPlan = toAgenticRetrievalPlan(queryInput)
       const retrievalQueryParams = buildRetrievalQueryParams({
         input: queryInput,
         fallbackQuestion: question,
@@ -107,6 +109,9 @@ export const answerQuestionWithRetrieval = (
         signalPathCount: retrievalQueryParams.signalPaths?.length ?? 0,
         filterMode: retrievalQueryParams.filterMode ?? null,
         threshold: retrievalQueryParams.threshold ?? null,
+        intent: retrievalPlan.intent,
+        purpose: retrievalPlan.purpose,
+        priority: retrievalPlan.priority,
       })
 
       try {
@@ -127,13 +132,17 @@ export const answerQuestionWithRetrieval = (
           ).length,
           stopReason: response.stopReason ?? null,
           failureReason: response.failureReason ?? null,
+          intent: retrievalPlan.intent,
+          priority: retrievalPlan.priority,
         })
-        return { ...response, chunkReferences }
+        return { ...response, chunkReferences, retrievalPlan }
       } catch (error) {
         logger.error("chat-agent: searchSources failed", {
           query: retrievalQueryParams.query,
           durationMs: Date.now() - startedAt,
           error: error instanceof Error ? error.message : String(error),
+          intent: retrievalPlan.intent,
+          priority: retrievalPlan.priority,
         })
         throw error
       }
@@ -208,12 +217,13 @@ function buildRetrievalQueryParams(input: {
     input.input.query,
     input.fallbackQuestion,
   )
+  const dataType = normalizeRetrievalDataType(input.input)
   return {
     namespace: input.namespace,
     query,
     topK: normalizeTopK(input.input.topK),
     useAgentic: true,
-    ...(input.input.dataType ? { dataType: input.input.dataType } : {}),
+    ...(dataType ? { dataType } : {}),
     ...(input.input.signalPaths && input.input.signalPaths.length > 0
       ? { signalPaths: input.input.signalPaths }
       : {}),
@@ -223,6 +233,36 @@ function buildRetrievalQueryParams(input: {
       : {}),
     ...excludeDocuments(input.sources, input.excludedSourceIds),
   }
+}
+
+function toAgenticRetrievalPlan(
+  input: AgenticRetrievalQuery,
+): AgenticRetrievalPlan {
+  return {
+    intent: input.intent ?? null,
+    purpose: normalizeRetrievalPurpose(input.purpose),
+    priority: normalizeRetrievalPriority(input.priority),
+  }
+}
+
+function normalizeRetrievalPurpose(value: string | undefined): string | null {
+  const normalized = value?.replace(/\s+/g, " ").trim()
+  if (!normalized) return null
+  return normalized.slice(0, 240)
+}
+
+function normalizeRetrievalPriority(value: number | undefined): number | null {
+  if (typeof value !== "number" || !Number.isSafeInteger(value)) return null
+  return Math.min(Math.max(value, 1), 5)
+}
+
+function normalizeRetrievalDataType(
+  input: AgenticRetrievalQuery,
+): RetrievalQueryParams["dataType"] | undefined {
+  if (input.dataType) return input.dataType
+  if (input.intent === "image") return 3
+  if (input.intent === "table") return 4
+  return undefined
 }
 
 function createRetrievedChunkContext(): {

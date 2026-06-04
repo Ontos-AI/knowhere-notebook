@@ -18,6 +18,21 @@ export type ChatHistoryMessage = {
   citations?: readonly ChatCitationView[]
 }
 
+export type AgenticRetrievalIntent =
+  | "overview"
+  | "entity"
+  | "section"
+  | "image"
+  | "table"
+  | "detail"
+  | "citation"
+
+export type AgenticRetrievalPlan = {
+  intent: AgenticRetrievalIntent | null
+  purpose: string | null
+  priority: number | null
+}
+
 export type AgenticRetrievalQuery = Pick<
   RetrievalQueryParams,
   | "query"
@@ -26,7 +41,11 @@ export type AgenticRetrievalQuery = Pick<
   | "signalPaths"
   | "filterMode"
   | "threshold"
->
+> & {
+  intent?: AgenticRetrievalIntent
+  purpose?: string
+  priority?: number
+}
 
 export type RetrievedChunkReference = {
   id: string
@@ -44,6 +63,7 @@ export type RetrievedChunkReference = {
 
 export type AgenticRetrievalResponse = RetrievalQueryResponse & {
   chunkReferences: readonly RetrievedChunkReference[]
+  retrievalPlan?: AgenticRetrievalPlan
 }
 
 export type SearchSources = (

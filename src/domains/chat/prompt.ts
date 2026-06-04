@@ -257,19 +257,22 @@ export function buildAgenticChatSystemPrompt(
     "searchSources runs Knowhere retrieval and returns a RetrievalQueryResponse summary with compact previews and request-local chunk ids.",
     "readRetrievedChunk reads more content from a chunk id returned by searchSources in this same answer run.",
     "Treat each tool result like external context from a remote source index: inspect it, reason over it, then decide whether to retrieve again or read more from a returned chunk.",
+    "Use searchSources like L0/L1 retrieval: compact previews are for quick relevance, navigation, and rerank-style selection. Use readRetrievedChunk like L2 detail: full content slices are loaded only after a returned chunk looks relevant.",
     "",
     "Agent loop rules:",
     "1. Always call searchSources before writing a final answer.",
-    "2. Read the tool output fields: evidenceText, answerText, results, referencedChunks, chunkReferences, stopReason, failureReason, and decisionTrace.",
-    "3. Use one response to guide the next query: carry forward discovered people, organizations, document names, section paths, file paths, chunk types, and failure reasons.",
-    "4. If evidenceText/results/referencedChunks directly support the answer, stop searching and answer.",
-    "5. If failureReason is present, result counts are zero, or evidence does not cover the user's requested entity/topic/media, call searchSources again with a more specific or broader query.",
-    "6. For image requests use dataType=3 or dataType=5. If an initial text result identifies a relevant person or section but not an image asset, query again with that person/section plus the requested image concept, e.g. identity card / 身份证 / 公民身份证明.",
-    "7. For table requests use dataType=4 or dataType=6.",
-    "8. Do not paste raw prior messages into searchSources.query. The query must be concise and contain only distilled search terms such as document title, person, topic, date, section path, or asset kind.",
-    "9. If a returned chunk preview looks relevant but you want more data before answering, call readRetrievedChunk with that chunk id plus offset/limit. If hasMoreContent is true and the next slice is still needed, call readRetrievedChunk again with nextOffset.",
-    "10. Use readRetrievedChunk selectively; do not read every chunk when the previews already answer the question.",
-    "11. Stop after enough evidence or when further searches are unlikely to help; then clearly say what was not found and what retrieval context was missing.",
+    "2. Before each searchSources call, choose a typed retrieval plan: intent, purpose, and priority. This is Notebook-side intent analysis for the agent loop.",
+    "3. Use intent=overview for broad discovery, entity for people/organizations, section for located headings/paths, image for visual assets, table for tabular evidence, detail for precise facts, and citation for source verification.",
+    "4. Read the tool output fields: retrievalPlan, evidenceText, answerText, results, referencedChunks, chunkReferences, stopReason, failureReason, and decisionTrace.",
+    "5. Use one response to guide the next query: carry forward discovered people, organizations, document names, section paths, file paths, chunk types, and failure reasons.",
+    "6. If evidenceText/results/referencedChunks directly support the answer, stop searching and answer.",
+    "7. If failureReason is present, result counts are zero, or evidence does not cover the user's requested entity/topic/media, call searchSources again with a more specific or broader query.",
+    "8. For image requests use intent=image and dataType=3 or dataType=5. If an initial text result identifies a relevant person or section but not an image asset, query again with that person/section plus the requested image concept, e.g. identity card / 身份证 / 公民身份证明.",
+    "9. For table requests use intent=table and dataType=4 or dataType=6.",
+    "10. Do not paste raw prior messages into searchSources.query. The query must be concise and contain only distilled search terms such as document title, person, topic, date, section path, or asset kind.",
+    "11. If a returned chunk preview looks relevant but you want more data before answering, call readRetrievedChunk with that chunk id plus offset/limit. If hasMoreContent is true and the next slice is still needed, call readRetrievedChunk again with nextOffset.",
+    "12. Use readRetrievedChunk selectively; do not read every chunk when the previews already answer the question.",
+    "13. Stop after enough evidence or when further searches are unlikely to help; then clearly say what was not found and what retrieval context was missing.",
     "",
     "Answering rules:",
     "Use retrieved evidence as the factual source of truth.",
@@ -333,14 +336,46 @@ function buildAgenticChatTools(
       description:
         "Search the user's Notebook sources through Knowhere retrieval. " +
         "Treat each response as external context from a remote source index. " +
-        "Use it before answering, and call it again with refined text, media, " +
-        "or section-path queries when the RetrievalQueryResponse says evidence is missing or weak.",
+        "Use it before answering, include a typed retrieval plan, and call it " +
+        "again with refined text, media, or section-path queries when the " +
+        "RetrievalQueryResponse says evidence is missing or weak.",
       inputSchema: z.object({
         query: z
           .string()
           .min(1)
           .describe(
             "A concise, self-contained retrieval query. Do not paste raw chat history or previous messages. Use only distilled terms such as document title, person, topic, date, section path, or asset kind when needed.",
+          ),
+        intent: z
+          .enum([
+            "overview",
+            "entity",
+            "section",
+            "image",
+            "table",
+            "detail",
+            "citation",
+          ])
+          .optional()
+          .describe(
+            "Typed retrieval intent for the agent loop: overview, entity, section, image, table, detail, or citation. Use image/table for visual or tabular requests.",
+          ),
+        purpose: z
+          .string()
+          .min(1)
+          .max(240)
+          .optional()
+          .describe(
+            "Short reason this query is needed, such as finding an entity, locating an image asset, or verifying a citation.",
+          ),
+        priority: z
+          .number()
+          .int()
+          .min(1)
+          .max(5)
+          .optional()
+          .describe(
+            "Planner priority from 1-5. Use 5 for required evidence and lower values for exploratory follow-up.",
           ),
         topK: z
           .number()
@@ -558,6 +593,7 @@ function buildRetrievalToolOutput(response: AgenticRetrievalResponse): object {
   return {
     namespace: response.namespace,
     query: response.query,
+    retrievalPlan: response.retrievalPlan ?? null,
     routerUsed: response.routerUsed,
     stopReason: response.stopReason ?? null,
     failureReason: response.failureReason ?? null,
