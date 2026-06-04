@@ -206,6 +206,128 @@
 }
 
 @layer utilities {
+  .chat-markdown-content {
+    color: var(--foreground);
+    font-size: 14px;
+    line-height: 1.55;
+    overflow-wrap: break-word;
+  }
+
+  .chat-markdown-content > :first-child {
+    margin-top: 0;
+  }
+
+  .chat-markdown-content > :last-child {
+    margin-bottom: 0;
+  }
+
+  .chat-markdown-content h1,
+  .chat-markdown-content h2,
+  .chat-markdown-content h3,
+  .chat-markdown-content h4,
+  .chat-markdown-content h5,
+  .chat-markdown-content h6 {
+    margin-top: 12px;
+    margin-bottom: 6px;
+    font-weight: 700;
+    line-height: 1.3;
+  }
+
+  .chat-markdown-content h1,
+  .chat-markdown-content h2 {
+    font-size: 1.05em;
+  }
+
+  .chat-markdown-content h3,
+  .chat-markdown-content h4,
+  .chat-markdown-content h5,
+  .chat-markdown-content h6 {
+    font-size: 1em;
+  }
+
+  .chat-markdown-content p,
+  .chat-markdown-content blockquote,
+  .chat-markdown-content ul,
+  .chat-markdown-content ol,
+  .chat-markdown-content table,
+  .chat-markdown-content pre {
+    margin-top: 0;
+    margin-bottom: 10px;
+  }
+
+  .chat-markdown-content a {
+    color: var(--primary);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .chat-markdown-content strong {
+    font-weight: 700;
+  }
+
+  .chat-markdown-content ul,
+  .chat-markdown-content ol {
+    padding-left: 1.35em;
+  }
+
+  .chat-markdown-content li + li {
+    margin-top: 0.2em;
+  }
+
+  .chat-markdown-content blockquote {
+    border-left: 3px solid var(--border);
+    color: var(--muted-foreground);
+    padding-left: 0.85em;
+  }
+
+  .chat-markdown-content table {
+    border-collapse: collapse;
+    display: block;
+    font-size: 12px;
+    max-width: 100%;
+    overflow-x: auto;
+    width: max-content;
+  }
+
+  .chat-markdown-content th,
+  .chat-markdown-content td {
+    border: 1px solid var(--border);
+    padding: 5px 8px;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .chat-markdown-content th {
+    background-color: color-mix(in srgb, var(--muted) 60%, transparent);
+    font-weight: 700;
+  }
+
+  .chat-markdown-content code {
+    background-color: color-mix(in srgb, var(--muted) 72%, transparent);
+    border-radius: 4px;
+    font-family: var(--font-mono);
+    font-size: 85%;
+    padding: 0.15em 0.35em;
+  }
+
+  .chat-markdown-content pre {
+    background-color: color-mix(in srgb, var(--muted) 80%, transparent);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    line-height: 1.45;
+    max-width: 100%;
+    overflow-x: auto;
+    padding: 10px;
+  }
+
+  .chat-markdown-content pre code {
+    background: transparent;
+    border-radius: 0;
+    font-size: 100%;
+    padding: 0;
+    white-space: pre;
+  }
+
   .original-markdown-preview {
     color: var(--foreground);
     font-size: 14px;

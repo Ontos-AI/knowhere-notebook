@@ -4,6 +4,13 @@ import type { Source } from "@/infrastructure/db/schema"
 
 const retrievedMediaAssetLimit = 6
 const imageExtensions = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg"] as const
+const internalMetadataKeys = new Set([
+  "asset_id",
+  "assetUrl",
+  "asset_url",
+  "chunkId",
+  "chunk_id",
+])
 
 export type LoadSourceAssetUrls = (
   source: Source,
@@ -22,7 +29,9 @@ export async function enrichRetrievalResultsWithAssetUrls({
   loadSourceAssetUrls,
   evidenceText,
 }: RetrievalResultAssetInput): Promise<RetrievalResult[]> {
-  if (!loadSourceAssetUrls || results.length === 0) return [...results]
+  if (!loadSourceAssetUrls || results.length === 0) {
+    return dedupeMediaCitationResults(results)
+  }
 
   const sourcesByDocumentId = new Map(
     sources.flatMap((source): readonly [string, Source][] =>
@@ -49,7 +58,39 @@ export async function enrichRetrievalResultsWithAssetUrls({
     }),
   )
 
-  return enrichedResults.flat()
+  return dedupeMediaCitationResults(enrichedResults.flat())
+}
+
+export function dedupeMediaCitationResults(
+  results: readonly RetrievalResult[],
+): RetrievalResult[] {
+  const dedupedResults: RetrievalResult[] = []
+  const resultIndexesByAssetUrl = new Map<string, number>()
+
+  for (const result of results) {
+    const assetUrl = getTrimmedString(result.assetUrl)
+    if (!assetUrl || !isRenderableMediaAsset(result, assetUrl)) {
+      dedupedResults.push(result)
+      continue
+    }
+
+    const existingIndex = resultIndexesByAssetUrl.get(assetUrl)
+    if (existingIndex === undefined) {
+      resultIndexesByAssetUrl.set(assetUrl, dedupedResults.length)
+      dedupedResults.push(result)
+      continue
+    }
+
+    const existingResult = dedupedResults[existingIndex]
+    if (
+      existingResult &&
+      compareMediaCitationResult(result, existingResult, assetUrl) > 0
+    ) {
+      dedupedResults[existingIndex] = result
+    }
+  }
+
+  return dedupedResults
 }
 
 export function formatRetrievedMediaAssetContext(
@@ -90,13 +131,52 @@ export function removeRetrievedMediaAssetUrls(
         .filter((assetUrl): assetUrl is string => assetUrl !== null),
     ),
   )
-  if (assetUrls.length === 0) return answer
-
-  const sanitizedAnswer = assetUrls
-    .flatMap(getAssetUrlTextVariants)
-    .reduce(removeAssetUrlFromAnswer, answer)
+  const urlSanitizedAnswer =
+    assetUrls.length > 0
+      ? assetUrls
+          .flatMap(getAssetUrlTextVariants)
+          .reduce(removeAssetUrlFromAnswer, answer)
+      : answer
+  const sanitizedAnswer = removeInternalMetadataJsonBlocks(urlSanitizedAnswer)
 
   return cleanSanitizedAnswer(sanitizedAnswer)
+}
+
+function compareMediaCitationResult(
+  candidate: RetrievalResult,
+  current: RetrievalResult,
+  assetUrl: string,
+): number {
+  return (
+    getMediaCitationResultScore(candidate, assetUrl) -
+    getMediaCitationResultScore(current, assetUrl)
+  )
+}
+
+function getMediaCitationResultScore(
+  result: RetrievalResult,
+  assetUrl: string,
+): number {
+  const chunkType = result.chunkType.toLowerCase()
+  const isImageAsset = isImageAssetUrl(assetUrl)
+  const isTableAsset = chunkType === "table"
+  const source = result.source
+  let score = 0
+
+  if (chunkType === "image" && isImageAsset) score += 100
+  if (isTableAsset) score += 90
+  if (chunkType === "image" || chunkType === "table") score += 30
+  if (getTrimmedString(source.documentId)) score += 10
+  if (getTrimmedString(source.sourceFileName)) score += 20
+
+  const sectionPath = getTrimmedString(source.sectionPath)
+  if (sectionPath) {
+    score += 30
+    if (!isAssetFilePath(sectionPath)) score += 15
+    score += Math.min(sectionPath.length, 120) / 12
+  }
+
+  return score
 }
 
 async function getCachedSourceAssetUrls(
@@ -204,6 +284,11 @@ function getAssetChunkType(
     return "table"
   }
   return fallback
+}
+
+function isAssetFilePath(value: string): boolean {
+  const normalizedPath = normalizeAssetLookupText(value)
+  return normalizedPath ? /^(images|tables)\//.test(normalizedPath) : false
 }
 
 function resolveAssetReferenceMatches(
@@ -387,6 +472,94 @@ function removeAssetUrlFromAnswer(answer: string, assetUrl: string): string {
     )
     .replace(new RegExp(`<\\s*${escapedAssetUrl}\\s*>`, "g"), "")
     .replace(new RegExp(escapedAssetUrl, "g"), "")
+}
+
+function removeInternalMetadataJsonBlocks(answer: string): string {
+  let output = ""
+  let index = 0
+
+  while (index < answer.length) {
+    if (answer[index] !== "{") {
+      output += answer[index]
+      index += 1
+      continue
+    }
+
+    const objectEndIndex = findJsonObjectEndIndex(answer, index)
+    if (objectEndIndex === null) {
+      output += answer[index]
+      index += 1
+      continue
+    }
+
+    const objectText = answer.slice(index, objectEndIndex + 1)
+    if (isInternalMetadataJsonObject(objectText)) {
+      index = objectEndIndex + 1
+      continue
+    }
+
+    output += objectText
+    index = objectEndIndex + 1
+  }
+
+  return output
+}
+
+function findJsonObjectEndIndex(value: string, startIndex: number): number | null {
+  let depth = 0
+  let isInsideString = false
+  let isEscaped = false
+
+  for (let index = startIndex; index < value.length; index += 1) {
+    const char = value[index]
+    if (isInsideString) {
+      if (isEscaped) {
+        isEscaped = false
+        continue
+      }
+      if (char === "\\") {
+        isEscaped = true
+        continue
+      }
+      if (char === "\"") {
+        isInsideString = false
+      }
+      continue
+    }
+
+    if (char === "\"") {
+      isInsideString = true
+      continue
+    }
+    if (char === "{") {
+      depth += 1
+      continue
+    }
+    if (char === "}") {
+      depth -= 1
+      if (depth === 0) return index
+    }
+  }
+
+  return null
+}
+
+function isInternalMetadataJsonObject(value: string): boolean {
+  try {
+    return hasInternalMetadataKey(JSON.parse(value))
+  } catch {
+    return false
+  }
+}
+
+function hasInternalMetadataKey(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false
+  if (Array.isArray(value)) return value.some(hasInternalMetadataKey)
+
+  return Object.entries(value).some(
+    ([key, nestedValue]): boolean =>
+      internalMetadataKeys.has(key) || hasInternalMetadataKey(nestedValue),
+  )
 }
 
 function cleanSanitizedAnswer(answer: string): string {

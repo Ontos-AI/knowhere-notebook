@@ -10,14 +10,21 @@ describe("sourceRouteUploadRequest", () => {
     })
     formData.set("file", file)
 
-    await expect(
-      sourceRouteUploadRequest.read(
-        new Request("http://localhost/api/sources", {
-          method: "POST",
-          body: formData,
-        }),
-      ),
-    ).resolves.toEqual({ type: "file", file })
+    const result = await sourceRouteUploadRequest.read(
+      new Request("http://localhost/api/sources", {
+        method: "POST",
+        body: formData,
+      }),
+    )
+
+    expect(result.type).toBe("file")
+    if (result.type !== "file") {
+      throw new Error("Expected multipart upload request to return a file.")
+    }
+    expect(result.file.name).toBe("notes.pdf")
+    expect(result.file.type).toBe("application/pdf")
+    expect(result.file.size).toBe(5)
+    await expect(result.file.text()).resolves.toBe("hello")
   })
 
   it("reads Blob-backed Source Upload handoff bodies", async () => {

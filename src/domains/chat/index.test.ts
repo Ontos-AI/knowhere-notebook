@@ -87,6 +87,7 @@ describe("answerQuestionWithRetrieval", () => {
       query: "What does the document say?",
       topK: 8,
       useAgentic: true,
+      dataType: 1,
       excludeDocumentIds: ["doc_excluded"],
     });
     expect(generateAnswer).toHaveBeenCalledWith({
@@ -140,8 +141,7 @@ describe("answerQuestionWithRetrieval", () => {
     const generateAnswer = vi.fn(async ({ searchSources }) => {
       await searchSources({
         query: "冯荣洲 身份证 ID card",
-        intent: "image",
-        dataType: 3,
+        targetContent: "image",
       });
       return "Matched identity card image.";
     });
@@ -319,9 +319,8 @@ describe("answerQuestionWithRetrieval", () => {
     const generateAnswer = vi.fn(async ({ searchSources }) => {
       await searchSources({
         query: "SpaceX rocket photos",
-        intent: "image",
+        targetContent: "image",
         purpose: "Find visual rocket launch chunks.",
-        priority: 5,
       });
       return "Use this launch photo. https://blob.example/images/image-9-Night%20Rocket%20Launch.jpg";
     });
@@ -395,7 +394,10 @@ describe("answerQuestionWithRetrieval", () => {
       }),
     };
     const generateAnswer = vi.fn(async ({ searchSources }) => {
-      await searchSources({ query: "公民身份证明 图片", dataType: 3 });
+      await searchSources({
+        query: "公民身份证明 图片",
+        targetContent: "image",
+      });
       return "这里是相关身份证明图片。";
     });
     const loadSourceAssetUrls = vi.fn().mockResolvedValue({
@@ -449,6 +451,132 @@ describe("answerQuestionWithRetrieval", () => {
       "image",
       "image",
     ]);
+  });
+
+  it("sends requested identity-card images without exposing internal media metadata", async () => {
+    const frontAssetUrl = "https://blob.example/images/feng-rongzhou-id-front.jpg";
+    const backAssetUrl = "https://blob.example/images/feng-rongzhou-id-back.jpg";
+    const textResult = makeRetrievalResult({
+      content: "冯荣洲的法定代表人身份证明页包含居民身份证图片。",
+      source: {
+        documentId: "doc_identity",
+        sourceFileName: "document-generated.pdf",
+        sectionPath: "二、法定代表人身份证明",
+      },
+    });
+    const duplicateFrontResult = {
+      ...makeRetrievalResult({
+        chunkType: "image",
+        content: "冯荣洲居民身份证正面图片。",
+        assetUrl: frontAssetUrl,
+        source: {
+          documentId: "doc_identity",
+          sourceFileName: "document-generated.pdf",
+          sectionPath: "images/feng-rongzhou-id-front.jpg",
+        },
+      }),
+      chunkId: "chunk_front_direct",
+    } as RetrievalResult & { readonly chunkId: string };
+    const richerDuplicateFrontResult = {
+      ...makeRetrievalResult({
+        chunkType: "image",
+        content: "冯荣洲居民身份证正面图片，来源于身份证明章节。",
+        assetUrl: frontAssetUrl,
+        source: {
+          documentId: "doc_identity",
+          sourceFileName: "document-generated.pdf",
+          sectionPath: "二、法定代表人身份证明 / 身份证正面",
+        },
+      }),
+      chunkId: "chunk_front_richer",
+    } as RetrievalResult & { readonly chunkId: string };
+    const backResult = {
+      ...makeRetrievalResult({
+        chunkType: "image",
+        content: "冯荣洲居民身份证反面图片。",
+        assetUrl: backAssetUrl,
+        source: {
+          documentId: "doc_identity",
+          sourceFileName: "document-generated.pdf",
+          sectionPath: "二、法定代表人身份证明 / 身份证反面",
+        },
+      }),
+      chunkId: "chunk_back",
+    } as RetrievalResult & { readonly chunkId: string };
+    const retrieval = {
+      query: vi.fn().mockResolvedValue({
+        results: [
+          textResult,
+          duplicateFrontResult,
+          richerDuplicateFrontResult,
+          backResult,
+        ],
+        evidenceText: "冯荣洲 身份证 图片",
+        referencedChunks: [],
+        namespace: "notebook-workspace",
+        query: "冯荣洲 身份证 图片",
+        routerUsed: "workflow_single_step",
+        answerText: null,
+      }),
+    };
+    const generateAnswer = vi.fn(async ({ searchSources }) => {
+      await searchSources({
+        query: "冯荣洲 身份证 图片",
+        targetContent: "image",
+        purpose: "查找冯荣洲的身份证图片。",
+      });
+      return [
+        "已找到冯荣洲的身份证图片。[商务标文件.pdf / 二、法定代表人身份证明]",
+        `{"asset_id":"asset_front","assetUrl":"${frontAssetUrl}","chunkId":"chunk_front_direct"}`,
+      ].join("\n");
+    });
+    const sources = [
+      makeSource({
+        id: "source_identity",
+        title: "商务标文件.pdf",
+        knowhereDocumentId: "doc_identity",
+      }),
+    ];
+
+    const answer = await Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "请将 冯荣洲 的身份证图片发给我",
+        namespace: "notebook-workspace",
+        sources,
+        excludedSourceIds: [],
+        retrieval,
+        generateAnswer,
+        messages: [],
+      }),
+    );
+
+    expect(retrieval.query).toHaveBeenCalledWith({
+      namespace: "notebook-workspace",
+      query: "冯荣洲 身份证 图片",
+      topK: 8,
+      useAgentic: true,
+      dataType: 3,
+    });
+    expect(answer.answer).toBe(
+      "已找到冯荣洲的身份证图片。[商务标文件.pdf / 二、法定代表人身份证明]",
+    );
+    expect(answer.answer).not.toMatch(
+      /asset_id|assetUrl|asset_url|chunkId|chunk_id|https?:\/\//,
+    );
+    expect(answer.citations.map((citation) => citation.assetUrl)).toEqual([
+      undefined,
+      frontAssetUrl,
+      backAssetUrl,
+    ]);
+    expect(
+      answer.citations.filter(
+        (citation) => citation.assetUrl === frontAssetUrl,
+      ),
+    ).toHaveLength(1);
+    expect(answer.citations[1]?.source).toMatchObject({
+      sourceFileName: "商务标文件.pdf",
+      sectionPath: "二、法定代表人身份证明 / 身份证正面",
+    });
   });
 
   it("returns the agent answer without citations when retrieval has no results", async () => {
@@ -532,6 +660,7 @@ describe("answerQuestionWithRetrieval", () => {
       query: "Tesla Q4 2025 Update energy generation and storage deployments",
       topK: 8,
       useAgentic: true,
+      dataType: 1,
     });
     expect(generateAnswer).toHaveBeenCalledWith({
       question: "What about energy storage in this document?",
@@ -588,6 +717,7 @@ describe("answerQuestionWithRetrieval", () => {
       query: "Tesla energy storage deployments",
       topK: 8,
       useAgentic: true,
+      dataType: 1,
     });
     expect(JSON.stringify(queryInput)).not.toContain(
       "do-not-append-this-history-to-query",
@@ -688,7 +818,10 @@ describe("answerQuestionWithRetrieval", () => {
       }),
     };
     const generateAnswer = vi.fn(async ({ searchSources }) => {
-      await searchSources({ query: "SpaceX launch image", dataType: 3 });
+      await searchSources({
+        query: "SpaceX launch image",
+        targetContent: "image",
+      });
       return "Here is the launch image.";
     });
 
@@ -844,9 +977,8 @@ describe("generateAgenticGroundedAnswer", () => {
       query: "公民身份证 图片",
       routerUsed: "workflow_single_step",
       retrievalPlan: {
-        intent: "image",
+        targetContent: "image",
         purpose: "Find identity-card image evidence.",
-        priority: 5,
       },
       chunkReferences: [
         {
@@ -922,10 +1054,9 @@ describe("generateAgenticGroundedAnswer", () => {
     const settings = getCapturedAgentSettings(agent);
     const generateInput = getCapturedGenerateInput(capturedGenerateInput);
 
-    expect(settings.instructions).toContain("RetrievalQueryResponse")
-    expect(settings.instructions).toContain("L0/L1 retrieval")
-    expect(settings.instructions).toContain("typed retrieval plan")
-    expect(settings.instructions).toContain("dataType=3")
+    expect(settings.instructions).toContain("markdown output gives guidance")
+    expect(settings.instructions).toContain("image or text+image search")
+    expect(settings.instructions).toContain("Read IDs")
     expect(settings.instructions).toContain(
       "Do not paste raw prior messages into searchSources.query",
     )
@@ -945,70 +1076,56 @@ describe("generateAgenticGroundedAnswer", () => {
 
     const searchSourcesTool = getCapturedAgentTools(agent).searchSources
     expect(
-      getSearchSourcesDataTypeSchema(searchSourcesTool)._def?.innerType?._def
-        ?.type,
-    ).toBe("number")
+      getSearchSourcesTargetContentSchema(searchSourcesTool)._def?.innerType
+        ?._def?.type,
+    ).toBe("enum")
     expect(
       searchSourcesTool.inputSchema.safeParse({
         query: "公民身份证 图片",
-        dataType: 3,
+        targetContent: "image",
       }).success,
     ).toBe(true)
     expect(
       searchSourcesTool.inputSchema.safeParse({
         query: "公民身份证 图片",
-        dataType: 7,
+        targetContent: "video",
       }).success,
     ).toBe(false)
 
     const toolOutput = await searchSourcesTool.execute({
       query: "公民身份证 图片",
-      intent: "image",
+      targetContent: "image",
       purpose: "Find identity-card image evidence.",
-      priority: 5,
-      dataType: 3,
     });
 
     expect(searchSources).toHaveBeenCalledWith({
       query: "公民身份证 图片",
-      intent: "image",
+      targetContent: "image",
       purpose: "Find identity-card image evidence.",
-      priority: 5,
-      dataType: 3,
     });
-    expect(toolOutput).toMatchObject({
-      query: "公民身份证 图片",
-      retrievalPlan: {
-        intent: "image",
-        purpose: "Find identity-card image evidence.",
-        priority: 5,
-      },
-      routerUsed: "workflow_single_step",
-      stopReason: "answer_done",
-      failureReason: null,
-      answerText:
-        "The source includes identity card images. [media asset URL hidden]",
-      resultCount: 1,
-      referencedChunkCount: 1,
-      hasEvidenceText: true,
-      results: [
-        expect.objectContaining({
-          chunkType: "image",
-          hasAssetUrl: true,
-          content: "Identity card image front side.",
-        }),
-      ],
-      referencedChunks: [
-        expect.objectContaining({
-          chunkId: "chunk_identity_1",
-          chunkType: "image",
-          filePath: "images/id-front.jpg",
-          hasAssetUrl: true,
-        }),
-      ],
-      agentGuidance: expect.stringContaining("Use this evidence"),
+    expect(toolOutput).toEqual(expect.any(String));
+    expect(toolOutput).toContain("## Retrieval Result");
+    expect(toolOutput).toContain("Status: useful_evidence_found");
+    expect(toolOutput).toContain("Guidance: Use this evidence");
+    expect(toolOutput).toContain("## Evidence");
+    expect(toolOutput).toContain("### Result 1");
+    expect(toolOutput).toContain("Type: image");
+    expect(toolOutput).toContain(
+      "Source: document-generated.pdf / Assets / images / id-front.jpg",
+    );
+    expect(toolOutput).toContain("Media: image available");
+    expect(toolOutput).toContain("Read ID: chunk_identity_1");
+    expect(toolOutput).toContain("Identity card image front side.");
+    expect(toolOutput).not.toContain("https://blob.example");
+    expect(toolOutput).not.toContain("assetUrl");
+    expect(toolOutput).not.toContain("retrievalPlan");
+    expect(toolOutput).not.toContain("decisionTrace");
+    expect(getLoggerInfoMeta("chat-agent: tool output")).toMatchObject({
+      toolName: "searchSources",
+      output: expect.objectContaining({
+        preview: expect.stringContaining("## Retrieval Result"),
+      }),
     });
-    expect(JSON.stringify(toolOutput)).not.toContain("https://blob.example");
 
     const chunkOutput = await getCapturedAgentTools(agent).readRetrievedChunk.execute({
       id: "chunk_identity_1",
@@ -1021,13 +1138,24 @@ describe("generateAgenticGroundedAnswer", () => {
       offset: 0,
       limit: 80,
     });
-    expect(chunkOutput).toMatchObject({
-      id: "chunk_identity_1",
-      found: true,
-      contentSlice: "Full identity card text. [media asset URL hidden]",
-      hasMoreContent: false,
+    expect(chunkOutput).toEqual(expect.any(String));
+    expect(chunkOutput).toContain("## Retrieved Content");
+    expect(chunkOutput).toContain("Status: found");
+    expect(chunkOutput).toContain("Read ID: chunk_identity_1");
+    expect(chunkOutput).toContain(
+      "Source: document-generated.pdf / Assets / images / id-front.jpg",
+    );
+    expect(chunkOutput).toContain(
+      "Full identity card text. [media asset URL hidden]",
+    );
+    expect(chunkOutput).not.toContain("https://blob.example");
+    expect(chunkOutput).not.toContain("chunkId");
+    expect(getLoggerInfoMeta("chat-agent: tool output")).toMatchObject({
+      toolName: "readRetrievedChunk",
+      output: expect.objectContaining({
+        preview: expect.stringContaining("## Retrieved Content"),
+      }),
     });
-    expect(JSON.stringify(chunkOutput)).not.toContain("https://blob.example");
   });
 
   it("uses managed context for stored history and loop steps", async () => {
@@ -1134,7 +1262,7 @@ describe("generateAgenticGroundedAnswer", () => {
             purpose: `Find the matching identity card image. ${"input ".repeat(
               300,
             )}`,
-            dataType: 3,
+            targetContent: "image",
           },
         },
       ],
@@ -1142,28 +1270,28 @@ describe("generateAgenticGroundedAnswer", () => {
         {
           toolName: "searchSources",
           toolCallId: "call_1",
-          output: {
-            query: "冯荣洲 身份证 ID card",
-            routerUsed: "workflow_single_step",
-            resultCount: 6,
-            referencedChunkCount: 2,
-            readableChunkCount: 6,
-            evidenceText: `Image evidence https://blob.example/id-front.jpg ${"evidence ".repeat(
+          output: [
+            "## Retrieval Result",
+            "",
+            "Status: useful_evidence_found",
+            "Query: 冯荣洲 身份证 ID card",
+            "Guidance: Use this evidence if it directly answers the user.",
+            "",
+            "## Evidence",
+            `Image evidence https://blob.example/id-front.jpg ${"evidence ".repeat(
               600,
             )}`,
-            results: [
-              {
-                chunkType: "image",
-                content: `Identity image content ${"result ".repeat(80)}`,
-              },
-            ],
-            referencedChunks: [
-              {
-                chunkType: "image",
-                sectionPath: `Assets / identity card ${"reference ".repeat(80)}`,
-              },
-            ],
-          },
+            "",
+            "## Results",
+            "### Result 1",
+            "Type: image",
+            "Source: 商务标文件.pdf / 二、法定代表人身份证明",
+            "Media: image available",
+            "Read ID: chunk_identity_1",
+            "",
+            "Preview:",
+            `Identity image content ${"result ".repeat(80)}`,
+          ].join("\n"),
         },
       ],
       usage: {
@@ -1190,28 +1318,19 @@ describe("generateAgenticGroundedAnswer", () => {
     expect(stepLog.toolCalls[0]?.input.truncated).toBe(true);
     expect(stepLog.toolResults[0]?.output).toMatchObject({
       kind: "searchSources",
-      query: "冯荣洲 身份证 ID card",
-      resultCount: 6,
-      results: [
-        {
-          chunkType: "image",
-        },
-      ],
-      referencedChunks: [
-        {
-          chunkType: "image",
-        },
-      ],
+      output: {
+        truncated: true,
+      },
     });
     const searchSourcesOutput = stepLog.toolResults[0]
       ?.output as SearchSourcesToolOutputLogMeta;
-    expect(searchSourcesOutput.evidenceText.length).toBeLessThanOrEqual(203);
-    expect(searchSourcesOutput.results[0]?.content.length).toBeLessThanOrEqual(
-      103,
+    expect(searchSourcesOutput.output.preview).toContain("## Retrieval Result");
+    expect(searchSourcesOutput.output.preview).toContain(
+      "Query: 冯荣洲 身份证 ID card",
     );
-    expect(
-      searchSourcesOutput.referencedChunks[0]?.summary.length,
-    ).toBeLessThanOrEqual(103);
+    expect(searchSourcesOutput.output.preview).toContain(
+      "[media asset URL hidden]",
+    );
     expect(JSON.stringify(stepMeta)).not.toContain("https://blob.example");
 
     settings.onFinish({
@@ -1231,7 +1350,7 @@ describe("generateAgenticGroundedAnswer", () => {
             {
               toolName: "searchSources",
               toolCallId: "call_1",
-              output: { evidenceText: "Matched image evidence." },
+              output: "## Evidence\nMatched image evidence.",
             },
           ],
         },
@@ -1290,6 +1409,7 @@ describe("buildGroundedPrompt", () => {
     });
 
     expect(prompt).toContain("Answer in a natural, friendly, and direct tone.");
+    expect(prompt).toContain("Use GitHub-flavored Markdown when it improves readability");
     expect(prompt).toContain("Start with the answer first.");
     expect(prompt).toContain("Avoid meta phrases like \"Based on the sources\"");
     expect(prompt).toContain("Keep answers concise by default");
@@ -1315,6 +1435,8 @@ describe("buildGroundedPrompt", () => {
     expect(prompt).toContain(
       "Do not write raw media asset URLs in the answer. They are internal metadata only.",
     );
+    expect(prompt).toContain("Never output JSON metadata blocks");
+    expect(prompt).toContain("Never mention asset_id, assetUrl");
     expect(prompt).toContain("https://blob.example/images/launch.jpg");
   });
 });
@@ -1329,16 +1451,19 @@ describe("buildAgenticChatSystemPrompt", () => {
 
     expect(prompt).toContain("Always call searchSources")
     expect(prompt).toContain("readRetrievedChunk")
-    expect(prompt).toContain("L0/L1 retrieval")
-    expect(prompt).toContain("typed retrieval plan")
-    expect(prompt).toContain("evidenceText")
-    expect(prompt).toContain("failureReason")
-    expect(prompt).toContain("decisionTrace")
-    expect(prompt).toContain("remote source index")
+    expect(prompt).toContain("markdown output gives guidance")
+    expect(prompt).toContain("Read IDs")
+    expect(prompt).toContain("image or text+image search")
+    expect(prompt).toContain("remote index")
     expect(prompt).toContain("person or section but not an image asset")
     expect(prompt).toContain("Do not paste raw prior messages")
     expect(prompt).toContain("身份证")
-    expect(prompt).toContain("For image requests use intent=image")
+    expect(prompt).toContain("For image requests, search visual content directly")
+    expect(prompt).toContain("Never output JSON metadata blocks")
+    expect(prompt).toContain("Use GitHub-flavored Markdown when it improves readability")
+    expect(prompt).not.toContain("targetContent maps")
+    expect(prompt).not.toContain("Read the tool output fields")
+    expect(prompt).not.toContain("intent=overview")
     expect(prompt).toContain("商务标文件.pdf")
   });
 });
@@ -1509,13 +1634,7 @@ type AgentLoopStepLogMeta = {
 
 type SearchSourcesToolOutputLogMeta = {
   readonly kind: "searchSources"
-  readonly evidenceText: string
-  readonly results: readonly {
-    readonly content: string
-  }[]
-  readonly referencedChunks: readonly {
-    readonly summary: string
-  }[]
+  readonly output: AgentLoopLogPreviewMeta
 }
 
 type AgentLoopLogPreviewMeta = {
@@ -1560,7 +1679,7 @@ function getCapturedAgentTools(agent: ToolLoopAgent): CapturedAgentTools {
   return agent.tools as unknown as CapturedAgentTools
 }
 
-function getSearchSourcesDataTypeSchema(
+function getSearchSourcesTargetContentSchema(
   tool: CapturedAgentTools["searchSources"],
 ): CapturedZodSchema {
   const shape = tool.inputSchema._def?.shape
@@ -1569,12 +1688,12 @@ function getSearchSourcesDataTypeSchema(
     throw new Error("searchSources input schema should expose fields.")
   }
 
-  const dataTypeSchema = fields.dataType
-  if (!dataTypeSchema) {
-    throw new Error("searchSources input schema should include dataType.")
+  const targetContentSchema = fields.targetContent
+  if (!targetContentSchema) {
+    throw new Error("searchSources input schema should include targetContent.")
   }
 
-  return dataTypeSchema
+  return targetContentSchema
 }
 
 function getLoggerInfoMeta(message: string): Record<string, unknown> {

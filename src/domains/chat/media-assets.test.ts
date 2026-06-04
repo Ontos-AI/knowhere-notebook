@@ -89,6 +89,51 @@ describe("chat media assets", () => {
     ])
   })
 
+  it("deduplicates media citation assets globally by asset URL", async () => {
+    const assetUrl = "https://blob.example/images/id-front.jpg"
+
+    const results = await enrichRetrievalResultsWithAssetUrls({
+      results: [
+        makeRetrievalResult({
+          chunkType: "image",
+          assetUrl,
+          source: {
+            documentId: "doc_identity",
+            sourceFileName: "商务标文件.pdf",
+            sectionPath: "images/id-front.jpg",
+          },
+        }),
+        makeRetrievalResult({
+          chunkType: "image",
+          assetUrl,
+          source: {
+            documentId: "doc_identity",
+            sourceFileName: "商务标文件.pdf",
+            sectionPath: "二、法定代表人身份证明 / 身份证正面",
+          },
+        }),
+        makeRetrievalResult({
+          chunkType: "image",
+          assetUrl: "https://blob.example/images/id-back.jpg",
+          source: {
+            documentId: "doc_identity",
+            sourceFileName: "商务标文件.pdf",
+            sectionPath: "二、法定代表人身份证明 / 身份证反面",
+          },
+        }),
+      ],
+      sources: [],
+    })
+
+    expect(results.map((result) => result.assetUrl)).toEqual([
+      assetUrl,
+      "https://blob.example/images/id-back.jpg",
+    ])
+    expect(results[0]?.source.sectionPath).toBe(
+      "二、法定代表人身份证明 / 身份证正面",
+    )
+  })
+
   it("formats a bounded media asset context for the grounded prompt", () => {
     const context = formatRetrievedMediaAssetContext([
       makeRetrievalResult({
@@ -132,6 +177,33 @@ describe("chat media assets", () => {
       "Use this launch photo. Open image It is from the filing.",
     )
     expect(answer).not.toContain("https://blob.example")
+  })
+
+  it("removes internal media JSON blocks from generated answer text", () => {
+    const answer = removeRetrievedMediaAssetUrls(
+      [
+        "这里是相关身份证图片。",
+        "{\"asset_id\":\"asset_front\",\"assetUrl\":\"https://blob.example/images/id-front.jpg\",\"chunk_id\":\"chunk_front\"}",
+      ].join("\n"),
+      [
+        makeRetrievalResult({
+          chunkType: "image",
+          assetUrl: "https://blob.example/images/id-front.jpg",
+        }),
+      ],
+    )
+
+    expect(answer).toBe("这里是相关身份证图片。")
+    expect(answer).not.toMatch(/asset_id|assetUrl|chunk_id|https?:\/\//)
+  })
+
+  it("preserves ordinary JSON answers that do not expose internal metadata", () => {
+    const answer = removeRetrievedMediaAssetUrls(
+      "{\"name\":\"冯荣洲\",\"status\":\"matched\"}",
+      [],
+    )
+
+    expect(answer).toBe("{\"name\":\"冯荣洲\",\"status\":\"matched\"}")
   })
 })
 

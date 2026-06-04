@@ -10,7 +10,7 @@ import {
 import { Effect } from "effect"
 import type {
   RetrievalQueryResponse,
-  RetrievalReferencedChunk,
+  RetrievalSource,
 } from "@ontos-ai/knowhere-sdk"
 import { z } from "zod"
 
@@ -48,8 +48,6 @@ const TOOL_CHUNK_READ_LIMIT_MAX = 4_000
 const AGENT_LOOP_TOOL_INPUT_LOG_LIMIT = 1_200
 const AGENT_LOOP_TOOL_OUTPUT_LOG_LIMIT = 2_400
 const AGENT_LOOP_TOOL_LOG_ENTRY_LIMIT = 4
-const KNOWHERE_TOOL_TEXT_LOG_LIMIT = 200
-const KNOWHERE_TOOL_CHUNK_LOG_LIMIT = 100
 const RAW_URL_PATTERN = /https?:\/\/[^\s)\]}>"']+/g
 const REDACTED_MEDIA_URL = "[media asset URL hidden]"
 
@@ -125,40 +123,12 @@ type AgentLoopStepLog = {
 
 type AgentLoopSearchSourcesOutputLog = {
   readonly kind: "searchSources"
-  readonly query: string | null
-  readonly routerUsed: string | null
-  readonly stopReason: string | null
-  readonly failureReason: string | null
-  readonly resultCount: number | null
-  readonly referencedChunkCount: number | null
-  readonly readableChunkCount: number | null
-  readonly answerText: string | null
-  readonly evidenceText: string
-  readonly results: readonly AgentLoopChunkContentLog[]
-  readonly referencedChunks: readonly AgentLoopChunkSummaryLog[]
-  readonly chunkReferences: readonly AgentLoopChunkSummaryLog[]
+  readonly output: AgentLoopLogPreview
 }
 
 type AgentLoopReadChunkOutputLog = {
   readonly kind: "readRetrievedChunk"
-  readonly found: boolean | null
-  readonly chunkType: string | null
-  readonly offset: number | null
-  readonly limit: number | null
-  readonly contentLength: number | null
-  readonly contentSlice: string
-  readonly hasMoreContent: boolean | null
-  readonly nextOffset: number | null
-}
-
-type AgentLoopChunkContentLog = {
-  readonly chunkType: string | null
-  readonly content: string
-}
-
-type AgentLoopChunkSummaryLog = {
-  readonly chunkType: string | null
-  readonly summary: string
+  readonly output: AgentLoopLogPreview
 }
 
 type LlmModelMessageLog = {
@@ -339,11 +309,15 @@ export function buildGroundedPrompt(input: BuildGroundedPromptInput): string {
     "Cite document sections (e.g. [文档名 / 章节名]) when they support a claim.",
     "When retrieved image or table asset references are relevant to the user's request, cite the matching source label; the UI renders media from citation metadata.",
     "Do not write raw media asset URLs in the answer. They are internal metadata only.",
+    "Never output JSON metadata blocks for citations, images, tables, or media.",
+    "Never mention asset_id, assetUrl, raw URLs, chunk ids, request-local ids, or retrieval internals.",
+    "For image requests, answer briefly and let the UI render images from citation metadata.",
     "Do not invent asset URLs; use only the retrieved media asset references listed below.",
     "If the sources are related but incomplete, answer what you can and briefly say what is not covered.",
     "Do not invent document-specific facts that are not in the sources.",
     "Use the recent conversation only to resolve references like \"this document\"; do not use it as factual evidence.",
     "Answer in a natural, friendly, and direct tone.",
+    "Use GitHub-flavored Markdown when it improves readability, such as short lists, tables, or code blocks. Keep simple answers as plain sentences.",
     "Start with the answer first. Avoid meta phrases like \"Based on the sources\" or \"Based on the source excerpts\" unless the user asks how you know.",
     "Use plain language.",
     "Keep answers concise by default: 1-3 short paragraphs unless the user asks for detail.",
@@ -379,38 +353,44 @@ export function buildAgenticChatSystemPrompt(
   const sourceContext = formatSourceContext(input.sources, input.excludedSourceIds)
 
   return [
+    "Role",
     "You are a Notebook research agent that answers user questions from their uploaded sources.",
+    "Use retrieved source evidence as the factual source of truth. Do not invent document-specific facts.",
+    "",
+    "Retrieval strategy",
     "You have two tools: searchSources and readRetrievedChunk.",
-    "searchSources runs Knowhere retrieval and returns a RetrievalQueryResponse summary with compact previews and request-local chunk ids.",
-    "readRetrievedChunk reads more content from a chunk id returned by searchSources in this same answer run.",
-    "Treat each tool result like external context from a remote source index: inspect it, reason over it, then decide whether to retrieve again or read more from a returned chunk.",
-    "Use searchSources like L0/L1 retrieval: compact previews are for quick relevance, navigation, and rerank-style selection. Use readRetrievedChunk like L2 detail: full content slices are loaded only after a returned chunk looks relevant.",
+    "Use searchSources for source discovery. Its markdown output gives guidance, evidence, result previews, and Read IDs.",
+    "Use readRetrievedChunk only when a relevant search result preview is too short and the markdown output shows a Read ID.",
+    "Treat tool output like source notes from a remote index: inspect it, reason over it, then decide whether to answer, search again, or read more.",
     "",
-    "Agent loop rules:",
+    "Tool use rules",
     "1. Always call searchSources before writing a final answer.",
-    "2. Before each searchSources call, choose a typed retrieval plan: intent, purpose, and priority. This is Notebook-side intent analysis for the agent loop.",
-    "3. Use intent=overview for broad discovery, entity for people/organizations, section for located headings/paths, image for visual assets, table for tabular evidence, detail for precise facts, and citation for source verification.",
-    "4. Read the tool output fields: retrievalPlan, evidenceText, answerText, results, referencedChunks, chunkReferences, stopReason, failureReason, and decisionTrace.",
-    "5. Use one response to guide the next query: carry forward discovered people, organizations, document names, section paths, file paths, chunk types, and failure reasons.",
-    "6. If evidenceText/results/referencedChunks directly support the answer, stop searching and answer.",
-    "7. If failureReason is present, result counts are zero, or evidence does not cover the user's requested entity/topic/media, call searchSources again with a more specific or broader query.",
-    "8. For image requests use intent=image and dataType=3 or dataType=5. If an initial text result identifies a relevant person or section but not an image asset, query again with that person/section plus the requested image concept, e.g. identity card / 身份证 / 公民身份证明.",
-    "9. For table requests use intent=table and dataType=4 or dataType=6.",
-    "10. Do not paste raw prior messages into searchSources.query. The query must be concise and contain only distilled search terms such as document title, person, topic, date, section path, or asset kind.",
-    "11. If a returned chunk preview looks relevant but you want more data before answering, call readRetrievedChunk with that chunk id plus offset/limit. If hasMoreContent is true and the next slice is still needed, call readRetrievedChunk again with nextOffset.",
-    "12. Use readRetrievedChunk selectively; do not read every chunk when the previews already answer the question.",
-    "13. Stop after enough evidence or when further searches are unlikely to help; then clearly say what was not found and what retrieval context was missing.",
+    "2. Choose the content target from the user's request: broad questions use broad or text-only search, image requests use image or text+image search, and table requests use table or text+table search.",
+    "3. Do not paste raw prior messages into searchSources.query. The query must be concise and contain only distilled search terms such as document title, person, topic, date, section path, or asset kind.",
+    "4. Use one response to guide the next query: carry forward discovered people, organizations, document names, section paths, file paths, content types, and failure hints.",
+    "5. If the markdown guidance says the evidence is useful and the evidence/results directly support the answer, stop searching and answer.",
+    "6. If results are missing, weak, or do not cover the requested entity/topic/media/table, search again with a broader or more specific query.",
+    "7. Use readRetrievedChunk selectively; do not read every result when the previews already answer the question.",
+    "8. Stop after enough evidence or when further searches are unlikely to help; then clearly say what was not found and what retrieval context was missing.",
     "",
-    "Answering rules:",
-    "Use retrieved evidence as the factual source of truth.",
-    "Do not invent document-specific facts.",
+    "Media/table handling",
+    "For image requests, search visual content directly or combine text and image evidence. If an initial text result identifies a relevant person or section but not an image asset, query again with that person/section plus the requested image concept, e.g. identity card / 身份证 / 公民身份证明.",
+    "For table requests, search table content directly or combine text and table evidence.",
+    "When retrieved image or table assets are relevant, cite the matching source label; the UI renders media from citation metadata.",
+    "Do not invent asset URLs or describe hidden asset metadata.",
+    "",
+    "Final answer contract",
     "Conversation context is supplied as managed model messages. Use it only to resolve references like \"this document\" or \"those images\".",
     "Cite document sections in the answer, e.g. [文档名 / 章节名].",
-    "When retrieved image or table assets are relevant, cite the matching source label; the UI renders media from citation metadata.",
-    "Do not write raw media asset URLs in the answer. They are internal metadata only.",
+    "Use existing [Source N: label] labels only when they are the clearest available citation form.",
+    "Never output JSON metadata blocks for citations, images, tables, or media.",
+    "Never mention asset_id, assetUrl, raw URLs, chunk ids, Read IDs, tool parameters, or retrieval internals.",
+    "For image requests, answer briefly and let the UI render images from citation metadata.",
+    "Do not add unrelated personal details for send/show image requests unless the user asks.",
+    "Use GitHub-flavored Markdown when it improves readability, such as short lists, tables, or code blocks. Keep simple answers as plain sentences.",
     "Start with the answer first. Keep answers concise unless the user asks for detail.",
     "",
-    "Searchable sources:",
+    "Searchable sources",
     sourceContext,
   ].join("\n")
 }
@@ -476,10 +456,9 @@ function buildAgenticChatTools(
     searchSources: tool({
       description:
         "Search the user's Notebook sources through Knowhere retrieval. " +
-        "Treat each response as external context from a remote source index. " +
-        "Use it before answering, include a typed retrieval plan, and call it " +
-        "again with refined text, media, or section-path queries when the " +
-        "RetrievalQueryResponse says evidence is missing or weak.",
+        "It returns markdown source notes with guidance, evidence, previews, " +
+        "and Read IDs for follow-up reads. Use it before answering and call it " +
+        "again with refined text, media, or section-path queries when evidence is missing or weak.",
       inputSchema: z.object({
         query: z
           .string()
@@ -487,19 +466,18 @@ function buildAgenticChatTools(
           .describe(
             "A concise, self-contained retrieval query. Do not paste raw chat history or previous messages. Use only distilled terms such as document title, person, topic, date, section path, or asset kind when needed.",
           ),
-        intent: z
+        targetContent: z
           .enum([
-            "overview",
-            "entity",
-            "section",
+            "all",
+            "text",
             "image",
             "table",
-            "detail",
-            "citation",
+            "text_image",
+            "text_table",
           ])
           .optional()
           .describe(
-            "Typed retrieval intent for the agent loop: overview, entity, section, image, table, detail, or citation. Use image/table for visual or tabular requests.",
+            "The content type to retrieve: all, text, image, table, text_image, or text_table. Omit only when all content types are useful.",
           ),
         purpose: z
           .string()
@@ -509,15 +487,6 @@ function buildAgenticChatTools(
           .describe(
             "Short reason this query is needed, such as finding an entity, locating an image asset, or verifying a citation.",
           ),
-        priority: z
-          .number()
-          .int()
-          .min(1)
-          .max(5)
-          .optional()
-          .describe(
-            "Planner priority from 1-5. Use 5 for required evidence and lower values for exploratory follow-up.",
-          ),
         topK: z
           .number()
           .int()
@@ -525,15 +494,6 @@ function buildAgenticChatTools(
           .max(12)
           .optional()
           .describe("Number of chunks to return. Defaults to 8."),
-        dataType: z
-          .number()
-          .int()
-          .min(1)
-          .max(6)
-          .optional()
-          .describe(
-            "Optional chunk type filter: 1=all, 2=text, 3=image, 4=table, 5=text+image, 6=text+table.",
-          ),
         signalPaths: z
           .array(z.string().min(1))
           .max(8)
@@ -554,20 +514,24 @@ function buildAgenticChatTools(
           .optional()
           .describe("Optional minimum retrieval score threshold."),
       }),
-      execute: async (queryInput: AgenticRetrievalQuery) =>
-        buildRetrievalToolOutput(await input.searchSources(queryInput)),
+      execute: async (queryInput: AgenticRetrievalQuery) => {
+        const output = buildRetrievalToolOutput(
+          await input.searchSources(queryInput),
+        )
+        logToolMarkdownOutput("searchSources", output)
+        return output
+      },
     }),
     readRetrievedChunk: tool({
       description:
-        "Read an offset/limit content slice from a request-local chunk id " +
-        "returned by searchSources. Use this when a returned chunk preview is relevant " +
-        "and you want more data before answering.",
+        "Read an offset/limit content slice from a Read ID shown in searchSources markdown. " +
+        "Use this when a returned result preview is relevant and you want more data before answering.",
       inputSchema: z.object({
         id: z
           .string()
           .min(1)
           .describe(
-            "The request-local id or chunkId from searchSources.results, searchSources.referencedChunks, or searchSources.chunkReferences.",
+            "The Read ID shown in searchSources markdown for a relevant result.",
           ),
         offset: z
           .number()
@@ -585,10 +549,13 @@ function buildAgenticChatTools(
             `Maximum characters to return. Defaults to ${TOOL_CHUNK_READ_LIMIT_DEFAULT}; max ${TOOL_CHUNK_READ_LIMIT_MAX}.`,
           ),
       }),
-      execute: async (readInput: ReadRetrievedChunkInput) =>
-        buildRetrievedChunkToolOutput(
+      execute: async (readInput: ReadRetrievedChunkInput) => {
+        const output = buildRetrievedChunkToolOutput(
           await input.readRetrievedChunk(readInput),
-        ),
+        )
+        logToolMarkdownOutput("readRetrievedChunk", output)
+        return output
+      },
     }),
   } as const
 }
@@ -696,96 +663,18 @@ function formatAgentLoopToolOutput(
   output: unknown,
 ): AgentLoopToolOutputLog {
   if (toolName === "searchSources") {
-    return formatSearchSourcesToolOutput(output)
+    return {
+      kind: "searchSources",
+      output: buildAgentLoopPreview(output, AGENT_LOOP_TOOL_OUTPUT_LOG_LIMIT),
+    }
   }
   if (toolName === "readRetrievedChunk") {
-    return formatReadRetrievedChunkToolOutput(output)
+    return {
+      kind: "readRetrievedChunk",
+      output: buildAgentLoopPreview(output, AGENT_LOOP_TOOL_OUTPUT_LOG_LIMIT),
+    }
   }
   return buildAgentLoopPreview(output, AGENT_LOOP_TOOL_OUTPUT_LOG_LIMIT)
-}
-
-function formatSearchSourcesToolOutput(
-  output: unknown,
-): AgentLoopSearchSourcesOutputLog {
-  const record = getRecordFromUnknown(output)
-  return {
-    kind: "searchSources",
-    query: getRecordString(record, "query"),
-    routerUsed: getRecordString(record, "routerUsed"),
-    stopReason: getRecordString(record, "stopReason"),
-    failureReason: getRecordString(record, "failureReason"),
-    resultCount: getRecordNumber(record, "resultCount"),
-    referencedChunkCount: getRecordNumber(record, "referencedChunkCount"),
-    readableChunkCount: getRecordNumber(record, "readableChunkCount"),
-    answerText: truncateAgentLoopLogTextOrNull(
-      getRecordString(record, "answerText"),
-      KNOWHERE_TOOL_TEXT_LOG_LIMIT,
-    ),
-    evidenceText: truncateAgentLoopLogText(
-      getRecordString(record, "evidenceText") ?? "",
-      KNOWHERE_TOOL_TEXT_LOG_LIMIT,
-    ),
-    results: getRecordArray(record, "results").map(formatToolOutputChunkContent),
-    referencedChunks: getRecordArray(record, "referencedChunks").map(
-      formatToolOutputChunkSummary,
-    ),
-    chunkReferences: getRecordArray(record, "chunkReferences").map(
-      formatToolOutputChunkSummary,
-    ),
-  }
-}
-
-function formatReadRetrievedChunkToolOutput(
-  output: unknown,
-): AgentLoopReadChunkOutputLog {
-  const record = getRecordFromUnknown(output)
-  return {
-    kind: "readRetrievedChunk",
-    found: getRecordBoolean(record, "found"),
-    chunkType: getRecordString(record, "chunkType"),
-    offset: getRecordNumber(record, "offset"),
-    limit: getRecordNumber(record, "limit"),
-    contentLength: getRecordNumber(record, "contentLength"),
-    contentSlice: truncateAgentLoopLogText(
-      getRecordString(record, "contentSlice") ?? "",
-      KNOWHERE_TOOL_CHUNK_LOG_LIMIT,
-    ),
-    hasMoreContent: getRecordBoolean(record, "hasMoreContent"),
-    nextOffset: getRecordNumber(record, "nextOffset"),
-  }
-}
-
-function formatToolOutputChunkContent(
-  value: unknown,
-): AgentLoopChunkContentLog {
-  const record = getRecordFromUnknown(value)
-  return {
-    chunkType: getRecordString(record, "chunkType"),
-    content: truncateAgentLoopLogText(
-      getFirstRecordString(record, ["content", "contentPreview"]),
-      KNOWHERE_TOOL_CHUNK_LOG_LIMIT,
-    ),
-  }
-}
-
-function formatToolOutputChunkSummary(
-  value: unknown,
-): AgentLoopChunkSummaryLog {
-  const record = getRecordFromUnknown(value)
-  const source = getRecordFromUnknown(record?.source)
-  return {
-    chunkType: getRecordString(record, "chunkType"),
-    summary: truncateAgentLoopLogText(
-      getFirstRecordString(record, [
-        "summary",
-        "sectionPath",
-        "filePath",
-        "content",
-        "contentPreview",
-      ]) || getRecordString(source, "sectionPath") || "",
-      KNOWHERE_TOOL_CHUNK_LOG_LIMIT,
-    ),
-  }
 }
 
 function getOmittedAgentLoopEntryCount(entries: readonly unknown[]): number {
@@ -878,19 +767,6 @@ function createAgentLoopLogJsonReplacer(): (
   }
 }
 
-function truncateAgentLoopLogText(value: string, limit: number): string {
-  const normalized = redactRawUrls(value).replace(/\s+/g, " ").trim()
-  if (normalized.length <= limit) return normalized
-  return `${normalized.slice(0, limit)}...`
-}
-
-function truncateAgentLoopLogTextOrNull(
-  value: string | null,
-  limit: number,
-): string | null {
-  return value === null ? null : truncateAgentLoopLogText(value, limit)
-}
-
 function getRecordFromUnknown(
   value: unknown,
 ): Readonly<Record<string, unknown>> | null {
@@ -914,14 +790,6 @@ function getRecordNumber(
   return typeof value === "number" ? value : null
 }
 
-function getRecordBoolean(
-  record: Readonly<Record<string, unknown>> | null,
-  key: string,
-): boolean | null {
-  const value = record?.[key]
-  return typeof value === "boolean" ? value : null
-}
-
 function getRecordArray(
   record: Readonly<Record<string, unknown>> | null,
   key: string,
@@ -936,14 +804,6 @@ function getFirstRecordValue(
 ): unknown {
   const matchingKey = keys.find((key): boolean => record?.[key] !== undefined)
   return matchingKey ? record?.[matchingKey] : undefined
-}
-
-function getFirstRecordString(
-  record: Readonly<Record<string, unknown>> | null,
-  keys: readonly string[],
-): string {
-  const value = getFirstRecordValue(record, keys)
-  return typeof value === "string" ? value : ""
 }
 
 function buildAgenticChatMessages(
@@ -1061,131 +921,163 @@ function getUnknownTextLength(value: unknown): number {
   return JSON.stringify(value).length
 }
 
-function buildRetrievalToolOutput(response: AgenticRetrievalResponse): object {
-  return {
-    namespace: response.namespace,
-    query: response.query,
-    retrievalPlan: response.retrievalPlan ?? null,
-    routerUsed: response.routerUsed,
-    stopReason: response.stopReason ?? null,
-    failureReason: response.failureReason ?? null,
-    answerText: response.answerText
-      ? redactRawUrls(response.answerText)
-      : response.answerText,
-    resultCount: response.results.length,
-    referencedChunkCount: response.referencedChunks.length,
-    readableChunkCount: response.chunkReferences.length,
-    hasEvidenceText: Boolean(response.evidenceText?.trim()),
-    evidenceText: truncateSafeContextTextToLimit(
-      response.evidenceText ?? "",
-      TOOL_EVIDENCE_CHAR_LIMIT,
-    ),
-    results: response.chunkReferences
-      .filter((reference): boolean => reference.kind === "result")
-      .map(formatToolResultReference),
-    referencedChunks: response.referencedChunks.map(formatToolReferencedChunk),
-    chunkReferences: response.chunkReferences.map(formatToolChunkReference),
-    decisionTrace:
-      response.decisionTrace
-        ?.slice(-6)
-        .map((trace) => redactRawUrlsFromUnknown(trace)) ?? [],
-    agentGuidance: getRetrievalResponseGuidance(response),
-  }
+function buildRetrievalToolOutput(response: AgenticRetrievalResponse): string {
+  const resultReferences = response.chunkReferences.filter(
+    (reference): boolean => reference.kind === "result",
+  )
+  const relatedReferences = response.chunkReferences.filter(
+    (reference): boolean => reference.kind === "referencedChunk",
+  )
+  const lines = [
+    "## Retrieval Result",
+    "",
+    `Status: ${getRetrievalResponseStatus(response)}`,
+    `Query: ${redactRawUrls(response.query)}`,
+    `Guidance: ${getRetrievalResponseGuidance(response)}`,
+    "",
+    "## Summary",
+    formatOptionalMarkdownText(response.answerText, "No answer summary returned."),
+    "",
+    "## Evidence",
+    formatOptionalMarkdownText(response.evidenceText, "No evidence text returned."),
+    "",
+    "## Results",
+    ...formatResultReferencesMarkdown(resultReferences),
+    "",
+    "## Related Sources",
+    ...formatRelatedReferencesMarkdown(relatedReferences),
+  ]
+
+  return lines.join("\n")
 }
 
-function formatToolResultReference(reference: RetrievedChunkReference): object {
-  return {
-    id: reference.id,
-    chunkId: reference.chunkId,
-    resultIndex: reference.resultIndex,
-    chunkType: reference.chunkType,
-    score: reference.score,
-    hasAssetUrl: reference.hasAssetUrl,
-    contentLength: reference.contentLength,
-    contentTruncated: reference.contentTruncated,
-    source: {
-      documentId: reference.source.documentId ?? null,
-      sourceFileName: reference.source.sourceFileName
-        ? redactRawUrls(reference.source.sourceFileName)
-        : null,
-      sectionPath: reference.source.sectionPath
-        ? redactRawUrls(reference.source.sectionPath)
-        : null,
-    },
-    contentPreview: truncateSafeContextTextToLimit(
-      reference.contentPreview,
-      TOOL_RESULT_CONTENT_CHAR_LIMIT,
+function formatResultReferencesMarkdown(
+  references: readonly RetrievedChunkReference[],
+): readonly string[] {
+  if (references.length === 0) return ["- No direct results returned."]
+
+  return references.flatMap((reference, index): readonly string[] => [
+    `### Result ${reference.resultIndex ?? index + 1}`,
+    `Type: ${reference.chunkType}`,
+    `Source: ${formatToolSourceLabel(reference.source)}`,
+    `Media: ${formatMediaAvailability(reference)}`,
+    `Read ID: ${reference.id}`,
+    `More content available: ${reference.contentTruncated ? "yes" : "no"}`,
+    "",
+    "Preview:",
+    formatMarkdownCodeBlock(
+      truncateSafeContextTextToLimit(
+        reference.contentPreview,
+        TOOL_RESULT_CONTENT_CHAR_LIMIT,
+      ) || "No preview text returned.",
     ),
-    content: truncateSafeContextTextToLimit(
-      reference.contentPreview,
-      TOOL_RESULT_CONTENT_CHAR_LIMIT,
-    ),
-  }
+    "",
+  ])
 }
 
-function formatToolReferencedChunk(chunk: RetrievalReferencedChunk): object {
-  return {
-    id: chunk.chunkId,
-    chunkId: chunk.chunkId,
-    documentId: chunk.documentId,
-    chunkType: chunk.chunkType,
-    sectionPath: redactRawUrls(chunk.sectionPath),
-    filePath: chunk.filePath ? redactRawUrls(chunk.filePath) : null,
-    hasAssetUrl: Boolean(chunk.assetUrl),
-  }
-}
+function formatRelatedReferencesMarkdown(
+  references: readonly RetrievedChunkReference[],
+): readonly string[] {
+  if (references.length === 0) return ["- No related sources returned."]
 
-function formatToolChunkReference(reference: RetrievedChunkReference): object {
-  return {
-    id: reference.id,
-    chunkId: reference.chunkId,
-    kind: reference.kind,
-    resultIndex: reference.resultIndex,
-    chunkType: reference.chunkType,
-    score: reference.score,
-    hasAssetUrl: reference.hasAssetUrl,
-    contentLength: reference.contentLength,
-    contentTruncated: reference.contentTruncated,
-    source: {
-      documentId: reference.source.documentId ?? null,
-      sourceFileName: reference.source.sourceFileName
-        ? redactRawUrls(reference.source.sourceFileName)
-        : null,
-      sectionPath: reference.source.sectionPath
-        ? redactRawUrls(reference.source.sectionPath)
-        : null,
-    },
-  }
+  return references.flatMap((reference, index): readonly string[] => [
+    `### Related Source ${index + 1}`,
+    `Type: ${reference.chunkType}`,
+    `Source: ${formatToolSourceLabel(reference.source)}`,
+    `Media: ${formatMediaAvailability(reference)}`,
+    "",
+  ])
 }
 
 function buildRetrievedChunkToolOutput(
   result: ReadRetrievedChunkResult,
-): object {
-  return {
-    id: result.id,
-    chunkId: result.chunkId,
-    found: result.found,
-    chunkType: result.chunkType,
-    score: result.score,
-    source: result.source
-      ? {
-          documentId: result.source.documentId ?? null,
-          sourceFileName: result.source.sourceFileName
-            ? redactRawUrls(result.source.sourceFileName)
-            : null,
-          sectionPath: result.source.sectionPath
-            ? redactRawUrls(result.source.sectionPath)
-            : null,
-        }
-      : null,
-    hasAssetUrl: result.hasAssetUrl,
-    offset: result.offset,
-    limit: result.limit,
-    contentLength: result.contentLength,
-    contentSlice: redactRawUrls(result.contentSlice),
-    hasMoreContent: result.hasMoreContent,
-    nextOffset: result.nextOffset,
+): string {
+  if (!result.found) {
+    return [
+      "## Retrieved Content",
+      "",
+      "Status: not_found",
+      `Read ID: ${result.id}`,
+      "Guidance: The requested Read ID was not found. Search again or use a Read ID shown in the latest retrieval result.",
+    ].join("\n")
   }
+
+  return [
+    "## Retrieved Content",
+    "",
+    "Status: found",
+    `Read ID: ${result.id}`,
+    `Type: ${result.chunkType ?? "unknown"}`,
+    `Source: ${result.source ? formatToolSourceLabel(result.source) : "Unknown source"}`,
+    `Media: ${result.hasAssetUrl ? "available" : "none"}`,
+    `Returned range: ${result.offset}-${result.offset + result.contentSlice.length} of ${result.contentLength} characters`,
+    `More content available: ${result.hasMoreContent ? "yes" : "no"}`,
+    ...(result.nextOffset === null ? [] : [`Next offset: ${result.nextOffset}`]),
+    "",
+    "## Content",
+    formatMarkdownCodeBlock(redactRawUrls(result.contentSlice)),
+  ].join("\n")
+}
+
+function getRetrievalResponseStatus(
+  response: RetrievalQueryResponse,
+):
+  | "useful_evidence_found"
+  | "needs_refinement"
+  | "needs_review"
+  | "no_results" {
+  const hasEvidence = Boolean(response.evidenceText?.trim())
+  const hasResults =
+    response.results.length > 0 || response.referencedChunks.length > 0
+
+  if (response.failureReason) return "needs_refinement"
+  if (!hasEvidence && !hasResults) return "no_results"
+  if (response.stopReason && response.stopReason !== "answer_done") {
+    return "needs_review"
+  }
+  return "useful_evidence_found"
+}
+
+function formatOptionalMarkdownText(
+  value: string | null | undefined,
+  fallback: string,
+): string {
+  const normalized = truncateSafeContextTextToLimit(
+    value ?? "",
+    TOOL_EVIDENCE_CHAR_LIMIT,
+  )
+  return formatMarkdownCodeBlock(normalized || fallback)
+}
+
+function formatMarkdownCodeBlock(value: string): string {
+  return ["```text", value.replaceAll("```", "'''"), "```"].join("\n")
+}
+
+function formatToolSourceLabel(source: RetrievalSource): string {
+  const label = [
+    source.sourceFileName ? redactRawUrls(source.sourceFileName) : null,
+    source.sectionPath ? redactRawUrls(source.sectionPath) : null,
+  ]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .join(" / ")
+
+  return label || "Unknown source"
+}
+
+function formatMediaAvailability(reference: RetrievedChunkReference): string {
+  if (!reference.hasAssetUrl) return "none"
+
+  const chunkType = reference.chunkType.toLowerCase()
+  if (chunkType === "image") return "image available"
+  if (chunkType === "table") return "table available"
+  return "media available"
+}
+
+function logToolMarkdownOutput(toolName: string, output: string): void {
+  logger.info("chat-agent: tool output", {
+    toolName,
+    output: buildAgentLoopPreview(output, AGENT_LOOP_TOOL_OUTPUT_LOG_LIMIT),
+  })
 }
 
 function getRetrievalResponseGuidance(
@@ -1204,7 +1096,7 @@ function getRetrievalResponseGuidance(
   if (!hasEvidence && !hasResults) {
     return (
       "No useful evidence was returned. Try a broader query, a different wording, " +
-      "or a media/table dataType filter if the user asked for images or tables."
+      "or an image/table-focused content target if the user asked for images or tables."
     )
   }
   if (response.stopReason && response.stopReason !== "answer_done") {

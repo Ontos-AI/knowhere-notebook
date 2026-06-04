@@ -15,6 +15,7 @@ import {
 import type {
   AgenticRetrievalQuery,
   AgenticRetrievalPlan,
+  AgenticRetrievalTargetContent,
   AgenticRetrievalResponse,
   AnswerQuestionInput,
   AnswerQuestionResult,
@@ -41,6 +42,16 @@ const KNOWHERE_CHUNK_LOG_LIMIT = 100
 const NO_RESULTS_ANSWER = "I couldn't find that in your sources."
 const RAW_URL_PATTERN = /https?:\/\/[^\s)\]}>"']+/g
 const REDACTED_MEDIA_URL = "[media asset URL hidden]"
+const RETRIEVAL_TARGET_CONTENT_DATA_TYPES: Readonly<
+  Record<AgenticRetrievalTargetContent, RetrievalDataType>
+> = {
+  all: 1,
+  text: 2,
+  image: 3,
+  table: 4,
+  text_image: 5,
+  text_table: 6,
+} as const
 
 type RetrievalDataType = NonNullable<RetrievalQueryParams["dataType"]>
 
@@ -139,9 +150,8 @@ export const answerQuestionWithRetrieval = (
         signalPathCount: retrievalQueryParams.signalPaths?.length ?? 0,
         filterMode: retrievalQueryParams.filterMode ?? null,
         threshold: retrievalQueryParams.threshold ?? null,
-        intent: retrievalPlan.intent,
+        targetContent: retrievalPlan.targetContent,
         purpose: retrievalPlan.purpose,
-        priority: retrievalPlan.priority,
       })
 
       try {
@@ -162,8 +172,7 @@ export const answerQuestionWithRetrieval = (
           ).length,
           stopReason: response.stopReason ?? null,
           failureReason: response.failureReason ?? null,
-          intent: retrievalPlan.intent,
-          priority: retrievalPlan.priority,
+          targetContent: retrievalPlan.targetContent,
         })
         logger.info("chat-agent: knowhere query response", {
           durationMs: Date.now() - startedAt,
@@ -175,8 +184,7 @@ export const answerQuestionWithRetrieval = (
           query: retrievalQueryParams.query,
           durationMs: Date.now() - startedAt,
           error: error instanceof Error ? error.message : String(error),
-          intent: retrievalPlan.intent,
-          priority: retrievalPlan.priority,
+          targetContent: retrievalPlan.targetContent,
         })
         throw error
       }
@@ -308,13 +316,13 @@ function buildRetrievalQueryParams(input: {
     input.input.query,
     input.fallbackQuestion,
   )
-  const dataType = normalizeRetrievalDataType(input.input)
+  const dataType = normalizeRetrievalDataType(input.input.targetContent)
   return {
     namespace: input.namespace,
     query,
     topK: normalizeTopK(input.input.topK),
     useAgentic: true,
-    ...(dataType ? { dataType } : {}),
+    dataType,
     ...(input.input.signalPaths && input.input.signalPaths.length > 0
       ? { signalPaths: input.input.signalPaths }
       : {}),
@@ -330,9 +338,8 @@ function toAgenticRetrievalPlan(
   input: AgenticRetrievalQuery,
 ): AgenticRetrievalPlan {
   return {
-    intent: input.intent ?? null,
+    targetContent: normalizeRetrievalTargetContent(input.targetContent),
     purpose: normalizeRetrievalPurpose(input.purpose),
-    priority: normalizeRetrievalPriority(input.priority),
   }
 }
 
@@ -342,27 +349,18 @@ function normalizeRetrievalPurpose(value: string | undefined): string | null {
   return normalized.slice(0, 240)
 }
 
-function normalizeRetrievalPriority(value: number | undefined): number | null {
-  if (typeof value !== "number" || !Number.isSafeInteger(value)) return null
-  return Math.min(Math.max(value, 1), 5)
-}
-
 function normalizeRetrievalDataType(
-  input: AgenticRetrievalQuery,
-): RetrievalQueryParams["dataType"] | undefined {
-  if (isRetrievalDataType(input.dataType)) return input.dataType
-  if (input.intent === "image") return 3
-  if (input.intent === "table") return 4
-  return undefined
+  targetContent: AgenticRetrievalTargetContent | undefined,
+): RetrievalDataType {
+  return RETRIEVAL_TARGET_CONTENT_DATA_TYPES[
+    normalizeRetrievalTargetContent(targetContent)
+  ]
 }
 
-function isRetrievalDataType(value: unknown): value is RetrievalDataType {
-  return (
-    typeof value === "number" &&
-    Number.isSafeInteger(value) &&
-    value >= 1 &&
-    value <= 6
-  )
+function normalizeRetrievalTargetContent(
+  value: AgenticRetrievalTargetContent | undefined,
+): AgenticRetrievalTargetContent {
+  return value ?? "all"
 }
 
 function createRetrievedChunkContext(): {
