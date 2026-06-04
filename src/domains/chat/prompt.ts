@@ -45,6 +45,11 @@ const TOOL_EVIDENCE_CHAR_LIMIT = 6_000
 const TOOL_RESULT_CONTENT_CHAR_LIMIT = 700
 const TOOL_CHUNK_READ_LIMIT_DEFAULT = 2_000
 const TOOL_CHUNK_READ_LIMIT_MAX = 4_000
+const AGENT_LOOP_TOOL_INPUT_LOG_LIMIT = 1_200
+const AGENT_LOOP_TOOL_OUTPUT_LOG_LIMIT = 2_400
+const AGENT_LOOP_TOOL_LOG_ENTRY_LIMIT = 4
+const KNOWHERE_TOOL_TEXT_LOG_LIMIT = 200
+const KNOWHERE_TOOL_CHUNK_LOG_LIMIT = 100
 const RAW_URL_PATTERN = /https?:\/\/[^\s)\]}>"']+/g
 const REDACTED_MEDIA_URL = "[media asset URL hidden]"
 
@@ -82,6 +87,91 @@ type GenerateAgenticGroundedAnswerInput = {
 
 type AgenticChatTools = ReturnType<typeof buildAgenticChatTools>
 
+type AgentLoopLogPreview = {
+  readonly charLength: number
+  readonly truncated: boolean
+  readonly preview: string
+}
+
+type AgentLoopToolCallLog = {
+  readonly toolName: string
+  readonly toolCallId: string | null
+  readonly input: AgentLoopLogPreview
+}
+
+type AgentLoopToolOutputLog =
+  | AgentLoopLogPreview
+  | AgentLoopSearchSourcesOutputLog
+  | AgentLoopReadChunkOutputLog
+
+type AgentLoopToolResultLog = {
+  readonly toolName: string
+  readonly toolCallId: string | null
+  readonly output: AgentLoopToolOutputLog
+}
+
+type AgentLoopStepLog = {
+  readonly stepNumber: number
+  readonly finishReason: string | null
+  readonly responseText: string
+  readonly responseTextCharLength: number
+  readonly toolCallCount: number
+  readonly toolCalls: readonly AgentLoopToolCallLog[]
+  readonly toolCallsOmitted: number
+  readonly toolResultCount: number
+  readonly toolResults: readonly AgentLoopToolResultLog[]
+  readonly toolResultsOmitted: number
+}
+
+type AgentLoopSearchSourcesOutputLog = {
+  readonly kind: "searchSources"
+  readonly query: string | null
+  readonly routerUsed: string | null
+  readonly stopReason: string | null
+  readonly failureReason: string | null
+  readonly resultCount: number | null
+  readonly referencedChunkCount: number | null
+  readonly readableChunkCount: number | null
+  readonly answerText: string | null
+  readonly evidenceText: string
+  readonly results: readonly AgentLoopChunkContentLog[]
+  readonly referencedChunks: readonly AgentLoopChunkSummaryLog[]
+  readonly chunkReferences: readonly AgentLoopChunkSummaryLog[]
+}
+
+type AgentLoopReadChunkOutputLog = {
+  readonly kind: "readRetrievedChunk"
+  readonly found: boolean | null
+  readonly chunkType: string | null
+  readonly offset: number | null
+  readonly limit: number | null
+  readonly contentLength: number | null
+  readonly contentSlice: string
+  readonly hasMoreContent: boolean | null
+  readonly nextOffset: number | null
+}
+
+type AgentLoopChunkContentLog = {
+  readonly chunkType: string | null
+  readonly content: string
+}
+
+type AgentLoopChunkSummaryLog = {
+  readonly chunkType: string | null
+  readonly summary: string
+}
+
+type LlmModelMessageLog = {
+  readonly role: string
+  readonly contentCharLength: number
+  readonly content: unknown
+}
+
+type GenerateLoggedTextInput = {
+  readonly operation: string
+  readonly prompt: string
+}
+
 export const generateContextualRetrievalQueryEffect = (
   input: GenerateContextualRetrievalQueryInput,
 ): Effect.Effect<string, unknown> =>
@@ -98,15 +188,16 @@ export const generateContextualRetrievalQueryEffect = (
       )
     }
 
+    const prompt = buildRetrievalQueryPrompt({
+      question,
+      messages: input.messages,
+      sources: input.sources,
+      excludedSourceIds: input.excludedSourceIds,
+    })
     const response = yield* Effect.tryPromise(() =>
-      generateText({
-        model: CHAT_MODEL,
-        prompt: buildRetrievalQueryPrompt({
-          question,
-          messages: input.messages,
-          sources: input.sources,
-          excludedSourceIds: input.excludedSourceIds,
-        }),
+      generateLoggedText({
+        operation: "generateContextualRetrievalQuery",
+        prompt,
       }),
     )
     return normalizeRetrievalQuery(response.text, question)
@@ -133,8 +224,8 @@ export const generateGroundedAnswerEffect = (
     }
 
     const response = yield* Effect.tryPromise(() =>
-      generateText({
-        model: CHAT_MODEL,
+      generateLoggedText({
+        operation: "generateGroundedAnswer",
         prompt: buildGroundedPrompt(input),
       }),
     )
@@ -162,11 +253,24 @@ export const generateAgenticGroundedAnswerEffect = (
     }
 
     const agent = buildAgenticChatAgent(input)
-    const response = yield* Effect.tryPromise(() =>
-      agent.generate({
-        messages: buildAgenticChatMessages(input),
-      }),
-    )
+    const messages = buildAgenticChatMessages(input)
+    logger.info("chat-agent: llm request", {
+      operation: "generateAgenticGroundedAnswer.initial",
+      model: CHAT_MODEL,
+      promptType: "messages",
+      messageCount: messages.length,
+      messages: formatModelMessagesForLlmLog(messages),
+    })
+    const response = yield* Effect.tryPromise(async () => {
+      const generationResponse = await agent.generate({ messages })
+      logger.info("chat-agent: llm response", {
+        operation: "generateAgenticGroundedAnswer.final",
+        model: CHAT_MODEL,
+        responseTextCharLength: generationResponse.text.length,
+        responseText: redactRawUrls(generationResponse.text),
+      })
+      return generationResponse
+    })
     return response.text.trim()
   })
 
@@ -174,6 +278,29 @@ export async function generateAgenticGroundedAnswer(
   input: GenerateAgenticGroundedAnswerInput,
 ): Promise<string> {
   return Effect.runPromise(generateAgenticGroundedAnswerEffect(input))
+}
+
+async function generateLoggedText(
+  input: GenerateLoggedTextInput,
+): Promise<Awaited<ReturnType<typeof generateText>>> {
+  logger.info("chat-agent: llm request", {
+    operation: input.operation,
+    model: CHAT_MODEL,
+    promptType: "text",
+    promptCharLength: input.prompt.length,
+    prompt: redactRawUrls(input.prompt),
+  })
+  const response = await generateText({
+    model: CHAT_MODEL,
+    prompt: input.prompt,
+  })
+  logger.info("chat-agent: llm response", {
+    operation: input.operation,
+    model: CHAT_MODEL,
+    responseTextCharLength: response.text.length,
+    responseText: redactRawUrls(response.text),
+  })
+  return response
 }
 
 export function buildRetrievalQueryPrompt(
@@ -291,19 +418,27 @@ export function buildAgenticChatSystemPrompt(
 function buildAgenticChatAgent(
   input: GenerateAgenticGroundedAnswerInput,
 ): ToolLoopAgent<never, AgenticChatTools> {
+  const instructions = buildAgenticChatSystemPrompt(input)
   return new ToolLoopAgent({
     model: CHAT_MODEL,
-    instructions: buildAgenticChatSystemPrompt(input),
+    instructions,
     tools: buildAgenticChatTools(input),
     stopWhen: stepCountIs(AGENTIC_SEARCH_STEP_LIMIT),
-    prepareStep: buildAgenticPrepareStep(),
+    prepareStep: buildAgenticPrepareStep(instructions),
     onStepFinish: (event) => {
-      logger.info("chat-agent: loop step finished", {
+      logger.info("chat-agent: llm response", {
+        operation: "generateAgenticGroundedAnswer.step",
+        model: CHAT_MODEL,
         stepNumber: event.stepNumber,
         finishReason: event.finishReason,
-        textLength: event.text.length,
-        toolCalls: event.toolCalls.map((toolCall) => toolCall.toolName),
+        responseTextCharLength: event.text.length,
+        responseText: redactRawUrls(event.text),
+        toolCallCount: event.toolCalls.length,
+        toolCalls: formatAgentLoopToolCalls(event.toolCalls),
+        toolCallsOmitted: getOmittedAgentLoopEntryCount(event.toolCalls),
         toolResultCount: event.toolResults.length,
+        toolResults: formatAgentLoopToolResults(event.toolResults),
+        toolResultsOmitted: getOmittedAgentLoopEntryCount(event.toolResults),
         inputTokens: event.usage.inputTokens,
         outputTokens: event.usage.outputTokens,
         totalTokens: event.usage.totalTokens,
@@ -313,9 +448,15 @@ function buildAgenticChatAgent(
       logger.info("chat-agent: loop finished", {
         stepCount: event.steps.length,
         finishReason: event.finishReason,
-        textLength: event.text.length,
-        toolCalls: event.steps.flatMap((step) =>
-          step.toolCalls.map((toolCall) => toolCall.toolName),
+        responseTextCharLength: event.text.length,
+        responseText: redactRawUrls(event.text),
+        steps: event.steps.map(formatAgentLoopStep),
+        toolNames: Array.from(
+          new Set(
+            event.steps.flatMap((step) =>
+              step.toolCalls.map((toolCall) => toolCall.toolName),
+            ),
+          ),
         ),
         inputTokens: event.totalUsage.inputTokens,
         outputTokens: event.totalUsage.outputTokens,
@@ -452,11 +593,13 @@ function buildAgenticChatTools(
   } as const
 }
 
-function buildAgenticPrepareStep(): PrepareStepFunction<AgenticChatTools> {
+function buildAgenticPrepareStep(
+  instructions: string,
+): PrepareStepFunction<AgenticChatTools> {
   return ({ stepNumber, messages }) => {
     const managedMessages = buildAgentStepMessages(messages)
     if (stepNumber === 0) {
-      return {
+      const stepInput = {
         messages: managedMessages,
         toolChoice: {
           type: "tool" as const,
@@ -464,10 +607,343 @@ function buildAgenticPrepareStep(): PrepareStepFunction<AgenticChatTools> {
         },
         activeTools: ["searchSources" as const],
       }
+      logAgentStepLlmRequest({
+        stepNumber,
+        instructions,
+        messages: managedMessages,
+        toolChoice: stepInput.toolChoice,
+        activeTools: stepInput.activeTools,
+      })
+      return stepInput
     }
 
+    logAgentStepLlmRequest({
+      stepNumber,
+      instructions,
+      messages: managedMessages,
+      toolChoice: null,
+      activeTools: null,
+    })
     return { messages: managedMessages }
   }
+}
+
+function formatAgentLoopStep(step: unknown, index: number): AgentLoopStepLog {
+  const record = getRecordFromUnknown(step)
+  const toolCalls = getRecordArray(record, "toolCalls")
+  const toolResults = getRecordArray(record, "toolResults")
+  const responseText = getRecordString(record, "text") ?? ""
+  return {
+    stepNumber:
+      getRecordNumber(record, "stepNumber") ??
+      getRecordNumber(record, "stepIndex") ??
+      index + 1,
+    finishReason: getRecordString(record, "finishReason"),
+    responseText: redactRawUrls(responseText),
+    responseTextCharLength: responseText.length,
+    toolCallCount: toolCalls.length,
+    toolCalls: formatAgentLoopToolCalls(toolCalls),
+    toolCallsOmitted: getOmittedAgentLoopEntryCount(toolCalls),
+    toolResultCount: toolResults.length,
+    toolResults: formatAgentLoopToolResults(toolResults),
+    toolResultsOmitted: getOmittedAgentLoopEntryCount(toolResults),
+  }
+}
+
+function formatAgentLoopToolCalls(
+  toolCalls: readonly unknown[],
+): readonly AgentLoopToolCallLog[] {
+  return toolCalls
+    .slice(0, AGENT_LOOP_TOOL_LOG_ENTRY_LIMIT)
+    .map(formatAgentLoopToolCall)
+}
+
+function formatAgentLoopToolCall(toolCall: unknown): AgentLoopToolCallLog {
+  const record = getRecordFromUnknown(toolCall)
+  return {
+    toolName: getRecordString(record, "toolName") ?? "unknown",
+    toolCallId: getRecordString(record, "toolCallId"),
+    input: buildAgentLoopPreview(
+      getFirstRecordValue(record, ["input", "args", "arguments"]),
+      AGENT_LOOP_TOOL_INPUT_LOG_LIMIT,
+    ),
+  }
+}
+
+function formatAgentLoopToolResults(
+  toolResults: readonly unknown[],
+): readonly AgentLoopToolResultLog[] {
+  return toolResults
+    .slice(0, AGENT_LOOP_TOOL_LOG_ENTRY_LIMIT)
+    .map(formatAgentLoopToolResult)
+}
+
+function formatAgentLoopToolResult(toolResult: unknown): AgentLoopToolResultLog {
+  const record = getRecordFromUnknown(toolResult)
+  const toolName = getRecordString(record, "toolName") ?? "unknown"
+  return {
+    toolName,
+    toolCallId: getRecordString(record, "toolCallId"),
+    output: formatAgentLoopToolOutput(
+      toolName,
+      getFirstRecordValue(record, ["output", "result", "content"]),
+    ),
+  }
+}
+
+function formatAgentLoopToolOutput(
+  toolName: string,
+  output: unknown,
+): AgentLoopToolOutputLog {
+  if (toolName === "searchSources") {
+    return formatSearchSourcesToolOutput(output)
+  }
+  if (toolName === "readRetrievedChunk") {
+    return formatReadRetrievedChunkToolOutput(output)
+  }
+  return buildAgentLoopPreview(output, AGENT_LOOP_TOOL_OUTPUT_LOG_LIMIT)
+}
+
+function formatSearchSourcesToolOutput(
+  output: unknown,
+): AgentLoopSearchSourcesOutputLog {
+  const record = getRecordFromUnknown(output)
+  return {
+    kind: "searchSources",
+    query: getRecordString(record, "query"),
+    routerUsed: getRecordString(record, "routerUsed"),
+    stopReason: getRecordString(record, "stopReason"),
+    failureReason: getRecordString(record, "failureReason"),
+    resultCount: getRecordNumber(record, "resultCount"),
+    referencedChunkCount: getRecordNumber(record, "referencedChunkCount"),
+    readableChunkCount: getRecordNumber(record, "readableChunkCount"),
+    answerText: truncateAgentLoopLogTextOrNull(
+      getRecordString(record, "answerText"),
+      KNOWHERE_TOOL_TEXT_LOG_LIMIT,
+    ),
+    evidenceText: truncateAgentLoopLogText(
+      getRecordString(record, "evidenceText") ?? "",
+      KNOWHERE_TOOL_TEXT_LOG_LIMIT,
+    ),
+    results: getRecordArray(record, "results").map(formatToolOutputChunkContent),
+    referencedChunks: getRecordArray(record, "referencedChunks").map(
+      formatToolOutputChunkSummary,
+    ),
+    chunkReferences: getRecordArray(record, "chunkReferences").map(
+      formatToolOutputChunkSummary,
+    ),
+  }
+}
+
+function formatReadRetrievedChunkToolOutput(
+  output: unknown,
+): AgentLoopReadChunkOutputLog {
+  const record = getRecordFromUnknown(output)
+  return {
+    kind: "readRetrievedChunk",
+    found: getRecordBoolean(record, "found"),
+    chunkType: getRecordString(record, "chunkType"),
+    offset: getRecordNumber(record, "offset"),
+    limit: getRecordNumber(record, "limit"),
+    contentLength: getRecordNumber(record, "contentLength"),
+    contentSlice: truncateAgentLoopLogText(
+      getRecordString(record, "contentSlice") ?? "",
+      KNOWHERE_TOOL_CHUNK_LOG_LIMIT,
+    ),
+    hasMoreContent: getRecordBoolean(record, "hasMoreContent"),
+    nextOffset: getRecordNumber(record, "nextOffset"),
+  }
+}
+
+function formatToolOutputChunkContent(
+  value: unknown,
+): AgentLoopChunkContentLog {
+  const record = getRecordFromUnknown(value)
+  return {
+    chunkType: getRecordString(record, "chunkType"),
+    content: truncateAgentLoopLogText(
+      getFirstRecordString(record, ["content", "contentPreview"]),
+      KNOWHERE_TOOL_CHUNK_LOG_LIMIT,
+    ),
+  }
+}
+
+function formatToolOutputChunkSummary(
+  value: unknown,
+): AgentLoopChunkSummaryLog {
+  const record = getRecordFromUnknown(value)
+  const source = getRecordFromUnknown(record?.source)
+  return {
+    chunkType: getRecordString(record, "chunkType"),
+    summary: truncateAgentLoopLogText(
+      getFirstRecordString(record, [
+        "summary",
+        "sectionPath",
+        "filePath",
+        "content",
+        "contentPreview",
+      ]) || getRecordString(source, "sectionPath") || "",
+      KNOWHERE_TOOL_CHUNK_LOG_LIMIT,
+    ),
+  }
+}
+
+function getOmittedAgentLoopEntryCount(entries: readonly unknown[]): number {
+  return Math.max(0, entries.length - AGENT_LOOP_TOOL_LOG_ENTRY_LIMIT)
+}
+
+function logAgentStepLlmRequest(input: {
+  readonly stepNumber: number
+  readonly instructions: string
+  readonly messages: readonly ModelMessage[]
+  readonly toolChoice: unknown
+  readonly activeTools: readonly string[] | null
+}): void {
+  logger.info("chat-agent: llm request", {
+    operation: "generateAgenticGroundedAnswer.step",
+    model: CHAT_MODEL,
+    promptType: "messages",
+    stepNumber: input.stepNumber,
+    instructionsCharLength: input.instructions.length,
+    instructions: redactRawUrls(input.instructions),
+    messageCount: input.messages.length,
+    messages: formatModelMessagesForLlmLog(input.messages),
+    toolChoice: input.toolChoice,
+    activeTools: input.activeTools,
+  })
+}
+
+function formatModelMessagesForLlmLog(
+  messages: readonly ModelMessage[],
+): readonly LlmModelMessageLog[] {
+  return messages.map(formatModelMessageForLlmLog)
+}
+
+function formatModelMessageForLlmLog(message: ModelMessage): LlmModelMessageLog {
+  return {
+    role: message.role,
+    contentCharLength: getUnknownTextLength(message.content),
+    content: redactRawUrlsFromUnknown(message.content),
+  }
+}
+
+function buildAgentLoopPreview(
+  value: unknown,
+  limit: number,
+): AgentLoopLogPreview {
+  const normalized = redactRawUrls(stringifyAgentLoopLogValue(value))
+    .replace(/\s+/g, " ")
+    .trim()
+  const truncated = normalized.length > limit
+  return {
+    charLength: normalized.length,
+    truncated,
+    preview: truncated ? `${normalized.slice(0, limit)}...` : normalized,
+  }
+}
+
+function stringifyAgentLoopLogValue(value: unknown): string {
+  if (typeof value === "string") return value
+  if (value === undefined) return "undefined"
+  if (typeof value === "function") {
+    return `[Function ${value.name || "anonymous"}]`
+  }
+  if (typeof value === "symbol") return value.toString()
+
+  const json = JSON.stringify(value, createAgentLoopLogJsonReplacer())
+  return json ?? String(value)
+}
+
+function createAgentLoopLogJsonReplacer(): (
+  key: string,
+  value: unknown,
+) => unknown {
+  const seenObjects = new WeakSet<object>()
+  return (_key: string, value: unknown): unknown => {
+    if (typeof value === "bigint") return value.toString()
+    if (typeof value === "function") {
+      return `[Function ${value.name || "anonymous"}]`
+    }
+    if (typeof value === "symbol") return value.toString()
+    if (value instanceof Error) {
+      return {
+        name: value.name,
+        message: value.message,
+      }
+    }
+    if (!value || typeof value !== "object") return value
+    if (seenObjects.has(value)) return "[Circular]"
+    seenObjects.add(value)
+    return value
+  }
+}
+
+function truncateAgentLoopLogText(value: string, limit: number): string {
+  const normalized = redactRawUrls(value).replace(/\s+/g, " ").trim()
+  if (normalized.length <= limit) return normalized
+  return `${normalized.slice(0, limit)}...`
+}
+
+function truncateAgentLoopLogTextOrNull(
+  value: string | null,
+  limit: number,
+): string | null {
+  return value === null ? null : truncateAgentLoopLogText(value, limit)
+}
+
+function getRecordFromUnknown(
+  value: unknown,
+): Readonly<Record<string, unknown>> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null
+  return value as Readonly<Record<string, unknown>>
+}
+
+function getRecordString(
+  record: Readonly<Record<string, unknown>> | null,
+  key: string,
+): string | null {
+  const value = record?.[key]
+  return typeof value === "string" ? value : null
+}
+
+function getRecordNumber(
+  record: Readonly<Record<string, unknown>> | null,
+  key: string,
+): number | null {
+  const value = record?.[key]
+  return typeof value === "number" ? value : null
+}
+
+function getRecordBoolean(
+  record: Readonly<Record<string, unknown>> | null,
+  key: string,
+): boolean | null {
+  const value = record?.[key]
+  return typeof value === "boolean" ? value : null
+}
+
+function getRecordArray(
+  record: Readonly<Record<string, unknown>> | null,
+  key: string,
+): readonly unknown[] {
+  const value = record?.[key]
+  return Array.isArray(value) ? value : []
+}
+
+function getFirstRecordValue(
+  record: Readonly<Record<string, unknown>> | null,
+  keys: readonly string[],
+): unknown {
+  const matchingKey = keys.find((key): boolean => record?.[key] !== undefined)
+  return matchingKey ? record?.[matchingKey] : undefined
+}
+
+function getFirstRecordString(
+  record: Readonly<Record<string, unknown>> | null,
+  keys: readonly string[],
+): string {
+  const value = getFirstRecordValue(record, keys)
+  return typeof value === "string" ? value : ""
 }
 
 function buildAgenticChatMessages(

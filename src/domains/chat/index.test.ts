@@ -19,14 +19,31 @@ import type {
   ReadRetrievedChunkInput,
 } from "./contracts"
 
+const loggerMock = vi.hoisted(() => ({
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+}));
+
 vi.mock("ai", async (importOriginal) => ({
   ...(await importOriginal<typeof import("ai")>()),
   generateText: vi.fn(),
 }));
 
+vi.mock("@/lib/logger", () => ({
+  logger: {
+    info: loggerMock.info,
+    warn: loggerMock.warn,
+    error: loggerMock.error,
+  },
+}));
+
 afterEach(() => {
   vi.restoreAllMocks();
   vi.mocked(generateText).mockReset();
+  loggerMock.info.mockReset();
+  loggerMock.warn.mockReset();
+  loggerMock.error.mockReset();
   delete process.env.AI_GATEWAY_API_KEY;
 });
 
@@ -84,6 +101,87 @@ describe("answerQuestionWithRetrieval", () => {
       answer: "The answer is grounded.",
       citations: [result],
     });
+  });
+
+  it("logs bounded Knowhere query response chunks", async () => {
+    const result = makeRetrievalResult({
+      chunkType: "image",
+      content: `Identity card front image https://blob.example/id.jpg ${"content ".repeat(
+        80,
+      )}`,
+    });
+    const retrieval = {
+      query: vi.fn().mockResolvedValue({
+        results: [result],
+        evidenceText: `Evidence https://blob.example/evidence.jpg ${"evidence ".repeat(
+          80,
+        )}`,
+        referencedChunks: [
+          {
+            chunkId: "chunk_identity_1",
+            documentId: "doc_identity",
+            chunkType: "image",
+            sectionPath: `Assets / images / identity card front ${"summary ".repeat(
+              80,
+            )}`,
+            filePath: "images/id-front.jpg",
+            jobId: "job_1",
+            assetUrl: "https://blob.example/id.jpg",
+          },
+        ],
+        namespace: "notebook-workspace",
+        query: "冯荣洲 身份证 ID card",
+        routerUsed: "workflow_single_step",
+        answerText: `Matched identity card image ${"answer ".repeat(80)}`,
+        stopReason: "answer_done",
+        failureReason: null,
+      }),
+    };
+    const generateAnswer = vi.fn(async ({ searchSources }) => {
+      await searchSources({
+        query: "冯荣洲 身份证 ID card",
+        intent: "image",
+        dataType: 3,
+      });
+      return "Matched identity card image.";
+    });
+
+    await Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "请将 冯荣洲 的身份证图片发给我",
+        namespace: "notebook-workspace",
+        sources: [makeSource({ knowhereDocumentId: "doc_identity" })],
+        excludedSourceIds: [],
+        retrieval,
+        generateAnswer,
+        messages: [],
+      }),
+    );
+
+    const meta = getLoggerInfoMeta("chat-agent: knowhere query response");
+    const response = meta.response as KnowhereQueryResponseLogMeta;
+    expect(response).toMatchObject({
+      query: "冯荣洲 身份证 ID card",
+      resultCount: 1,
+      referencedChunkCount: 1,
+      results: [
+        {
+          chunkType: "image",
+        },
+      ],
+      referencedChunks: [
+        {
+          chunkType: "image",
+        },
+      ],
+    });
+    expect(response.answerText.length).toBeLessThanOrEqual(203);
+    expect(response.evidenceText.length).toBeLessThanOrEqual(203);
+    expect(response.results[0]?.content.length).toBeLessThanOrEqual(103);
+    expect(response.referencedChunks[0]?.summary.length).toBeLessThanOrEqual(
+      103,
+    );
+    expect(JSON.stringify(meta)).not.toContain("https://blob.example");
   });
 
   it("attaches citation descriptions from generated source labels", async () => {
@@ -685,6 +783,18 @@ describe("generateGroundedAnswer", () => {
       prompt: expect.stringContaining("PR-E wires chat to Knowhere retrieval."),
     });
     expect(answer).toBe("PR-E wires chat to retrieval.");
+    expect(getLoggerInfoMeta("chat-agent: llm request")).toMatchObject({
+      operation: "generateGroundedAnswer",
+      model: "google/gemini-3-flash",
+      promptType: "text",
+      prompt: expect.stringContaining("PR-E wires chat to Knowhere retrieval."),
+    });
+    expect(getLoggerInfoMeta("chat-agent: llm response")).toMatchObject({
+      operation: "generateGroundedAnswer",
+      model: "google/gemini-3-flash",
+      responseText: "PR-E wires chat to retrieval.",
+      responseTextCharLength: "PR-E wires chat to retrieval.".length,
+    });
   });
 });
 
@@ -973,6 +1083,185 @@ describe("generateAgenticGroundedAnswer", () => {
     expect(preparedStep.messages.length).toBeLessThanOrEqual(12);
     expect(JSON.stringify(preparedStep.messages)).not.toContain("loop-message-0");
     expect(JSON.stringify(preparedStep.messages)).toContain("loop-message-24");
+    expect(getLoggerInfoMeta("chat-agent: llm request")).toMatchObject({
+      operation: "generateAgenticGroundedAnswer.step",
+      model: "google/gemini-3-flash",
+      promptType: "messages",
+      stepNumber: 1,
+      instructions: expect.stringContaining("Notebook research agent"),
+      messageCount: preparedStep.messages.length,
+      messages: expect.arrayContaining([
+        expect.objectContaining({
+          role: "user",
+          content: "loop-message-24",
+        }),
+      ]),
+    });
+  });
+
+  it("logs bounded tool call and tool result previews for each loop step", async () => {
+    process.env.AI_GATEWAY_API_KEY = "test_gateway_key";
+    const generateSpy = vi
+      .spyOn(ToolLoopAgent.prototype, "generate")
+      .mockResolvedValue({
+        text: "The answer is grounded.",
+      } as Awaited<ReturnType<ToolLoopAgent["generate"]>>);
+
+    await generateAgenticGroundedAnswer({
+      question: "请将 冯荣洲 的身份证图片发给我",
+      messages: [],
+      sources: [makeSource()],
+      excludedSourceIds: [],
+      searchSources: vi.fn(),
+      readRetrievedChunk: vi.fn(),
+    });
+
+    const settings = getCapturedAgentSettings(
+      getCapturedAgent(generateSpy.mock.contexts[0]),
+    );
+    loggerMock.info.mockClear();
+
+    settings.onStepFinish({
+      stepNumber: 1,
+      finishReason: "tool-calls",
+      text: `Inspecting identity image candidates. ${"reason ".repeat(200)}`,
+      toolCalls: [
+        {
+          toolName: "searchSources",
+          toolCallId: "call_1",
+          input: {
+            query: "冯荣洲 身份证 ID card",
+            purpose: `Find the matching identity card image. ${"input ".repeat(
+              300,
+            )}`,
+            dataType: 3,
+          },
+        },
+      ],
+      toolResults: [
+        {
+          toolName: "searchSources",
+          toolCallId: "call_1",
+          output: {
+            query: "冯荣洲 身份证 ID card",
+            routerUsed: "workflow_single_step",
+            resultCount: 6,
+            referencedChunkCount: 2,
+            readableChunkCount: 6,
+            evidenceText: `Image evidence https://blob.example/id-front.jpg ${"evidence ".repeat(
+              600,
+            )}`,
+            results: [
+              {
+                chunkType: "image",
+                content: `Identity image content ${"result ".repeat(80)}`,
+              },
+            ],
+            referencedChunks: [
+              {
+                chunkType: "image",
+                sectionPath: `Assets / identity card ${"reference ".repeat(80)}`,
+              },
+            ],
+          },
+        },
+      ],
+      usage: {
+        inputTokens: 11,
+        outputTokens: 22,
+        totalTokens: 33,
+      },
+    });
+
+    const stepMeta = getLoggerInfoMeta("chat-agent: llm response");
+    const stepLog = stepMeta as unknown as AgentLoopStepLogMeta;
+    expect(stepLog).toMatchObject({
+      operation: "generateAgenticGroundedAnswer.step",
+      model: "google/gemini-3-flash",
+      stepNumber: 1,
+      finishReason: "tool-calls",
+      toolCallCount: 1,
+      toolResultCount: 1,
+      inputTokens: 11,
+      outputTokens: 22,
+      totalTokens: 33,
+    });
+    expect(stepLog.responseText).toContain("Inspecting identity image candidates.");
+    expect(stepLog.toolCalls[0]?.input.truncated).toBe(true);
+    expect(stepLog.toolResults[0]?.output).toMatchObject({
+      kind: "searchSources",
+      query: "冯荣洲 身份证 ID card",
+      resultCount: 6,
+      results: [
+        {
+          chunkType: "image",
+        },
+      ],
+      referencedChunks: [
+        {
+          chunkType: "image",
+        },
+      ],
+    });
+    const searchSourcesOutput = stepLog.toolResults[0]
+      ?.output as SearchSourcesToolOutputLogMeta;
+    expect(searchSourcesOutput.evidenceText.length).toBeLessThanOrEqual(203);
+    expect(searchSourcesOutput.results[0]?.content.length).toBeLessThanOrEqual(
+      103,
+    );
+    expect(
+      searchSourcesOutput.referencedChunks[0]?.summary.length,
+    ).toBeLessThanOrEqual(103);
+    expect(JSON.stringify(stepMeta)).not.toContain("https://blob.example");
+
+    settings.onFinish({
+      steps: [
+        {
+          stepNumber: 1,
+          finishReason: "tool-calls",
+          text: "Read tool result.",
+          toolCalls: [
+            {
+              toolName: "searchSources",
+              toolCallId: "call_1",
+              input: { query: "冯荣洲 身份证 ID card" },
+            },
+          ],
+          toolResults: [
+            {
+              toolName: "searchSources",
+              toolCallId: "call_1",
+              output: { evidenceText: "Matched image evidence." },
+            },
+          ],
+        },
+      ],
+      finishReason: "stop",
+      text: "Here is the matched identity card image.",
+      totalUsage: {
+        inputTokens: 40,
+        outputTokens: 20,
+        totalTokens: 60,
+      },
+    });
+
+    const finishMeta = getLoggerInfoMeta("chat-agent: loop finished");
+    expect(finishMeta).toMatchObject({
+      stepCount: 1,
+      finishReason: "stop",
+      responseText: "Here is the matched identity card image.",
+      toolNames: ["searchSources"],
+      steps: [
+        expect.objectContaining({
+          stepNumber: 1,
+          toolCallCount: 1,
+          toolResultCount: 1,
+        }),
+      ],
+      inputTokens: 40,
+      outputTokens: 20,
+      totalTokens: 60,
+    });
   });
 });
 
@@ -1170,6 +1459,8 @@ type CapturedAgentSettings = {
     readonly stepNumber: number
     readonly messages: ModelMessage[]
   }) => unknown
+  readonly onStepFinish: (input: unknown) => void
+  readonly onFinish: (input: unknown) => void
 }
 
 type CapturedAgentTools = {
@@ -1195,6 +1486,57 @@ type CapturedZodSchema = {
     readonly type?: string
     readonly innerType?: CapturedZodSchema
   }
+}
+
+type AgentLoopStepLogMeta = {
+  readonly operation: string
+  readonly model: string
+  readonly stepNumber: number
+  readonly finishReason: string
+  readonly responseText: string
+  readonly toolCallCount: number
+  readonly toolCalls: readonly {
+    readonly input: AgentLoopLogPreviewMeta
+  }[]
+  readonly toolResultCount: number
+  readonly toolResults: readonly {
+    readonly output: SearchSourcesToolOutputLogMeta | AgentLoopLogPreviewMeta
+  }[]
+  readonly inputTokens: number
+  readonly outputTokens: number
+  readonly totalTokens: number
+}
+
+type SearchSourcesToolOutputLogMeta = {
+  readonly kind: "searchSources"
+  readonly evidenceText: string
+  readonly results: readonly {
+    readonly content: string
+  }[]
+  readonly referencedChunks: readonly {
+    readonly summary: string
+  }[]
+}
+
+type AgentLoopLogPreviewMeta = {
+  readonly truncated: boolean
+  readonly preview: string
+}
+
+type KnowhereQueryResponseLogMeta = {
+  readonly query: string
+  readonly resultCount: number
+  readonly referencedChunkCount: number
+  readonly answerText: string
+  readonly evidenceText: string
+  readonly results: readonly {
+    readonly chunkType: string
+    readonly content: string
+  }[]
+  readonly referencedChunks: readonly {
+    readonly chunkType: string
+    readonly summary: string
+  }[]
 }
 
 function getCapturedAgent(agent: unknown): ToolLoopAgent {
@@ -1233,4 +1575,16 @@ function getSearchSourcesDataTypeSchema(
   }
 
   return dataTypeSchema
+}
+
+function getLoggerInfoMeta(message: string): Record<string, unknown> {
+  const calls = loggerMock.info.mock.calls as unknown as readonly (readonly [
+    string,
+    Record<string, unknown> | undefined,
+  ])[]
+  const call = calls.findLast(([currentMessage]) => currentMessage === message)
+  expect(call).toBeDefined()
+  const meta = call?.[1]
+  expect(meta).toBeDefined()
+  return meta ?? {}
 }

@@ -36,7 +36,11 @@ const MAX_AGENTIC_TOP_K = 12
 const MAX_CITATION_RESULTS = 20
 const DEFAULT_CHUNK_READ_LIMIT = 2_000
 const MAX_CHUNK_READ_LIMIT = 4_000
+const KNOWHERE_RESPONSE_TEXT_LOG_LIMIT = 200
+const KNOWHERE_CHUNK_LOG_LIMIT = 100
 const NO_RESULTS_ANSWER = "I couldn't find that in your sources."
+const RAW_URL_PATTERN = /https?:\/\/[^\s)\]}>"']+/g
+const REDACTED_MEDIA_URL = "[media asset URL hidden]"
 
 type RetrievalDataType = NonNullable<RetrievalQueryParams["dataType"]>
 
@@ -50,6 +54,30 @@ type StoredRetrievedChunk = {
   score: number | null
   source: RetrievalSource
   hasAssetUrl: boolean
+}
+
+type KnowhereQueryResponseLog = {
+  readonly namespace: string
+  readonly query: string
+  readonly routerUsed: string | null | undefined
+  readonly stopReason: string | null | undefined
+  readonly failureReason: string | null | undefined
+  readonly resultCount: number
+  readonly referencedChunkCount: number
+  readonly answerText: string
+  readonly evidenceText: string
+  readonly results: readonly KnowhereResultChunkLog[]
+  readonly referencedChunks: readonly KnowhereReferencedChunkLog[]
+}
+
+type KnowhereResultChunkLog = {
+  readonly chunkType: string
+  readonly content: string
+}
+
+type KnowhereReferencedChunkLog = {
+  readonly chunkType: string
+  readonly summary: string
 }
 
 export type {
@@ -137,6 +165,10 @@ export const answerQuestionWithRetrieval = (
           intent: retrievalPlan.intent,
           priority: retrievalPlan.priority,
         })
+        logger.info("chat-agent: knowhere query response", {
+          durationMs: Date.now() - startedAt,
+          response: formatKnowhereQueryResponseForLog(response),
+        })
         return { ...response, chunkReferences, retrievalPlan }
       } catch (error) {
         logger.error("chat-agent: searchSources failed", {
@@ -207,6 +239,63 @@ export const answerQuestionWithRetrieval = (
       citations: toChatCitationViews(results, answer),
     }
   })
+
+function formatKnowhereQueryResponseForLog(
+  response: RetrievalQueryResponse,
+): KnowhereQueryResponseLog {
+  return {
+    namespace: response.namespace,
+    query: response.query,
+    routerUsed: response.routerUsed,
+    stopReason: response.stopReason,
+    failureReason: response.failureReason,
+    resultCount: response.results.length,
+    referencedChunkCount: response.referencedChunks.length,
+    answerText: truncateLogText(
+      response.answerText ?? "",
+      KNOWHERE_RESPONSE_TEXT_LOG_LIMIT,
+    ),
+    evidenceText: truncateLogText(
+      response.evidenceText ?? "",
+      KNOWHERE_RESPONSE_TEXT_LOG_LIMIT,
+    ),
+    results: response.results.map(formatKnowhereResultChunkForLog),
+    referencedChunks: response.referencedChunks.map(
+      formatKnowhereReferencedChunkForLog,
+    ),
+  }
+}
+
+function formatKnowhereResultChunkForLog(
+  result: RetrievalResult,
+): KnowhereResultChunkLog {
+  return {
+    chunkType: result.chunkType,
+    content: truncateLogText(result.content, KNOWHERE_CHUNK_LOG_LIMIT),
+  }
+}
+
+function formatKnowhereReferencedChunkForLog(
+  chunk: RetrievalQueryResponse["referencedChunks"][number],
+): KnowhereReferencedChunkLog {
+  return {
+    chunkType: chunk.chunkType,
+    summary: truncateLogText(
+      chunk.sectionPath || chunk.filePath || chunk.chunkId,
+      KNOWHERE_CHUNK_LOG_LIMIT,
+    ),
+  }
+}
+
+function truncateLogText(value: string, limit: number): string {
+  const normalized = redactRawUrls(value).replace(/\s+/g, " ").trim()
+  if (normalized.length <= limit) return normalized
+  return `${normalized.slice(0, limit)}...`
+}
+
+function redactRawUrls(value: string): string {
+  return value.replace(RAW_URL_PATTERN, REDACTED_MEDIA_URL)
+}
 
 function buildRetrievalQueryParams(input: {
   readonly input: AgenticRetrievalQuery

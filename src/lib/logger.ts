@@ -1,6 +1,7 @@
 import "server-only"
 
 type LogLevel = "info" | "warn" | "error"
+const LOG_JSON_INDENT = 2
 
 interface LogEntry {
   ts: string
@@ -18,10 +19,39 @@ function formatLog(entry: LogEntry): string {
         ([key]) => key !== "ts" && key !== "level" && key !== "msg",
       ),
     )
-    const metaStr = Object.keys(meta).length > 0 ? " " + JSON.stringify(meta) : ""
+    const metaStr =
+      Object.keys(meta).length > 0
+        ? `\n${stringifyLogJson(meta, LOG_JSON_INDENT)}`
+        : ""
     return `${entry.ts} ${prefix} ${entry.msg}${metaStr}`
   }
-  return JSON.stringify(entry)
+  return stringifyLogJson(entry, LOG_JSON_INDENT)
+}
+
+function stringifyLogJson(value: unknown, space: number): string {
+  return JSON.stringify(value, createLogJsonReplacer(), space) ?? String(value)
+}
+
+function createLogJsonReplacer(): (key: string, value: unknown) => unknown {
+  const seenObjects = new WeakSet<object>()
+  return (_key: string, value: unknown): unknown => {
+    if (typeof value === "bigint") return value.toString()
+    if (typeof value === "function") {
+      return `[Function ${value.name || "anonymous"}]`
+    }
+    if (typeof value === "symbol") return value.toString()
+    if (value instanceof Error) {
+      return {
+        name: value.name,
+        message: value.message,
+        stack: value.stack,
+      }
+    }
+    if (!value || typeof value !== "object") return value
+    if (seenObjects.has(value)) return "[Circular]"
+    seenObjects.add(value)
+    return value
+  }
 }
 
 function log(level: LogLevel, msg: string, meta?: Record<string, unknown>): void {
