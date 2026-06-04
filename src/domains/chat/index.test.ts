@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { RetrievalResult } from "@ontos-ai/knowhere-sdk"
 import { Effect } from "effect"
-import { generateText } from "ai"
+import { generateText, ToolLoopAgent, type ModelMessage } from "ai"
 
 import {
   answerQuestionWithRetrieval,
@@ -21,6 +21,7 @@ vi.mock("ai", async (importOriginal) => ({
 }));
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.mocked(generateText).mockReset();
   delete process.env.AI_GATEWAY_API_KEY;
 });
@@ -431,6 +432,57 @@ describe("answerQuestionWithRetrieval", () => {
     });
   });
 
+  it("does not append chat history to Knowhere tool queries", async () => {
+    const retrieval = {
+      query: vi.fn().mockResolvedValue({
+        results: [makeRetrievalResult()],
+        evidenceText: "Energy storage deployments grew.",
+        referencedChunks: [],
+        namespace: "notebook-workspace",
+        query: "Tesla energy storage deployments",
+        routerUsed: "workflow_single_step",
+        answerText: null,
+      }),
+    };
+    const generateAnswer = vi.fn(async ({ searchSources }) => {
+      await searchSources({ query: "Tesla energy storage deployments" });
+      return "Energy storage grew.";
+    });
+    const messages = [
+      {
+        role: "user" as const,
+        content: "do-not-append-this-history-to-query",
+      },
+      {
+        role: "assistant" as const,
+        content: "This older answer should not be concatenated into retrieval.",
+      },
+    ];
+
+    await Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "What about it?",
+        namespace: "notebook-workspace",
+        sources: [makeSource()],
+        excludedSourceIds: [],
+        retrieval,
+        generateAnswer,
+        messages,
+      }),
+    );
+
+    const queryInput = retrieval.query.mock.calls[0]?.[0];
+    expect(queryInput).toMatchObject({
+      namespace: "notebook-workspace",
+      query: "Tesla energy storage deployments",
+      topK: 8,
+      useAgentic: true,
+    });
+    expect(JSON.stringify(queryInput)).not.toContain(
+      "do-not-append-this-history-to-query",
+    );
+  });
+
   it("uses structured referenced chunks from RetrievalQueryResponse as citations", async () => {
     const retrieval = {
       query: vi.fn().mockResolvedValue({
@@ -555,9 +607,19 @@ describe("generateGroundedAnswer", () => {
 describe("generateAgenticGroundedAnswer", () => {
   it("builds a Vercel AI SDK tool loop around Knowhere retrieval", async () => {
     process.env.AI_GATEWAY_API_KEY = "test_gateway_key";
-    vi.mocked(generateText).mockResolvedValue({
-      text: "Here are the requested identity images.",
-    } as Awaited<ReturnType<typeof generateText>>);
+    let capturedGenerateInput:
+      | Parameters<ToolLoopAgent["generate"]>[0]
+      | undefined;
+    const generateSpy = vi
+      .spyOn(ToolLoopAgent.prototype, "generate")
+      .mockImplementation((
+        input: Parameters<ToolLoopAgent["generate"]>[0],
+      ): ReturnType<ToolLoopAgent["generate"]> => {
+        capturedGenerateInput = input;
+        return Promise.resolve({
+          text: "Here are the requested identity images.",
+        } as Awaited<ReturnType<ToolLoopAgent["generate"]>>);
+      });
     const searchSources = vi.fn().mockResolvedValue({
       results: [
         makeRetrievalResult({
@@ -614,31 +676,33 @@ describe("generateAgenticGroundedAnswer", () => {
     });
 
     expect(answer).toBe("Here are the requested identity images.");
-    const generateTextInput = vi.mocked(generateText).mock.calls[0]?.[0] as unknown as {
-      readonly system: string
-      readonly messages: readonly { readonly role: string; readonly content: string }[]
-      readonly tools: {
-        readonly searchSources: {
-          readonly execute: (input: {
-            readonly query: string
-            readonly dataType?: number
-          }) => Promise<unknown>
-        }
-      }
-      readonly prepareStep: (input: { readonly stepNumber: number }) => unknown
-    }
-    expect(generateTextInput.system).toContain("RetrievalQueryResponse")
-    expect(generateTextInput.system).toContain("dataType=3")
-    expect(generateTextInput.messages.at(-1)).toEqual({
+    expect(generateSpy).toHaveBeenCalledWith({
+      messages: expect.any(Array),
+    });
+    const agent = getCapturedAgent(generateSpy.mock.contexts[0]);
+    const settings = getCapturedAgentSettings(agent);
+    const generateInput = getCapturedGenerateInput(capturedGenerateInput);
+
+    expect(settings.instructions).toContain("RetrievalQueryResponse")
+    expect(settings.instructions).toContain("dataType=3")
+    expect(settings.instructions).toContain(
+      "Do not paste raw prior messages into searchSources.query",
+    )
+    expect(generateInput.messages.at(-1)).toEqual({
       role: "user",
       content: "请发送几张关于公民身份的图片给我",
     })
-    expect(generateTextInput.prepareStep({ stepNumber: 0 })).toMatchObject({
+    expect(
+      settings.prepareStep({
+        stepNumber: 0,
+        messages: [...generateInput.messages],
+      }),
+    ).toMatchObject({
       toolChoice: { type: "tool", toolName: "searchSources" },
       activeTools: ["searchSources"],
     })
 
-    const toolOutput = await generateTextInput.tools.searchSources.execute({
+    const toolOutput = await getCapturedAgentTools(agent).searchSources.execute({
       query: "公民身份证 图片",
       dataType: 3,
     });
@@ -675,6 +739,60 @@ describe("generateAgenticGroundedAnswer", () => {
       agentGuidance: expect.stringContaining("Use this evidence"),
     });
     expect(JSON.stringify(toolOutput)).not.toContain("https://blob.example");
+  });
+
+  it("uses managed context for stored history and loop steps", async () => {
+    process.env.AI_GATEWAY_API_KEY = "test_gateway_key";
+    let capturedGenerateInput:
+      | Parameters<ToolLoopAgent["generate"]>[0]
+      | undefined;
+    const generateSpy = vi
+      .spyOn(ToolLoopAgent.prototype, "generate")
+      .mockImplementation((
+        input: Parameters<ToolLoopAgent["generate"]>[0],
+      ): ReturnType<ToolLoopAgent["generate"]> => {
+        capturedGenerateInput = input;
+        return Promise.resolve({
+          text: "The answer is grounded.",
+        } as Awaited<ReturnType<ToolLoopAgent["generate"]>>);
+      });
+    const messages = Array.from({ length: 24 }, (_, index) => ({
+      role: index % 2 === 0 ? ("user" as const) : ("assistant" as const),
+      content: `history-message-${index} ${"context ".repeat(80)}`,
+    }));
+
+    await generateAgenticGroundedAnswer({
+      question: "What should I know now?",
+      messages,
+      sources: [makeSource()],
+      excludedSourceIds: [],
+      searchSources: vi.fn(),
+    });
+
+    const generateInput = getCapturedGenerateInput(capturedGenerateInput);
+    const serializedMessages = JSON.stringify(generateInput.messages);
+    expect(generateInput.messages[0]).toMatchObject({
+      role: "system",
+      content: expect.stringContaining("Compacted earlier conversation"),
+    });
+    expect(serializedMessages).not.toContain("history-message-0");
+    expect(serializedMessages).toContain("history-message-23");
+
+    const settings = getCapturedAgentSettings(
+      getCapturedAgent(generateSpy.mock.contexts[0]),
+    );
+    const oversizedLoopMessages = Array.from({ length: 25 }, (_, index) => ({
+      role: "user" as const,
+      content: `loop-message-${index}`,
+    }));
+    const preparedStep = settings.prepareStep({
+      stepNumber: 1,
+      messages: oversizedLoopMessages,
+    }) as { readonly messages: readonly ModelMessage[] };
+
+    expect(preparedStep.messages.length).toBeLessThanOrEqual(12);
+    expect(JSON.stringify(preparedStep.messages)).not.toContain("loop-message-0");
+    expect(JSON.stringify(preparedStep.messages)).toContain("loop-message-24");
   });
 });
 
@@ -746,6 +864,7 @@ describe("buildAgenticChatSystemPrompt", () => {
     expect(prompt).toContain("decisionTrace")
     expect(prompt).toContain("remote source index")
     expect(prompt).toContain("person or section but not an image asset")
+    expect(prompt).toContain("Do not paste raw prior messages")
     expect(prompt).toContain("身份证")
     expect(prompt).toContain("For image requests use dataType=3")
     expect(prompt).toContain("商务标文件.pdf")
@@ -860,4 +979,42 @@ function makeSource(overrides: Partial<Source> = {}): Source {
     deletedAt: null,
     ...overrides,
   };
+}
+
+type CapturedAgentSettings = {
+  readonly instructions: string
+  readonly prepareStep: (input: {
+    readonly stepNumber: number
+    readonly messages: ModelMessage[]
+  }) => unknown
+}
+
+type CapturedAgentTools = {
+  readonly searchSources: {
+    readonly execute: (input: {
+      readonly query: string
+      readonly dataType?: number
+    }) => Promise<unknown>
+  }
+}
+
+function getCapturedAgent(agent: unknown): ToolLoopAgent {
+  expect(agent).toBeInstanceOf(ToolLoopAgent)
+  return agent as ToolLoopAgent
+}
+
+function getCapturedGenerateInput(
+  input: Parameters<ToolLoopAgent["generate"]>[0] | undefined,
+): { readonly messages: ModelMessage[] } {
+  expect(input).toBeDefined()
+  return input as { readonly messages: ModelMessage[] }
+}
+
+function getCapturedAgentSettings(agent: ToolLoopAgent): CapturedAgentSettings {
+  return (agent as unknown as { readonly settings: CapturedAgentSettings })
+    .settings
+}
+
+function getCapturedAgentTools(agent: ToolLoopAgent): CapturedAgentTools {
+  return agent.tools as unknown as CapturedAgentTools
 }

@@ -1,4 +1,12 @@
-import { generateText, stepCountIs, tool, type ModelMessage } from "ai"
+import {
+  generateText,
+  pruneMessages,
+  stepCountIs,
+  ToolLoopAgent,
+  tool,
+  type ModelMessage,
+  type PrepareStepFunction,
+} from "ai"
 import { Effect } from "effect"
 import type { RetrievalQueryResponse, RetrievalResult } from "@ontos-ai/knowhere-sdk"
 import { z } from "zod"
@@ -15,6 +23,13 @@ import { normalizeRetrievalQuery } from "./retrieval"
 
 const RECENT_CONTEXT_MESSAGE_LIMIT = 8
 const CONTEXT_CONTENT_CHAR_LIMIT = 900
+const COMPACTED_HISTORY_MESSAGE_LIMIT = 12
+const COMPACTED_HISTORY_CONTENT_CHAR_LIMIT = 500
+const STORED_HISTORY_MESSAGE_LIMIT = 20
+const STORED_HISTORY_CHAR_BUDGET = 12_000
+const AGENT_STEP_MESSAGE_LIMIT = 20
+const AGENT_STEP_RECENT_MESSAGE_LIMIT = 12
+const AGENT_STEP_CONTEXT_CHAR_BUDGET = 16_000
 const SOURCE_CONTEXT_LIMIT = 12
 const AGENTIC_SEARCH_STEP_LIMIT = 5
 const TOOL_EVIDENCE_CHAR_LIMIT = 6_000
@@ -54,6 +69,8 @@ type GenerateAgenticGroundedAnswerInput = {
   excludedSourceIds: readonly string[]
   searchSources: SearchSources
 }
+
+type AgenticChatTools = ReturnType<typeof buildAgenticChatTools>
 
 export const generateContextualRetrievalQueryEffect = (
   input: GenerateContextualRetrievalQueryInput,
@@ -134,80 +151,10 @@ export const generateAgenticGroundedAnswerEffect = (
       )
     }
 
+    const agent = buildAgenticChatAgent(input)
     const response = yield* Effect.tryPromise(() =>
-      generateText({
-        model: CHAT_MODEL,
-        system: buildAgenticChatSystemPrompt(input),
+      agent.generate({
         messages: buildAgenticChatMessages(input),
-        tools: {
-          searchSources: tool({
-            description:
-              "Search the user's Notebook sources through Knowhere retrieval. " +
-              "Treat each response as external context from a remote source index. " +
-              "Use it before answering, and call it again with refined text, media, " +
-              "or section-path queries when the RetrievalQueryResponse says evidence is missing or weak.",
-            inputSchema: z.object({
-              query: z
-                .string()
-                .min(1)
-                .describe(
-                  "A self-contained retrieval query. Include document, topic, person, date, or section context from the conversation when needed.",
-                ),
-              topK: z
-                .number()
-                .int()
-                .min(1)
-                .max(12)
-                .optional()
-                .describe("Number of chunks to return. Defaults to 8."),
-              dataType: z
-                .union([
-                  z.literal(1),
-                  z.literal(2),
-                  z.literal(3),
-                  z.literal(4),
-                  z.literal(5),
-                  z.literal(6),
-                ])
-                .optional()
-                .describe(
-                  "Optional chunk type filter: 1=all, 2=text, 3=image, 4=table, 5=text+image, 6=text+table.",
-                ),
-              signalPaths: z
-                .array(z.string().min(1))
-                .max(8)
-                .optional()
-                .describe(
-                  "Optional section/path keywords when a previous result points to a useful section.",
-                ),
-              filterMode: z
-                .enum(["keep", "delete"])
-                .optional()
-                .describe(
-                  "How to apply signalPaths. Use keep to focus on matching paths, delete to exclude them.",
-                ),
-              threshold: z
-                .number()
-                .min(0)
-                .max(1)
-                .optional()
-                .describe("Optional minimum retrieval score threshold."),
-            }),
-            execute: async (queryInput: AgenticRetrievalQuery) =>
-              buildRetrievalToolOutput(await input.searchSources(queryInput)),
-          }),
-        },
-        stopWhen: stepCountIs(AGENTIC_SEARCH_STEP_LIMIT),
-        prepareStep: ({ stepNumber }) =>
-          stepNumber === 0
-            ? {
-                toolChoice: {
-                  type: "tool" as const,
-                  toolName: "searchSources" as const,
-                },
-                activeTools: ["searchSources" as const],
-              }
-            : undefined,
       }),
     )
     return response.text.trim()
@@ -293,7 +240,6 @@ export function buildAgenticChatSystemPrompt(
   >,
 ): string {
   const sourceContext = formatSourceContext(input.sources, input.excludedSourceIds)
-  const conversationContext = formatConversationContext(input.messages)
 
   return [
     "You are a Notebook research agent that answers user questions from their uploaded sources.",
@@ -308,12 +254,13 @@ export function buildAgenticChatSystemPrompt(
     "5. If failureReason is present, result counts are zero, or evidence does not cover the user's requested entity/topic/media, call searchSources again with a more specific or broader query.",
     "6. For image requests use dataType=3 or dataType=5. If an initial text result identifies a relevant person or section but not an image asset, query again with that person/section plus the requested image concept, e.g. identity card / 身份证 / 公民身份证明.",
     "7. For table requests use dataType=4 or dataType=6.",
-    "8. Stop after enough evidence or when further searches are unlikely to help; then clearly say what was not found and what retrieval context was missing.",
+    "8. Do not paste raw prior messages into searchSources.query. The query must be concise and contain only distilled search terms such as document title, person, topic, date, section path, or asset kind.",
+    "9. Stop after enough evidence or when further searches are unlikely to help; then clearly say what was not found and what retrieval context was missing.",
     "",
     "Answering rules:",
     "Use retrieved evidence as the factual source of truth.",
     "Do not invent document-specific facts.",
-    "Use the recent conversation only to resolve references like \"this document\" or \"those images\".",
+    "Conversation context is supplied as managed model messages. Use it only to resolve references like \"this document\" or \"those images\".",
     "Cite document sections in the answer, e.g. [文档名 / 章节名].",
     "When retrieved image or table assets are relevant, cite the matching source label; the UI renders media from citation metadata.",
     "Do not write raw media asset URLs in the answer. They are internal metadata only.",
@@ -321,23 +268,215 @@ export function buildAgenticChatSystemPrompt(
     "",
     "Searchable sources:",
     sourceContext,
-    "",
-    "Recent conversation summary:",
-    conversationContext,
   ].join("\n")
+}
+
+function buildAgenticChatAgent(
+  input: GenerateAgenticGroundedAnswerInput,
+): ToolLoopAgent<never, AgenticChatTools> {
+  return new ToolLoopAgent({
+    model: CHAT_MODEL,
+    instructions: buildAgenticChatSystemPrompt(input),
+    tools: buildAgenticChatTools(input),
+    stopWhen: stepCountIs(AGENTIC_SEARCH_STEP_LIMIT),
+    prepareStep: buildAgenticPrepareStep(),
+  })
+}
+
+function buildAgenticChatTools(
+  input: Pick<GenerateAgenticGroundedAnswerInput, "searchSources">,
+) {
+  return {
+    searchSources: tool({
+      description:
+        "Search the user's Notebook sources through Knowhere retrieval. " +
+        "Treat each response as external context from a remote source index. " +
+        "Use it before answering, and call it again with refined text, media, " +
+        "or section-path queries when the RetrievalQueryResponse says evidence is missing or weak.",
+      inputSchema: z.object({
+        query: z
+          .string()
+          .min(1)
+          .describe(
+            "A concise, self-contained retrieval query. Do not paste raw chat history or previous messages. Use only distilled terms such as document title, person, topic, date, section path, or asset kind when needed.",
+          ),
+        topK: z
+          .number()
+          .int()
+          .min(1)
+          .max(12)
+          .optional()
+          .describe("Number of chunks to return. Defaults to 8."),
+        dataType: z
+          .union([
+            z.literal(1),
+            z.literal(2),
+            z.literal(3),
+            z.literal(4),
+            z.literal(5),
+            z.literal(6),
+          ])
+          .optional()
+          .describe(
+            "Optional chunk type filter: 1=all, 2=text, 3=image, 4=table, 5=text+image, 6=text+table.",
+          ),
+        signalPaths: z
+          .array(z.string().min(1))
+          .max(8)
+          .optional()
+          .describe(
+            "Optional section/path keywords when a previous result points to a useful section.",
+          ),
+        filterMode: z
+          .enum(["keep", "delete"])
+          .optional()
+          .describe(
+            "How to apply signalPaths. Use keep to focus on matching paths, delete to exclude them.",
+          ),
+        threshold: z
+          .number()
+          .min(0)
+          .max(1)
+          .optional()
+          .describe("Optional minimum retrieval score threshold."),
+      }),
+      execute: async (queryInput: AgenticRetrievalQuery) =>
+        buildRetrievalToolOutput(await input.searchSources(queryInput)),
+    }),
+  } as const
+}
+
+function buildAgenticPrepareStep(): PrepareStepFunction<AgenticChatTools> {
+  return ({ stepNumber, messages }) => {
+    const managedMessages = buildAgentStepMessages(messages)
+    if (stepNumber === 0) {
+      return {
+        messages: managedMessages,
+        toolChoice: {
+          type: "tool" as const,
+          toolName: "searchSources" as const,
+        },
+        activeTools: ["searchSources" as const],
+      }
+    }
+
+    return { messages: managedMessages }
+  }
 }
 
 function buildAgenticChatMessages(
   input: Pick<GenerateAgenticGroundedAnswerInput, "messages" | "question">,
 ): ModelMessage[] {
-  const recentMessages = input.messages.slice(-RECENT_CONTEXT_MESSAGE_LIMIT)
   return [
-    ...recentMessages.map((message): ModelMessage => ({
-      role: message.role,
-      content: message.content,
-    })),
+    ...buildManagedStoredHistoryMessages(input.messages),
     { role: "user", content: input.question },
   ]
+}
+
+function buildManagedStoredHistoryMessages(
+  messages: readonly ChatHistoryMessage[],
+): ModelMessage[] {
+  const exactMessages = messages.map(toModelMessage)
+  if (
+    exactMessages.length <= STORED_HISTORY_MESSAGE_LIMIT &&
+    getModelMessagesCharLength(exactMessages) <= STORED_HISTORY_CHAR_BUDGET
+  ) {
+    return exactMessages
+  }
+
+  const recentMessages = messages.slice(-RECENT_CONTEXT_MESSAGE_LIMIT)
+  const olderMessages = messages.slice(0, -RECENT_CONTEXT_MESSAGE_LIMIT)
+  const compactedHistoryContext = formatCompactedHistoryContext(olderMessages)
+
+  return [
+    ...(compactedHistoryContext
+      ? [
+          {
+            role: "system" as const,
+            content: compactedHistoryContext,
+          },
+        ]
+      : []),
+    ...recentMessages.map(toModelMessage),
+  ]
+}
+
+function buildAgentStepMessages(messages: ModelMessage[]): ModelMessage[] {
+  const prunedMessages = pruneMessages({
+    messages: [...messages],
+    reasoning: "before-last-message",
+    toolCalls: [{ type: "before-last-4-messages", tools: ["searchSources"] }],
+    emptyMessages: "remove",
+  })
+
+  if (
+    prunedMessages.length <= AGENT_STEP_MESSAGE_LIMIT &&
+    getModelMessagesCharLength(prunedMessages) <= AGENT_STEP_CONTEXT_CHAR_BUDGET
+  ) {
+    return prunedMessages
+  }
+
+  const systemMessages = prunedMessages.filter(
+    (message): boolean => message.role === "system",
+  )
+  const nonSystemMessages = prunedMessages.filter(
+    (message): boolean => message.role !== "system",
+  )
+
+  return [
+    ...systemMessages,
+    ...nonSystemMessages.slice(-AGENT_STEP_RECENT_MESSAGE_LIMIT),
+  ]
+}
+
+function toModelMessage(message: ChatHistoryMessage): ModelMessage {
+  return {
+    role: message.role,
+    content: message.content,
+  }
+}
+
+function formatCompactedHistoryContext(
+  messages: readonly ChatHistoryMessage[],
+): string {
+  if (messages.length === 0) return ""
+
+  const selectedMessages = messages.slice(-COMPACTED_HISTORY_MESSAGE_LIMIT)
+  const omittedMessageCount = messages.length - selectedMessages.length
+  const lines = selectedMessages.map((message): string => {
+    const content = truncateContextTextToLimit(
+      message.content,
+      COMPACTED_HISTORY_CONTENT_CHAR_LIMIT,
+    )
+    const citationContext = formatCitationContext(message.citations ?? [])
+    return citationContext
+      ? `- ${message.role}: ${content}\n  citations: ${citationContext}`
+      : `- ${message.role}: ${content}`
+  })
+
+  return [
+    "Compacted earlier conversation for context. This is not a retrieval query and must not be pasted into searchSources.query.",
+    omittedMessageCount > 0
+      ? `${omittedMessageCount} earlier messages were omitted before this compacted context.`
+      : "",
+    ...lines,
+  ]
+    .filter((line): boolean => line.length > 0)
+    .join("\n")
+}
+
+function getModelMessagesCharLength(messages: readonly ModelMessage[]): number {
+  return messages.reduce(
+    (totalLength, message): number =>
+      totalLength + getUnknownTextLength(message.content),
+    0,
+  )
+}
+
+function getUnknownTextLength(value: unknown): number {
+  if (typeof value === "string") return value.length
+  if (value === null || value === undefined) return 0
+  return JSON.stringify(value).length
 }
 
 function buildRetrievalToolOutput(response: RetrievalQueryResponse): object {
