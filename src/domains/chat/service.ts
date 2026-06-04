@@ -2,6 +2,7 @@ import { Effect, Either } from "effect"
 
 import {
   answerQuestionWithRetrieval,
+  type AnswerQuestionInput,
   type ChatHistoryMessage,
   type GenerateAnswer,
   type GenerateRetrievalQuery,
@@ -62,6 +63,7 @@ type ChatTurnInput = {
   retrieval: RetrievalClient
   generateRetrievalQuery: GenerateRetrievalQuery
   generateAnswer: GenerateAnswer
+  loadSourceAssetUrls?: AnswerQuestionInput["loadSourceAssetUrls"]
   repository: ChatRepository
 }
 
@@ -119,6 +121,7 @@ export const handleChatTurnEffect = (input: ChatTurnInput) =>
       retrieval: input.retrieval,
       generateRetrievalQuery: input.generateRetrievalQuery,
       generateAnswer: input.generateAnswer,
+      loadSourceAssetUrls: input.loadSourceAssetUrls,
       messages: chatHistoryMessages,
     }).pipe(Effect.catchAllCause(Effect.die))
 
