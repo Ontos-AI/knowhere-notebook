@@ -33,18 +33,16 @@ export type AgenticRetrievalPlan = {
   priority: number | null
 }
 
+export type AgenticRetrievalDataTypeInput = number
+
 export type AgenticRetrievalQuery = Pick<
   RetrievalQueryParams,
-  | "query"
-  | "topK"
-  | "dataType"
-  | "signalPaths"
-  | "filterMode"
-  | "threshold"
+  "query" | "topK" | "signalPaths" | "filterMode" | "threshold"
 > & {
-  intent?: AgenticRetrievalIntent
-  purpose?: string
-  priority?: number
+  readonly dataType?: AgenticRetrievalDataTypeInput
+  readonly intent?: AgenticRetrievalIntent
+  readonly purpose?: string
+  readonly priority?: number
 }
 
 export type RetrievedChunkReference = {

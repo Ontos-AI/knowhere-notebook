@@ -14,6 +14,9 @@ const mocks = vi.hoisted(() => ({
   handleChatTurn: vi.fn(),
   listChatThreadsForWorkspace: vi.fn(),
   listMessagesForThread: vi.fn(),
+  loggerError: vi.fn(),
+  loggerInfo: vi.fn(),
+  loggerWarn: vi.fn(),
   reconcileSourcesForWorkspace: vi.fn(),
   softDeleteChatThread: vi.fn(),
 }))
@@ -50,6 +53,14 @@ vi.mock("@/domains/chat/thread-service", () => ({
     listForWorkspace: mocks.listChatThreadsForWorkspace,
     listMessages: mocks.listMessagesForThread,
     softDelete: mocks.softDeleteChatThread,
+  },
+}))
+
+vi.mock("@/lib/logger", () => ({
+  logger: {
+    error: mocks.loggerError,
+    info: mocks.loggerInfo,
+    warn: mocks.loggerWarn,
   },
 }))
 
@@ -119,6 +130,73 @@ describe("chat route services", () => {
           findChatThreadInWorkspace: expect.any(Function),
           listMessagesForThread: expect.any(Function),
         }),
+      }),
+    )
+  })
+
+  it("returns an explicit generation failure instead of a fake session error", async () => {
+    const workspace = makeWorkspace()
+    const client = { retrieval: { query: vi.fn() } }
+    mocks.getAuthenticatedWithClient.mockResolvedValue({
+      user: { id: "user_1" },
+      workspace,
+      apiKey: "jwt_123",
+      client,
+    })
+    mocks.reconcileSourcesForWorkspace.mockResolvedValue([makeSource()])
+    mocks.handleChatTurn.mockRejectedValue(
+      new Error("Gateway rejected tool schema: dataType enum invalid"),
+    )
+
+    const result = await chatAnswerRouteService.answerChat({
+      body: { message: "Summarize it" },
+    })
+
+    expect(result).toEqual({
+      status: 502,
+      body: {
+        message:
+          "Chat generation failed: Gateway rejected tool schema: dataType enum invalid",
+      },
+    })
+    expect(mocks.loggerError).toHaveBeenCalledWith(
+      "chat: answer failed",
+      expect.objectContaining({
+        status: 502,
+        detail: "Gateway rejected tool schema: dataType enum invalid",
+      }),
+    )
+  })
+
+  it("returns an explicit authentication failure for auth-shaped chat errors", async () => {
+    const workspace = makeWorkspace()
+    const client = { retrieval: { query: vi.fn() } }
+    mocks.getAuthenticatedWithClient.mockResolvedValue({
+      user: { id: "user_1" },
+      workspace,
+      apiKey: "jwt_123",
+      client,
+    })
+    mocks.reconcileSourcesForWorkspace.mockResolvedValue([makeSource()])
+    mocks.handleChatTurn.mockRejectedValue(
+      new Error("HTTP 401: invalid API key"),
+    )
+
+    const result = await chatAnswerRouteService.answerChat({
+      body: { message: "Summarize it" },
+    })
+
+    expect(result).toEqual({
+      status: 401,
+      body: {
+        message: "Chat authentication failed: HTTP 401: invalid API key",
+      },
+    })
+    expect(mocks.loggerError).toHaveBeenCalledWith(
+      "chat: answer failed",
+      expect.objectContaining({
+        status: 401,
+        detail: "HTTP 401: invalid API key",
       }),
     )
   })

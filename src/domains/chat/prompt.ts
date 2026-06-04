@@ -385,14 +385,10 @@ function buildAgenticChatTools(
           .optional()
           .describe("Number of chunks to return. Defaults to 8."),
         dataType: z
-          .union([
-            z.literal(1),
-            z.literal(2),
-            z.literal(3),
-            z.literal(4),
-            z.literal(5),
-            z.literal(6),
-          ])
+          .number()
+          .int()
+          .min(1)
+          .max(6)
           .optional()
           .describe(
             "Optional chunk type filter: 1=all, 2=text, 3=image, 4=table, 5=text+image, 6=text+table.",

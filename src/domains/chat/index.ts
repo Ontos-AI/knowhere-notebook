@@ -38,6 +38,8 @@ const DEFAULT_CHUNK_READ_LIMIT = 2_000
 const MAX_CHUNK_READ_LIMIT = 4_000
 const NO_RESULTS_ANSWER = "I couldn't find that in your sources."
 
+type RetrievalDataType = NonNullable<RetrievalQueryParams["dataType"]>
+
 type StoredRetrievedChunk = {
   id: string
   chunkId: string | null
@@ -259,10 +261,19 @@ function normalizeRetrievalPriority(value: number | undefined): number | null {
 function normalizeRetrievalDataType(
   input: AgenticRetrievalQuery,
 ): RetrievalQueryParams["dataType"] | undefined {
-  if (input.dataType) return input.dataType
+  if (isRetrievalDataType(input.dataType)) return input.dataType
   if (input.intent === "image") return 3
   if (input.intent === "table") return 4
   return undefined
+}
+
+function isRetrievalDataType(value: unknown): value is RetrievalDataType {
+  return (
+    typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value >= 1 &&
+    value <= 6
+  )
 }
 
 function createRetrievedChunkContext(): {

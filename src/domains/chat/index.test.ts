@@ -833,7 +833,25 @@ describe("generateAgenticGroundedAnswer", () => {
       activeTools: ["searchSources"],
     })
 
-    const toolOutput = await getCapturedAgentTools(agent).searchSources.execute({
+    const searchSourcesTool = getCapturedAgentTools(agent).searchSources
+    expect(
+      getSearchSourcesDataTypeSchema(searchSourcesTool)._def?.innerType?._def
+        ?.type,
+    ).toBe("number")
+    expect(
+      searchSourcesTool.inputSchema.safeParse({
+        query: "公民身份证 图片",
+        dataType: 3,
+      }).success,
+    ).toBe(true)
+    expect(
+      searchSourcesTool.inputSchema.safeParse({
+        query: "公民身份证 图片",
+        dataType: 7,
+      }).success,
+    ).toBe(false)
+
+    const toolOutput = await searchSourcesTool.execute({
       query: "公民身份证 图片",
       intent: "image",
       purpose: "Find identity-card image evidence.",
@@ -1156,10 +1174,26 @@ type CapturedAgentSettings = {
 
 type CapturedAgentTools = {
   readonly searchSources: {
+    readonly inputSchema: {
+      readonly _def?: {
+        readonly type?: string
+        readonly shape?:
+          | Record<string, CapturedZodSchema>
+          | (() => Record<string, CapturedZodSchema>)
+      }
+      readonly safeParse: (value: unknown) => { readonly success: boolean }
+    }
     readonly execute: (input: AgenticRetrievalQuery) => Promise<unknown>
   }
   readonly readRetrievedChunk: {
     readonly execute: (input: ReadRetrievedChunkInput) => Promise<unknown>
+  }
+}
+
+type CapturedZodSchema = {
+  readonly _def?: {
+    readonly type?: string
+    readonly innerType?: CapturedZodSchema
   }
 }
 
@@ -1182,4 +1216,21 @@ function getCapturedAgentSettings(agent: ToolLoopAgent): CapturedAgentSettings {
 
 function getCapturedAgentTools(agent: ToolLoopAgent): CapturedAgentTools {
   return agent.tools as unknown as CapturedAgentTools
+}
+
+function getSearchSourcesDataTypeSchema(
+  tool: CapturedAgentTools["searchSources"],
+): CapturedZodSchema {
+  const shape = tool.inputSchema._def?.shape
+  const fields = typeof shape === "function" ? shape() : shape
+  if (!fields) {
+    throw new Error("searchSources input schema should expose fields.")
+  }
+
+  const dataTypeSchema = fields.dataType
+  if (!dataTypeSchema) {
+    throw new Error("searchSources input schema should include dataType.")
+  }
+
+  return dataTypeSchema
 }
