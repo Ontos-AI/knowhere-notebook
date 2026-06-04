@@ -97,6 +97,7 @@ export const answerQuestionWithRetrieval = (
         results: useNotebookSourceTitles(rawResults, input.sources),
         sources: input.sources,
         loadSourceAssetUrls: input.loadSourceAssetUrls,
+        evidenceText: formatRetrievalEvidenceText(retrievalResponses),
       }),
     )
     const answer = removeRetrievedMediaAssetUrls(generatedAnswer, results)
@@ -178,6 +179,17 @@ function collectRetrievalResults(
   }
 
   return results
+}
+
+function formatRetrievalEvidenceText(
+  responses: readonly RetrievalQueryResponse[],
+): string | undefined {
+  const evidenceText = responses
+    .map((response): string => response.evidenceText?.trim() ?? "")
+    .filter((value): boolean => value.length > 0)
+    .join("\n")
+
+  return evidenceText || undefined
 }
 
 function getRetrievalResultKey(result: RetrievalResult): string {

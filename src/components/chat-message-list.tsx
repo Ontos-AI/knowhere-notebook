@@ -244,7 +244,10 @@ function MessageBubble({
     message,
     sourceTitlesByDocumentId,
   );
-  const displayImageCitations = getDisplayImageCitations(displayCitations);
+  const displayImageCitations = getDisplayImageCitations(
+    message,
+    sourceTitlesByDocumentId,
+  );
 
   return (
     <div className="flex min-w-0 flex-col items-start">
@@ -336,18 +339,24 @@ function getDisplayCitations(
 }
 
 function getDisplayImageCitations(
-  citations: readonly DisplayCitation[],
+  message: ChatMessageView,
+  sourceTitlesByDocumentId: Readonly<Record<string, string>>,
 ): readonly DisplayImageCitation[] {
   const seenAssetUrls = new Set<string>();
   const imageCitations: DisplayImageCitation[] = [];
 
-  for (const citation of citations) {
-    const assetUrl = getTrimmedCitationField(citation.citation.assetUrl);
-    if (!assetUrl || !isImageCitation(citation.citation, assetUrl)) continue;
+  for (const [index, citation] of (message.citations ?? []).entries()) {
+    const assetUrl = getTrimmedCitationField(citation.assetUrl);
+    if (!assetUrl || !isImageCitation(citation, assetUrl)) continue;
     if (seenAssetUrls.has(assetUrl)) continue;
 
     seenAssetUrls.add(assetUrl);
-    imageCitations.push({ ...citation, assetUrl });
+    imageCitations.push({
+      citation,
+      citationId: chatPanelModel.getCitationId(message.id, index),
+      label: chatPanelModel.getCitationLabel(citation, sourceTitlesByDocumentId),
+      assetUrl,
+    });
   }
 
   return imageCitations;

@@ -100,6 +100,52 @@ describe("ChatMessageList", () => {
     ).toBeNull();
   });
 
+  it("does not hide image cards when source links dedupe the same section", () => {
+    render(
+      React.createElement(ChatMessageList, {
+        messages: [
+          {
+            id: "assistant_1",
+            role: "assistant",
+            content: "这里是相关身份证明图片。",
+            citations: [
+              {
+                chunkType: "text",
+                score: 0.9,
+                source: {
+                  documentId: "doc_1",
+                  sourceFileName: "商务标文件.pdf",
+                  sectionPath: "二、法定代表人身份证明",
+                },
+              },
+              {
+                chunkType: "image",
+                score: 0.9,
+                assetUrl: "https://blob.example/images/image-6-id-front.jpg",
+                source: {
+                  documentId: "doc_1",
+                  sourceFileName: "商务标文件.pdf",
+                  sectionPath: "二、法定代表人身份证明",
+                },
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(
+      screen.getByRole("img", {
+        name: "商务标文件.pdf · 二、法定代表人身份证明",
+      }),
+    ).toBeTruthy();
+    expect(
+      screen.getAllByRole("button", {
+        name: "Open source 商务标文件.pdf · 二、法定代表人身份证明",
+      }),
+    ).toHaveLength(1);
+  });
+
   it("shows thinking progress after existing messages while sending", () => {
     render(
       React.createElement(ChatMessageList, {
