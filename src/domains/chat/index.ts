@@ -75,6 +75,7 @@ export const answerQuestionWithRetrieval = (
         results: useNotebookSourceTitles(response.results, input.sources),
         sources: input.sources,
         loadSourceAssetUrls: input.loadSourceAssetUrls,
+        evidenceText,
       }),
     )
     const mediaAssetContext = formatRetrievedMediaAssetContext(results)
