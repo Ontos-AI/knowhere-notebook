@@ -8,8 +8,7 @@ const mocks = vi.hoisted(() => ({
   createChatThread: vi.fn(),
   ensureDefaultChatThread: vi.fn(),
   findChatThreadInWorkspace: vi.fn(),
-  generateContextualRetrievalQuery: vi.fn(),
-  generateGroundedAnswer: vi.fn(),
+  generateAgenticGroundedAnswer: vi.fn(),
   getAuthenticated: vi.fn(),
   getAuthenticatedWithClient: vi.fn(),
   handleChatTurn: vi.fn(),
@@ -23,8 +22,7 @@ vi.mock("@/domains/chat", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/domains/chat")>()
   return {
     ...original,
-    generateContextualRetrievalQuery: mocks.generateContextualRetrievalQuery,
-    generateGroundedAnswer: mocks.generateGroundedAnswer,
+    generateAgenticGroundedAnswer: mocks.generateAgenticGroundedAnswer,
   }
 })
 
@@ -114,8 +112,7 @@ describe("chat route services", () => {
         threadId: "thread_1",
         excludedSourceIds: ["source_skipped"],
         retrieval: client.retrieval,
-        generateRetrievalQuery: mocks.generateContextualRetrievalQuery,
-        generateAnswer: mocks.generateGroundedAnswer,
+        generateAnswer: mocks.generateAgenticGroundedAnswer,
         repository: expect.objectContaining({
           appendMessageToThread: expect.any(Function),
           ensureDefaultChatThread: expect.any(Function),

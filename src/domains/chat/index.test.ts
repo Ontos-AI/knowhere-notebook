@@ -5,15 +5,18 @@ import { generateText } from "ai"
 
 import {
   answerQuestionWithRetrieval,
+  buildAgenticChatSystemPrompt,
   buildGroundedPrompt,
   buildRetrievalQueryPrompt,
+  generateAgenticGroundedAnswer,
   generateContextualRetrievalQuery,
   generateGroundedAnswer,
   parseChatRequestBody,
 } from "."
 import type { Source } from "@/infrastructure/db/schema"
 
-vi.mock("ai", () => ({
+vi.mock("ai", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("ai")>()),
   generateText: vi.fn(),
 }));
 
@@ -24,9 +27,10 @@ afterEach(() => {
 
 describe("answerQuestionWithRetrieval", () => {
   it("queries the workspace namespace and excludes unchecked ready documents", async () => {
+    const result = makeRetrievalResult();
     const retrieval = {
       query: vi.fn().mockResolvedValue({
-        results: [makeRetrievalResult()],
+        results: [result],
         evidenceText: "Grounding content from evidence tree",
         referencedChunks: [],
         namespace: "notebook-workspace",
@@ -35,22 +39,22 @@ describe("answerQuestionWithRetrieval", () => {
         answerText: null,
       }),
     };
-    const generateAnswer = vi.fn().mockResolvedValue("The answer is grounded.");
-    const generateRetrievalQuery = vi
-      .fn()
-      .mockResolvedValue("What does the document say?");
+    const generateAnswer = vi.fn(async ({ searchSources }) => {
+      await searchSources({ query: "What does the document say?" });
+      return "The answer is grounded.";
+    });
+    const sources = [
+      makeSource({ knowhereDocumentId: "doc_included" }),
+      makeSource({ id: "source_2", knowhereDocumentId: "doc_excluded" }),
+    ];
 
     const answer = await Effect.runPromise(
       answerQuestionWithRetrieval({
         question: "What does the document say?",
         namespace: "notebook-workspace",
-        sources: [
-          makeSource({ knowhereDocumentId: "doc_included" }),
-          makeSource({ id: "source_2", knowhereDocumentId: "doc_excluded" }),
-        ],
+        sources,
         excludedSourceIds: ["source_2"],
         retrieval,
-        generateRetrievalQuery,
         generateAnswer,
         messages: [],
       }),
@@ -65,13 +69,14 @@ describe("answerQuestionWithRetrieval", () => {
     });
     expect(generateAnswer).toHaveBeenCalledWith({
       question: "What does the document say?",
-      retrievalQuery: "What does the document say?",
       messages: [],
-      evidenceText: "Grounding content from evidence tree",
+      sources,
+      excludedSourceIds: ["source_2"],
+      searchSources: expect.any(Function),
     });
     expect(answer).toEqual({
       answer: "The answer is grounded.",
-      citations: [makeRetrievalResult()],
+      citations: [result],
     });
   });
 
@@ -102,12 +107,10 @@ describe("answerQuestionWithRetrieval", () => {
         answerText: null,
       }),
     };
-    const generateAnswer = vi
-      .fn()
-      .mockResolvedValue(
-        "Revenue improved [Source 1: revenue growth]. Margins expanded [Source 2: margin expansion].",
-      );
-    const generateRetrievalQuery = vi.fn().mockResolvedValue("What improved?");
+    const generateAnswer = vi.fn(async ({ searchSources }) => {
+      await searchSources({ query: "What improved?" });
+      return "Revenue improved [Source 1: revenue growth]. Margins expanded [Source 2: margin expansion].";
+    });
 
     const answer = await Effect.runPromise(
       answerQuestionWithRetrieval({
@@ -116,7 +119,6 @@ describe("answerQuestionWithRetrieval", () => {
         sources: [makeSource()],
         excludedSourceIds: [],
         retrieval,
-        generateRetrievalQuery,
         generateAnswer,
         messages: [],
       }),
@@ -147,24 +149,24 @@ describe("answerQuestionWithRetrieval", () => {
         answerText: null,
       }),
     };
-    const generateAnswer = vi
-      .fn()
-      .mockResolvedValue("Tesla invested in xAI [Source 1: xAI investment].");
-    const generateRetrievalQuery = vi.fn().mockResolvedValue("Tesla xAI investment");
+    const generateAnswer = vi.fn(async ({ searchSources }) => {
+      await searchSources({ query: "Tesla xAI investment" });
+      return "Tesla invested in xAI [Source 1: xAI investment].";
+    });
+    const sources = [
+      makeSource({
+        title: "TSLA-Q4-2025-Update.pdf",
+        knowhereDocumentId: "doc_tesla",
+      }),
+    ];
 
     const answer = await Effect.runPromise(
       answerQuestionWithRetrieval({
         question: "What does the document say about xAI?",
         namespace: "notebook-workspace",
-        sources: [
-          makeSource({
-            title: "TSLA-Q4-2025-Update.pdf",
-            knowhereDocumentId: "doc_tesla",
-          }),
-        ],
+        sources,
         excludedSourceIds: [],
         retrieval,
-        generateRetrievalQuery,
         generateAnswer,
         messages: [],
       }),
@@ -172,9 +174,10 @@ describe("answerQuestionWithRetrieval", () => {
 
     expect(generateAnswer).toHaveBeenCalledWith({
       question: "What does the document say about xAI?",
-      retrievalQuery: "Tesla xAI investment",
       messages: [],
-      evidenceText: "Tesla invested in xAI.",
+      sources,
+      excludedSourceIds: [],
+      searchSources: expect.any(Function),
     });
     const expectedResult = {
       ...result,
@@ -208,12 +211,10 @@ describe("answerQuestionWithRetrieval", () => {
         answerText: null,
       }),
     };
-    const generateAnswer = vi
-      .fn()
-      .mockResolvedValue(
-        "Use this launch photo. https://blob.example/images/image-9-Night%20Rocket%20Launch.jpg",
-      );
-    const generateRetrievalQuery = vi.fn().mockResolvedValue("SpaceX rocket photos");
+    const generateAnswer = vi.fn(async ({ searchSources }) => {
+      await searchSources({ query: "SpaceX rocket photos", dataType: 3 });
+      return "Use this launch photo. https://blob.example/images/image-9-Night%20Rocket%20Launch.jpg";
+    });
     const loadSourceAssetUrls = vi.fn().mockResolvedValue({
       "images/image-9-Night Rocket Launch.jpg":
         "https://blob.example/images/image-9-Night%20Rocket%20Launch.jpg",
@@ -232,7 +233,6 @@ describe("answerQuestionWithRetrieval", () => {
         ],
         excludedSourceIds: [],
         retrieval,
-        generateRetrievalQuery,
         generateAnswer,
         loadSourceAssetUrls,
         messages: [],
@@ -242,13 +242,12 @@ describe("answerQuestionWithRetrieval", () => {
     expect(loadSourceAssetUrls).toHaveBeenCalledWith(
       expect.objectContaining({ id: "source_spacex" }),
     );
-    expect(generateAnswer).toHaveBeenCalledWith({
-      question: "Show me the SpaceX rocket photos.",
-      retrievalQuery: "SpaceX rocket photos",
-      messages: [],
-      evidenceText: "A SpaceX rocket launches at night.",
-      mediaAssetContext:
-        "- spacex-s1.pdf / Assets / images / image-9-Night Rocket Launch.jpg: https://blob.example/images/image-9-Night%20Rocket%20Launch.jpg",
+    expect(retrieval.query).toHaveBeenCalledWith({
+      namespace: "notebook-workspace",
+      query: "SpaceX rocket photos",
+      topK: 8,
+      useAgentic: true,
+      dataType: 3,
     });
     expect(answer.answer).toBe("Use this launch photo.");
     expect(answer.citations).toEqual([
@@ -264,7 +263,7 @@ describe("answerQuestionWithRetrieval", () => {
     ]);
   });
 
-  it("returns a deterministic no-results answer without calling the model", async () => {
+  it("returns the agent answer without citations when retrieval has no results", async () => {
     const retrieval = {
       query: vi.fn().mockResolvedValue({
         results: [],
@@ -276,8 +275,10 @@ describe("answerQuestionWithRetrieval", () => {
         answerText: null,
       }),
     };
-    const generateAnswer = vi.fn();
-    const generateRetrievalQuery = vi.fn().mockResolvedValue("Missing fact?");
+    const generateAnswer = vi.fn(async ({ searchSources }) => {
+      await searchSources({ query: "Missing fact?" });
+      return "I couldn't find that in your sources.";
+    });
 
     const answer = await Effect.runPromise(
       answerQuestionWithRetrieval({
@@ -286,20 +287,18 @@ describe("answerQuestionWithRetrieval", () => {
         sources: [makeSource()],
         excludedSourceIds: [],
         retrieval,
-        generateRetrievalQuery,
         generateAnswer,
         messages: [],
       }),
     );
 
-    expect(generateAnswer).not.toHaveBeenCalled();
     expect(answer).toEqual({
       answer: "I couldn't find that in your sources.",
       citations: [],
     });
   });
 
-  it("uses an LLM-contextualized query while answering the user's original question", async () => {
+  it("lets the agent issue contextual retrieval queries while answering the original question", async () => {
     const retrieval = {
       query: vi.fn().mockResolvedValue({
         results: [makeRetrievalResult()],
@@ -311,12 +310,12 @@ describe("answerQuestionWithRetrieval", () => {
         answerText: null,
       }),
     };
-    const generateRetrievalQuery = vi
-      .fn()
-      .mockResolvedValue(
-        "Tesla Q4 2025 Update energy generation and storage deployments",
-      );
-    const generateAnswer = vi.fn().mockResolvedValue("Energy storage grew.");
+    const generateAnswer = vi.fn(async ({ searchSources }) => {
+      await searchSources({
+        query: "Tesla Q4 2025 Update energy generation and storage deployments",
+      });
+      return "Energy storage grew.";
+    });
     const messages = [
       {
         role: "user" as const,
@@ -335,7 +334,6 @@ describe("answerQuestionWithRetrieval", () => {
         sources: [makeSource({ title: "TSLA-Q4-2025-Update.pdf" })],
         excludedSourceIds: [],
         retrieval,
-        generateRetrievalQuery,
         generateAnswer,
         messages,
       }),
@@ -349,11 +347,70 @@ describe("answerQuestionWithRetrieval", () => {
     });
     expect(generateAnswer).toHaveBeenCalledWith({
       question: "What about energy storage in this document?",
-      retrievalQuery:
-        "Tesla Q4 2025 Update energy generation and storage deployments",
       messages,
-      evidenceText: "Energy storage deployments grew significantly.",
+      sources: [makeSource({ title: "TSLA-Q4-2025-Update.pdf" })],
+      excludedSourceIds: [],
+      searchSources: expect.any(Function),
     });
+  });
+
+  it("uses structured referenced chunks from RetrievalQueryResponse as citations", async () => {
+    const retrieval = {
+      query: vi.fn().mockResolvedValue({
+        results: [],
+        evidenceText: "A launch image was referenced.",
+        referencedChunks: [
+          {
+            chunkId: "chunk_1",
+            documentId: "doc_spacex",
+            chunkType: "image",
+            sectionPath: "Assets / images / launch.jpg",
+            filePath: "images/launch.jpg",
+            jobId: "job_1",
+            assetUrl: "https://blob.example/images/launch.jpg",
+          },
+        ],
+        namespace: "notebook-workspace",
+        query: "SpaceX launch image",
+        routerUsed: "workflow_single_step",
+        answerText: null,
+      }),
+    };
+    const generateAnswer = vi.fn(async ({ searchSources }) => {
+      await searchSources({ query: "SpaceX launch image", dataType: 3 });
+      return "Here is the launch image.";
+    });
+
+    const answer = await Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "Show me the launch image.",
+        namespace: "notebook-workspace",
+        sources: [
+          makeSource({
+            title: "spacex-s1.pdf",
+            knowhereDocumentId: "doc_spacex",
+          }),
+        ],
+        excludedSourceIds: [],
+        retrieval,
+        generateAnswer,
+        messages: [],
+      }),
+    );
+
+    expect(answer.citations).toEqual([
+      {
+        content: "",
+        chunkType: "image",
+        score: null,
+        assetUrl: "https://blob.example/images/launch.jpg",
+        source: {
+          documentId: "doc_spacex",
+          sourceFileName: "spacex-s1.pdf",
+          sectionPath: "Assets / images / launch.jpg",
+        },
+      },
+    ]);
   });
 });
 
@@ -418,6 +475,132 @@ describe("generateGroundedAnswer", () => {
   });
 });
 
+describe("generateAgenticGroundedAnswer", () => {
+  it("builds a Vercel AI SDK tool loop around Knowhere retrieval", async () => {
+    process.env.AI_GATEWAY_API_KEY = "test_gateway_key";
+    vi.mocked(generateText).mockResolvedValue({
+      text: "Here are the requested identity images.",
+    } as Awaited<ReturnType<typeof generateText>>);
+    const searchSources = vi.fn().mockResolvedValue({
+      results: [
+        makeRetrievalResult({
+          content: "Identity card image front side.",
+          chunkType: "image",
+          assetUrl: "https://blob.example/images/id-front.jpg",
+          source: {
+            documentId: "doc_identity",
+            sourceFileName: "document-generated.pdf",
+            sectionPath: "Assets / images / id-front.jpg",
+          },
+        }),
+      ],
+      evidenceText:
+        "Identity image evidence. https://blob.example/images/id-front.jpg",
+      referencedChunks: [
+        {
+          chunkId: "chunk_identity_1",
+          documentId: "doc_identity",
+          chunkType: "image",
+          sectionPath: "Assets / images / id-front.jpg",
+          filePath: "images/id-front.jpg",
+          jobId: "job_1",
+          assetUrl: "https://blob.example/images/id-front.jpg",
+        },
+      ],
+      namespace: "notebook-workspace",
+      query: "公民身份证 图片",
+      routerUsed: "workflow_single_step",
+      answerText:
+        "The source includes identity card images. https://blob.example/images/id-front.jpg",
+      stopReason: "answer_done",
+      failureReason: null,
+      decisionTrace: [
+        {
+          step: "final",
+          stop: "answer_done",
+          assetUrl: "https://blob.example/images/id-front.jpg",
+        },
+      ],
+    });
+
+    const answer = await generateAgenticGroundedAnswer({
+      question: "请发送几张关于公民身份的图片给我",
+      messages: [],
+      sources: [
+        makeSource({
+          title: "商务标文件.pdf",
+          knowhereDocumentId: "doc_identity",
+        }),
+      ],
+      excludedSourceIds: [],
+      searchSources,
+    });
+
+    expect(answer).toBe("Here are the requested identity images.");
+    const generateTextInput = vi.mocked(generateText).mock.calls[0]?.[0] as unknown as {
+      readonly system: string
+      readonly messages: readonly { readonly role: string; readonly content: string }[]
+      readonly tools: {
+        readonly searchSources: {
+          readonly execute: (input: {
+            readonly query: string
+            readonly dataType?: number
+          }) => Promise<unknown>
+        }
+      }
+      readonly prepareStep: (input: { readonly stepNumber: number }) => unknown
+    }
+    expect(generateTextInput.system).toContain("RetrievalQueryResponse")
+    expect(generateTextInput.system).toContain("dataType=3")
+    expect(generateTextInput.messages.at(-1)).toEqual({
+      role: "user",
+      content: "请发送几张关于公民身份的图片给我",
+    })
+    expect(generateTextInput.prepareStep({ stepNumber: 0 })).toMatchObject({
+      toolChoice: { type: "tool", toolName: "searchSources" },
+      activeTools: ["searchSources"],
+    })
+
+    const toolOutput = await generateTextInput.tools.searchSources.execute({
+      query: "公民身份证 图片",
+      dataType: 3,
+    });
+
+    expect(searchSources).toHaveBeenCalledWith({
+      query: "公民身份证 图片",
+      dataType: 3,
+    });
+    expect(toolOutput).toMatchObject({
+      query: "公民身份证 图片",
+      routerUsed: "workflow_single_step",
+      stopReason: "answer_done",
+      failureReason: null,
+      answerText:
+        "The source includes identity card images. [media asset URL hidden]",
+      resultCount: 1,
+      referencedChunkCount: 1,
+      hasEvidenceText: true,
+      results: [
+        expect.objectContaining({
+          chunkType: "image",
+          hasAssetUrl: true,
+          content: "Identity card image front side.",
+        }),
+      ],
+      referencedChunks: [
+        expect.objectContaining({
+          chunkId: "chunk_identity_1",
+          chunkType: "image",
+          filePath: "images/id-front.jpg",
+          hasAssetUrl: true,
+        }),
+      ],
+      agentGuidance: expect.stringContaining("Use this evidence"),
+    });
+    expect(JSON.stringify(toolOutput)).not.toContain("https://blob.example");
+  });
+});
+
 describe("buildGroundedPrompt", () => {
   it("includes evidence text and uses evidence-based citation format", () => {
     const prompt = buildGroundedPrompt({
@@ -469,6 +652,26 @@ describe("buildGroundedPrompt", () => {
       "Do not write raw media asset URLs in the answer. They are internal metadata only.",
     );
     expect(prompt).toContain("https://blob.example/images/launch.jpg");
+  });
+});
+
+describe("buildAgenticChatSystemPrompt", () => {
+  it("instructs the agent how to continue or stop from retrieval responses", () => {
+    const prompt = buildAgenticChatSystemPrompt({
+      messages: [],
+      sources: [makeSource({ title: "商务标文件.pdf" })],
+      excludedSourceIds: [],
+    });
+
+    expect(prompt).toContain("Always call searchSources")
+    expect(prompt).toContain("evidenceText")
+    expect(prompt).toContain("failureReason")
+    expect(prompt).toContain("decisionTrace")
+    expect(prompt).toContain("remote source index")
+    expect(prompt).toContain("person or section but not an image asset")
+    expect(prompt).toContain("身份证")
+    expect(prompt).toContain("For image requests use dataType=3")
+    expect(prompt).toContain("商务标文件.pdf")
   });
 });
 

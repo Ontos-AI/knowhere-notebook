@@ -1,8 +1,7 @@
 import { Effect, Either } from "effect"
 
 import {
-  generateContextualRetrievalQuery,
-  generateGroundedAnswer,
+  generateAgenticGroundedAnswer,
   parseChatRequestBody,
 } from "@/domains/chat"
 import {
@@ -57,8 +56,7 @@ const answerChatEffect = (input: AnswerChatInput) =>
         threadId: body.value.threadId,
         excludedSourceIds: body.value.excludedSourceIds,
         retrieval: client.retrieval,
-        generateRetrievalQuery: generateContextualRetrievalQuery,
-        generateAnswer: generateGroundedAnswer,
+        generateAnswer: generateAgenticGroundedAnswer,
         loadSourceAssetUrls: (source) =>
           sourceService.getParseAssetUrls(workspace.id, source.id),
         repository: chatTurnPersistence.createRepository(),

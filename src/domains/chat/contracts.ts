@@ -14,19 +14,26 @@ export type ChatHistoryMessage = {
   citations?: readonly ChatCitationView[]
 }
 
-export type GenerateRetrievalQuery = (input: {
+export type AgenticRetrievalQuery = Pick<
+  RetrievalQueryParams,
+  | "query"
+  | "topK"
+  | "dataType"
+  | "signalPaths"
+  | "filterMode"
+  | "threshold"
+>
+
+export type SearchSources = (
+  input: AgenticRetrievalQuery,
+) => Promise<RetrievalQueryResponse>
+
+export type GenerateAnswer = (input: {
   question: string
   messages: readonly ChatHistoryMessage[]
   sources: readonly Source[]
   excludedSourceIds: readonly string[]
-}) => Promise<string>
-
-export type GenerateAnswer = (input: {
-  question: string
-  retrievalQuery: string
-  messages: readonly ChatHistoryMessage[]
-  evidenceText: string
-  mediaAssetContext?: string
+  searchSources: SearchSources
 }) => Promise<string>
 
 export type AnswerQuestionInput = {
@@ -35,7 +42,6 @@ export type AnswerQuestionInput = {
   sources: readonly Source[]
   excludedSourceIds: readonly string[]
   retrieval: RetrievalClient
-  generateRetrievalQuery: GenerateRetrievalQuery
   generateAnswer: GenerateAnswer
   loadSourceAssetUrls?: LoadSourceAssetUrls
   messages: readonly ChatHistoryMessage[]

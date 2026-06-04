@@ -1,15 +1,28 @@
-import { generateText } from "ai"
+import { generateText, stepCountIs, tool, type ModelMessage } from "ai"
 import { Effect } from "effect"
+import type { RetrievalQueryResponse, RetrievalResult } from "@ontos-ai/knowhere-sdk"
+import { z } from "zod"
 
 import { CHAT_MODEL } from "@/lib/ai"
 import type { Source } from "@/infrastructure/db/schema"
 import type { ChatCitationView } from "@/domains/chat/types"
-import type { ChatHistoryMessage } from "./contracts"
+import type {
+  AgenticRetrievalQuery,
+  ChatHistoryMessage,
+  SearchSources,
+} from "./contracts"
 import { normalizeRetrievalQuery } from "./retrieval"
 
 const RECENT_CONTEXT_MESSAGE_LIMIT = 8
 const CONTEXT_CONTENT_CHAR_LIMIT = 900
 const SOURCE_CONTEXT_LIMIT = 12
+const AGENTIC_SEARCH_STEP_LIMIT = 5
+const TOOL_EVIDENCE_CHAR_LIMIT = 6_000
+const TOOL_RESULT_CONTENT_CHAR_LIMIT = 700
+const TOOL_RESULT_LIMIT = 8
+const TOOL_REFERENCED_CHUNK_LIMIT = 12
+const RAW_URL_PATTERN = /https?:\/\/[^\s)\]}>"']+/g
+const REDACTED_MEDIA_URL = "[media asset URL hidden]"
 
 type GenerateContextualRetrievalQueryInput = {
   question: string
@@ -32,6 +45,14 @@ type BuildGroundedPromptInput = {
   messages?: readonly ChatHistoryMessage[]
   evidenceText: string
   mediaAssetContext?: string
+}
+
+type GenerateAgenticGroundedAnswerInput = {
+  question: string
+  messages: readonly ChatHistoryMessage[]
+  sources: readonly Source[]
+  excludedSourceIds: readonly string[]
+  searchSources: SearchSources
 }
 
 export const generateContextualRetrievalQueryEffect = (
@@ -64,7 +85,7 @@ export const generateContextualRetrievalQueryEffect = (
     return normalizeRetrievalQuery(response.text, question)
   })
 
-/** Async wrapper matching the GenerateRetrievalQuery signature. */
+/** Async wrapper for the legacy single-query retrieval flow. */
 export async function generateContextualRetrievalQuery(
   input: GenerateContextualRetrievalQueryInput,
 ): Promise<string> {
@@ -93,11 +114,109 @@ export const generateGroundedAnswerEffect = (
     return response.text.trim()
   })
 
-/** Async wrapper matching the GenerateAnswer signature. */
+/** Async wrapper for the legacy single-response answer flow. */
 export async function generateGroundedAnswer(
   input: GenerateGroundedAnswerInput,
 ): Promise<string> {
   return Effect.runPromise(generateGroundedAnswerEffect(input))
+}
+
+export const generateAgenticGroundedAnswerEffect = (
+  input: GenerateAgenticGroundedAnswerInput,
+): Effect.Effect<string, unknown> =>
+  Effect.gen(function* () {
+    if (!process.env.AI_GATEWAY_API_KEY) {
+      return yield* Effect.die(
+        new Error(
+          "AI_GATEWAY_API_KEY environment variable is required. " +
+            "Set it in your .env.local file.",
+        ),
+      )
+    }
+
+    const response = yield* Effect.tryPromise(() =>
+      generateText({
+        model: CHAT_MODEL,
+        system: buildAgenticChatSystemPrompt(input),
+        messages: buildAgenticChatMessages(input),
+        tools: {
+          searchSources: tool({
+            description:
+              "Search the user's Notebook sources through Knowhere retrieval. " +
+              "Treat each response as external context from a remote source index. " +
+              "Use it before answering, and call it again with refined text, media, " +
+              "or section-path queries when the RetrievalQueryResponse says evidence is missing or weak.",
+            inputSchema: z.object({
+              query: z
+                .string()
+                .min(1)
+                .describe(
+                  "A self-contained retrieval query. Include document, topic, person, date, or section context from the conversation when needed.",
+                ),
+              topK: z
+                .number()
+                .int()
+                .min(1)
+                .max(12)
+                .optional()
+                .describe("Number of chunks to return. Defaults to 8."),
+              dataType: z
+                .union([
+                  z.literal(1),
+                  z.literal(2),
+                  z.literal(3),
+                  z.literal(4),
+                  z.literal(5),
+                  z.literal(6),
+                ])
+                .optional()
+                .describe(
+                  "Optional chunk type filter: 1=all, 2=text, 3=image, 4=table, 5=text+image, 6=text+table.",
+                ),
+              signalPaths: z
+                .array(z.string().min(1))
+                .max(8)
+                .optional()
+                .describe(
+                  "Optional section/path keywords when a previous result points to a useful section.",
+                ),
+              filterMode: z
+                .enum(["keep", "delete"])
+                .optional()
+                .describe(
+                  "How to apply signalPaths. Use keep to focus on matching paths, delete to exclude them.",
+                ),
+              threshold: z
+                .number()
+                .min(0)
+                .max(1)
+                .optional()
+                .describe("Optional minimum retrieval score threshold."),
+            }),
+            execute: async (queryInput: AgenticRetrievalQuery) =>
+              buildRetrievalToolOutput(await input.searchSources(queryInput)),
+          }),
+        },
+        stopWhen: stepCountIs(AGENTIC_SEARCH_STEP_LIMIT),
+        prepareStep: ({ stepNumber }) =>
+          stepNumber === 0
+            ? {
+                toolChoice: {
+                  type: "tool" as const,
+                  toolName: "searchSources" as const,
+                },
+                activeTools: ["searchSources" as const],
+              }
+            : undefined,
+      }),
+    )
+    return response.text.trim()
+  })
+
+export async function generateAgenticGroundedAnswer(
+  input: GenerateAgenticGroundedAnswerInput,
+): Promise<string> {
+  return Effect.runPromise(generateAgenticGroundedAnswerEffect(input))
 }
 
 export function buildRetrievalQueryPrompt(
@@ -167,6 +286,148 @@ export function buildGroundedPrompt(input: BuildGroundedPromptInput): string {
   return promptLines.join("\n")
 }
 
+export function buildAgenticChatSystemPrompt(
+  input: Pick<
+    GenerateAgenticGroundedAnswerInput,
+    "messages" | "sources" | "excludedSourceIds"
+  >,
+): string {
+  const sourceContext = formatSourceContext(input.sources, input.excludedSourceIds)
+  const conversationContext = formatConversationContext(input.messages)
+
+  return [
+    "You are a Notebook research agent that answers user questions from their uploaded sources.",
+    "You have one tool: searchSources. It runs Knowhere retrieval and returns a RetrievalQueryResponse summary.",
+    "Treat each tool result like external context from a remote source index: inspect it, reason over it, then decide whether to retrieve again.",
+    "",
+    "Agent loop rules:",
+    "1. Always call searchSources before writing a final answer.",
+    "2. Read the tool output fields: evidenceText, answerText, results, referencedChunks, stopReason, failureReason, and decisionTrace.",
+    "3. Use one response to guide the next query: carry forward discovered people, organizations, document names, section paths, file paths, chunk types, and failure reasons.",
+    "4. If evidenceText/results/referencedChunks directly support the answer, stop searching and answer.",
+    "5. If failureReason is present, result counts are zero, or evidence does not cover the user's requested entity/topic/media, call searchSources again with a more specific or broader query.",
+    "6. For image requests use dataType=3 or dataType=5. If an initial text result identifies a relevant person or section but not an image asset, query again with that person/section plus the requested image concept, e.g. identity card / 身份证 / 公民身份证明.",
+    "7. For table requests use dataType=4 or dataType=6.",
+    "8. Stop after enough evidence or when further searches are unlikely to help; then clearly say what was not found and what retrieval context was missing.",
+    "",
+    "Answering rules:",
+    "Use retrieved evidence as the factual source of truth.",
+    "Do not invent document-specific facts.",
+    "Use the recent conversation only to resolve references like \"this document\" or \"those images\".",
+    "Cite document sections in the answer, e.g. [文档名 / 章节名].",
+    "When retrieved image or table assets are relevant, cite the matching source label; the UI renders media from citation metadata.",
+    "Do not write raw media asset URLs in the answer. They are internal metadata only.",
+    "Start with the answer first. Keep answers concise unless the user asks for detail.",
+    "",
+    "Searchable sources:",
+    sourceContext,
+    "",
+    "Recent conversation summary:",
+    conversationContext,
+  ].join("\n")
+}
+
+function buildAgenticChatMessages(
+  input: Pick<GenerateAgenticGroundedAnswerInput, "messages" | "question">,
+): ModelMessage[] {
+  const recentMessages = input.messages.slice(-RECENT_CONTEXT_MESSAGE_LIMIT)
+  return [
+    ...recentMessages.map((message): ModelMessage => ({
+      role: message.role,
+      content: message.content,
+    })),
+    { role: "user", content: input.question },
+  ]
+}
+
+function buildRetrievalToolOutput(response: RetrievalQueryResponse): object {
+  return {
+    namespace: response.namespace,
+    query: response.query,
+    routerUsed: response.routerUsed,
+    stopReason: response.stopReason ?? null,
+    failureReason: response.failureReason ?? null,
+    answerText: response.answerText
+      ? redactRawUrls(response.answerText)
+      : response.answerText,
+    resultCount: response.results.length,
+    referencedChunkCount: response.referencedChunks.length,
+    hasEvidenceText: Boolean(response.evidenceText?.trim()),
+    evidenceText: truncateSafeContextTextToLimit(
+      response.evidenceText ?? "",
+      TOOL_EVIDENCE_CHAR_LIMIT,
+    ),
+    results: response.results.slice(0, TOOL_RESULT_LIMIT).map(formatToolResult),
+    referencedChunks: response.referencedChunks
+      .slice(0, TOOL_REFERENCED_CHUNK_LIMIT)
+      .map((chunk) => ({
+        chunkId: chunk.chunkId,
+        documentId: chunk.documentId,
+        chunkType: chunk.chunkType,
+        sectionPath: chunk.sectionPath,
+        filePath: chunk.filePath ? redactRawUrls(chunk.filePath) : null,
+        hasAssetUrl: Boolean(chunk.assetUrl),
+      })),
+    decisionTrace:
+      response.decisionTrace
+        ?.slice(-6)
+        .map((trace) => redactRawUrlsFromUnknown(trace)) ?? [],
+    agentGuidance: getRetrievalResponseGuidance(response),
+  }
+}
+
+function formatToolResult(result: RetrievalResult): object {
+  return {
+    chunkType: result.chunkType,
+    score: result.score,
+    hasAssetUrl: Boolean(result.assetUrl),
+    source: {
+      documentId: result.source.documentId ?? null,
+      sourceFileName: result.source.sourceFileName
+        ? redactRawUrls(result.source.sourceFileName)
+        : null,
+      sectionPath: result.source.sectionPath
+        ? redactRawUrls(result.source.sectionPath)
+        : null,
+    },
+    content: truncateSafeContextTextToLimit(
+      result.content,
+      TOOL_RESULT_CONTENT_CHAR_LIMIT,
+    ),
+  }
+}
+
+function getRetrievalResponseGuidance(
+  response: RetrievalQueryResponse,
+): string {
+  const hasEvidence = Boolean(response.evidenceText?.trim())
+  const hasResults =
+    response.results.length > 0 || response.referencedChunks.length > 0
+
+  if (response.failureReason) {
+    return (
+      "Retrieval reported a semantic failure. If the user question is still answerable, " +
+      "try one refined query; otherwise say the sources do not contain enough support."
+    )
+  }
+  if (!hasEvidence && !hasResults) {
+    return (
+      "No useful evidence was returned. Try a broader query, a different wording, " +
+      "or a media/table dataType filter if the user asked for images or tables."
+    )
+  }
+  if (response.stopReason && response.stopReason !== "answer_done") {
+    return (
+      `Retrieval stopped with stopReason=${response.stopReason}. Inspect evidence; ` +
+      "if it does not directly answer the user, query again with a better target."
+    )
+  }
+  return (
+    "Use this evidence if it directly answers the user. Query again only if an " +
+    "important requested detail, source, image, table, person, date, or section is missing."
+  )
+}
+
 function formatSourceContext(
   sources: readonly Source[],
   excludedSourceIds: readonly string[],
@@ -219,4 +480,31 @@ function truncateContextText(value: string): string {
   const normalized = value.replace(/\s+/g, " ").trim()
   if (normalized.length <= CONTEXT_CONTENT_CHAR_LIMIT) return normalized
   return `${normalized.slice(0, CONTEXT_CONTENT_CHAR_LIMIT)}...`
+}
+
+function truncateContextTextToLimit(value: string, limit: number): string {
+  const normalized = value.replace(/\s+/g, " ").trim()
+  if (normalized.length <= limit) return normalized
+  return `${normalized.slice(0, limit)}...`
+}
+
+function truncateSafeContextTextToLimit(value: string, limit: number): string {
+  return truncateContextTextToLimit(redactRawUrls(value), limit)
+}
+
+function redactRawUrls(value: string): string {
+  return value.replace(RAW_URL_PATTERN, REDACTED_MEDIA_URL)
+}
+
+function redactRawUrlsFromUnknown(value: unknown): unknown {
+  if (typeof value === "string") return redactRawUrls(value)
+  if (Array.isArray(value)) return value.map(redactRawUrlsFromUnknown)
+  if (!value || typeof value !== "object") return value
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, nestedValue]) => [
+      key,
+      redactRawUrlsFromUnknown(nestedValue),
+    ]),
+  )
 }

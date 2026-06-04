@@ -19,21 +19,21 @@ describe("handleChatTurn", () => {
       }),
     };
     const repository = makeRepository();
-    const generateRetrievalQuery = vi
-      .fn()
-      .mockResolvedValue("What does the document say?");
-    const generateAnswer = vi.fn().mockResolvedValue("Grounded answer.");
+    const generateAnswer = vi.fn(async ({ searchSources }) => {
+      await searchSources({ query: "What does the document say?" });
+      return "Grounded answer.";
+    });
+    const sources = [
+      makeSource({ id: "source_included", knowhereDocumentId: "doc_included" }),
+      makeSource({ id: "source_excluded", knowhereDocumentId: "doc_excluded" }),
+    ];
 
     const result = await handleChatTurn({
       workspace: makeWorkspace(),
-      sources: [
-        makeSource({ id: "source_included", knowhereDocumentId: "doc_included" }),
-        makeSource({ id: "source_excluded", knowhereDocumentId: "doc_excluded" }),
-      ],
+      sources,
       question: "What does the document say?",
       excludedSourceIds: ["source_excluded"],
       retrieval,
-      generateRetrievalQuery,
       generateAnswer,
       repository,
     });
@@ -59,20 +59,12 @@ describe("handleChatTurn", () => {
       useAgentic: true,
       excludeDocumentIds: ["doc_excluded"],
     });
-    expect(generateRetrievalQuery).toHaveBeenCalledWith({
-      question: "What does the document say?",
-      messages: [],
-      sources: [
-        makeSource({ id: "source_included", knowhereDocumentId: "doc_included" }),
-        makeSource({ id: "source_excluded", knowhereDocumentId: "doc_excluded" }),
-      ],
-      excludedSourceIds: ["source_excluded"],
-    });
     expect(generateAnswer).toHaveBeenCalledWith({
       question: "What does the document say?",
-      retrievalQuery: "What does the document say?",
       messages: [],
-      evidenceText: "Grounding content",
+      sources,
+      excludedSourceIds: ["source_excluded"],
+      searchSources: expect.any(Function),
     });
     expect(repository.appendMessageToThread).toHaveBeenNthCalledWith(1, "workspace_1", {
       threadId: "thread_1",
@@ -97,7 +89,6 @@ describe("handleChatTurn", () => {
       question: "Can I ask yet?",
       excludedSourceIds: [],
       retrieval,
-      generateRetrievalQuery: vi.fn(),
       generateAnswer: vi.fn(),
       repository,
     });
@@ -125,7 +116,6 @@ describe("handleChatTurn", () => {
       threadId: "thread_from_other_workspace",
       excludedSourceIds: [],
       retrieval: { query: vi.fn() },
-      generateRetrievalQuery: vi.fn(),
       generateAnswer: vi.fn(),
       repository,
     });
@@ -140,7 +130,7 @@ describe("handleChatTurn", () => {
     expect(repository.appendMessageToThread).not.toHaveBeenCalled();
   });
 
-  it("passes prior thread messages to the stateless retrieval query planner", async () => {
+  it("passes prior thread messages to the agentic answer generator", async () => {
     const retrieval = {
       query: vi.fn().mockResolvedValue({
         results: [makeRetrievalResult()],
@@ -176,27 +166,27 @@ describe("handleChatTurn", () => {
     const repository = makeRepository({
       listMessagesForThread: vi.fn().mockResolvedValue(previousMessages),
     });
-    const generateRetrievalQuery = vi
-      .fn()
-      .mockResolvedValue(
-        "Tesla Q4 2025 Update energy generation and storage deployments",
-      );
-    const generateAnswer = vi.fn().mockResolvedValue("Grounded answer.");
+    const generateAnswer = vi.fn(async ({ searchSources }) => {
+      await searchSources({
+        query: "Tesla Q4 2025 Update energy generation and storage deployments",
+      });
+      return "Grounded answer.";
+    });
+    const sources = [makeSource({ title: "TSLA-Q4-2025-Update.pdf" })];
 
     const result = await handleChatTurn({
       workspace: makeWorkspace(),
-      sources: [makeSource({ title: "TSLA-Q4-2025-Update.pdf" })],
+      sources,
       question: "What about energy storage in this document?",
       threadId: "thread_1",
       excludedSourceIds: [],
       retrieval,
-      generateRetrievalQuery,
       generateAnswer,
       repository,
     });
 
     expect(Either.isRight(result)).toBe(true);
-    expect(generateRetrievalQuery).toHaveBeenCalledWith({
+    expect(generateAnswer).toHaveBeenCalledWith({
       question: "What about energy storage in this document?",
       messages: [
         {
@@ -220,8 +210,9 @@ describe("handleChatTurn", () => {
           ],
         },
       ],
-      sources: [makeSource({ title: "TSLA-Q4-2025-Update.pdf" })],
+      sources,
       excludedSourceIds: [],
+      searchSources: expect.any(Function),
     });
     expect(retrieval.query).toHaveBeenCalledWith({
       namespace: "notebook-namespace",
