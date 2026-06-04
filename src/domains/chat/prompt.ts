@@ -35,16 +35,16 @@ const CONTEXT_CONTENT_CHAR_LIMIT = 900
 const COMPACTED_HISTORY_MESSAGE_LIMIT = 12
 const COMPACTED_HISTORY_CONTENT_CHAR_LIMIT = 500
 const STORED_HISTORY_MESSAGE_LIMIT = 20
-const STORED_HISTORY_CHAR_BUDGET = 12_000
+const STORED_HISTORY_CHAR_BUDGET = 32_000
 const AGENT_STEP_MESSAGE_LIMIT = 20
 const AGENT_STEP_RECENT_MESSAGE_LIMIT = 12
-const AGENT_STEP_CONTEXT_CHAR_BUDGET = 16_000
+const AGENT_STEP_CONTEXT_CHAR_BUDGET = 64_000
 const SOURCE_CONTEXT_LIMIT = 12
 const AGENTIC_SEARCH_STEP_LIMIT = 5
-const TOOL_EVIDENCE_CHAR_LIMIT = 6_000
-const TOOL_RESULT_CONTENT_CHAR_LIMIT = 700
-const TOOL_CHUNK_READ_LIMIT_DEFAULT = 2_000
-const TOOL_CHUNK_READ_LIMIT_MAX = 4_000
+const TOOL_EVIDENCE_CHAR_LIMIT = 12_000
+const TOOL_RESULT_CONTENT_CHAR_LIMIT = 1_500
+const TOOL_CHUNK_READ_LIMIT_DEFAULT = 4_000
+const TOOL_CHUNK_READ_LIMIT_MAX = 8_000
 const AGENT_LOOP_TOOL_INPUT_LOG_LIMIT = 1_200
 const AGENT_LOOP_TOOL_OUTPUT_LOG_LIMIT = 2_400
 const AGENT_LOOP_TOOL_LOG_ENTRY_LIMIT = 4
@@ -888,8 +888,42 @@ function buildAgentStepMessages(messages: ModelMessage[]): ModelMessage[] {
 
   return [
     ...systemMessages,
-    ...nonSystemMessages.slice(-AGENT_STEP_RECENT_MESSAGE_LIMIT),
+    ...selectRecentMessagesWithinBudget({
+      messages: nonSystemMessages,
+      reservedCharLength: getModelMessagesCharLength(systemMessages),
+      charBudget: AGENT_STEP_CONTEXT_CHAR_BUDGET,
+      messageLimit: AGENT_STEP_RECENT_MESSAGE_LIMIT,
+    }),
   ]
+}
+
+function selectRecentMessagesWithinBudget(input: {
+  readonly messages: readonly ModelMessage[]
+  readonly reservedCharLength: number
+  readonly charBudget: number
+  readonly messageLimit: number
+}): ModelMessage[] {
+  const selectedMessages: ModelMessage[] = []
+  const remainingCharBudget = Math.max(
+    input.charBudget - input.reservedCharLength,
+    0,
+  )
+  let selectedCharLength = 0
+
+  for (const message of [...input.messages].reverse()) {
+    if (selectedMessages.length >= input.messageLimit) break
+
+    const messageCharLength = getUnknownTextLength(message.content)
+    const isLatestMessage = selectedMessages.length === 0
+    const canFitWithinBudget =
+      selectedCharLength + messageCharLength <= remainingCharBudget
+    if (!isLatestMessage && !canFitWithinBudget) continue
+
+    selectedMessages.push(message)
+    selectedCharLength += messageCharLength
+  }
+
+  return selectedMessages.reverse()
 }
 
 function toModelMessage(message: ChatHistoryMessage): ModelMessage {

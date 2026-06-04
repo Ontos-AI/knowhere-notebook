@@ -743,7 +743,7 @@ describe("answerQuestionWithRetrieval", () => {
   });
 
   it("lets the agent read untruncated content from returned chunk ids", async () => {
-    const longContent = `${"Earlier context. ".repeat(160)}Critical obligation: retain source receipts.`;
+    const longContent = `${"Earlier context. ".repeat(300)}Critical obligation: retain source receipts.`;
     const result = {
       ...makeRetrievalResult({
         content: longContent,
@@ -778,14 +778,14 @@ describe("answerQuestionWithRetrieval", () => {
 
         const detail = await readRetrievedChunk({
           id: "chunk_contract_1",
-          offset: 2_000,
+          offset: 4_000,
           limit: 80,
         });
 
         expect(detail).toMatchObject({
           id: "chunk_contract_1",
           found: true,
-          offset: 2_000,
+          offset: 4_000,
           limit: 80,
           contentLength: longContent.length,
         });
@@ -810,7 +810,7 @@ describe("answerQuestionWithRetrieval", () => {
       }),
     );
 
-    expect(answer.answer).toBe(longContent.slice(2_000, 2_080));
+    expect(answer.answer).toBe(longContent.slice(4_000, 4_080).trim());
   });
 
   it("uses structured referenced chunks from RetrievalQueryResponse as citations", async () => {
@@ -965,10 +965,19 @@ describe("generateAgenticGroundedAnswer", () => {
           text: "Here are the requested identity images.",
         } as Awaited<ReturnType<ToolLoopAgent["generate"]>>);
       });
+    const previewWithinNewLimitMarker = "within-new-preview-limit";
+    const previewAfterNewLimitMarker = "after-new-preview-limit";
+    const longIdentityPreview = [
+      "Identity card image front side.",
+      "preview ".repeat(170),
+      previewWithinNewLimitMarker,
+      "preview ".repeat(70),
+      previewAfterNewLimitMarker,
+    ].join(" ");
     const searchSources = vi.fn().mockResolvedValue({
       results: [
         makeRetrievalResult({
-          content: "Identity card image front side.",
+          content: longIdentityPreview,
           chunkType: "image",
           assetUrl: "https://blob.example/images/id-front.jpg",
           source: {
@@ -1012,9 +1021,9 @@ describe("generateAgenticGroundedAnswer", () => {
             sectionPath: "Assets / images / id-front.jpg",
           },
           hasAssetUrl: true,
-          contentLength: "Identity card image front side.".length,
-          contentPreview: "Identity card image front side.",
-          contentTruncated: false,
+          contentLength: longIdentityPreview.length,
+          contentPreview: longIdentityPreview,
+          contentTruncated: true,
         },
       ],
       answerText:
@@ -1134,6 +1143,8 @@ describe("generateAgenticGroundedAnswer", () => {
     expect(toolOutput).toContain("Media: image available");
     expect(toolOutput).toContain("Read ID: chunk_identity_1");
     expect(toolOutput).toContain("Identity card image front side.");
+    expect(toolOutput).toContain(previewWithinNewLimitMarker);
+    expect(toolOutput).not.toContain(previewAfterNewLimitMarker);
     expect(toolOutput).not.toContain("https://blob.example");
     expect(toolOutput).not.toContain("assetUrl");
     expect(toolOutput).not.toContain("retrievalPlan");
@@ -1145,7 +1156,21 @@ describe("generateAgenticGroundedAnswer", () => {
       }),
     });
 
-    const chunkOutput = await getCapturedAgentTools(agent).readRetrievedChunk.execute({
+    const readRetrievedChunkTool = getCapturedAgentTools(agent).readRetrievedChunk;
+    expect(
+      readRetrievedChunkTool.inputSchema.safeParse({
+        id: "chunk_identity_1",
+        limit: 8_000,
+      }).success,
+    ).toBe(true);
+    expect(
+      readRetrievedChunkTool.inputSchema.safeParse({
+        id: "chunk_identity_1",
+        limit: 8_001,
+      }).success,
+    ).toBe(false);
+
+    const chunkOutput = await readRetrievedChunkTool.execute({
       id: "chunk_identity_1",
       offset: 0,
       limit: 80,
@@ -1243,6 +1268,34 @@ describe("generateAgenticGroundedAnswer", () => {
         }),
       ]),
     });
+
+    const hugeLoopMessages = [
+      {
+        role: "user" as const,
+        content: `huge-loop-message ${"context ".repeat(9_000)}`,
+      },
+      {
+        role: "assistant" as const,
+        content: "middle-loop-message",
+      },
+      {
+        role: "user" as const,
+        content: "latest-loop-message",
+      },
+    ];
+    const preparedHugeStep = settings.prepareStep({
+      stepNumber: 1,
+      messages: hugeLoopMessages,
+    }) as { readonly messages: readonly ModelMessage[] };
+    const serializedHugeStepMessages = JSON.stringify(
+      preparedHugeStep.messages,
+    );
+
+    expect(getTestModelMessagesCharLength(preparedHugeStep.messages)).toBeLessThanOrEqual(
+      64_000,
+    );
+    expect(serializedHugeStepMessages).not.toContain("huge-loop-message");
+    expect(serializedHugeStepMessages).toContain("latest-loop-message");
   });
 
   it("logs bounded tool call and tool result previews for each loop step", async () => {
@@ -1623,6 +1676,9 @@ type CapturedAgentTools = {
     readonly execute: (input: AgenticRetrievalQuery) => Promise<unknown>
   }
   readonly readRetrievedChunk: {
+    readonly inputSchema: {
+      readonly safeParse: (value: unknown) => { readonly success: boolean }
+    }
     readonly execute: (input: ReadRetrievedChunkInput) => Promise<unknown>
   }
 }
@@ -1698,6 +1754,34 @@ function getCapturedAgentSettings(agent: ToolLoopAgent): CapturedAgentSettings {
 
 function getCapturedAgentTools(agent: ToolLoopAgent): CapturedAgentTools {
   return agent.tools as unknown as CapturedAgentTools
+}
+
+function getTestModelMessagesCharLength(
+  messages: readonly ModelMessage[],
+): number {
+  return messages.reduce(
+    (totalLength, message): number =>
+      totalLength + getTestUnknownTextLength(message.content),
+    0,
+  )
+}
+
+function getTestUnknownTextLength(value: unknown): number {
+  if (typeof value === "string") return value.length
+  if (Array.isArray(value)) {
+    return value.reduce<number>(
+      (totalLength, nestedValue): number =>
+        totalLength + getTestUnknownTextLength(nestedValue),
+      0,
+    )
+  }
+  if (!value || typeof value !== "object") return 0
+
+  return Object.values(value as Record<string, unknown>).reduce<number>(
+    (totalLength, nestedValue): number =>
+      totalLength + getTestUnknownTextLength(nestedValue),
+    0,
+  )
 }
 
 function getSearchSourcesTargetContentSchema(
