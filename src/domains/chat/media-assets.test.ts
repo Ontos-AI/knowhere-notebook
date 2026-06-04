@@ -42,6 +42,53 @@ describe("chat media assets", () => {
     )
   })
 
+  it("adds image citation results for asset filenames that only appear in evidence text", async () => {
+    const loadSourceAssetUrls = vi.fn().mockResolvedValue({
+      "images/image-6-中华人民共和国居民身份证.jpg":
+        "https://blob.example/images/image-6-id-front.jpg",
+      "images/image-7-中国居民身份证.jpg":
+        "https://blob.example/images/image-7-id-back.jpg",
+    })
+
+    const results = await enrichRetrievalResultsWithAssetUrls({
+      results: [
+        makeRetrievalResult({
+          content: "The section contains citizen identity proof copies.",
+          source: {
+            documentId: "doc_identity",
+            sourceFileName: "商务标文件.pdf",
+            sectionPath: "二、法定代表人身份证明",
+          },
+        }),
+      ],
+      sources: [
+        makeSource({
+          id: "source_identity",
+          title: "商务标文件.pdf",
+          knowhereDocumentId: "doc_identity",
+        }),
+      ],
+      loadSourceAssetUrls,
+      evidenceText:
+        "[image-6-中华人民共和国居民身份证.jpg]\n[image-7-中国居民身份证.jpg]",
+    })
+
+    expect(results).toHaveLength(3)
+    expect(results[0]?.assetUrl).toBeUndefined()
+    expect(results.slice(1).map((result) => result.assetUrl)).toEqual([
+      "https://blob.example/images/image-6-id-front.jpg",
+      "https://blob.example/images/image-7-id-back.jpg",
+    ])
+    expect(results.slice(1).map((result) => result.chunkType)).toEqual([
+      "image",
+      "image",
+    ])
+    expect(results.slice(1).map((result) => result.source.sectionPath)).toEqual([
+      "images/image-6-中华人民共和国居民身份证.jpg",
+      "images/image-7-中国居民身份证.jpg",
+    ])
+  })
+
   it("formats a bounded media asset context for the grounded prompt", () => {
     const context = formatRetrievedMediaAssetContext([
       makeRetrievalResult({

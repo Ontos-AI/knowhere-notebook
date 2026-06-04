@@ -13,12 +13,14 @@ export type RetrievalResultAssetInput = {
   readonly results: readonly RetrievalResult[]
   readonly sources: readonly Source[]
   readonly loadSourceAssetUrls?: LoadSourceAssetUrls
+  readonly evidenceText?: string
 }
 
 export async function enrichRetrievalResultsWithAssetUrls({
   results,
   sources,
   loadSourceAssetUrls,
+  evidenceText,
 }: RetrievalResultAssetInput): Promise<RetrievalResult[]> {
   if (!loadSourceAssetUrls || results.length === 0) return [...results]
 
@@ -32,23 +34,22 @@ export async function enrichRetrievalResultsWithAssetUrls({
     Promise<Readonly<Record<string, string>>>
   >()
 
-  return Promise.all(
-    results.map(async (result): Promise<RetrievalResult> => {
-      if (getTrimmedString(result.assetUrl)) return result
-
+  const enrichedResults = await Promise.all(
+    results.map(async (result): Promise<readonly RetrievalResult[]> => {
       const documentId = getTrimmedString(result.source.documentId)
       const source = documentId ? sourcesByDocumentId.get(documentId) : undefined
-      if (!source) return result
+      if (!source) return [result]
 
       const assetUrls = await getCachedSourceAssetUrls(
         source,
         loadSourceAssetUrls,
         assetUrlsBySourceId,
       )
-      const assetUrl = resolveResultAssetUrl(result, assetUrls)
-      return assetUrl ? { ...result, assetUrl } : result
+      return addAssetCitationResults(result, assetUrls, evidenceText)
     }),
   )
+
+  return enrichedResults.flat()
 }
 
 export function formatRetrievedMediaAssetContext(
@@ -111,10 +112,104 @@ async function getCachedSourceAssetUrls(
   return cached
 }
 
-function resolveResultAssetUrl(
+function addAssetCitationResults(
   result: RetrievalResult,
   assetUrlsByFilePath: Readonly<Record<string, string>>,
-): string | null {
+  evidenceText: string | undefined,
+): readonly RetrievalResult[] {
+  const existingAssetUrl = getTrimmedString(result.assetUrl)
+  const resultMatches = resolveAssetReferenceMatches(result, assetUrlsByFilePath)
+  const evidenceMatches = resolveAssetReferenceMatchesFromText(
+    evidenceText,
+    assetUrlsByFilePath,
+  )
+  const seenAssetUrls = new Set<string>()
+  const output: RetrievalResult[] = []
+
+  if (existingAssetUrl) {
+    seenAssetUrls.add(existingAssetUrl)
+    output.push(result)
+  } else if (resultMatches.length > 0) {
+    const [firstMatch, ...remainingMatches] = resultMatches
+    seenAssetUrls.add(firstMatch.assetUrl)
+    output.push(toAssetResult(result, firstMatch))
+    for (const match of remainingMatches) {
+      if (seenAssetUrls.has(match.assetUrl)) continue
+      seenAssetUrls.add(match.assetUrl)
+      output.push(toAssetResult(result, match))
+    }
+  } else {
+    output.push(result)
+  }
+
+  for (const match of evidenceMatches) {
+    if (seenAssetUrls.has(match.assetUrl)) continue
+    seenAssetUrls.add(match.assetUrl)
+    output.push(toAssetResult(result, match))
+  }
+
+  return output
+}
+
+function toAssetResult(
+  result: RetrievalResult,
+  match: AssetReferenceMatch,
+): RetrievalResult {
+  return {
+    ...result,
+    assetUrl: match.assetUrl,
+    chunkType: getAssetChunkType(match, result.chunkType),
+    source: {
+      ...result.source,
+      sectionPath: getAssetSectionPath(result, match.assetPath),
+    },
+  }
+}
+
+function getAssetSectionPath(
+  result: RetrievalResult,
+  assetPath: string,
+): string | null | undefined {
+  const sectionPath = getTrimmedString(result.source.sectionPath)
+  if (!sectionPath) return assetPath
+
+  const normalizedSectionPath = normalizeAssetLookupText(sectionPath)
+  const normalizedAssetPath = normalizeAssetLookupText(assetPath)
+  const assetBasename = getNormalizedBasename(assetPath)
+  if (
+    normalizedAssetPath &&
+    normalizedSectionPath?.includes(normalizedAssetPath)
+  ) {
+    return sectionPath
+  }
+  if (assetBasename && normalizedSectionPath?.includes(assetBasename)) {
+    return sectionPath
+  }
+
+  return assetPath
+}
+
+function getAssetChunkType(
+  match: AssetReferenceMatch,
+  fallback: RetrievalResult["chunkType"],
+): RetrievalResult["chunkType"] {
+  const normalizedAssetPath = normalizeAssetLookupText(match.assetPath)
+  if (
+    normalizedAssetPath?.startsWith("images/") ||
+    isImageAssetUrl(match.assetUrl)
+  ) {
+    return "image"
+  }
+  if (normalizedAssetPath?.startsWith("tables/")) {
+    return "table"
+  }
+  return fallback
+}
+
+function resolveAssetReferenceMatches(
+  result: RetrievalResult,
+  assetUrlsByFilePath: Readonly<Record<string, string>>,
+): readonly AssetReferenceMatch[] {
   const normalizedHaystacks = [
     result.source.sectionPath,
     result.content,
@@ -122,10 +217,33 @@ function resolveResultAssetUrl(
     const normalized = normalizeAssetLookupText(value)
     return normalized ? [normalized] : []
   })
-  if (normalizedHaystacks.length === 0) return null
+  if (normalizedHaystacks.length === 0) return []
 
+  return resolveAssetReferenceMatchesFromHaystacks(
+    normalizedHaystacks,
+    assetUrlsByFilePath,
+  )
+}
+
+function resolveAssetReferenceMatchesFromText(
+  value: string | null | undefined,
+  assetUrlsByFilePath: Readonly<Record<string, string>>,
+): readonly AssetReferenceMatch[] {
+  const normalized = normalizeAssetLookupText(value)
+  if (!normalized) return []
+
+  return resolveAssetReferenceMatchesFromHaystacks(
+    [normalized],
+    assetUrlsByFilePath,
+  )
+}
+
+function resolveAssetReferenceMatchesFromHaystacks(
+  normalizedHaystacks: readonly string[],
+  assetUrlsByFilePath: Readonly<Record<string, string>>,
+): readonly AssetReferenceMatch[] {
   const basenameCounts = getNormalizedBasenameCounts(assetUrlsByFilePath)
-  const matches = Object.entries(assetUrlsByFilePath)
+  return Object.entries(assetUrlsByFilePath)
     .flatMap(([assetPath, assetUrl]): readonly AssetReferenceMatch[] => {
       const trimmedUrl = getTrimmedString(assetUrl)
       if (!trimmedUrl || !isSupportedAssetPath(assetPath)) return []
@@ -138,8 +256,6 @@ function resolveResultAssetUrl(
       return index === null ? [] : [{ assetPath, assetUrl: trimmedUrl, index }]
     })
     .sort(compareAssetReferenceMatches)
-
-  return matches[0]?.assetUrl ?? null
 }
 
 type AssetReferenceMatch = {

@@ -264,6 +264,77 @@ describe("answerQuestionWithRetrieval", () => {
     ]);
   });
 
+  it("turns retrieved evidence image filenames into image citations", async () => {
+    const result = makeRetrievalResult({
+      content: "This section contains identity proof attachments.",
+      source: {
+        documentId: "doc_identity",
+        sourceFileName: "document-generated.pdf",
+        sectionPath: "二、法定代表人身份证明",
+      },
+    });
+    const retrieval = {
+      query: vi.fn().mockResolvedValue({
+        results: [result],
+        evidenceText:
+          "[image-6-中华人民共和国居民身份证.jpg]\n[image-7-中国居民身份证.jpg]",
+        referencedChunks: [],
+        namespace: "notebook-workspace",
+        query: "公民身份证明 图片",
+        routerUsed: "workflow_single_step",
+        answerText: null,
+      }),
+    };
+    const generateAnswer = vi.fn().mockResolvedValue("这里是相关身份证明图片。");
+    const generateRetrievalQuery = vi.fn().mockResolvedValue("公民身份证明 图片");
+    const loadSourceAssetUrls = vi.fn().mockResolvedValue({
+      "images/image-6-中华人民共和国居民身份证.jpg":
+        "https://blob.example/images/image-6-id-front.jpg",
+      "images/image-7-中国居民身份证.jpg":
+        "https://blob.example/images/image-7-id-back.jpg",
+    });
+
+    const answer = await Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "请发送几张关于公民身份的图片给我",
+        namespace: "notebook-workspace",
+        sources: [
+          makeSource({
+            id: "source_identity",
+            title: "商务标文件.pdf",
+            knowhereDocumentId: "doc_identity",
+          }),
+        ],
+        excludedSourceIds: [],
+        retrieval,
+        generateRetrievalQuery,
+        generateAnswer,
+        loadSourceAssetUrls,
+        messages: [],
+      }),
+    );
+
+    expect(generateAnswer).toHaveBeenCalledWith({
+      question: "请发送几张关于公民身份的图片给我",
+      retrievalQuery: "公民身份证明 图片",
+      messages: [],
+      evidenceText:
+        "[image-6-中华人民共和国居民身份证.jpg]\n[image-7-中国居民身份证.jpg]",
+      mediaAssetContext:
+        "- 商务标文件.pdf / images/image-6-中华人民共和国居民身份证.jpg: https://blob.example/images/image-6-id-front.jpg\n" +
+        "- 商务标文件.pdf / images/image-7-中国居民身份证.jpg: https://blob.example/images/image-7-id-back.jpg",
+    });
+    expect(answer.citations.map((citation) => citation.assetUrl)).toEqual([
+      undefined,
+      "https://blob.example/images/image-6-id-front.jpg",
+      "https://blob.example/images/image-7-id-back.jpg",
+    ]);
+    expect(answer.citations.slice(1).map((citation) => citation.chunkType)).toEqual([
+      "image",
+      "image",
+    ]);
+  });
+
   it("returns a deterministic no-results answer without calling the model", async () => {
     const retrieval = {
       query: vi.fn().mockResolvedValue({
