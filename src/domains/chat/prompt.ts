@@ -986,12 +986,8 @@ function buildRetrievalToolOutput(response: AgenticRetrievalResponse): string {
   const lines = [
     "## Retrieval Result",
     "",
-    `Status: ${getRetrievalResponseStatus(response)}`,
     `Query: ${redactRawUrls(response.query)}`,
     `Guidance: ${getRetrievalResponseGuidance(response)}`,
-    "",
-    "## Summary",
-    formatOptionalMarkdownText(response.answerText, "No answer summary returned."),
     "",
     "## Evidence",
     formatOptionalMarkdownText(response.evidenceText, "No evidence text returned."),
