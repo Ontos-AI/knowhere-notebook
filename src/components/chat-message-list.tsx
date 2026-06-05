@@ -3,6 +3,8 @@
 import { type CSSProperties, type ReactElement } from "react";
 import { type VirtualItem } from "@tanstack/react-virtual";
 import { ImageIcon, MessageCircle } from "lucide-react";
+import ReactMarkdown, { type Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import { useChatMessageListWorkflow } from "@/components/chat-message-list-workflow";
 import { chatPanelModel } from "@/components/chat-panel-model";
@@ -21,6 +23,12 @@ type DisplayCitation = {
 
 type DisplayImageCitation = DisplayCitation & {
   readonly assetUrl: string;
+};
+
+const assistantMarkdownComponents: Components = {
+  p: ({ children }) => (
+    <p className="whitespace-pre-wrap break-words">{children}</p>
+  ),
 };
 
 export type ChatMessageListProps = {
@@ -244,12 +252,15 @@ function MessageBubble({
     message,
     sourceTitlesByDocumentId,
   );
-  const displayImageCitations = getDisplayImageCitations(displayCitations);
+  const displayImageCitations = getDisplayImageCitations(
+    message,
+    sourceTitlesByDocumentId,
+  );
 
   return (
     <div className="flex min-w-0 flex-col items-start">
       <div className="max-w-[92%] overflow-hidden rounded-2xl rounded-tl-sm border border-border/70 bg-card px-3 py-2.5 text-sm leading-relaxed text-foreground shadow-xs sm:max-w-[90%] sm:px-4 sm:py-3">
-        <p className="whitespace-pre-wrap break-words">{message.content}</p>
+        <AssistantMessageContent content={message.content} />
         {displayImageCitations.length > 0 && (
           <div className="mt-3 border-t border-border/70 pt-2.5">
             <p className="mb-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
@@ -309,6 +320,24 @@ function MessageBubble({
   );
 }
 
+function AssistantMessageContent({
+  content,
+}: {
+  readonly content: string;
+}): ReactElement {
+  return (
+    <div className="chat-markdown-content min-w-0 max-w-full overflow-x-auto">
+      <ReactMarkdown
+        components={assistantMarkdownComponents}
+        remarkPlugins={[remarkGfm]}
+        skipHtml
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
 function getDisplayCitations(
   message: ChatMessageView,
   sourceTitlesByDocumentId: Readonly<Record<string, string>>,
@@ -336,18 +365,24 @@ function getDisplayCitations(
 }
 
 function getDisplayImageCitations(
-  citations: readonly DisplayCitation[],
+  message: ChatMessageView,
+  sourceTitlesByDocumentId: Readonly<Record<string, string>>,
 ): readonly DisplayImageCitation[] {
   const seenAssetUrls = new Set<string>();
   const imageCitations: DisplayImageCitation[] = [];
 
-  for (const citation of citations) {
-    const assetUrl = getTrimmedCitationField(citation.citation.assetUrl);
-    if (!assetUrl || !isImageCitation(citation.citation, assetUrl)) continue;
+  for (const [index, citation] of (message.citations ?? []).entries()) {
+    const assetUrl = getTrimmedCitationField(citation.assetUrl);
+    if (!assetUrl || !isImageCitation(citation, assetUrl)) continue;
     if (seenAssetUrls.has(assetUrl)) continue;
 
     seenAssetUrls.add(assetUrl);
-    imageCitations.push({ ...citation, assetUrl });
+    imageCitations.push({
+      citation,
+      citationId: chatPanelModel.getCitationId(message.id, index),
+      label: chatPanelModel.getCitationLabel(citation, sourceTitlesByDocumentId),
+      assetUrl,
+    });
   }
 
   return imageCitations;

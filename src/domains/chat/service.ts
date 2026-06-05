@@ -5,7 +5,6 @@ import {
   type AnswerQuestionInput,
   type ChatHistoryMessage,
   type GenerateAnswer,
-  type GenerateRetrievalQuery,
   type RetrievalClient,
 } from "."
 import { toChatMessageView } from "./view"
@@ -61,7 +60,6 @@ type ChatTurnInput = {
   threadId?: string
   excludedSourceIds: readonly string[]
   retrieval: RetrievalClient
-  generateRetrievalQuery: GenerateRetrievalQuery
   generateAnswer: GenerateAnswer
   loadSourceAssetUrls?: AnswerQuestionInput["loadSourceAssetUrls"]
   repository: ChatRepository
@@ -119,7 +117,6 @@ export const handleChatTurnEffect = (input: ChatTurnInput) =>
       sources: readySources,
       excludedSourceIds: input.excludedSourceIds,
       retrieval: input.retrieval,
-      generateRetrievalQuery: input.generateRetrievalQuery,
       generateAnswer: input.generateAnswer,
       loadSourceAssetUrls: input.loadSourceAssetUrls,
       messages: chatHistoryMessages,

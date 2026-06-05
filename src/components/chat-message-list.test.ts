@@ -100,6 +100,109 @@ describe("ChatMessageList", () => {
     ).toBeNull();
   });
 
+  it("renders assistant markdown with GitHub-flavored tables", () => {
+    render(
+      React.createElement(ChatMessageList, {
+        messages: [
+          {
+            id: "assistant_1",
+            role: "assistant",
+            content:
+              "### Summary\n\n- **Deadline:** Monday\n\n| Item | Status |\n| --- | --- |\n| Draft | Ready |",
+          },
+        ],
+      }),
+    );
+
+    expect(
+      screen.getByRole("heading", { name: "Summary", level: 3 }),
+    ).toBeTruthy();
+    expect(screen.getByRole("listitem").textContent).toContain("Deadline:");
+    expect(screen.getByRole("table")).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: "Item" })).toBeTruthy();
+    expect(screen.getByRole("cell", { name: "Ready" })).toBeTruthy();
+  });
+
+  it("keeps user markdown-looking text literal", () => {
+    render(
+      React.createElement(ChatMessageList, {
+        messages: [
+          {
+            id: "user_1",
+            role: "user",
+            content: "**Do not render this as bold**",
+          },
+        ],
+      }),
+    );
+
+    expect(screen.getByText("**Do not render this as bold**")).toBeTruthy();
+    expect(screen.queryByText("Do not render this as bold")).toBeNull();
+  });
+
+  it("skips assistant inline HTML while rendering markdown text", () => {
+    render(
+      React.createElement(ChatMessageList, {
+        messages: [
+          {
+            id: "assistant_1",
+            role: "assistant",
+            content: "Visible **text** <img src=\"x\" alt=\"hidden image\" />",
+          },
+        ],
+      }),
+    );
+
+    expect(screen.getByText("text")).toBeTruthy();
+    expect(screen.queryByAltText("hidden image")).toBeNull();
+  });
+
+  it("does not hide image cards when source links dedupe the same section", () => {
+    render(
+      React.createElement(ChatMessageList, {
+        messages: [
+          {
+            id: "assistant_1",
+            role: "assistant",
+            content: "这里是相关身份证明图片。",
+            citations: [
+              {
+                chunkType: "text",
+                score: 0.9,
+                source: {
+                  documentId: "doc_1",
+                  sourceFileName: "商务标文件.pdf",
+                  sectionPath: "二、法定代表人身份证明",
+                },
+              },
+              {
+                chunkType: "image",
+                score: 0.9,
+                assetUrl: "https://blob.example/images/image-6-id-front.jpg",
+                source: {
+                  documentId: "doc_1",
+                  sourceFileName: "商务标文件.pdf",
+                  sectionPath: "二、法定代表人身份证明",
+                },
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(
+      screen.getByRole("img", {
+        name: "商务标文件.pdf · 二、法定代表人身份证明",
+      }),
+    ).toBeTruthy();
+    expect(
+      screen.getAllByRole("button", {
+        name: "Open source 商务标文件.pdf · 二、法定代表人身份证明",
+      }),
+    ).toHaveLength(1);
+  });
+
   it("shows thinking progress after existing messages while sending", () => {
     render(
       React.createElement(ChatMessageList, {
