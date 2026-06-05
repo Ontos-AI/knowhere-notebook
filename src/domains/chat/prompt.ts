@@ -46,8 +46,8 @@ const TOOL_RESULT_CONTENT_CHAR_LIMIT = 1_500
 const TOOL_CHUNK_READ_LIMIT_DEFAULT = 4_000
 const TOOL_CHUNK_READ_LIMIT_MAX = 8_000
 const AGENT_LOOP_TOOL_INPUT_LOG_LIMIT = 1_200
-const AGENT_LOOP_TOOL_OUTPUT_LOG_LIMIT = 2_400
 const AGENT_LOOP_TOOL_LOG_ENTRY_LIMIT = 4
+const AGENT_REQUIRED_SEARCH_STEP_COUNT = 2
 const RAW_URL_PATTERN = /https?:\/\/[^\s)\]}>"']+/g
 const REDACTED_MEDIA_URL = "[media asset URL hidden]"
 
@@ -135,6 +135,12 @@ type LlmModelMessageLog = {
   readonly role: string
   readonly contentCharLength: number
   readonly content: unknown
+}
+
+type RetrievalResponseWithDecisionData = AgenticRetrievalResponse & {
+  readonly decision_trace?: unknown
+  readonly decisionTree?: unknown
+  readonly decision_tree?: unknown
 }
 
 type GenerateLoggedTextInput = {
@@ -366,13 +372,14 @@ export function buildAgenticChatSystemPrompt(
     "",
     "Tool use rules",
     "1. Always call searchSources before writing a final answer.",
-    "2. Choose the content target from the user's request: broad questions use broad or text-only search, image requests use image or text+image search, and table requests use table or text+table search.",
-    "3. Do not paste raw prior messages into searchSources.query. The query must be concise and contain only distilled search terms such as document title, person, topic, date, section path, or asset kind.",
-    "4. Use one response to guide the next query: carry forward discovered people, organizations, document names, section paths, file paths, content types, and failure hints.",
-    "5. If the markdown guidance says the evidence is useful and the evidence/results directly support the answer, stop searching and answer.",
-    "6. If results are missing, weak, or do not cover the requested entity/topic/media/table, search again with a broader or more specific query.",
-    "7. Use readRetrievedChunk selectively; do not read every result when the previews already answer the question.",
-    "8. Stop after enough evidence or when further searches are unlikely to help; then clearly say what was not found and what retrieval context was missing.",
+    "2. Make a second searchSources call before answering to double-check the retrieved data. Reuse the same core query or refine it with entities, document names, section paths, file paths, content types, or failure hints from the first output.",
+    "3. Choose the content target from the user's request: broad questions use broad or text-only search, image requests use image or text+image search, and table requests use table or text+table search.",
+    "4. Do not paste raw prior messages into searchSources.query. The query must be concise and contain only distilled search terms such as document title, person, topic, date, section path, or asset kind.",
+    "5. Use one response to guide the next query: carry forward discovered people, organizations, document names, section paths, file paths, content types, and failure hints.",
+    "6. After the verification search, if the markdown guidance says the evidence is useful and the evidence/results directly support the answer, stop searching and answer.",
+    "7. If results are missing, weak, or do not cover the requested entity/topic/media/table, search again with a broader or more specific query.",
+    "8. Use readRetrievedChunk selectively; do not read every result when the previews already answer the question.",
+    "9. Stop after enough evidence or when further searches are unlikely to help; then clearly say what was not found and what retrieval context was missing.",
     "",
     "Media/table handling",
     "For image requests, search visual content directly or combine text and image evidence. If an initial text result identifies a relevant person or section but not an image asset, query again with that person/section plus the requested image concept, e.g. identity card / 身份证 / 公民身份证明.",
@@ -567,7 +574,7 @@ function buildAgenticPrepareStep(
 ): PrepareStepFunction<AgenticChatTools> {
   return ({ stepNumber, messages }) => {
     const managedMessages = buildAgentStepMessages(messages)
-    if (stepNumber === 0) {
+    if (stepNumber < AGENT_REQUIRED_SEARCH_STEP_COUNT) {
       const stepInput = {
         messages: managedMessages,
         toolChoice: {
@@ -667,22 +674,16 @@ function formatAgentLoopToolOutput(
   if (toolName === "searchSources") {
     return {
       kind: "searchSources",
-      output: buildAgentLoopMarkdownPreview(
-        output,
-        AGENT_LOOP_TOOL_OUTPUT_LOG_LIMIT,
-      ),
+      output: buildAgentLoopFullMarkdownPreview(output),
     }
   }
   if (toolName === "readRetrievedChunk") {
     return {
       kind: "readRetrievedChunk",
-      output: buildAgentLoopMarkdownPreview(
-        output,
-        AGENT_LOOP_TOOL_OUTPUT_LOG_LIMIT,
-      ),
+      output: buildAgentLoopFullMarkdownPreview(output),
     }
   }
-  return buildAgentLoopPreview(output, AGENT_LOOP_TOOL_OUTPUT_LOG_LIMIT)
+  return buildAgentLoopFullPreview(output)
 }
 
 function getOmittedAgentLoopEntryCount(entries: readonly unknown[]): number {
@@ -739,16 +740,21 @@ function buildAgentLoopPreview(
   }
 }
 
-function buildAgentLoopMarkdownPreview(
-  value: unknown,
-  limit: number,
-): AgentLoopLogPreview {
-  const normalized = redactRawUrls(stringifyAgentLoopLogValue(value)).trim()
-  const truncated = normalized.length > limit
+function buildAgentLoopFullPreview(value: unknown): AgentLoopLogPreview {
+  const normalized = redactRawUrls(stringifyAgentLoopLogValue(value))
   return {
     charLength: normalized.length,
-    truncated,
-    preview: truncated ? `${normalized.slice(0, limit)}...` : normalized,
+    truncated: false,
+    preview: normalized,
+  }
+}
+
+function buildAgentLoopFullMarkdownPreview(value: unknown): AgentLoopLogPreview {
+  const normalized = redactRawUrls(stringifyAgentLoopLogValue(value))
+  return {
+    charLength: normalized.length,
+    truncated: false,
+    preview: normalized,
   }
 }
 
@@ -992,6 +998,7 @@ function buildRetrievalToolOutput(response: AgenticRetrievalResponse): string {
     "## Evidence",
     formatOptionalMarkdownText(response.evidenceText, "No evidence text returned."),
     "",
+    ...formatDecisionTraceMarkdown(response),
     "## Results",
     ...formatResultReferencesMarkdown(resultReferences),
     "",
@@ -1000,6 +1007,125 @@ function buildRetrievalToolOutput(response: AgenticRetrievalResponse): string {
   ]
 
   return lines.join("\n")
+}
+
+function formatDecisionTraceMarkdown(
+  response: AgenticRetrievalResponse,
+): readonly string[] {
+  const decisionData = getDecisionTraceData(response)
+  if (!decisionData) return []
+
+  return [
+    "## Decision Trace",
+    ...formatDecisionValueMarkdown(decisionData, 0),
+    "",
+  ]
+}
+
+function getDecisionTraceData(response: AgenticRetrievalResponse): unknown | null {
+  const record = response as RetrievalResponseWithDecisionData
+  const candidates = [
+    record.decisionTrace,
+    record.decision_trace,
+    record.decisionTree,
+    record.decision_tree,
+  ]
+
+  return candidates.find(hasRenderableDecisionData) ?? null
+}
+
+function hasRenderableDecisionData(value: unknown): boolean {
+  if (Array.isArray(value)) return value.length > 0
+  if (typeof value === "string") return value.trim().length > 0
+  return Boolean(value && typeof value === "object")
+}
+
+function formatDecisionValueMarkdown(
+  value: unknown,
+  depth: number,
+): readonly string[] {
+  if (Array.isArray(value)) return formatDecisionArrayMarkdown(value, depth)
+  if (value && typeof value === "object") {
+    return formatDecisionRecordMarkdown(value as Record<string, unknown>, depth)
+  }
+
+  return [`${getDecisionIndent(depth)}- ${formatDecisionScalar(value)}`]
+}
+
+function formatDecisionArrayMarkdown(
+  values: readonly unknown[],
+  depth: number,
+): readonly string[] {
+  if (values.length === 0) return [`${getDecisionIndent(depth)}- none`]
+
+  return values.flatMap((value, index): readonly string[] => {
+    const label = depth === 0 ? `Step ${index + 1}` : `Item ${index + 1}`
+    if (value && typeof value === "object") {
+      return [
+        `${getDecisionIndent(depth)}- ${label}:`,
+        ...formatDecisionValueMarkdown(value, depth + 1),
+      ]
+    }
+    return [
+      `${getDecisionIndent(depth)}- ${label}: ${formatDecisionScalar(value)}`,
+    ]
+  })
+}
+
+function formatDecisionRecordMarkdown(
+  record: Record<string, unknown>,
+  depth: number,
+): readonly string[] {
+  const entries = Object.entries(record).filter(
+    ([key, value]): boolean => shouldRenderDecisionEntry(key, value),
+  )
+  if (entries.length === 0) return [`${getDecisionIndent(depth)}- none`]
+
+  return entries.flatMap(([key, value]): readonly string[] => {
+    if (Array.isArray(value) || (value && typeof value === "object")) {
+      return [
+        `${getDecisionIndent(depth)}- ${key}:`,
+        ...formatDecisionValueMarkdown(value, depth + 1),
+      ]
+    }
+    return [
+      `${getDecisionIndent(depth)}- ${key}: ${formatDecisionScalar(value)}`,
+    ]
+  })
+}
+
+function shouldRenderDecisionEntry(key: string, value: unknown): boolean {
+  if (value === null || value === undefined) return false
+  if (typeof value === "string" && value.trim().length === 0) return false
+
+  return !isInternalDecisionField(key)
+}
+
+function isInternalDecisionField(key: string): boolean {
+  return [
+    "assetId",
+    "asset_id",
+    "assetUrl",
+    "asset_url",
+    "rawUrl",
+    "raw_url",
+    "presignedUrl",
+    "presigned_url",
+  ].includes(key)
+}
+
+function formatDecisionScalar(value: unknown): string {
+  if (typeof value === "string") {
+    return redactRawUrls(value).replace(/\s+/g, " ").trim()
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value)
+  }
+  return redactRawUrls(String(value)).replace(/\s+/g, " ").trim()
+}
+
+function getDecisionIndent(depth: number): string {
+  return "  ".repeat(depth)
 }
 
 function formatResultReferencesMarkdown(
@@ -1070,30 +1196,11 @@ function buildRetrievedChunkToolOutput(
   ].join("\n")
 }
 
-function getRetrievalResponseStatus(
-  response: RetrievalQueryResponse,
-):
-  | "useful_evidence_found"
-  | "needs_refinement"
-  | "needs_review"
-  | "no_results" {
-  const hasEvidence = Boolean(response.evidenceText?.trim())
-  const hasResults =
-    response.results.length > 0 || response.referencedChunks.length > 0
-
-  if (response.failureReason) return "needs_refinement"
-  if (!hasEvidence && !hasResults) return "no_results"
-  if (response.stopReason && response.stopReason !== "answer_done") {
-    return "needs_review"
-  }
-  return "useful_evidence_found"
-}
-
 function formatOptionalMarkdownText(
   value: string | null | undefined,
   fallback: string,
 ): string {
-  const normalized = truncateSafeContextTextToLimit(
+  const normalized = truncateSafeMarkdownTextToLimit(
     value ?? "",
     TOOL_EVIDENCE_CHAR_LIMIT,
   )
@@ -1127,10 +1234,7 @@ function formatMediaAvailability(reference: RetrievedChunkReference): string {
 function logToolMarkdownOutput(toolName: string, output: string): void {
   logger.info("chat-agent: tool output", {
     toolName,
-    output: buildAgentLoopMarkdownPreview(
-      output,
-      AGENT_LOOP_TOOL_OUTPUT_LOG_LIMIT,
-    ),
+    output: buildAgentLoopFullMarkdownPreview(output),
   })
 }
 
@@ -1227,6 +1331,13 @@ function truncateContextTextToLimit(value: string, limit: number): string {
 
 function truncateSafeContextTextToLimit(value: string, limit: number): string {
   return truncateContextTextToLimit(redactRawUrls(value), limit)
+}
+
+function truncateSafeMarkdownTextToLimit(value: string, limit: number): string {
+  const normalized = redactRawUrls(value).replace(/\r\n?/g, "\n")
+  if (normalized.trim().length === 0) return ""
+  if (normalized.length <= limit) return normalized
+  return `${normalized.slice(0, limit)}...`
 }
 
 function redactRawUrls(value: string): string {

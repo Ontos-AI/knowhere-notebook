@@ -967,6 +967,14 @@ describe("generateAgenticGroundedAnswer", () => {
       });
     const previewWithinNewLimitMarker = "within-new-preview-limit";
     const previewAfterNewLimitMarker = "after-new-preview-limit";
+    const fullToolOutputEvidenceMarker = "full-tool-output-evidence-end";
+    const evidenceTreeText = [
+      "Identity image evidence. https://blob.example/images/id-front.jpg",
+      "[Document] document-generated.pdf",
+      "▸ [L1] Assets",
+      "  ▸ [L2] images / id-front.jpg",
+      `    ┈ ${"evidence ".repeat(500)}${fullToolOutputEvidenceMarker}`,
+    ].join("\n");
     const longIdentityPreview = [
       "Identity card image front side.",
       "preview ".repeat(170),
@@ -987,8 +995,7 @@ describe("generateAgenticGroundedAnswer", () => {
           },
         }),
       ],
-      evidenceText:
-        "Identity image evidence. https://blob.example/images/id-front.jpg",
+      evidenceText: evidenceTreeText,
       referencedChunks: [
         {
           chunkId: "chunk_identity_1",
@@ -1100,6 +1107,23 @@ describe("generateAgenticGroundedAnswer", () => {
       toolChoice: { type: "tool", toolName: "searchSources" },
       activeTools: ["searchSources"],
     })
+    expect(
+      settings.prepareStep({
+        stepNumber: 1,
+        messages: [...generateInput.messages],
+      }),
+    ).toMatchObject({
+      toolChoice: { type: "tool", toolName: "searchSources" },
+      activeTools: ["searchSources"],
+    })
+    expect(
+      settings.prepareStep({
+        stepNumber: 2,
+        messages: [...generateInput.messages],
+      }),
+    ).toMatchObject({
+      messages: expect.any(Array),
+    })
 
     const searchSourcesTool = getCapturedAgentTools(agent).searchSources
     expect(
@@ -1132,9 +1156,20 @@ describe("generateAgenticGroundedAnswer", () => {
     });
     expect(toolOutput).toEqual(expect.any(String));
     expect(toolOutput).toContain("## Retrieval Result");
-    expect(toolOutput).toContain("Status: useful_evidence_found");
+    expect(toolOutput).toContain("Query: 公民身份证 图片");
     expect(toolOutput).toContain("Guidance: Use this evidence");
     expect(toolOutput).toContain("## Evidence");
+    expect(toolOutput).toContain(
+      "[Document] document-generated.pdf\n▸ [L1] Assets\n  ▸ [L2] images / id-front.jpg",
+    );
+    expect(toolOutput).toContain(fullToolOutputEvidenceMarker);
+    expect(toolOutput).not.toContain(
+      "[Document] document-generated.pdf ▸ [L1] Assets",
+    );
+    expect(toolOutput).toContain("## Decision Trace");
+    expect(toolOutput).toContain("- Step 1:");
+    expect(toolOutput).toContain("- step: final");
+    expect(toolOutput).toContain("- stop: answer_done");
     expect(toolOutput).toContain("### Result 1");
     expect(toolOutput).toContain("Type: image");
     expect(toolOutput).toContain(
@@ -1152,7 +1187,8 @@ describe("generateAgenticGroundedAnswer", () => {
     expect(getLoggerInfoMeta("chat-agent: tool output")).toMatchObject({
       toolName: "searchSources",
       output: expect.objectContaining({
-        preview: expect.stringContaining("## Retrieval Result\n\nStatus"),
+        truncated: false,
+        preview: expect.stringContaining(fullToolOutputEvidenceMarker),
       }),
     });
 
@@ -1196,6 +1232,7 @@ describe("generateAgenticGroundedAnswer", () => {
     expect(getLoggerInfoMeta("chat-agent: tool output")).toMatchObject({
       toolName: "readRetrievedChunk",
       output: expect.objectContaining({
+        truncated: false,
         preview: expect.stringContaining("## Retrieved Content\n\nStatus"),
       }),
     });
@@ -1247,7 +1284,7 @@ describe("generateAgenticGroundedAnswer", () => {
       content: `loop-message-${index}`,
     }));
     const preparedStep = settings.prepareStep({
-      stepNumber: 1,
+      stepNumber: 2,
       messages: oversizedLoopMessages,
     }) as { readonly messages: readonly ModelMessage[] };
 
@@ -1258,7 +1295,7 @@ describe("generateAgenticGroundedAnswer", () => {
       operation: "generateAgenticGroundedAnswer.step",
       model: "google/gemini-3-flash",
       promptType: "messages",
-      stepNumber: 1,
+      stepNumber: 2,
       instructions: expect.stringContaining("Notebook research agent"),
       messageCount: preparedStep.messages.length,
       messages: expect.arrayContaining([
@@ -1284,7 +1321,7 @@ describe("generateAgenticGroundedAnswer", () => {
       },
     ];
     const preparedHugeStep = settings.prepareStep({
-      stepNumber: 1,
+      stepNumber: 2,
       messages: hugeLoopMessages,
     }) as { readonly messages: readonly ModelMessage[] };
     const serializedHugeStepMessages = JSON.stringify(
@@ -1298,8 +1335,32 @@ describe("generateAgenticGroundedAnswer", () => {
     expect(serializedHugeStepMessages).toContain("latest-loop-message");
   });
 
-  it("logs bounded tool call and tool result previews for each loop step", async () => {
+  it("logs bounded tool calls and complete tool results for each loop step", async () => {
     process.env.AI_GATEWAY_API_KEY = "test_gateway_key";
+    const fullStepToolOutputMarker = "full-step-tool-output-end";
+    const fullStepToolOutput = `\n${[
+      "## Retrieval Result",
+      "",
+      "Status: useful_evidence_found",
+      "Query: 冯荣洲 身份证 ID card",
+      "Guidance: Use this evidence if it directly answers the user.",
+      "",
+      "## Evidence",
+      `Image evidence https://blob.example/id-front.jpg ${"evidence ".repeat(
+        600,
+      )}`,
+      "",
+      "## Results",
+      "### Result 1",
+      "Type: image",
+      "Source: 商务标文件.pdf / 二、法定代表人身份证明",
+      "Media: image available",
+      "Read ID: chunk_identity_1",
+      "",
+      "Preview:",
+      `Identity image content ${"result ".repeat(80)}`,
+      fullStepToolOutputMarker,
+    ].join("\n")}\n  `;
     const generateSpy = vi
       .spyOn(ToolLoopAgent.prototype, "generate")
       .mockResolvedValue({
@@ -1341,28 +1402,7 @@ describe("generateAgenticGroundedAnswer", () => {
         {
           toolName: "searchSources",
           toolCallId: "call_1",
-          output: [
-            "## Retrieval Result",
-            "",
-            "Status: useful_evidence_found",
-            "Query: 冯荣洲 身份证 ID card",
-            "Guidance: Use this evidence if it directly answers the user.",
-            "",
-            "## Evidence",
-            `Image evidence https://blob.example/id-front.jpg ${"evidence ".repeat(
-              600,
-            )}`,
-            "",
-            "## Results",
-            "### Result 1",
-            "Type: image",
-            "Source: 商务标文件.pdf / 二、法定代表人身份证明",
-            "Media: image available",
-            "Read ID: chunk_identity_1",
-            "",
-            "Preview:",
-            `Identity image content ${"result ".repeat(80)}`,
-          ].join("\n"),
+          output: fullStepToolOutput,
         },
       ],
       usage: {
@@ -1390,11 +1430,14 @@ describe("generateAgenticGroundedAnswer", () => {
     expect(stepLog.toolResults[0]?.output).toMatchObject({
       kind: "searchSources",
       output: {
-        truncated: true,
+        truncated: false,
       },
     });
     const searchSourcesOutput = stepLog.toolResults[0]
       ?.output as SearchSourcesToolOutputLogMeta;
+    expect(searchSourcesOutput.output.preview.startsWith("\n## Retrieval Result"))
+      .toBe(true);
+    expect(searchSourcesOutput.output.preview.endsWith("\n  ")).toBe(true);
     expect(searchSourcesOutput.output.preview).toContain("## Retrieval Result");
     expect(searchSourcesOutput.output.preview).toContain("\n\n## Evidence");
     expect(searchSourcesOutput.output.preview).toContain(
@@ -1402,6 +1445,9 @@ describe("generateAgenticGroundedAnswer", () => {
     );
     expect(searchSourcesOutput.output.preview).toContain(
       "[media asset URL hidden]",
+    );
+    expect(searchSourcesOutput.output.preview).toContain(
+      fullStepToolOutputMarker,
     );
     expect(JSON.stringify(stepMeta)).not.toContain("https://blob.example");
 
@@ -1523,6 +1569,7 @@ describe("buildAgenticChatSystemPrompt", () => {
     });
 
     expect(prompt).toContain("Always call searchSources")
+    expect(prompt).toContain("Make a second searchSources call")
     expect(prompt).toContain("readRetrievedChunk")
     expect(prompt).toContain("markdown output gives guidance")
     expect(prompt).toContain("Read IDs")
