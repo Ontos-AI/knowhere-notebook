@@ -1,7 +1,12 @@
-import type { RetrievalQueryParams, RetrievalQueryResponse } from "@ontos-ai/knowhere-sdk"
+import type {
+  RetrievalQueryParams,
+  RetrievalQueryResponse,
+  RetrievalSource,
+} from "@ontos-ai/knowhere-sdk"
 
 import type { Source } from "@/infrastructure/db/schema"
 import type { ChatCitationView } from "@/domains/chat/types"
+import type { LoadSourceAssetUrls } from "./media-assets"
 
 export type RetrievalClient = {
   query(params: RetrievalQueryParams): Promise<RetrievalQueryResponse>
@@ -13,18 +18,83 @@ export type ChatHistoryMessage = {
   citations?: readonly ChatCitationView[]
 }
 
-export type GenerateRetrievalQuery = (input: {
+export type AgenticRetrievalTargetContent =
+  | "all"
+  | "text"
+  | "image"
+  | "table"
+  | "text_image"
+  | "text_table"
+
+export type AgenticRetrievalPlan = {
+  targetContent: AgenticRetrievalTargetContent
+  purpose: string | null
+}
+
+export type AgenticRetrievalQuery = Pick<
+  RetrievalQueryParams,
+  "query" | "topK" | "signalPaths" | "filterMode" | "threshold"
+> & {
+  readonly targetContent?: AgenticRetrievalTargetContent
+  readonly purpose?: string
+}
+
+export type RetrievedChunkReference = {
+  id: string
+  chunkId: string | null
+  kind: "result" | "referencedChunk"
+  resultIndex: number | null
+  chunkType: string
+  score: number | null
+  source: RetrievalSource
+  hasAssetUrl: boolean
+  contentLength: number
+  contentPreview: string
+  contentTruncated: boolean
+}
+
+export type AgenticRetrievalResponse = RetrievalQueryResponse & {
+  chunkReferences: readonly RetrievedChunkReference[]
+  retrievalPlan?: AgenticRetrievalPlan
+}
+
+export type SearchSources = (
+  input: AgenticRetrievalQuery,
+) => Promise<AgenticRetrievalResponse>
+
+export type ReadRetrievedChunkInput = {
+  id: string
+  offset?: number
+  limit?: number
+}
+
+export type ReadRetrievedChunkResult = {
+  id: string
+  chunkId: string | null
+  found: boolean
+  chunkType: string | null
+  score: number | null
+  source: RetrievalSource | null
+  hasAssetUrl: boolean
+  offset: number
+  limit: number
+  contentLength: number
+  contentSlice: string
+  hasMoreContent: boolean
+  nextOffset: number | null
+}
+
+export type ReadRetrievedChunk = (
+  input: ReadRetrievedChunkInput,
+) => Promise<ReadRetrievedChunkResult>
+
+export type GenerateAnswer = (input: {
   question: string
   messages: readonly ChatHistoryMessage[]
   sources: readonly Source[]
   excludedSourceIds: readonly string[]
-}) => Promise<string>
-
-export type GenerateAnswer = (input: {
-  question: string
-  retrievalQuery: string
-  messages: readonly ChatHistoryMessage[]
-  evidenceText: string
+  searchSources: SearchSources
+  readRetrievedChunk: ReadRetrievedChunk
 }) => Promise<string>
 
 export type AnswerQuestionInput = {
@@ -33,8 +103,8 @@ export type AnswerQuestionInput = {
   sources: readonly Source[]
   excludedSourceIds: readonly string[]
   retrieval: RetrievalClient
-  generateRetrievalQuery: GenerateRetrievalQuery
   generateAnswer: GenerateAnswer
+  loadSourceAssetUrls?: LoadSourceAssetUrls
   messages: readonly ChatHistoryMessage[]
 }
 
@@ -42,4 +112,3 @@ export type AnswerQuestionResult = {
   answer: string
   citations: ChatCitationView[]
 }
-
