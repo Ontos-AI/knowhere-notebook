@@ -11,6 +11,7 @@ import type {
   AgentTurnInput,
   ContextPolicy,
   IntentFrame,
+  OutputManifest,
   RetrievalCapability,
 } from "./types"
 
@@ -91,7 +92,7 @@ describe("agent harness runtime", () => {
     const state: {
       intent?: IntentFrame
       contextPolicy?: ContextPolicy
-      finalizedManifest?: unknown
+      finalizedManifest?: OutputManifest
     } = {}
     const tools = createHarnessTools({
       state,
