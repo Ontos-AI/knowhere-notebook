@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
   createChatThread: vi.fn(),
   ensureDefaultChatThread: vi.fn(),
   findChatThreadInWorkspace: vi.fn(),
-  generateAgenticGroundedAnswer: vi.fn(),
+  generateAgenticOutputManifest: vi.fn(),
   getAuthenticated: vi.fn(),
   getAuthenticatedWithClient: vi.fn(),
   handleChatTurn: vi.fn(),
@@ -25,7 +25,7 @@ vi.mock("@/domains/chat", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/domains/chat")>()
   return {
     ...original,
-    generateAgenticGroundedAnswer: mocks.generateAgenticGroundedAnswer,
+    generateAgenticOutputManifest: mocks.generateAgenticOutputManifest,
   }
 })
 
@@ -123,7 +123,8 @@ describe("chat route services", () => {
         threadId: "thread_1",
         excludedSourceIds: ["source_skipped"],
         retrieval: client.retrieval,
-        generateAnswer: mocks.generateAgenticGroundedAnswer,
+        generateAnswer: mocks.generateAgenticOutputManifest,
+        loadSourceAssetUrls: expect.any(Function),
         repository: expect.objectContaining({
           appendMessageToThread: expect.any(Function),
           ensureDefaultChatThread: expect.any(Function),
@@ -370,6 +371,7 @@ function makeMessage(overrides: Partial<ChatMessage> = {}): ChatMessage {
     role: "user",
     content: "Message",
     citations: null,
+    artifacts: null,
     createdAt: new Date("2026-05-06T00:00:00Z"),
     ...overrides,
   }

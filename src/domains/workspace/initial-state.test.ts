@@ -535,6 +535,7 @@ function makeMessage(
     role: "user",
     content: "Hello",
     citations: null,
+    artifacts: null,
     createdAt: new Date("2026-05-10T00:00:00.000Z"),
     ...overrides,
   }

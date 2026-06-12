@@ -11,6 +11,7 @@ import { chatPanelModel } from "@/components/chat-panel-model";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
 import type {
+  ChatArtifactView,
   ChatCitationView,
   ChatMessageView,
 } from "@/domains/chat/types";
@@ -23,6 +24,12 @@ type DisplayCitation = {
 
 type DisplayImageCitation = DisplayCitation & {
   readonly assetUrl: string;
+};
+
+type DisplayImageArtifact = {
+  readonly assetUrl: string;
+  readonly citationId: string;
+  readonly label: string;
 };
 
 const assistantMarkdownComponents: Components = {
@@ -252,10 +259,14 @@ function MessageBubble({
     message,
     sourceTitlesByDocumentId,
   );
-  const displayImageCitations = getDisplayImageCitations(
+  const displayImageArtifacts = getDisplayImageArtifacts(
     message,
     sourceTitlesByDocumentId,
   );
+  const displayImageCitations =
+    displayImageArtifacts.length > 0
+      ? displayImageArtifacts
+      : getDisplayImageCitations(message, sourceTitlesByDocumentId);
 
   return (
     <div className="flex min-w-0 flex-col items-start">
@@ -386,6 +397,47 @@ function getDisplayImageCitations(
   }
 
   return imageCitations;
+}
+
+function getDisplayImageArtifacts(
+  message: ChatMessageView,
+  sourceTitlesByDocumentId: Readonly<Record<string, string>>,
+): readonly DisplayImageArtifact[] {
+  const seenAssetUrls = new Set<string>();
+  const imageArtifacts: DisplayImageArtifact[] = [];
+
+  for (const [index, artifact] of (message.artifacts ?? []).entries()) {
+    if (artifact.display === false || artifact.type !== "image") continue;
+
+    const assetUrl = getTrimmedCitationField(artifact.assetUrl);
+    if (!assetUrl || seenAssetUrls.has(assetUrl)) continue;
+
+    seenAssetUrls.add(assetUrl);
+    imageArtifacts.push({
+      assetUrl,
+      citationId: `${message.id}:artifact:${index}`,
+      label: getArtifactLabel(artifact, sourceTitlesByDocumentId),
+    });
+  }
+
+  return imageArtifacts;
+}
+
+function getArtifactLabel(
+  artifact: ChatArtifactView,
+  sourceTitlesByDocumentId: Readonly<Record<string, string>>,
+): string {
+  const label = getTrimmedCitationField(artifact.label);
+  if (label) return label;
+
+  if (artifact.citation) {
+    return chatPanelModel.getCitationLabel(
+      artifact.citation,
+      sourceTitlesByDocumentId,
+    );
+  }
+
+  return getTrimmedCitationField(artifact.reason) ?? "Selected image";
 }
 
 function isImageCitation(

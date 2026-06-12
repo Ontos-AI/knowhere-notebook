@@ -100,6 +100,73 @@ describe("ChatMessageList", () => {
     ).toBeNull();
   });
 
+  it("renders selected image artifacts instead of every retrieved image citation", () => {
+    render(
+      React.createElement(ChatMessageList, {
+        messages: [
+          {
+            id: "assistant_1",
+            role: "assistant",
+            content: "已找到相关图片，见下方图片。",
+            citations: [
+              {
+                chunkType: "image",
+                score: 0.9,
+                assetUrl: "https://blob.example/images/front.jpg",
+                source: {
+                  documentId: "doc_1",
+                  sourceFileName: "商务标文件.pdf",
+                  sectionPath: "身份证正面",
+                },
+              },
+              {
+                chunkType: "image",
+                score: 0.88,
+                assetUrl: "https://blob.example/images/back.jpg",
+                source: {
+                  documentId: "doc_1",
+                  sourceFileName: "商务标文件.pdf",
+                  sectionPath: "身份证反面",
+                },
+              },
+              {
+                chunkType: "image",
+                score: 0.7,
+                assetUrl: "https://blob.example/images/extra.jpg",
+                source: {
+                  documentId: "doc_1",
+                  sourceFileName: "商务标文件.pdf",
+                  sectionPath: "其他候选图片",
+                },
+              },
+            ],
+            artifacts: [
+              {
+                type: "image",
+                display: true,
+                assetUrl: "https://blob.example/images/front.jpg",
+                label: "身份证正面",
+              },
+              {
+                type: "image",
+                display: true,
+                assetUrl: "https://blob.example/images/back.jpg",
+                label: "身份证反面",
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    const images = screen.getAllByRole("img");
+    expect(images.map((image) => image.getAttribute("src"))).toEqual([
+      "https://blob.example/images/front.jpg",
+      "https://blob.example/images/back.jpg",
+    ]);
+    expect(screen.queryByRole("img", { name: "其他候选图片" })).toBeNull();
+  });
+
   it("renders assistant markdown with GitHub-flavored tables", () => {
     render(
       React.createElement(ChatMessageList, {

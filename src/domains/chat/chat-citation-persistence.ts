@@ -1,4 +1,5 @@
 import type {
+  ChatArtifactView,
   ChatCitationView,
   CitationView,
   RetrievalResultView,
@@ -11,6 +12,9 @@ type ChatCitationPersistence = {
       | null
       | undefined,
   ) => CitationView[] | null
+  readonly normalizeArtifacts: (
+    artifacts: readonly ChatArtifactView[] | null | undefined,
+  ) => ChatArtifactView[] | null
   readonly replaceDemoCitationDocumentId: (
     citations: readonly ChatCitationView[] | undefined,
     documentIdMap: ReadonlyMap<string, string>,
@@ -25,6 +29,27 @@ function normalizeCitations(
 ): CitationView[] | null {
   if (!citations || citations.length === 0) return null
   return citations.map(toCitationView)
+}
+
+function normalizeArtifacts(
+  artifacts: readonly ChatArtifactView[] | null | undefined,
+): ChatArtifactView[] | null {
+  if (!artifacts || artifacts.length === 0) return null
+  return artifacts.map(toArtifactView)
+}
+
+function toArtifactView(artifact: ChatArtifactView): ChatArtifactView {
+  return {
+    type: artifact.type,
+    ref: artifact.ref,
+    assetUrl: artifact.assetUrl,
+    label: artifact.label,
+    display: artifact.display,
+    reason: artifact.reason,
+    citation: artifact.citation
+      ? toCitationView(artifact.citation)
+      : undefined,
+  }
 }
 
 function replaceDemoCitationDocumentId(
@@ -67,5 +92,6 @@ function toCitationView(
 
 export const chatCitationPersistence: ChatCitationPersistence = {
   normalizeCitations,
+  normalizeArtifacts,
   replaceDemoCitationDocumentId,
 }

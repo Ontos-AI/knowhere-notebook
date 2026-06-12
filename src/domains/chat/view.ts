@@ -1,6 +1,7 @@
 import { deriveChatThreadTitle } from "./title"
 import type { ChatMessage, ChatThread } from "@/infrastructure/db/schema"
 import type {
+  ChatArtifactView,
   ChatCitationView,
   ChatMessageView,
   ChatThreadView,
@@ -18,17 +19,26 @@ export function toChatThreadView(thread: ChatThread): ChatThreadView {
 export function toChatMessageView(
   message: ChatMessage,
   citations: readonly ChatCitationView[] = [],
+  artifacts: readonly ChatArtifactView[] = [],
 ): ChatMessageView {
   const citationViews =
     citations.length > 0
       ? [...citations]
       : toPersistedCitationViews(message.citations)
 
+  const artifactViews =
+    artifacts.length > 0
+      ? [...artifacts]
+      : toPersistedArtifactViews(message.artifacts)
+
   return {
     id: message.id,
     role: message.role === "assistant" ? "assistant" : "user",
     content: message.content,
     citations: citationViews,
+    ...(artifactViews && artifactViews.length > 0
+      ? { artifacts: artifactViews }
+      : {}),
   }
 }
 
@@ -54,6 +64,45 @@ function toPersistedCitationViews(value: unknown): ChatCitationView[] | undefine
   })
 
   return citations.length > 0 ? citations : undefined
+}
+
+function toPersistedArtifactViews(value: unknown): ChatArtifactView[] | undefined {
+  if (!Array.isArray(value)) return undefined
+
+  const artifacts = value.flatMap((item): ChatArtifactView[] => {
+    if (!isRecord(item)) return []
+    const type = getString(item.type)
+    if (type !== "image" && type !== "table") return []
+
+    const citation =
+      isRecord(item.citation) && isRecord(item.citation.source)
+        ? {
+            chunkType: getString(item.citation.chunkType) ?? "text",
+            score: getNumber(item.citation.score) ?? 0,
+            assetUrl: getString(item.citation.assetUrl),
+            description: getString(item.citation.description),
+            source: {
+              documentId: getString(item.citation.source.documentId),
+              sourceFileName: getString(item.citation.source.sourceFileName),
+              sectionPath: getString(item.citation.source.sectionPath),
+            },
+          }
+        : undefined
+
+    return [
+      {
+        type,
+        ref: getString(item.ref),
+        assetUrl: getString(item.assetUrl),
+        label: getString(item.label),
+        display: typeof item.display === "boolean" ? item.display : undefined,
+        reason: getString(item.reason),
+        ...(citation ? { citation } : {}),
+      },
+    ]
+  })
+
+  return artifacts.length > 0 ? artifacts : undefined
 }
 
 function getString(value: unknown): string | undefined {

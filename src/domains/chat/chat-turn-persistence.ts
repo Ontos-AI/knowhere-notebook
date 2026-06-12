@@ -4,6 +4,7 @@ import { chatThreadService } from "./thread-service"
 import type { ChatRepository } from "./service"
 import type { ChatMessage, ChatThread } from "@/infrastructure/db/schema"
 import type {
+  ChatArtifactView,
   ChatCitationView,
   CitationView,
   RetrievalResultView,
@@ -16,6 +17,7 @@ type AppendMessageInput = {
   readonly citations?:
     | readonly (ChatCitationView | CitationView | RetrievalResultView)[]
     | null
+  readonly artifacts?: readonly ChatArtifactView[] | null
 }
 
 type ChatThreadPersistenceAdapter = {
