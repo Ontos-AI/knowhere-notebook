@@ -9,6 +9,21 @@ import type {
 } from "./types"
 
 describe("validateOutputManifest", () => {
+  it("requires finalize to be the successful output path", () => {
+    const validation = validateOutputManifest({
+      manifest: makeManifest({ text: "Freeform answer." }),
+      intent: makeIntent({ groundingPolicy: "no_retrieval" }),
+      contextPolicy: unrelatedContextPolicy,
+      finalized: false,
+      ledger: emptyLedger,
+      surface: "notebook_chat",
+    })
+
+    expect(validation.errors).toContain(
+      "Agent must call finalize to produce the output manifest.",
+    )
+  })
+
   it("requires the agent to declare intent and context policy before finalizing", () => {
     const validation = validateOutputManifest({
       manifest: makeManifest({ text: "Answer." }),
@@ -97,6 +112,110 @@ describe("validateOutputManifest", () => {
 
     expect(validation.errors).toContain(
       "Grounded output used evidence but did not cite or display any selected evidence.",
+    )
+  })
+
+  it("accepts source-backed derived tables and rejects missing source refs", () => {
+    const validation = validateOutputManifest({
+      manifest: makeManifest({
+        artifacts: [
+          {
+            type: "derived_table",
+            ref: "derived:table:1",
+            title: "Revenue comparison",
+            columns: ["Metric", "Value"],
+            rows: [["Revenue", "$10M"]],
+            sourceRefs: ["r1:result:1"],
+            display: true,
+            reason: "Structured comparison requested by the user.",
+          },
+          {
+            type: "derived_table",
+            ref: "derived:table:2",
+            title: "Invalid table",
+            columns: ["Metric", "Value"],
+            rows: [["Revenue"]],
+            sourceRefs: ["missing"],
+            display: true,
+            reason: "Demonstrates validation.",
+          },
+        ],
+      }),
+      intent: makeIntent({}),
+      contextPolicy: unrelatedContextPolicy,
+      ledger: {
+        ...emptyLedger,
+        chunks: [
+          {
+            ref: "r1:result:1",
+            kind: "result",
+            content: "Revenue was $10M.",
+            contentPreview: "Revenue was $10M.",
+            chunkType: "text",
+            score: 0.9,
+            source: {
+              documentId: "doc_1",
+              sourceFileName: "report.pdf",
+              sectionPath: "Revenue",
+            },
+          },
+        ],
+      },
+      surface: "notebook_chat",
+    })
+
+    expect(validation.errors).toContain(
+      "Derived table source ref 'missing' was not found in the evidence ledger.",
+    )
+    expect(validation.errors).toContain(
+      "Derived table row 1 has 1 cells but expected 2.",
+    )
+  })
+
+  it("requires compare outputs to cite at least two evidence refs", () => {
+    const validation = validateOutputManifest({
+      manifest: makeManifest({
+        text: "A is stronger than B.",
+        citations: [
+          {
+            ref: "r1:result:1",
+            label: "report.pdf / A",
+            source: {
+              documentId: "doc_1",
+              sourceFileName: "report.pdf",
+              sectionPath: "A",
+            },
+          },
+        ],
+      }),
+      intent: {
+        ...makeIntent({}),
+        task: "compare",
+      },
+      contextPolicy: unrelatedContextPolicy,
+      ledger: {
+        ...emptyLedger,
+        chunks: [
+          {
+            ref: "r1:result:1",
+            kind: "result",
+            content: "A is strong.",
+            contentPreview: "A is strong.",
+            chunkType: "text",
+            score: 0.9,
+            source: {
+              documentId: "doc_1",
+              sourceFileName: "report.pdf",
+              sectionPath: "A",
+            },
+          },
+        ],
+      },
+      surface: "notebook_chat",
+    })
+
+    expect(validation.errors).toContain(
+      "Compare outputs that must use sources require at least two evidence refs or an explicit unresolved reason.",
     )
   })
 

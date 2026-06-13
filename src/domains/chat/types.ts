@@ -31,8 +31,12 @@ export type ChatCitationView = CitationView & {
 }
 
 export type ChatArtifactView = {
-  readonly type: "image" | "table"
+  readonly type: "image" | "table" | "derived_table"
   readonly ref?: string
+  readonly title?: string
+  readonly columns?: readonly string[]
+  readonly rows?: readonly (readonly string[])[]
+  readonly sourceRefs?: readonly string[]
   readonly assetUrl?: string
   readonly label?: string
   readonly display?: boolean

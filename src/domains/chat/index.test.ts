@@ -86,6 +86,7 @@ describe("answerQuestionWithRetrieval", () => {
     expect(answer).toEqual({
       answer: "The answer is grounded.",
       citations: [result],
+      artifacts: [],
     });
   });
 
@@ -443,7 +444,53 @@ describe("answerQuestionWithRetrieval", () => {
             stopReasons: [],
             failureReasons: [],
             decisionTraces: [],
-            chunks: [],
+            chunks: [
+              {
+                ref: "r1:result:1",
+                kind: "result",
+                content: "",
+                contentPreview: "",
+                chunkType: "image",
+                score: 0.9,
+                assetUrl: frontAssetUrl,
+                assetRef: "asset:r1:result:1",
+                source: {
+                  documentId: "doc_identity",
+                  sourceFileName: "document-generated.pdf",
+                  sectionPath: "身份证正面",
+                },
+              },
+              {
+                ref: "r1:result:2",
+                kind: "result",
+                content: "",
+                contentPreview: "",
+                chunkType: "image",
+                score: 0.88,
+                assetUrl: backAssetUrl,
+                assetRef: "asset:r1:result:2",
+                source: {
+                  documentId: "doc_identity",
+                  sourceFileName: "document-generated.pdf",
+                  sectionPath: "身份证反面",
+                },
+              },
+              {
+                ref: "r1:result:3",
+                kind: "result",
+                content: "",
+                contentPreview: "",
+                chunkType: "image",
+                score: 0.7,
+                assetUrl: extraAssetUrl,
+                assetRef: "asset:r1:result:3",
+                source: {
+                  documentId: "doc_identity",
+                  sourceFileName: "document-generated.pdf",
+                  sectionPath: "营业执照",
+                },
+              },
+            ],
             assets: [
               {
                 ref: "asset:r1:result:1",
@@ -498,6 +545,9 @@ describe("answerQuestionWithRetrieval", () => {
             reason: "The current turn is self-contained.",
             activePriorTurnIds: [],
           },
+          finalized: true,
+          priorTurnReads: [],
+          toolCalls: [],
         },
       };
       return harnessResult;
@@ -537,6 +587,300 @@ describe("answerQuestionWithRetrieval", () => {
           sectionPath: "身份证反面",
         },
       ],
+    );
+    expect(answer.citations.map((citation) => citation.assetUrl)).toEqual([
+      frontAssetUrl,
+      backAssetUrl,
+    ]);
+  });
+
+  it("returns a safe fallback when the harness still has validation errors", async () => {
+    const retrieval = {
+      query: vi.fn().mockResolvedValue({
+        results: [makeRetrievalResult()],
+        evidenceText: "Grounding content",
+        referencedChunks: [],
+        namespace: "notebook-workspace",
+        query: "What changed?",
+        routerUsed: "workflow_single_step",
+        answerText: null,
+      }),
+    };
+    const generateAnswer = vi.fn(async ({ searchSources }) => {
+      await searchSources({ query: "What changed?" });
+      return {
+        ...makeHarnessRunResult("This invalid answer should not ship."),
+        trace: {
+          ...makeHarnessRunResult("").trace,
+          finalized: false,
+          validationErrors: [
+            "Agent must call finalize to produce the output manifest.",
+          ],
+        },
+      };
+    });
+
+    const answer = await Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "What changed?",
+        namespace: "notebook-workspace",
+        sources: [makeSource()],
+        excludedSourceIds: [],
+        retrieval,
+        generateAnswer,
+        messages: [],
+      }),
+    );
+
+    expect(answer).toEqual({
+      answer:
+        "I couldn't safely finish that response because the agent output did not pass Notebook's validation checks. Please try again.",
+      citations: [],
+      artifacts: [],
+    });
+  });
+
+  it("keeps image-only harness output instead of treating it as no results", async () => {
+    const assetUrl = "https://blob.example/images/diagram.png";
+    const retrieval = {
+      query: vi.fn().mockResolvedValue({
+        results: [
+          makeRetrievalResult({
+            content: "",
+            chunkType: "image",
+            assetUrl,
+            source: {
+              documentId: "doc_diagram",
+              sourceFileName: "generated.pdf",
+              sectionPath: "Diagram",
+            },
+          }),
+        ],
+        evidenceText: "Diagram candidate.",
+        referencedChunks: [],
+        namespace: "notebook-workspace",
+        query: "diagram",
+        routerUsed: "workflow_single_step",
+        answerText: null,
+      }),
+    };
+    const generateAnswer = vi.fn(async ({ searchSources }) => {
+      await searchSources({ query: "diagram", targetContent: "image" });
+      return {
+        manifest: {
+          text: "",
+          citations: [],
+          artifacts: [
+            {
+              type: "image",
+              ref: "asset:r1:result:1",
+              display: true,
+              reason: "Requested diagram",
+            },
+          ],
+          unresolved: [],
+        },
+        trace: {
+          ...makeHarnessRunResult("").trace,
+          finalized: true,
+          priorTurnReads: [],
+          toolCalls: [],
+          ledger: {
+            retrievalCount: 1,
+            evidenceText: ["Diagram candidate."],
+            stopReasons: [],
+            failureReasons: [],
+            decisionTraces: [],
+            chunks: [
+              {
+                ref: "r1:result:1",
+                kind: "result",
+                content: "",
+                contentPreview: "",
+                chunkType: "image",
+                score: 0.9,
+                assetUrl,
+                assetRef: "asset:r1:result:1",
+                source: {
+                  documentId: "doc_diagram",
+                  sourceFileName: "generated.pdf",
+                  sectionPath: "Diagram",
+                },
+              },
+            ],
+            assets: [
+              {
+                ref: "asset:r1:result:1",
+                chunkRef: "r1:result:1",
+                type: "image",
+                assetUrl,
+                label: "generated.pdf / Diagram / image",
+                source: {
+                  documentId: "doc_diagram",
+                  sourceFileName: "generated.pdf",
+                  sectionPath: "Diagram",
+                },
+              },
+            ],
+          },
+        },
+      } satisfies HarnessRunResult;
+    });
+
+    const answer = await Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "Show me the diagram.",
+        namespace: "notebook-workspace",
+        sources: [
+          makeSource({ title: "diagram.pdf", knowhereDocumentId: "doc_diagram" }),
+        ],
+        excludedSourceIds: [],
+        retrieval,
+        generateAnswer,
+        messages: [],
+      }),
+    );
+
+    expect(answer.answer).not.toBe("I couldn't find that in your sources.");
+    expect(answer.artifacts?.map((artifact) => artifact.assetUrl)).toEqual([
+      assetUrl,
+    ]);
+    expect(answer.citations.map((citation) => citation.assetUrl)).toEqual([
+      assetUrl,
+    ]);
+  });
+
+  it("returns source-backed derived table artifacts from the harness manifest", async () => {
+    const retrieval = {
+      query: vi.fn().mockResolvedValue({
+        results: [
+          makeRetrievalResult({
+            content: "Plan A costs $10M and takes 6 months.",
+            source: {
+              documentId: "doc_plan_a",
+              sourceFileName: "plan-a.pdf",
+              sectionPath: "Cost",
+            },
+          }),
+          makeRetrievalResult({
+            content: "Plan B costs $8M and takes 9 months.",
+            source: {
+              documentId: "doc_plan_b",
+              sourceFileName: "plan-b.pdf",
+              sectionPath: "Cost",
+            },
+          }),
+        ],
+        evidenceText: "Plan comparison evidence.",
+        referencedChunks: [],
+        namespace: "notebook-workspace",
+        query: "compare plan costs timelines",
+        routerUsed: "workflow_single_step",
+        answerText: null,
+      }),
+    };
+    const generateAnswer = vi.fn(async ({ searchSources }) => {
+      await searchSources({ query: "compare plan costs timelines" });
+      return {
+        manifest: {
+          text: "I organized the comparison into a table.",
+          citations: [],
+          artifacts: [
+            {
+              type: "derived_table",
+              ref: "derived:table:plans",
+              title: "Plan comparison",
+              columns: ["Plan", "Cost", "Timeline"],
+              rows: [
+                ["Plan A", "$10M", "6 months"],
+                ["Plan B", "$8M", "9 months"],
+              ],
+              sourceRefs: ["r1:result:1", "r1:result:2"],
+              display: true,
+              reason: "The user asked for a comparison table.",
+            },
+          ],
+          unresolved: [],
+        },
+        trace: {
+          ...makeHarnessRunResult("").trace,
+          finalized: true,
+          ledger: {
+            retrievalCount: 1,
+            evidenceText: ["Plan comparison evidence."],
+            stopReasons: [],
+            failureReasons: [],
+            decisionTraces: [],
+            chunks: [
+              {
+                ref: "r1:result:1",
+                kind: "result",
+                content: "Plan A costs $10M and takes 6 months.",
+                contentPreview: "Plan A costs $10M and takes 6 months.",
+                chunkType: "text",
+                score: 0.9,
+                source: {
+                  documentId: "doc_plan_a",
+                  sourceFileName: "plan-a.pdf",
+                  sectionPath: "Cost",
+                },
+              },
+              {
+                ref: "r1:result:2",
+                kind: "result",
+                content: "Plan B costs $8M and takes 9 months.",
+                contentPreview: "Plan B costs $8M and takes 9 months.",
+                chunkType: "text",
+                score: 0.88,
+                source: {
+                  documentId: "doc_plan_b",
+                  sourceFileName: "plan-b.pdf",
+                  sectionPath: "Cost",
+                },
+              },
+            ],
+            assets: [],
+          },
+        },
+      } satisfies HarnessRunResult;
+    });
+
+    const answer = await Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "Compare the plans in a table.",
+        namespace: "notebook-workspace",
+        sources: [
+          makeSource({ title: "Plan A.pdf", knowhereDocumentId: "doc_plan_a" }),
+          makeSource({
+            id: "source_plan_b",
+            title: "Plan B.pdf",
+            knowhereDocumentId: "doc_plan_b",
+          }),
+        ],
+        excludedSourceIds: [],
+        retrieval,
+        generateAnswer,
+        messages: [],
+      }),
+    );
+
+    expect(answer.artifacts).toEqual([
+      {
+        type: "derived_table",
+        ref: "derived:table:plans",
+        title: "Plan comparison",
+        columns: ["Plan", "Cost", "Timeline"],
+        rows: [
+          ["Plan A", "$10M", "6 months"],
+          ["Plan B", "$8M", "9 months"],
+        ],
+        sourceRefs: ["r1:result:1", "r1:result:2"],
+        display: true,
+        reason: "The user asked for a comparison table.",
+      },
+    ]);
+    expect(answer.citations.map((citation) => citation.source.sourceFileName)).toEqual(
+      ["Plan A.pdf", "Plan B.pdf"],
     );
   });
 
@@ -654,6 +998,7 @@ describe("answerQuestionWithRetrieval", () => {
     expect(answer).toEqual({
       answer: "I couldn't find that in your sources.",
       citations: [],
+      artifacts: [],
     });
   });
 
@@ -1158,6 +1503,9 @@ function makeHarnessRunResult(text: string): HarnessRunResult {
         failureReasons: [],
         decisionTraces: [],
       },
+      finalized: true,
+      priorTurnReads: [],
+      toolCalls: [],
       validationErrors: [],
       revisionsUsed: 0,
     },

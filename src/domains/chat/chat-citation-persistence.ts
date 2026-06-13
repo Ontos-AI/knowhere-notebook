@@ -34,7 +34,8 @@ function normalizeCitations(
 function normalizeArtifacts(
   artifacts: readonly ChatArtifactView[] | null | undefined,
 ): ChatArtifactView[] | null {
-  if (!artifacts || artifacts.length === 0) return null
+  if (!artifacts) return null
+  if (artifacts.length === 0) return []
   return artifacts.map(toArtifactView)
 }
 
@@ -42,6 +43,10 @@ function toArtifactView(artifact: ChatArtifactView): ChatArtifactView {
   return {
     type: artifact.type,
     ref: artifact.ref,
+    title: artifact.title,
+    columns: artifact.columns,
+    rows: artifact.rows,
+    sourceRefs: artifact.sourceRefs,
     assetUrl: artifact.assetUrl,
     label: artifact.label,
     display: artifact.display,

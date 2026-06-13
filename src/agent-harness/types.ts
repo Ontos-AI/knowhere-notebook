@@ -139,17 +139,42 @@ export type OutputArtifact = {
   readonly reason: string
 }
 
+export type DerivedTableArtifact = {
+  readonly type: "derived_table"
+  readonly ref: string
+  readonly title: string
+  readonly columns: readonly string[]
+  readonly rows: readonly (readonly string[])[]
+  readonly sourceRefs: readonly string[]
+  readonly display: boolean
+  readonly reason: string
+}
+
+export type OutputArtifactView = OutputArtifact | DerivedTableArtifact
+
 export type OutputManifest = {
   readonly text: string
   readonly citations: readonly OutputCitation[]
-  readonly artifacts: readonly OutputArtifact[]
+  readonly artifacts: readonly OutputArtifactView[]
   readonly unresolved: readonly string[]
+}
+
+export type HarnessToolCallTrace = {
+  readonly tool: string
+  readonly ok: boolean
+  readonly inputSummary: unknown
+  readonly outputSummary: unknown
+  readonly startedAt: string
+  readonly durationMs: number
 }
 
 export type HarnessTrace = {
   readonly intent?: IntentFrame
   readonly contextPolicy?: ContextPolicy
   readonly ledger: EvidenceLedgerSnapshot
+  readonly finalized: boolean
+  readonly priorTurnReads: readonly string[]
+  readonly toolCalls: readonly HarnessToolCallTrace[]
   readonly validationErrors: readonly string[]
   readonly revisionsUsed: number
 }

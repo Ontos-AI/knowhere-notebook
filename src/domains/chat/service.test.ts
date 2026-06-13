@@ -78,6 +78,7 @@ describe("handleChatTurn", () => {
       role: "assistant",
       content: "Grounded answer.",
       citations: [makeRetrievalResult()],
+      artifacts: [],
     });
   });
 
@@ -343,6 +344,9 @@ function makeHarnessRunResult(text: string): HarnessRunResult {
         failureReasons: [],
         decisionTraces: [],
       },
+      finalized: true,
+      priorTurnReads: [],
+      toolCalls: [],
       validationErrors: [],
       revisionsUsed: 0,
     },

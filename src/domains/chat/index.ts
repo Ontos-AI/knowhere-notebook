@@ -11,6 +11,7 @@ import type {
   ChatCitationView,
 } from "@/domains/chat/types"
 import type {
+  DerivedTableArtifact,
   EvidenceAsset,
   EvidenceChunk,
   HarnessRunResult,
@@ -44,6 +45,8 @@ const MAX_CITATION_RESULTS = 20
 const KNOWHERE_RESPONSE_TEXT_LOG_LIMIT = 200
 const KNOWHERE_CHUNK_LOG_LIMIT = 100
 const NO_RESULTS_ANSWER = "I couldn't find that in your sources."
+const HARNESS_VALIDATION_FAILURE_ANSWER =
+  "I couldn't safely finish that response because the agent output did not pass Notebook's validation checks. Please try again."
 const RAW_URL_PATTERN = /https?:\/\/[^\s)\]}>"']+/g
 const REDACTED_MEDIA_URL = "[media asset URL hidden]"
 const RETRIEVAL_TARGET_CONTENT_DATA_TYPES: Readonly<
@@ -183,14 +186,36 @@ export const answerQuestionWithRetrieval = (
       harnessValidationErrorCount: generatedAnswer.trace.validationErrors.length,
       revisionsUsed: generatedAnswer.trace.revisionsUsed,
     })
+    if (generatedAnswer.trace.validationErrors.length > 0) {
+      logger.warn("chat-agent: validation failed; returning safe fallback", {
+        validationErrors: generatedAnswer.trace.validationErrors,
+        revisionsUsed: generatedAnswer.trace.revisionsUsed,
+        finalized: generatedAnswer.trace.finalized,
+        intentTask: generatedAnswer.trace.intent?.task ?? null,
+        retrievalCallCount: retrievalResponses.length,
+      })
+      return {
+        answer: HARNESS_VALIDATION_FAILURE_ANSWER,
+        citations: [] as ChatCitationView[],
+        artifacts: [] as ChatArtifactView[],
+      }
+    }
 
     const rawResults = selectCitationRawResults({
       generatedAnswer,
       retrievalResponses,
       sources: input.sources,
     })
-    if (rawResults.length === 0 && generatedAnswer.manifest.text.trim().length === 0) {
-      return { answer: NO_RESULTS_ANSWER, citations: [] as ChatCitationView[] }
+    if (
+      rawResults.length === 0 &&
+      generatedAnswer.manifest.text.trim().length === 0 &&
+      !hasDisplayedManifestArtifacts(generatedAnswer)
+    ) {
+      return {
+        answer: NO_RESULTS_ANSWER,
+        citations: [] as ChatCitationView[],
+        artifacts: [] as ChatArtifactView[],
+      }
     }
 
     const results = yield* Effect.tryPromise(() =>
@@ -215,7 +240,7 @@ export const answerQuestionWithRetrieval = (
     return {
       answer,
       citations: toChatCitationViews(citationResults, answer),
-      ...(artifacts && artifacts.length > 0 ? { artifacts } : {}),
+      artifacts: artifacts ?? [],
     }
   })
 
@@ -241,12 +266,15 @@ function toChatArtifactViewsFromHarness(
   let displayedArtifactCount = 0
 
   for (const artifact of result.manifest.artifacts) {
-    const artifactView = resolveHarnessArtifactView({
-      artifact,
-      assetsByRef,
-      chunksByRef,
-      sources,
-    })
+    const artifactView =
+      artifact.type === "derived_table"
+        ? toDerivedTableArtifactView(artifact)
+        : resolveHarnessArtifactView({
+            artifact,
+            assetsByRef,
+            chunksByRef,
+            sources,
+          })
     if (!artifactView) continue
 
     const isDisplayed = artifactView.display !== false
@@ -263,6 +291,21 @@ function toChatArtifactViewsFromHarness(
   }
 
   return artifacts.length > 0 ? artifacts : undefined
+}
+
+function toDerivedTableArtifactView(
+  artifact: DerivedTableArtifact,
+): ChatArtifactView {
+  return {
+    type: "derived_table",
+    ref: artifact.ref,
+    title: artifact.title,
+    columns: artifact.columns,
+    rows: artifact.rows,
+    sourceRefs: artifact.sourceRefs,
+    display: artifact.display,
+    reason: artifact.reason,
+  }
 }
 
 function getHarnessArtifactDisplayLimit(result: HarnessRunResult): number | null {
@@ -486,6 +529,10 @@ function selectCitationRawResults(input: {
 }): RetrievalResult[] {
   const curated = mapManifestCitationsToResults(input.generatedAnswer)
   if (curated.length > 0) return curated
+  const displayedArtifacts = mapDisplayedManifestArtifactsToResults(
+    input.generatedAnswer,
+  )
+  if (displayedArtifacts.length > 0) return displayedArtifacts
   return collectRetrievalResults(input.retrievalResponses, input.sources)
 }
 
@@ -544,6 +591,87 @@ function resolveChunkForAssetRef(
   const asset = assetsByRef.get(ref)
   if (!asset) return undefined
   return chunksByRef.get(asset.chunkRef)
+}
+
+function mapDisplayedManifestArtifactsToResults(
+  result: HarnessRunResult,
+): RetrievalResult[] {
+  const chunksByRef = new Map(
+    result.trace.ledger.chunks.map((chunk): readonly [string, EvidenceChunk] => [
+      chunk.ref,
+      chunk,
+    ]),
+  )
+  const assetsByRef = new Map(
+    result.trace.ledger.assets.map((asset): readonly [string, EvidenceAsset] => [
+      asset.ref,
+      asset,
+    ]),
+  )
+
+  const results: RetrievalResult[] = []
+  const seenKeys = new Set<string>()
+  const displayLimit = getHarnessArtifactDisplayLimit(result)
+
+  for (const artifact of result.manifest.artifacts) {
+    if (!artifact.display) continue
+    if (typeof displayLimit === "number" && results.length >= displayLimit) {
+      break
+    }
+
+    if (artifact.type === "derived_table") {
+      for (const sourceRef of artifact.sourceRefs) {
+        const chunk =
+          chunksByRef.get(sourceRef) ??
+          resolveChunkForAssetRef(sourceRef, assetsByRef, chunksByRef)
+        if (!chunk) continue
+
+        const retrievalResult = toRetrievalResultFromEvidenceChunk(chunk)
+        const key = getRetrievalResultKey(retrievalResult)
+        if (seenKeys.has(key)) continue
+
+        seenKeys.add(key)
+        results.push(retrievalResult)
+        if (results.length >= MAX_CITATION_RESULTS) return results
+      }
+      continue
+    }
+
+    const chunk =
+      chunksByRef.get(artifact.ref) ??
+      resolveChunkForAssetRef(artifact.ref, assetsByRef, chunksByRef)
+    if (!chunk) continue
+
+    const retrievalResult = toRetrievalResultFromEvidenceChunk(chunk)
+    const key = getRetrievalResultKey(retrievalResult)
+    if (seenKeys.has(key)) continue
+
+    seenKeys.add(key)
+    results.push(retrievalResult)
+    if (results.length >= MAX_CITATION_RESULTS) break
+  }
+
+  return results
+}
+
+function toRetrievalResultFromEvidenceChunk(
+  chunk: EvidenceChunk,
+): RetrievalResult {
+  return {
+    content: chunk.content,
+    chunkType: chunk.chunkType,
+    score: chunk.score,
+    ...(chunk.assetUrl ? { assetUrl: chunk.assetUrl } : {}),
+    source: {
+      documentId: chunk.source.documentId ?? undefined,
+      sourceFileName: chunk.source.sourceFileName ?? undefined,
+      sectionPath: chunk.source.sectionPath ?? undefined,
+    },
+  }
+}
+
+function hasDisplayedManifestArtifacts(result: HarnessRunResult): boolean {
+  return result.manifest.artifacts.some((artifact) => artifact.display)
 }
 
 function collectRetrievalResults(

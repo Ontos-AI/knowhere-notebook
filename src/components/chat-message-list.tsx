@@ -32,6 +32,13 @@ type DisplayImageArtifact = {
   readonly label: string;
 };
 
+type DisplayDerivedTableArtifact = {
+  readonly artifactId: string;
+  readonly title: string;
+  readonly columns: readonly string[];
+  readonly rows: readonly (readonly string[])[];
+};
+
 const assistantMarkdownComponents: Components = {
   p: ({ children }) => (
     <p className="whitespace-pre-wrap break-words">{children}</p>
@@ -264,14 +271,25 @@ function MessageBubble({
     sourceTitlesByDocumentId,
   );
   const displayImageCitations =
-    displayImageArtifacts.length > 0
+    message.artifacts !== undefined
       ? displayImageArtifacts
       : getDisplayImageCitations(message, sourceTitlesByDocumentId);
+  const displayDerivedTables = getDisplayDerivedTableArtifacts(message);
 
   return (
     <div className="flex min-w-0 flex-col items-start">
       <div className="max-w-[92%] overflow-hidden rounded-2xl rounded-tl-sm border border-border/70 bg-card px-3 py-2.5 text-sm leading-relaxed text-foreground shadow-xs sm:max-w-[90%] sm:px-4 sm:py-3">
         <AssistantMessageContent content={message.content} />
+        {displayDerivedTables.length > 0 && (
+          <div className="mt-3 space-y-3 border-t border-border/70 pt-2.5">
+            {displayDerivedTables.map((artifact) => (
+              <DerivedTableArtifactView
+                key={artifact.artifactId}
+                artifact={artifact}
+              />
+            ))}
+          </div>
+        )}
         {displayImageCitations.length > 0 && (
           <div className="mt-3 border-t border-border/70 pt-2.5">
             <p className="mb-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
@@ -328,6 +346,54 @@ function MessageBubble({
         )}
       </div>
     </div>
+  );
+}
+
+function DerivedTableArtifactView({
+  artifact,
+}: {
+  readonly artifact: DisplayDerivedTableArtifact;
+}): ReactElement {
+  return (
+    <figure className="min-w-0 overflow-hidden rounded-lg border border-border bg-background/80">
+      <figcaption className="border-b border-border/70 px-2.5 py-2 text-[11px] font-bold text-foreground">
+        {artifact.title}
+      </figcaption>
+      <div className="max-w-full overflow-x-auto">
+        <table className="w-full min-w-max border-collapse text-left text-[12px] leading-normal">
+          <thead className="bg-muted/60 text-[11px] font-bold uppercase text-muted-foreground">
+            <tr>
+              {artifact.columns.map((column, index) => (
+                <th
+                  key={`${artifact.artifactId}:column:${index}`}
+                  scope="col"
+                  className="border-b border-border px-2.5 py-2"
+                >
+                  {column}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {artifact.rows.map((row, rowIndex) => (
+              <tr
+                key={`${artifact.artifactId}:row:${rowIndex}`}
+                className="odd:bg-background even:bg-muted/20"
+              >
+                {artifact.columns.map((_, columnIndex) => (
+                  <td
+                    key={`${artifact.artifactId}:row:${rowIndex}:cell:${columnIndex}`}
+                    className="border-b border-border/70 px-2.5 py-2 align-top text-foreground"
+                  >
+                    {row[columnIndex] ?? ""}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </figure>
   );
 }
 
@@ -421,6 +487,26 @@ function getDisplayImageArtifacts(
   }
 
   return imageArtifacts;
+}
+
+function getDisplayDerivedTableArtifacts(
+  message: ChatMessageView,
+): readonly DisplayDerivedTableArtifact[] {
+  const tables: DisplayDerivedTableArtifact[] = [];
+
+  for (const [index, artifact] of (message.artifacts ?? []).entries()) {
+    if (artifact.display === false || artifact.type !== "derived_table") continue;
+    if (!artifact.title || !artifact.columns || !artifact.rows) continue;
+
+    tables.push({
+      artifactId: `${message.id}:derived-table:${index}`,
+      title: artifact.title,
+      columns: artifact.columns,
+      rows: artifact.rows,
+    });
+  }
+
+  return tables;
 }
 
 function getArtifactLabel(

@@ -10,6 +10,7 @@ import { createEvidenceLedger } from "./ledger"
 import type {
   AgentTurnInput,
   ContextPolicy,
+  HarnessToolCallTrace,
   IntentFrame,
   OutputManifest,
   RetrievalCapability,
@@ -32,6 +33,7 @@ describe("agent harness runtime", () => {
     const state: {
       intent?: IntentFrame
       contextPolicy?: ContextPolicy
+      toolCalls?: HarnessToolCallTrace[]
     } = {}
     const tools = createHarnessTools({
       state,
@@ -86,6 +88,13 @@ describe("agent harness runtime", () => {
     expect(JSON.stringify(query.mock.calls[0]?.[0])).not.toContain(
       "LegalAction",
     )
+    expect(state.toolCalls?.map((call) => [call.tool, call.ok])).toEqual([
+      ["retrieve", false],
+      ["declareIntent", true],
+      ["retrieve", false],
+      ["setContextPolicy", true],
+      ["retrieve", true],
+    ])
   })
 
   it("blocks finalize until intent and context policy are declared", async () => {
@@ -93,6 +102,7 @@ describe("agent harness runtime", () => {
       intent?: IntentFrame
       contextPolicy?: ContextPolicy
       finalizedManifest?: OutputManifest
+      finalized?: boolean
     } = {}
     const tools = createHarnessTools({
       state,
@@ -138,11 +148,23 @@ describe("agent harness runtime", () => {
       text: "Answer.",
     })
     expect(state.finalizedManifest).toEqual(manifest)
+    expect(state.finalized).toBe(true)
   })
 
-  it("exposes full prior-turn content on demand through readPriorTurn", async () => {
+  it("exposes full prior-turn content through policy-approved readPriorTurn", async () => {
+    const state: {
+      contextPolicy?: ContextPolicy
+      priorTurnReads?: string[]
+    } = {
+      contextPolicy: {
+        carryHistory: "repair_previous",
+        reason: "The current request corrects the previous answer.",
+        activePriorTurnIds: ["turn_1"],
+      },
+      priorTurnReads: [],
+    }
     const tools = createHarnessTools({
-      state: {},
+      state,
       ledger: createEvidenceLedger(),
       retrieval: { query: vi.fn<RetrievalCapability["query"]>() },
       recentTurns: [
@@ -163,11 +185,47 @@ describe("agent harness runtime", () => {
       content: "The full earlier answer about the tax filing deadline.",
       citationLabels: ["tax.pdf / deadline"],
     })
+    expect(state.priorTurnReads).toEqual(["turn_1"])
     expect(await executeTool(tools.readPriorTurn, { id: "missing" })).toEqual({
       found: false,
       id: "missing",
-      message: "No prior turn with that id is available.",
+      message: "readPriorTurn id must be listed in activePriorTurnIds.",
     })
+  })
+
+  it("blocks prior-turn reads when the context policy does not allow them", async () => {
+    const state: { contextPolicy?: ContextPolicy; priorTurnReads?: string[] } = {}
+    const tools = createHarnessTools({
+      state,
+      ledger: createEvidenceLedger(),
+      retrieval: { query: vi.fn<RetrievalCapability["query"]>() },
+      recentTurns: [
+        {
+          id: "turn_1",
+          role: "assistant",
+          contentPreview: "Truncated preview...",
+          content: "Full content.",
+        },
+      ],
+    })
+
+    expect(await executeTool(tools.readPriorTurn, { id: "turn_1" })).toEqual({
+      found: false,
+      id: "turn_1",
+      message: "setContextPolicy must be called before readPriorTurn.",
+    })
+
+    state.contextPolicy = {
+      carryHistory: "none",
+      reason: "The current request is unrelated to previous turns.",
+      activePriorTurnIds: [],
+    }
+    expect(await executeTool(tools.readPriorTurn, { id: "turn_1" })).toEqual({
+      found: false,
+      id: "turn_1",
+      message: "readPriorTurn is not allowed when carryHistory is none.",
+    })
+    expect(state.priorTurnReads).toBeUndefined()
   })
 
   it("summarizes recent turns as an index instead of pasting full history as query context", () => {
