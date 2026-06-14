@@ -164,6 +164,7 @@ describe("useWorkspaceCitationFocus", () => {
     expect(fetchChunks).not.toHaveBeenCalled();
     expect(selectSource).toHaveBeenLastCalledWith("source_1");
     expect(result.current.prefetchedChunksBySourceId).toEqual({});
+    expect(result.current.citationListViewRequestId).toBe(1);
     expect(result.current.focusedChunk.chunkId).toBeNull();
     expect(result.current.pendingCitationId).toBeNull();
   });
