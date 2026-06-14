@@ -506,6 +506,47 @@ describe("ChunksPanel", () => {
     expect(screen.getByTestId("chunk-card-shell-robotics_chunk")).toBeTruthy();
   });
 
+  it("switches source-only citation navigation from tree to list view", async () => {
+    mockVisibleVirtualViewport();
+    const chunks = [
+      {
+        chunkId: "image_details_chunk",
+        type: "image",
+        content: "",
+        sectionPath: "images/image-81-__details_.jpg",
+        sourceTitle: "product-manual.pdf",
+      },
+    ];
+    const { rerender } = render(
+      React.createElement(C, {
+        chunks,
+        selectedSource: "product-manual.pdf",
+        citationListViewRequestId: 0,
+      }),
+    );
+
+    expect(
+      screen.getByRole("tree", { name: "Parsed chunk sections" }),
+    ).toBeTruthy();
+
+    rerender(
+      React.createElement(C, {
+        chunks,
+        selectedSource: "product-manual.pdf",
+        citationListViewRequestId: 1,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("tree", { name: "Parsed chunk sections" }),
+      ).toBeNull();
+    });
+    expect(
+      screen.getByTestId("chunk-card-shell-image_details_chunk"),
+    ).toBeTruthy();
+  });
+
   it("shows a large upload target when no document is selected", async () => {
     const user = userEvent.setup();
 

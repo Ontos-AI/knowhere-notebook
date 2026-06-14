@@ -128,6 +128,7 @@ function WorkspaceShellContent({
       chatThreads={chatWorkflow.chatThreads}
       desktopPanelWidths={desktopPanelWidths}
       dashboardUrl={dashboardUrl}
+      citationListViewRequestId={citationFocus.citationListViewRequestId}
       focusedChunk={citationFocus.focusedChunk}
       hasMessages={hasMessages}
       hasMoreSelectedChunks={citationFocus.hasMoreSelectedChunks}
