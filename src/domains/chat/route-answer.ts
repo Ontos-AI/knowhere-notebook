@@ -1,7 +1,7 @@
 import { Cause, Effect, Either, Option } from "effect"
 
 import {
-  generateAgenticGroundedAnswer,
+  generateAgenticOutputManifest,
   parseChatRequestBody,
 } from "@/domains/chat"
 import {
@@ -68,7 +68,7 @@ const answerChatEffect = (input: AnswerChatInput) =>
           threadId: body.value.threadId,
           excludedSourceIds: body.value.excludedSourceIds,
           retrieval: client.retrieval,
-          generateAnswer: generateAgenticGroundedAnswer,
+          generateAnswer: generateAgenticOutputManifest,
           loadSourceAssetUrls: (source) =>
             sourceService.getParseAssetUrls(workspace.id, source.id),
           repository: chatTurnPersistence.createRepository(),

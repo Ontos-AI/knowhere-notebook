@@ -6,6 +6,7 @@ import { chatRepository } from "./repository"
 import type { ChatMessage, ChatThread } from "@/infrastructure/db/schema"
 import type { DemoCatalog } from "@/integrations/knowhere-demo"
 import type {
+  ChatArtifactView,
   ChatCitationView,
   CitationView,
   RetrievalResultView,
@@ -18,6 +19,7 @@ type AppendMessageInput = {
   readonly citations?:
     | readonly (ChatCitationView | CitationView | RetrievalResultView)[]
     | null
+  readonly artifacts?: readonly ChatArtifactView[] | null
 }
 
 type DemoChatThreadSeed = {

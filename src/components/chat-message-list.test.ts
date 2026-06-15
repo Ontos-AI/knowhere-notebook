@@ -100,6 +100,107 @@ describe("ChatMessageList", () => {
     ).toBeNull();
   });
 
+  it("renders selected image artifacts instead of every retrieved image citation", () => {
+    render(
+      React.createElement(ChatMessageList, {
+        messages: [
+          {
+            id: "assistant_1",
+            role: "assistant",
+            content: "已找到相关图片，见下方图片。",
+            citations: [
+              {
+                chunkType: "image",
+                score: 0.9,
+                assetUrl: "https://blob.example/images/front.jpg",
+                source: {
+                  documentId: "doc_1",
+                  sourceFileName: "商务标文件.pdf",
+                  sectionPath: "身份证正面",
+                },
+              },
+              {
+                chunkType: "image",
+                score: 0.88,
+                assetUrl: "https://blob.example/images/back.jpg",
+                source: {
+                  documentId: "doc_1",
+                  sourceFileName: "商务标文件.pdf",
+                  sectionPath: "身份证反面",
+                },
+              },
+              {
+                chunkType: "image",
+                score: 0.7,
+                assetUrl: "https://blob.example/images/extra.jpg",
+                source: {
+                  documentId: "doc_1",
+                  sourceFileName: "商务标文件.pdf",
+                  sectionPath: "其他候选图片",
+                },
+              },
+            ],
+            artifacts: [
+              {
+                type: "image",
+                display: true,
+                assetUrl: "https://blob.example/images/front.jpg",
+                label: "身份证正面",
+              },
+              {
+                type: "image",
+                display: true,
+                assetUrl: "https://blob.example/images/back.jpg",
+                label: "身份证反面",
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    const images = screen.getAllByRole("img");
+    expect(images.map((image) => image.getAttribute("src"))).toEqual([
+      "https://blob.example/images/front.jpg",
+      "https://blob.example/images/back.jpg",
+    ]);
+    expect(screen.queryByRole("img", { name: "其他候选图片" })).toBeNull();
+  });
+
+  it("does not fall back to image citations when a harness message has empty artifacts", () => {
+    render(
+      React.createElement(ChatMessageList, {
+        messages: [
+          {
+            id: "assistant_1",
+            role: "assistant",
+            content: "I could not select a display image.",
+            citations: [
+              {
+                chunkType: "image",
+                score: 0.9,
+                assetUrl: "https://blob.example/images/candidate.jpg",
+                source: {
+                  documentId: "doc_1",
+                  sourceFileName: "source.pdf",
+                  sectionPath: "Candidate image",
+                },
+              },
+            ],
+            artifacts: [],
+          },
+        ],
+      }),
+    );
+
+    expect(screen.queryByRole("img")).toBeNull();
+    expect(
+      screen.getByRole("button", {
+        name: "Open source source.pdf · Candidate image",
+      }),
+    ).toBeTruthy();
+  });
+
   it("renders assistant markdown with GitHub-flavored tables", () => {
     render(
       React.createElement(ChatMessageList, {
@@ -121,6 +222,40 @@ describe("ChatMessageList", () => {
     expect(screen.getByRole("table")).toBeTruthy();
     expect(screen.getByRole("columnheader", { name: "Item" })).toBeTruthy();
     expect(screen.getByRole("cell", { name: "Ready" })).toBeTruthy();
+  });
+
+  it("renders derived table artifacts as structured tables", () => {
+    render(
+      React.createElement(ChatMessageList, {
+        messages: [
+          {
+            id: "assistant_1",
+            role: "assistant",
+            content: "I organized the comparison.",
+            artifacts: [
+              {
+                type: "derived_table",
+                ref: "derived:table:plans",
+                title: "Plan comparison",
+                columns: ["Plan", "Cost"],
+                rows: [
+                  ["Plan A", "$10M"],
+                  ["Plan B", "$8M"],
+                ],
+                sourceRefs: ["r1:result:1", "r1:result:2"],
+                display: true,
+                reason: "Comparison requested.",
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(screen.getByText("Plan comparison")).toBeTruthy();
+    expect(screen.getByRole("table")).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: "Plan" })).toBeTruthy();
+    expect(screen.getByRole("cell", { name: "$8M" })).toBeTruthy();
   });
 
   it("keeps user markdown-looking text literal", () => {

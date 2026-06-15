@@ -1,6 +1,6 @@
 import "server-only"
 
-import { Effect } from "effect"
+import { Effect, Schema } from "effect"
 import { cacheLife, cacheTag } from "next/cache"
 
 export type DemoCitation = {
@@ -231,7 +231,7 @@ const materializeSourcesEffect = Effect.fn("knowhereDemo.materializeSources")(
     readonly namespace: string
     readonly demoSourceIds: readonly string[]
   }) {
-    const requestBody = JSON.stringify({
+    const requestBody = yield* Schema.encode(MaterializeSourcesRequestJson)({
       namespace: input.namespace,
       demo_source_ids: input.demoSourceIds,
     })
@@ -252,6 +252,13 @@ const materializeSourcesEffect = Effect.fn("knowhereDemo.materializeSources")(
     )) as MaterializeResponse
     return (body.sources ?? []).map(toMaterializedDemoSource)
   },
+)
+
+const MaterializeSourcesRequestJson = Schema.parseJson(
+  Schema.Struct({
+    namespace: Schema.String,
+    demo_source_ids: Schema.Array(Schema.String),
+  }),
 )
 
 const fetchOptionalCatalogEffect = (

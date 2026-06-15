@@ -9,6 +9,7 @@ import { deriveChatThreadTitle } from "./title"
 import { DbClient } from "@/infrastructure/db"
 import { chatMessages, chatThreads, type ChatMessage } from "@/infrastructure/db/schema"
 import type {
+  ChatArtifactView,
   ChatCitationView,
   CitationView,
   RetrievalResultView,
@@ -21,6 +22,7 @@ type AppendChatMessageInput = {
   readonly citations?:
     | readonly (ChatCitationView | CitationView | RetrievalResultView)[]
     | null
+  readonly artifacts?: readonly ChatArtifactView[] | null
 }
 
 type ChatMessageRepository = {
@@ -77,6 +79,9 @@ const appendMessageToThreadEffect: ChatMessageRepository["appendMessageToThreadE
               content: input.content,
               citations: chatCitationPersistence.normalizeCitations(
                 input.citations,
+              ),
+              artifacts: chatCitationPersistence.normalizeArtifacts(
+                input.artifacts,
               ),
             })
             .returning()

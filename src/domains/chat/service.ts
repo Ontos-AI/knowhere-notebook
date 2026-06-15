@@ -9,7 +9,11 @@ import {
 } from "."
 import { toChatMessageView } from "./view"
 import type { ChatMessage, ChatThread, Source, Workspace } from "@/infrastructure/db/schema"
-import type { ChatCitationView, ChatMessageView } from "@/domains/chat/types"
+import type {
+  ChatArtifactView,
+  ChatCitationView,
+  ChatMessageView,
+} from "@/domains/chat/types"
 
 export type ChatRepository = {
   ensureDefaultChatThread(workspaceId: string): Promise<ChatThread>
@@ -28,6 +32,7 @@ export type ChatRepository = {
       role: "user" | "assistant"
       content: string
       citations?: readonly ChatCitationView[] | null
+      artifacts?: readonly ChatArtifactView[] | null
     },
   ): Promise<ChatMessage | null>
 }
@@ -128,6 +133,7 @@ export const handleChatTurnEffect = (input: ChatTurnInput) =>
         role: "assistant",
         content: answer.answer,
         citations: answer.citations,
+        artifacts: answer.artifacts,
       }),
     )
     if (!assistantMessage) {
@@ -138,7 +144,7 @@ export const handleChatTurnEffect = (input: ChatTurnInput) =>
       threadId: thread.id,
       messages: [
         toChatMessageView(userMessage),
-        toChatMessageView(assistantMessage, answer.citations),
+        toChatMessageView(assistantMessage, answer.citations, answer.artifacts),
       ] as [ChatMessageView, ChatMessageView],
     }
   })

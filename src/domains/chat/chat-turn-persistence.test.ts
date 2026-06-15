@@ -61,6 +61,7 @@ function makeMessage(id: string): ChatMessage {
     role: "user",
     content: "Question",
     citations: null,
+    artifacts: null,
     createdAt: new Date("2026-05-10T00:00:00.000Z"),
   };
 }
