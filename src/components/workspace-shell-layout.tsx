@@ -56,6 +56,7 @@ export type WorkspaceShellLayoutProps = {
   readonly archivingThreadIds: readonly string[]
   readonly chat: WorkspaceChatState
   readonly chatThreads: readonly ChatThreadView[]
+  readonly citationListViewRequestId: number
   readonly dashboardUrl?: string
   readonly desktopPanelWidths: Readonly<DesktopPanelWidths>
   readonly focusedChunk: FocusedChunkState
@@ -216,6 +217,7 @@ export function WorkspaceShellLayout(
               chunks={[...props.selectedChunks]}
               selectedSource={props.selectedSourceTitle}
               selectedSourceFile={props.selectedSourceFile}
+              citationListViewRequestId={props.citationListViewRequestId}
               focusedChunkId={props.focusedChunk.chunkId}
               focusedChunkRequestId={props.focusedChunk.requestId}
               isLoading={props.isSelectedChunksLoading}
@@ -326,6 +328,7 @@ export function WorkspaceShellLayout(
           chunks={[...props.selectedChunks]}
           selectedSource={props.selectedSourceTitle}
           selectedSourceFile={props.selectedSourceFile}
+          citationListViewRequestId={props.citationListViewRequestId}
           focusedChunkId={props.focusedChunk.chunkId}
           focusedChunkRequestId={props.focusedChunk.requestId}
           isLoading={props.isSelectedChunksLoading}
