@@ -165,6 +165,47 @@ describe("WorkspaceShell", () => {
     ).toBeTruthy();
   });
 
+  it("lets guests open the Official Library from the sources panel", async () => {
+    const user = userEvent.setup();
+
+    render(
+      React.createElement(C, {
+        isGuest: true,
+        loginUrl: "/login",
+        sources: [],
+        officialLibrarySources: [
+          {
+            librarySourceId: "stem-transformers",
+            categoryId: "stem-books",
+            categoryLabel: "STEM books",
+            title: "Transformers.pdf",
+            sourceUrl: "https://example.com/transformers.pdf",
+            mimeType: "application/pdf",
+            status: "ready",
+            demoSourceId: "demo-transformers",
+          },
+        ],
+      }),
+    );
+
+    const desktopSourcesPanel = within(
+      screen.getByTestId("desktop-sources-panel"),
+    );
+    await user.click(
+      desktopSourcesPanel.getByRole("button", { name: "Open library" }),
+    );
+
+    const desktopLibraryPanel = within(
+      within(screen.getByTestId("desktop-chunks-panel")).getByTestId(
+        "official-library-panel",
+      ),
+    );
+    expect(desktopLibraryPanel.getByRole("heading", { name: "Library" }))
+      .toBeTruthy();
+    expect(desktopLibraryPanel.getByText("Transformers.pdf")).toBeTruthy();
+    expect(window.location.href).not.toContain("/login");
+  });
+
   it("shows the first ready document chunks on workspace load", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
       const url = getRequestURL(input);

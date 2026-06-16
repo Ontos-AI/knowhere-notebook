@@ -228,6 +228,38 @@ describe("SourcesPanel", () => {
     expect(onLibraryOpen).toHaveBeenCalledOnce();
   });
 
+  it("opens the library instead of login when guest mode has library sources", () => {
+    const onLibraryOpen = vi.fn();
+    const onLoginClick = vi.fn();
+
+    render(
+      React.createElement(C, {
+        sources: [],
+        officialLibrarySources: [
+          {
+            librarySourceId: "stem-transformers",
+            categoryId: "stem-books",
+            categoryLabel: "STEM books",
+            title: "Transformers.pdf",
+            sourceUrl: "https://example.com/transformers.pdf",
+            mimeType: "application/pdf",
+            status: "ready",
+            demoSourceId: "demo-transformers",
+          },
+        ],
+        onLibraryOpen,
+        onLoginClick,
+      }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open library" }));
+
+    expect(onLibraryOpen).toHaveBeenCalledOnce();
+    expect(onLoginClick).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Log in to upload" }))
+      .toBeTruthy();
+  });
+
   it("hides source actions that are not wired", () => {
     render(
       React.createElement(C, {

@@ -172,7 +172,7 @@ export function SourcesPanel({
             {hasLibrarySources && !isNarrow ? (
               <button
                 type="button"
-                onClick={onLoginClick ? onLoginClick : onLibraryOpen}
+                onClick={onLibraryOpen}
                 className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-border/80 bg-background px-2 text-[11px] font-semibold text-foreground shadow-xs hover:bg-muted ${
                   isLibraryOpen ? "border-primary/40 bg-primary/5 text-primary" : ""
                 }`}
