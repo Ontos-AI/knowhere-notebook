@@ -1,50 +1,15 @@
 import { generateObject } from "ai"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { retrieve } from "@antv/chart-visualization-skills"
 
 import {
   buildChatDiagramPrompt,
   generateChatDiagramSpec,
   parseChatDiagramRequestBody,
+  retrieveAntvChartSkills,
 } from "./diagram"
 
 vi.mock("ai", () => ({
   generateObject: vi.fn(),
-}))
-
-vi.mock("@antv/chart-visualization-skills", () => ({
-  retrieve: vi.fn(() => [
-    {
-      id: "__info__g2",
-      title: "AntV G2 Chart",
-      description: "Core chart generation constraints.",
-      library: "g2",
-      version: "0.1.3",
-      category: "info",
-      subcategory: "constraints",
-      tags: [],
-      difficulty: "beginner",
-      use_cases: [],
-      anti_patterns: [],
-      related: [],
-      content: "Use AntV G2 chart constraints.",
-    },
-    {
-      id: "g2-mark-interval-basic",
-      title: "Basic Bar Chart",
-      description: "Generate bar charts for category comparisons.",
-      library: "g2",
-      version: "0.1.3",
-      category: "chart",
-      subcategory: "bar",
-      tags: ["bar"],
-      difficulty: "beginner",
-      use_cases: ["category comparison"],
-      anti_patterns: [],
-      related: [],
-      content: "Use interval marks for bar and column charts.",
-    },
-  ]),
 }))
 
 describe("parseChatDiagramRequestBody", () => {
@@ -68,24 +33,25 @@ describe("parseChatDiagramRequestBody", () => {
 })
 
 describe("buildChatDiagramPrompt", () => {
-  afterEach(() => {
-    vi.mocked(retrieve).mockClear()
-  })
-
-  it("uses AntV chart visualization package context without allowing fabricated data", () => {
+  it("uses the bundled AntV chart visualization skill index without allowing fabricated data", () => {
+    const skills = retrieveAntvChartSkills(
+      "bar chart category comparison",
+      5,
+    )
     const prompt = buildChatDiagramPrompt("Cloud revenue was 42.")
 
-    expect(retrieve).toHaveBeenCalledWith(
-      expect.stringContaining("Cloud revenue was 42."),
-      {
-        library: "g2",
-        topK: 5,
-        content: true,
-      },
-    )
+    expect(skills[0]?.id).toBe("__info__g2")
+    expect(
+      skills.some(
+        (skill): boolean =>
+          skill.tags.includes("bar") ||
+          skill.title.toLowerCase().includes("bar") ||
+          skill.description.toLowerCase().includes("bar"),
+      ),
+    ).toBe(true)
     expect(prompt).toContain("@antv/chart-visualization-skills")
-    expect(prompt).toContain("Use AntV G2 chart constraints.")
-    expect(prompt).toContain("Use interval marks for bar and column charts.")
+    expect(prompt).toContain("Skill: __info__g2")
+    expect(prompt).toContain("AntV")
     expect(prompt).toContain("source exactly to \"chart-visualization-skills\"")
     expect(prompt).toContain("Preserve negative values")
     expect(prompt).toContain("core message")
@@ -98,7 +64,6 @@ describe("generateChatDiagramSpec", () => {
   afterEach(() => {
     delete process.env.AI_GATEWAY_API_KEY
     vi.mocked(generateObject).mockReset()
-    vi.mocked(retrieve).mockClear()
   })
 
   it("generates an AntV-compatible chart spec", async () => {

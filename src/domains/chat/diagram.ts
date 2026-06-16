@@ -1,5 +1,6 @@
 import { generateObject } from "ai"
-import { retrieve, type Skill } from "@antv/chart-visualization-skills"
+import g2SkillIndex from "@antv/chart-visualization-skills/dist/index/g2.index.json"
+import type { Skill } from "@antv/chart-visualization-skills"
 import { z } from "zod"
 
 import { CHAT_MODEL } from "@/lib/ai"
@@ -13,6 +14,45 @@ const ANTV_CHART_SKILL_TOP_K = 5
 const MAX_ANTV_SKILL_QUERY_CHARS = 500
 const MAX_ANTV_SKILL_CONTENT_CHARS = 2_400
 const MAX_ANTV_SKILL_CONTEXT_CHARS = 16_000
+const ANTV_CHART_SEARCH_STOP_WORDS = new Set([
+  "the",
+  "and",
+  "for",
+  "with",
+  "from",
+  "that",
+  "this",
+  "into",
+  "chart",
+  "charts",
+  "visualization",
+  "data",
+  "value",
+  "values",
+  "answer",
+  "content",
+])
+
+type AntvChartSkillInfo = {
+  readonly name?: string
+  readonly description?: string
+  readonly constraintsContent?: string
+}
+
+type AntvChartSkillIndex = {
+  readonly info?: AntvChartSkillInfo
+  readonly skills: readonly Skill[]
+}
+
+type IndexedAntvChartSkill = {
+  readonly skill: Skill
+  readonly tokenWeights: ReadonlyMap<string, number>
+}
+
+const antvG2SkillIndex = g2SkillIndex as AntvChartSkillIndex
+const indexedAntvG2Skills = buildAntvChartSkillSearchIndex(
+  antvG2SkillIndex.skills,
+)
 
 const noDiagramSchema = z.object({
   type: z.literal("none"),
@@ -155,11 +195,10 @@ export function buildChatDiagramPrompt(answer: string): string {
 
 export function getAntvChartSkillContext(answer: string): string {
   try {
-    const skills = retrieve(buildAntvSkillQuery(answer), {
-      library: ANTV_CHART_LIBRARY,
-      topK: ANTV_CHART_SKILL_TOP_K,
-      content: true,
-    })
+    const skills = retrieveAntvChartSkills(
+      buildAntvSkillQuery(answer),
+      ANTV_CHART_SKILL_TOP_K,
+    )
     const context = formatAntvChartSkills(skills)
     return context.length > 0
       ? context.slice(0, MAX_ANTV_SKILL_CONTEXT_CHARS)
@@ -173,6 +212,25 @@ export function getAntvChartSkillContext(answer: string): string {
       "Continue with the explicit chart-selection and no-fabrication rules above.",
     ].join("\n")
   }
+}
+
+export function retrieveAntvChartSkills(
+  query: string,
+  topK: number = ANTV_CHART_SKILL_TOP_K,
+): readonly Skill[] {
+  const queryTokens = tokenizeAntvChartSearchText(query)
+  const rankedSkills = indexedAntvG2Skills
+    .map((indexedSkill) => ({
+      skill: indexedSkill.skill,
+      score: scoreAntvChartSkill(indexedSkill, queryTokens),
+    }))
+    .filter((rankedSkill): boolean => rankedSkill.score > 0)
+    .sort((left, right): number => right.score - left.score)
+    .slice(0, topK)
+    .map((rankedSkill): Skill => rankedSkill.skill)
+
+  const infoSkill = buildAntvChartInfoSkill(antvG2SkillIndex.info)
+  return infoSkill ? [infoSkill, ...rankedSkills] : rankedSkills
 }
 
 function buildAntvSkillQuery(answer: string): string {
@@ -203,6 +261,85 @@ function formatAntvChartSkills(skills: readonly Skill[]): string {
     })
     .filter((entry): boolean => entry.length > 0)
     .join("\n\n---\n\n")
+}
+
+function buildAntvChartSkillSearchIndex(
+  skills: readonly Skill[],
+): readonly IndexedAntvChartSkill[] {
+  return skills.map((skill): IndexedAntvChartSkill => ({
+    skill,
+    tokenWeights: createAntvChartSkillTokenWeights(skill),
+  }))
+}
+
+function createAntvChartSkillTokenWeights(
+  skill: Skill,
+): ReadonlyMap<string, number> {
+  const tokenWeights = new Map<string, number>()
+  addWeightedAntvChartTokens(tokenWeights, skill.id, 8)
+  addWeightedAntvChartTokens(tokenWeights, skill.title ?? "", 8)
+  addWeightedAntvChartTokens(tokenWeights, skill.tags.join(" "), 7)
+  addWeightedAntvChartTokens(tokenWeights, skill.category, 5)
+  addWeightedAntvChartTokens(tokenWeights, skill.subcategory, 5)
+  addWeightedAntvChartTokens(tokenWeights, skill.description ?? "", 3)
+  addWeightedAntvChartTokens(tokenWeights, skill.use_cases.join(" "), 2)
+  addWeightedAntvChartTokens(
+    tokenWeights,
+    skill.content?.slice(0, 2_000) ?? "",
+    1,
+  )
+  return tokenWeights
+}
+
+function addWeightedAntvChartTokens(
+  tokenWeights: Map<string, number>,
+  text: string,
+  weight: number,
+): void {
+  for (const token of tokenizeAntvChartSearchText(text)) {
+    tokenWeights.set(token, (tokenWeights.get(token) ?? 0) + weight)
+  }
+}
+
+function tokenizeAntvChartSearchText(text: string): readonly string[] {
+  const matches = text.toLowerCase().match(/[a-z0-9]+|[\p{Script=Han}]+/gu)
+  return (matches ?? []).filter(
+    (token): boolean =>
+      token.length > 1 && !ANTV_CHART_SEARCH_STOP_WORDS.has(token),
+  )
+}
+
+function scoreAntvChartSkill(
+  indexedSkill: IndexedAntvChartSkill,
+  queryTokens: readonly string[],
+): number {
+  return queryTokens.reduce((score, token): number => {
+    return score + (indexedSkill.tokenWeights.get(token) ?? 0)
+  }, 0)
+}
+
+function buildAntvChartInfoSkill(
+  info: AntvChartSkillInfo | undefined,
+): Skill | undefined {
+  if (!info) {
+    return undefined
+  }
+
+  return {
+    id: `__info__${ANTV_CHART_LIBRARY}`,
+    title: info.name ?? "AntV G2",
+    description: info.description ?? "AntV G2 chart visualization constraints.",
+    library: ANTV_CHART_LIBRARY,
+    version: "",
+    category: "__info__",
+    subcategory: "",
+    tags: [],
+    difficulty: "",
+    use_cases: [],
+    anti_patterns: [],
+    related: [],
+    content: info.constraintsContent,
+  }
 }
 
 function normalizeChatDiagramSpec(spec: ChatDiagramSpec): ChatDiagramSpec {

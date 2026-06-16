@@ -7,13 +7,7 @@ const nextConfig: NextConfig = {
     "pg",
     "@neondatabase/serverless",
     "postgres",
-    "@antv/chart-visualization-skills",
   ],
-  outputFileTracingIncludes: {
-    "/api/chat/diagram": [
-      "./node_modules/@antv/chart-visualization-skills/dist/index/**/*",
-    ],
-  },
   allowedDevOrigins: [
     "127.0.0.1",
     "notebook.local.knowhereto.ai",
