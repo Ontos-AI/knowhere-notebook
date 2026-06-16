@@ -154,6 +154,27 @@ describe("useWorkspaceSourceWorkflow", () => {
     ])
   })
 
+  it("does not count unmaterialized Official Library sources as chat-ready", () => {
+    const librarySource = makeSource({
+      id: "demo-spacex-s1",
+      kind: "demo",
+      demoSourceId: "demo-spacex-s1",
+      title: "spacex-s1.pdf",
+      officialLibrary: {
+        librarySourceId: "financial-spacex-s1",
+        categoryId: "financial-reports",
+        sourceUrl: "https://example.com/spacex-s1.pdf",
+      },
+    })
+
+    const { result } = renderWorkspaceSourceWorkflow({
+      initialSources: [librarySource],
+      isGuest: false,
+    })
+
+    expect(result.current.readySourceCount).toBe(0)
+  })
+
   it("reports failed Official Library materialization without changing sources", async () => {
     const demoSource = makeSource({
       id: "demo-spacex-s1",

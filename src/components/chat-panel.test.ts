@@ -514,7 +514,7 @@ describe("ChatPanel", () => {
     );
 
     expect(
-      screen.queryByPlaceholderText("Upload a document to start asking questions."),
+      screen.queryByPlaceholderText("Add a ready source to start asking questions."),
     ).toBeNull();
     expect(
       screen.queryByRole("button", { name: "Send message" }),

@@ -130,11 +130,11 @@ export function ChatComposer({
               </Button>
             )}
           </div>
-          <div className="relative overflow-hidden rounded-2xl bg-muted/60 shadow-sm">
+          <div className="relative overflow-hidden rounded-md border border-border/80 bg-background">
             {input.length > 0 && (
               <pre
                 aria-hidden="true"
-                className="pointer-events-none absolute inset-0 h-[84px] min-w-0 whitespace-pre-wrap break-words rounded-2xl border border-transparent p-3 font-sans text-sm leading-5 text-foreground sm:p-3.5"
+                className="pointer-events-none absolute inset-0 h-[120px] min-w-0 whitespace-pre-wrap break-words rounded-md border border-transparent p-3 font-sans text-sm leading-5 text-foreground sm:p-3.5"
               >
                 <span
                   style={{ transform: `translateY(-${textareaScrollTop}px)` }}
@@ -148,12 +148,12 @@ export function ChatComposer({
               ref={textareaRef}
               id={chatComposerId}
               name={chatComposerId}
-              className={`relative h-[84px] w-full min-w-0 resize-none rounded-2xl border-input bg-transparent p-3 text-sm leading-5 transition-all placeholder:text-muted-foreground hover:border-primary/50 focus-visible:border-primary focus-visible:ring-0 sm:p-3.5 ${
+              className={`relative h-[120px] w-full min-w-0 resize-none rounded-md border-0 bg-transparent p-3 text-sm leading-5 shadow-none transition-all placeholder:text-muted-foreground focus-visible:ring-0 sm:p-3.5 ${
                 input.length > 0 ? "text-transparent caret-foreground" : "text-foreground"
               }`}
               placeholder={
                 isDisabled
-                  ? "Upload a document to start asking questions."
+                  ? "Add a ready source to start asking questions."
                   : "Ask a question about your documents…"
               }
               value={input}

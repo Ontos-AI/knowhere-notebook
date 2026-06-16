@@ -142,7 +142,7 @@ describe("useWorkspaceChatWorkflow", () => {
     expect(result.current.chat.isSending).toBe(false)
   })
 
-  it("does not auto-materialize Official Library demo sources when sending chat", async () => {
+  it("blocks chat until Official Library demo sources are explicitly added", async () => {
     const librarySource = makeSource({
       id: "demo-spacex-s1",
       kind: "demo",
@@ -176,11 +176,10 @@ describe("useWorkspaceChatWorkflow", () => {
     })
 
     expect(mocks.materializeDemoSources).not.toHaveBeenCalled()
-    expect(mocks.sendChatMessage).toHaveBeenCalledWith({
-      message: "Summarize it",
-      threadId: undefined,
-      excludedSourceIds: [],
-    })
+    expect(mocks.sendChatMessage).not.toHaveBeenCalled()
+    expect(result.current.chat.error).toBe(
+      "Add a ready source before asking questions.",
+    )
   })
 })
 

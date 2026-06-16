@@ -39,7 +39,7 @@ describe("ChatComposer", () => {
     );
 
     expect(
-      screen.queryByPlaceholderText("Upload a document to start asking questions."),
+      screen.queryByPlaceholderText("Add a ready source to start asking questions."),
     ).toBeNull();
 
     const loginButton = screen.getByRole("button", {
@@ -67,5 +67,18 @@ describe("ChatComposer", () => {
     expect(screen.getByText("[Company Name]").className).toContain(
       "text-primary",
     );
+  });
+
+  it("renders a larger embedded composer input surface", () => {
+    render(React.createElement(ChatComposer));
+
+    const input = screen.getByPlaceholderText(
+      "Ask a question about your documents…",
+    );
+
+    expect(input.className).toContain("h-[120px]");
+    expect(input.className).toContain("rounded-md");
+    expect(input.className).toContain("border-0");
+    expect(input.className).toContain("shadow-none");
   });
 });

@@ -260,6 +260,16 @@ export function useWorkspaceChatWorkflow({
         return
       }
     }
+    if (!hasQueryableReadySource(sources)) {
+      setChat((current) => ({
+        ...current,
+        isSending: false,
+        isLoading: false,
+        pendingStatusText: null,
+        error: "Add a ready source before asking questions.",
+      }))
+      return
+    }
 
     optimisticMessageSequence.current += 1
     const optimisticId = `pending-${optimisticMessageSequence.current}`
@@ -343,6 +353,18 @@ function getMaterializableDemoSourceIds(
     .map((source) => source.demoSourceId ?? source.id)
 
   return Array.from(new Set(demoSourceIds))
+}
+
+function hasQueryableReadySource(sources: readonly SourceView[]): boolean {
+  return sources.some(
+    (source) =>
+      source.status === "ready" &&
+      !isUnmaterializedOfficialLibrarySource(source),
+  )
+}
+
+function isUnmaterializedOfficialLibrarySource(source: SourceView): boolean {
+  return source.kind === "demo" && source.officialLibrary !== undefined
 }
 
 function fetchChatThreadByKey([

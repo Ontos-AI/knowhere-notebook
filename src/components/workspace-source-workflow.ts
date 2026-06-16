@@ -87,9 +87,7 @@ export function useWorkspaceSourceWorkflow({
       ),
     [sources],
   )
-  const readySourceCount = sources.filter(
-    (source) => source.status === "ready",
-  ).length
+  const readySourceCount = sources.filter(isQueryableReadySource).length
   const { trigger: archiveSource } = useSWRMutation(
     archiveSourceSWRKey,
     archiveSourceMutation,
@@ -212,6 +210,16 @@ export function useWorkspaceSourceWorkflow({
     sourceTitlesByDocumentId,
     sources,
   }
+}
+
+function isQueryableReadySource(source: SourceView): boolean {
+  if (source.status !== "ready") return false
+
+  return !isUnmaterializedOfficialLibrarySource(source)
+}
+
+function isUnmaterializedOfficialLibrarySource(source: SourceView): boolean {
+  return source.kind === "demo" && source.officialLibrary !== undefined
 }
 
 function archiveSourceMutation(
