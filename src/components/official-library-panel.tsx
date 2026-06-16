@@ -1,7 +1,8 @@
 "use client";
 
-import { type ReactElement, useMemo, useState } from "react";
+import { type CSSProperties, type ReactElement, useMemo, useState } from "react";
 import { ChevronRight, FileText, Plus, RotateCcw } from "lucide-react";
+import Image from "next/image";
 
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
@@ -35,6 +36,24 @@ type LibraryItem = {
   readonly title: string;
 };
 
+type LibraryCategory = {
+  readonly backgroundImagePath: string;
+  readonly categoryId: string;
+  readonly categoryLabel: string;
+  readonly itemCount: number;
+  readonly readyCount: number;
+};
+
+const officialLibraryAssetPaths = {
+  categoryBackgrounds: {
+    financialReports: "/images/official-library/financial-reports.svg",
+    otherDocs: "/images/official-library/other-docs.svg",
+    researchPapers: "/images/official-library/research-papers.svg",
+    stemBooks: "/images/official-library/stem-books.svg",
+  },
+  pdfDocumentIcon: "/icons/official-library/pdf-document.svg",
+} as const;
+
 export function OfficialLibraryPanel({
   addingLibrarySourceIds = [],
   officialLibrarySources = [],
@@ -49,13 +68,18 @@ export function OfficialLibraryPanel({
     () => getLibraryCategories(libraryItems),
     [libraryItems],
   );
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(
-    categories[0]?.categoryId ?? null,
-  );
+  const [selectedCategoryId, setSelectedCategoryId] = useState<
+    string | null | undefined
+  >(undefined);
   const resolvedCategoryId =
-    selectedCategoryId && categories.some((category) => category.categoryId === selectedCategoryId)
-      ? selectedCategoryId
-      : categories[0]?.categoryId ?? null;
+    selectedCategoryId === undefined
+      ? (categories[0]?.categoryId ?? null)
+      : selectedCategoryId !== null &&
+          categories.some(
+            (category) => category.categoryId === selectedCategoryId,
+          )
+        ? selectedCategoryId
+        : null;
   const selectedCategory = categories.find(
     (category) => category.categoryId === resolvedCategoryId,
   );
@@ -98,6 +122,11 @@ export function OfficialLibraryPanel({
 
           {libraryItems.length === 0 ? (
             <EmptyLibraryState />
+          ) : resolvedCategoryId === null ? (
+            <OfficialLibraryCategoryGrid
+              categories={categories}
+              onCategorySelect={setSelectedCategoryId}
+            />
           ) : (
             <div className="grid grid-cols-[repeat(auto-fill,minmax(132px,1fr))] gap-x-14 gap-y-14">
               {visibleItems.map((item) => (
@@ -119,6 +148,38 @@ export function OfficialLibraryPanel({
         </div>
       </ScrollArea>
     </main>
+  );
+}
+
+function OfficialLibraryCategoryGrid({
+  categories,
+  onCategorySelect,
+}: {
+  readonly categories: readonly LibraryCategory[];
+  readonly onCategorySelect: (categoryId: string) => void;
+}): ReactElement {
+  return (
+    <div className="grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-5">
+      {categories.map((category) => (
+        <button
+          key={category.categoryId}
+          type="button"
+          aria-label={`Open ${category.categoryLabel}`}
+          onClick={() => onCategorySelect(category.categoryId)}
+          style={getCategoryCardBackgroundStyle(category.backgroundImagePath)}
+          className="group relative flex aspect-[1.32] min-h-40 overflow-hidden rounded-md bg-cover bg-center p-5 text-left shadow-sm ring-1 ring-border/60 transition-transform hover:-translate-y-0.5 hover:ring-foreground/30 focus:outline-none focus:ring-2 focus:ring-foreground"
+        >
+          <span className="mt-auto flex w-full flex-col gap-1 text-white">
+            <span className="text-lg font-bold leading-tight">
+              {category.categoryLabel}
+            </span>
+            <span className="text-xs font-semibold uppercase tracking-wide text-white/75">
+              {getCategoryStatusLabel(category)}
+            </span>
+          </span>
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -166,12 +227,21 @@ function OfficialLibraryCard({
 
 function PdfFileIcon(): ReactElement {
   return (
-    <div className="relative h-[74px] w-[58px]">
-      <div className="absolute inset-x-0 top-0 h-[68px] rounded-sm border border-slate-300 bg-white shadow-sm">
-        <div className="absolute right-0 top-0 h-5 w-5 border-b border-l border-slate-300 bg-slate-100" />
-        <div className="absolute bottom-3 left-3 right-2 rounded-sm bg-red-500 px-1 py-0.5 text-center font-mono text-[13px] font-bold leading-none text-white">
-          .pdf
-        </div>
+    <div
+      className="relative h-[74px] w-[58px]"
+      data-testid="official-library-pdf-icon"
+    >
+      <Image
+        alt=""
+        draggable={false}
+        height={68}
+        loading="eager"
+        src={officialLibraryAssetPaths.pdfDocumentIcon}
+        width={50}
+        className="absolute inset-x-1 top-0 h-[68px] w-[50px] object-contain opacity-90"
+      />
+      <div className="absolute bottom-4 left-1/2 rounded-sm bg-red-500 px-1.5 py-0.5 text-center font-mono text-[13px] font-bold leading-none text-white shadow-sm -translate-x-1/2">
+        .pdf
       </div>
     </div>
   );
@@ -245,15 +315,46 @@ function getLibraryItems(
 
 function getLibraryCategories(
   items: readonly LibraryItem[],
-): readonly { readonly categoryId: string; readonly categoryLabel: string }[] {
-  const categoryById = new Map<string, string>();
+): readonly LibraryCategory[] {
+  const categoryById = new Map<
+    string,
+    {
+      readonly categoryLabel: string;
+      itemCount: number;
+      readyCount: number;
+    }
+  >();
   for (const item of items) {
-    categoryById.set(item.categoryId, item.categoryLabel);
+    const currentCategory = categoryById.get(item.categoryId);
+    if (currentCategory) {
+      currentCategory.itemCount += 1;
+      if (item.status === "ready") currentCategory.readyCount += 1;
+      continue;
+    }
+
+    categoryById.set(item.categoryId, {
+      categoryLabel: item.categoryLabel,
+      itemCount: 1,
+      readyCount: item.status === "ready" ? 1 : 0,
+    });
   }
 
   return Array.from(categoryById.entries())
-    .map(([categoryId, categoryLabel]) => ({ categoryId, categoryLabel }))
-    .sort((left, right) => left.categoryLabel.localeCompare(right.categoryLabel));
+    .map(([categoryId, category]) => ({
+      backgroundImagePath: getCategoryBackgroundImagePath(categoryId),
+      categoryId,
+      categoryLabel: category.categoryLabel,
+      itemCount: category.itemCount,
+      readyCount: category.readyCount,
+    }))
+    .sort((left, right) => {
+      const orderDiff =
+        getCategorySortOrder(left.categoryId) -
+        getCategorySortOrder(right.categoryId);
+      if (orderDiff !== 0) return orderDiff;
+
+      return left.categoryLabel.localeCompare(right.categoryLabel);
+    });
 }
 
 function getCategoryLabel(categoryId: string): string {
@@ -269,4 +370,44 @@ function getLibraryMetadata(item: LibraryItem): string {
   if (item.chunkCount !== undefined) return `${item.chunkCount} chunks`;
 
   return item.mimeType.includes("pdf") ? "PDF" : item.mimeType;
+}
+
+function getCategoryBackgroundImagePath(categoryId: string): string {
+  const normalizedCategoryId = categoryId.toLowerCase();
+  if (normalizedCategoryId.includes("financial")) {
+    return officialLibraryAssetPaths.categoryBackgrounds.financialReports;
+  }
+  if (normalizedCategoryId.includes("research")) {
+    return officialLibraryAssetPaths.categoryBackgrounds.researchPapers;
+  }
+  if (normalizedCategoryId.includes("stem")) {
+    return officialLibraryAssetPaths.categoryBackgrounds.stemBooks;
+  }
+
+  return officialLibraryAssetPaths.categoryBackgrounds.otherDocs;
+}
+
+function getCategoryCardBackgroundStyle(
+  backgroundImagePath: string,
+): CSSProperties {
+  return {
+    backgroundImage:
+      `linear-gradient(180deg, rgba(10, 10, 12, 0.08) 0%, rgba(10, 10, 12, 0.76) 100%), url("${backgroundImagePath}")`,
+  };
+}
+
+function getCategorySortOrder(categoryId: string): number {
+  const normalizedCategoryId = categoryId.toLowerCase();
+  if (normalizedCategoryId.includes("financial")) return 0;
+  if (normalizedCategoryId.includes("research")) return 1;
+  if (normalizedCategoryId.includes("stem")) return 2;
+  return 3;
+}
+
+function getCategoryStatusLabel(category: LibraryCategory): string {
+  if (category.readyCount === category.itemCount) {
+    return `${category.itemCount} ready`;
+  }
+
+  return `${category.readyCount}/${category.itemCount} ready`;
 }
