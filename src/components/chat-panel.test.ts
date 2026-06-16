@@ -4,9 +4,16 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { workspaceClient } from "@/domains/workspace/client";
 import { ChatPanel } from "./chat-panel";
 
 const C = ChatPanel as React.FC<Record<string, unknown>>;
+
+vi.mock("@/domains/workspace/client", () => ({
+  workspaceClient: {
+    createChatDiagram: vi.fn(),
+  },
+}));
 
 describe("ChatPanel", () => {
   beforeEach(() => {
@@ -15,6 +22,7 @@ describe("ChatPanel", () => {
       unobserve() {}
       disconnect() {}
     };
+    vi.mocked(workspaceClient.createChatDiagram).mockReset();
     mockVisibleVirtualViewport();
   });
 
@@ -35,7 +43,7 @@ describe("ChatPanel", () => {
     expect(container.textContent).not.toMatch(/grounded|citation/i);
   });
 
-  it("labels assistant evidence as sources used", () => {
+  it("renders assistant evidence as inline source chips", () => {
     render(
       React.createElement(C, {
         messages: [
@@ -59,8 +67,99 @@ describe("ChatPanel", () => {
       }),
     );
 
-    expect(screen.getByText("Sources used")).toBeTruthy();
+    expect(
+      screen.getByRole("button", {
+        name: "Open source syllabus.pdf · Schedule",
+      }),
+    ).toBeTruthy();
+    expect(screen.queryByText("Sources used")).toBeNull();
     expect(screen.queryByText("Citations")).toBeNull();
+  });
+
+  it("creates diagrams only through the explicit composer command", async () => {
+    const user = userEvent.setup();
+    vi.mocked(workspaceClient.createChatDiagram).mockResolvedValue({
+      diagram: {
+        type: "bar",
+        source: "chart-visualization-skills",
+        title: "Revenue by Segment",
+        axisYTitle: "Revenue",
+        data: [
+          { category: "Cloud", value: 42 },
+          { category: "Ads", value: 28 },
+        ],
+      },
+    });
+
+    render(
+      React.createElement(C, {
+        messages: [
+          {
+            id: "assistant_1",
+            role: "assistant",
+            content: "Cloud revenue was 42 and Ads revenue was 28.",
+          },
+        ],
+      }),
+    );
+
+    expect(
+      screen.queryByRole("button", { name: "Create diagram" }),
+    ).toBeNull();
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Create diagram from latest answer",
+      }),
+    );
+
+    expect(workspaceClient.createChatDiagram).toHaveBeenCalledWith({
+      answer: "Cloud revenue was 42 and Ads revenue was 28.",
+    });
+    expect(await screen.findByText("Revenue by Segment")).toBeTruthy();
+    expect(
+      screen.getByRole("img", { name: "Revenue by Segment" }),
+    ).toBeTruthy();
+  });
+
+  it("treats slash diagram text as a local command instead of a chat message", async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn();
+    vi.mocked(workspaceClient.createChatDiagram).mockResolvedValue({
+      diagram: {
+        type: "bar",
+        source: "chart-visualization-skills",
+        title: "Revenue by Segment",
+        data: [
+          { category: "Cloud", value: 42 },
+          { category: "Ads", value: 28 },
+        ],
+      },
+    });
+
+    render(
+      React.createElement(C, {
+        messages: [
+          {
+            id: "assistant_1",
+            role: "assistant",
+            content: "Cloud revenue was 42 and Ads revenue was 28.",
+          },
+        ],
+        onSend,
+      }),
+    );
+
+    await user.type(
+      screen.getByPlaceholderText("Ask a question about your documents…"),
+      "/diagram",
+    );
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+
+    expect(onSend).not.toHaveBeenCalled();
+    expect(workspaceClient.createChatDiagram).toHaveBeenCalledWith({
+      answer: "Cloud revenue was 42 and Ads revenue was 28.",
+    });
   });
 
   it("uses Notebook source titles for generated Knowhere citation filenames", () => {

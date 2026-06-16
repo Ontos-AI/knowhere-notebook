@@ -58,10 +58,10 @@ function BarDiagram({
     >
       <CartesianAxes chart={chart} diagram={diagram} />
       {diagram.data.map((datum, index) => {
-        const value = Math.max(0, datum.value);
-        const height = (value / chart.maxValue) * chart.plotHeight;
+        const valueY = getCartesianValueY(datum.value, chart);
+        const height = Math.abs(valueY - chart.zeroY);
         const x = chart.left + index * (barWidth + barGap);
-        const y = chart.bottom - height;
+        const y = Math.min(valueY, chart.zeroY);
 
         return (
           <g key={`${getDiagramDatumLabel(datum)}-${index}`}>
@@ -94,18 +94,13 @@ function LineDiagram({
   readonly diagram: ChatDiagramChartSpec;
 }): ReactElement {
   const chart = getCartesianChartMetrics(diagram);
-  const values = diagram.data.map((datum) => datum.value);
-  const minValue = Math.min(...values);
-  const maxValue = Math.max(...values);
-  const valueRange = maxValue - minValue || 1;
   const pointGap =
     diagram.data.length > 1
       ? chart.plotWidth / (diagram.data.length - 1)
       : chart.plotWidth;
   const points = diagram.data.map((datum, index) => {
     const x = chart.left + index * pointGap;
-    const y =
-      chart.top + ((maxValue - datum.value) / valueRange) * chart.plotHeight;
+    const y = getCartesianValueY(datum.value, chart);
     return { x, y, datum };
   });
   const polylinePoints = points
@@ -230,9 +225,9 @@ function CartesianAxes({
     <g>
       <line
         x1={chart.left}
-        y1={chart.bottom}
+        y1={chart.zeroY}
         x2={chart.right}
-        y2={chart.bottom}
+        y2={chart.zeroY}
         stroke="currentColor"
         className="text-border"
       />
@@ -251,6 +246,15 @@ function CartesianAxes({
       >
         {diagram.axisYTitle ?? formatDiagramValue(chart.maxValue)}
       </text>
+      {chart.minValue < 0 && (
+        <text
+          x={chart.left}
+          y={chart.bottom + 16}
+          className="fill-muted-foreground text-[10px]"
+        >
+          {formatDiagramValue(chart.minValue)}
+        </text>
+      )}
       {diagram.axisXTitle && (
         <text
           x={(chart.left + chart.right) / 2}
@@ -272,26 +276,43 @@ function getCartesianChartMetrics(diagram: ChatDiagramChartSpec): {
   readonly left: number;
   readonly plotHeight: number;
   readonly plotWidth: number;
+  readonly minValue: number;
   readonly maxValue: number;
+  readonly valueRange: number;
+  readonly zeroY: number;
 } {
   const top = 26;
   const right = 18;
   const bottom = 224;
   const left = 42;
-  const maxValue = Math.max(
-    ...diagram.data.map((datum): number => Math.abs(datum.value)),
-    1,
-  );
+  const values = diagram.data.map((datum): number => datum.value);
+  const minValue = Math.min(0, ...values);
+  const maxValue = Math.max(0, ...values);
+  const valueRange = maxValue - minValue || 1;
+  const plotHeight = bottom - top;
+  const zeroY = bottom - ((0 - minValue) / valueRange) * plotHeight;
 
   return {
     top,
     right: 520 - right,
     bottom,
     left,
-    plotHeight: bottom - top,
+    plotHeight,
     plotWidth: 520 - right - left,
+    minValue,
     maxValue,
+    valueRange,
+    zeroY,
   };
+}
+
+function getCartesianValueY(
+  value: number,
+  chart: ReturnType<typeof getCartesianChartMetrics>,
+): number {
+  return (
+    chart.bottom - ((value - chart.minValue) / chart.valueRange) * chart.plotHeight
+  );
 }
 
 function getDiagramDatumLabel(

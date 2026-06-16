@@ -87,6 +87,8 @@ describe("buildChatDiagramPrompt", () => {
     expect(prompt).toContain("Use AntV G2 chart constraints.")
     expect(prompt).toContain("Use interval marks for bar and column charts.")
     expect(prompt).toContain("source exactly to \"chart-visualization-skills\"")
+    expect(prompt).toContain("Preserve negative values")
+    expect(prompt).toContain("core message")
     expect(prompt).toContain("Do not fabricate data")
     expect(prompt).toContain("Cloud revenue was 42.")
   })
@@ -151,6 +153,31 @@ describe("generateChatDiagramSpec", () => {
     ).resolves.toEqual({
       type: "none",
       reason: "The answer did not contain enough concrete data for a chart.",
+    })
+  })
+
+  it("rejects pie charts with non-positive values", async () => {
+    process.env.AI_GATEWAY_API_KEY = "test_gateway_key"
+    vi.mocked(generateObject).mockResolvedValue({
+      object: {
+        type: "pie",
+        source: "chart-visualization-skills",
+        title: "Mixed Profit Share",
+        data: [
+          { category: "Loss", value: -5 },
+          { category: "Gain", value: 10 },
+        ],
+      },
+    } as Awaited<ReturnType<typeof generateObject>>)
+
+    await expect(
+      generateChatDiagramSpec({
+        answer: "Loss was -5 and gain was 10.",
+      }),
+    ).resolves.toEqual({
+      type: "none",
+      reason:
+        "The answer did not contain positive part-to-whole data for a pie chart.",
     })
   })
 })

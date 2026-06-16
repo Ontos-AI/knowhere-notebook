@@ -137,8 +137,11 @@ export function buildChatDiagramPrompt(answer: string): string {
     "- Do not fabricate data, fill missing values, infer hidden numbers, or change units.",
     "- Use type none with a short reason when a diagram should not be created.",
     '- For charts, set source exactly to "chart-visualization-skills".',
+    "- Write a concise title that summarizes the chart's core message, not a generic chart type.",
     "- For bar, column, and pie data, use category + value.",
     "- For line data, use time + value.",
+    "- Preserve negative values for bar, column, and line charts when the answer explicitly contains them.",
+    "- Use pie only for positive part-to-whole values; do not use pie for negative or mixed-sign data.",
     "- Select only one chart: the one with the highest information value.",
     "- Output JSON only, with no explanations and no Markdown.",
     "",
@@ -228,6 +231,14 @@ function normalizeChatDiagramSpec(spec: ChatDiagramSpec): ChatDiagramSpec {
     return {
       type: "none",
       reason: "The answer did not contain enough concrete data for a chart.",
+    }
+  }
+
+  if (spec.type === "pie" && data.some((datum): boolean => datum.value <= 0)) {
+    return {
+      type: "none",
+      reason:
+        "The answer did not contain positive part-to-whole data for a pie chart.",
     }
   }
 

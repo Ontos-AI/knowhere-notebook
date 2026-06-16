@@ -251,7 +251,6 @@ describe("WorkspaceShell", () => {
       return Response.json({ message: "Unexpected request" }, { status: 404 });
     });
     vi.stubGlobal("fetch", fetch);
-    const user = userEvent.setup();
 
     render(
       React.createElement(C, {
@@ -287,12 +286,13 @@ describe("WorkspaceShell", () => {
       }),
     );
 
-    const desktopChatPanel = within(screen.getByTestId("desktop-chat-panel"));
-    await user.click(
-      desktopChatPanel.getByRole("button", {
+    const citationButton = await findStableConnectedElement(() => {
+      const desktopChatPanel = within(screen.getByTestId("desktop-chat-panel"));
+      return desktopChatPanel.getByRole("button", {
         name: "Open source demo.pdf · Demo citation",
-      }),
-    );
+      });
+    });
+    fireEvent.click(citationButton);
 
     await waitFor(() => {
       const topRow = screen
@@ -337,7 +337,6 @@ describe("WorkspaceShell", () => {
       return Response.json({ message: "Unexpected request" }, { status: 404 });
     });
     vi.stubGlobal("fetch", fetch);
-    const user = userEvent.setup();
 
     render(
       React.createElement(C, {
@@ -373,12 +372,13 @@ describe("WorkspaceShell", () => {
       }),
     );
 
-    const mobileChatPanel = within(document.getElementById("panel-chat")!);
-    await user.click(
-      mobileChatPanel.getByRole("button", {
+    const citationButton = await findStableConnectedElement(() => {
+      const mobileChatPanel = within(document.getElementById("panel-chat")!);
+      return mobileChatPanel.getByRole("button", {
         name: "Open source demo.pdf · Demo citation",
-      }),
-    );
+      });
+    });
+    fireEvent.click(citationButton);
 
     await waitFor(() => {
       const topRow = document
@@ -1094,6 +1094,24 @@ describe("WorkspaceShell", () => {
     expect(countFetches(fetch, "/api/chat/threads/thread_2")).toBe(1);
   });
 });
+
+function findStableConnectedElement(
+  getElement: () => HTMLElement,
+): Promise<HTMLElement> {
+  let previousElement: HTMLElement | null = null;
+
+  return waitFor(() => {
+    const element = getElement();
+    expect(element.isConnected).toBe(true);
+
+    if (element !== previousElement) {
+      previousElement = element;
+      throw new Error("Element is still settling.");
+    }
+
+    return element;
+  });
+}
 
 function getRequestPath(input: RequestInfo | URL): string {
   return getRequestURL(input).pathname;

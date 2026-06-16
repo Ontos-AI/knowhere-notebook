@@ -8,7 +8,7 @@ import {
   type ReactElement,
   type UIEvent,
 } from "react";
-import { FileText, Send } from "lucide-react";
+import { BarChart3, FileText, Send } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
@@ -20,15 +20,21 @@ const placeholderPattern = /(\[[^\]\r\n]{1,80}\])/gu;
 const placeholderSegmentPattern = /^\[[^\]\r\n]{1,80}\]$/u;
 
 export type ChatComposerProps = {
+  readonly canCreateDiagram?: boolean;
   readonly isDisabled?: boolean;
+  readonly isCreatingDiagram?: boolean;
   readonly isSending?: boolean;
+  readonly onCreateDiagram?: () => void;
   readonly onLoginClick?: () => void;
   readonly onSend?: (text: string) => void;
 };
 
 export function ChatComposer({
+  canCreateDiagram = false,
   isDisabled = false,
+  isCreatingDiagram = false,
   isSending = false,
+  onCreateDiagram,
   onLoginClick,
   onSend,
 }: ChatComposerProps): ReactElement {
@@ -100,6 +106,29 @@ export function ChatComposer({
                 <span>{template.title}</span>
               </Button>
             ))}
+            {onCreateDiagram && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={
+                  isDisabled ||
+                  isSending ||
+                  isCreatingDiagram ||
+                  !canCreateDiagram
+                }
+                onClick={onCreateDiagram}
+                className="h-8 shrink-0 gap-1.5 rounded-full px-3 text-[11px] font-semibold"
+                aria-label="Create diagram from latest answer"
+              >
+                {isCreatingDiagram ? (
+                  <Spinner className="size-3.5" />
+                ) : (
+                  <BarChart3 className="size-3.5" />
+                )}
+                <span>{isCreatingDiagram ? "Creating" : "Create diagram"}</span>
+              </Button>
+            )}
           </div>
           <div className="relative overflow-hidden rounded-2xl bg-muted/60 shadow-sm">
             {input.length > 0 && (
