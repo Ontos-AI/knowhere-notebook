@@ -1,11 +1,18 @@
 import { generateObject } from "ai"
+import { retrieve, type Skill } from "@antv/chart-visualization-skills"
 import { z } from "zod"
 
 import { CHAT_MODEL } from "@/lib/ai"
+import { summarizeUnknownError } from "@/lib/format-log-value"
 import { logger } from "@/lib/logger"
 
 const MAX_ANSWER_CHARS = 12_000
 const MAX_REASON_CHARS = 240
+const ANTV_CHART_LIBRARY = "g2"
+const ANTV_CHART_SKILL_TOP_K = 5
+const MAX_ANTV_SKILL_QUERY_CHARS = 500
+const MAX_ANTV_SKILL_CONTENT_CHARS = 2_400
+const MAX_ANTV_SKILL_CONTEXT_CHARS = 16_000
 
 const noDiagramSchema = z.object({
   type: z.literal("none"),
@@ -108,9 +115,11 @@ export async function generateChatDiagramSpec(input: {
 }
 
 export function buildChatDiagramPrompt(answer: string): string {
+  const antvSkillContext = getAntvChartSkillContext(answer)
+
   return [
     "You are responsible for turning Notebook answer content into one visualization opportunity.",
-    "Use the chart-visualization skill methodology from antvis/chart-visualization-skills.",
+    "Use the AntV chart visualization skills retrieved from @antv/chart-visualization-skills.",
     "",
     "Workflow:",
     "1. Detect whether the answer contains explicit, concrete data suitable for a chart.",
@@ -133,9 +142,64 @@ export function buildChatDiagramPrompt(answer: string): string {
     "- Select only one chart: the one with the highest information value.",
     "- Output JSON only, with no explanations and no Markdown.",
     "",
+    "AntV chart visualization skill context:",
+    antvSkillContext,
+    "",
     "Answer content:",
     answer,
   ].join("\n")
+}
+
+export function getAntvChartSkillContext(answer: string): string {
+  try {
+    const skills = retrieve(buildAntvSkillQuery(answer), {
+      library: ANTV_CHART_LIBRARY,
+      topK: ANTV_CHART_SKILL_TOP_K,
+      content: true,
+    })
+    const context = formatAntvChartSkills(skills)
+    return context.length > 0
+      ? context.slice(0, MAX_ANTV_SKILL_CONTEXT_CHARS)
+      : "No AntV chart visualization skill content was returned."
+  } catch (error) {
+    logger.warn("chat-diagram: AntV skill retrieval failed", {
+      error: summarizeUnknownError(error),
+    })
+    return [
+      "AntV chart visualization skill retrieval failed.",
+      "Continue with the explicit chart-selection and no-fabrication rules above.",
+    ].join("\n")
+  }
+}
+
+function buildAntvSkillQuery(answer: string): string {
+  const normalizedAnswer = answer.replace(/\s+/gu, " ").trim()
+  return [
+    "g2 chart visualization bar column line pie comparison trend part-to-whole",
+    normalizedAnswer.slice(0, MAX_ANTV_SKILL_QUERY_CHARS),
+  ]
+    .filter((part): part is string => part.length > 0)
+    .join(" ")
+}
+
+function formatAntvChartSkills(skills: readonly Skill[]): string {
+  return skills
+    .map((skill): string => {
+      const content = skill.content?.trim()
+      const summary = [
+        `Skill: ${skill.id}`,
+        skill.title ? `Title: ${skill.title}` : null,
+        skill.description ? `Description: ${skill.description}` : null,
+        content
+          ? `Content:\n${content.slice(0, MAX_ANTV_SKILL_CONTENT_CHARS)}`
+          : null,
+      ]
+        .filter((line): line is string => Boolean(line))
+        .join("\n")
+      return summary
+    })
+    .filter((entry): boolean => entry.length > 0)
+    .join("\n\n---\n\n")
 }
 
 function normalizeChatDiagramSpec(spec: ChatDiagramSpec): ChatDiagramSpec {
