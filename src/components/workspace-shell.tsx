@@ -5,6 +5,7 @@ import type { ReactElement } from "react"
 import { SWRConfig } from "swr"
 import {
   WorkspaceShellLayout,
+  type ContentView,
   type PanelId,
 } from "@/components/workspace-shell-layout"
 import { useWorkspaceDesktopPanels } from "@/components/workspace-desktop-panels"
@@ -82,6 +83,7 @@ function WorkspaceShellContent({
   const [mobilePanel, setMobilePanel] = useState<PanelId>(
     isGuest ? "content" : "chat",
   )
+  const [contentView, setContentView] = useState<ContentView>("chunks")
   const sourceWorkflow = useWorkspaceSourceWorkflow({
     initialSources: initialSources ?? [],
     isGuest,
@@ -90,7 +92,7 @@ function WorkspaceShellContent({
     fetchChunks: workspaceClient.fetchChunks,
     initialPrefetchedChunksBySourceId:
       initialPrefetchedChunksBySourceId ?? undefined,
-    onSelectSource: sourceWorkflow.setSelectedSourceId,
+    onSelectSource: handleCitationSourceSelected,
     selectedSourceId: sourceWorkflow.selectedSourceId,
     sources: sourceWorkflow.sources,
   })
@@ -119,7 +121,13 @@ function WorkspaceShellContent({
 
   const selectedSourceTitle = citationFocus.selectedSource?.title ?? null
 
+  function handleCitationSourceSelected(sourceId: string | null): void {
+    setContentView("chunks")
+    sourceWorkflow.setSelectedSourceId(sourceId)
+  }
+
   function handleSourceSelected(sourceId: string | null): void {
+    setContentView("chunks")
     citationFocus.handleSourceSelected(sourceId)
   }
 
@@ -129,8 +137,13 @@ function WorkspaceShellContent({
     const didMaterialize =
       await sourceWorkflow.handleOfficialLibrarySourceAdd(demoSourceId)
     if (didMaterialize) {
+      setContentView("chunks")
       await chatWorkflow.handleRefreshActiveChatThread()
     }
+  }
+
+  function handleLibraryOpen(): void {
+    setContentView("library")
   }
 
   const hasMessages = chatWorkflow.chat.messages.length > 0
@@ -148,6 +161,7 @@ function WorkspaceShellContent({
       focusedChunk={citationFocus.focusedChunk}
       hasMessages={hasMessages}
       hasMoreSelectedChunks={citationFocus.hasMoreSelectedChunks}
+      contentView={contentView}
       isCreatingThread={chatWorkflow.isCreatingThread}
       isGuest={isGuest}
       isSelectedAllChunksLoading={citationFocus.isSelectedAllChunksLoading}
@@ -180,6 +194,7 @@ function WorkspaceShellContent({
       onLoadAllChunks={citationFocus.handleLoadAllChunks}
       onLoadMoreChunks={citationFocus.handleLoadMoreChunks}
       onLoginClick={redirectToLogin}
+      onLibraryOpen={handleLibraryOpen}
       onMobilePanelChange={setMobilePanel}
       onSelectChatThread={chatWorkflow.handleSelectChatThread}
       onSourceSelected={handleSourceSelected}

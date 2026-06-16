@@ -107,8 +107,9 @@ describe("ChatPanel", () => {
       screen.queryByRole("button", { name: "Create diagram" }),
     ).toBeNull();
 
+    await user.click(screen.getByRole("button", { name: "Create" }));
     await user.click(
-      screen.getByRole("button", {
+      screen.getByRole("menuitem", {
         name: "Create diagram from latest answer",
       }),
     );

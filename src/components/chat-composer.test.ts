@@ -56,8 +56,9 @@ describe("ChatComposer", () => {
 
     render(React.createElement(ChatComposer));
 
+    await user.click(screen.getByRole("button", { name: "Create" }));
     await user.click(
-      screen.getByRole("button", { name: /IPO Prospectus Risk Mining/ }),
+      screen.getByRole("menuitem", { name: /IPO Prospectus Risk Mining/ }),
     );
 
     const input = screen.getByPlaceholderText(
@@ -76,9 +77,9 @@ describe("ChatComposer", () => {
       "Ask a question about your documents…",
     );
 
-    expect(input.className).toContain("h-[120px]");
-    expect(input.className).toContain("rounded-md");
+    expect(input.className).toContain("h-[128px]");
     expect(input.className).toContain("border-0");
     expect(input.className).toContain("shadow-none");
+    expect(screen.getByRole("button", { name: "Create" })).toBeTruthy();
   });
 });

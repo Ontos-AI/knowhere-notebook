@@ -123,8 +123,11 @@ export function useWorkspaceSourceWorkflow({
       { revalidate: false },
     )
     setSelectedSourceId((current) => {
-      if (!current || !materializedDemoSourceIdSet.has(current)) return current
-      return materializedSources[0]?.id ?? current
+      if (!current || materializedDemoSourceIdSet.has(current)) {
+        return materializedSources[0]?.id ?? current
+      }
+
+      return current
     })
   }
 

@@ -174,9 +174,9 @@ describe("SourcesPanel", () => {
     expect(screen.getByText("Processed · 3 chunks")).toBeTruthy();
   });
 
-  it("groups ready and planned Official Library entries separately from sources", async () => {
+  it("shows an open-library action separately from workspace sources", async () => {
     const onSelectSource = vi.fn();
-    const onOfficialLibrarySourceAdd = vi.fn();
+    const onLibraryOpen = vi.fn();
 
     render(
       React.createElement(C, {
@@ -214,18 +214,18 @@ describe("SourcesPanel", () => {
           },
         ],
         onSelectSource,
-        onOfficialLibrarySourceAdd,
+        onLibraryOpen,
       }),
     );
 
-    expect(screen.getByRole("heading", { name: "Official Library" })).toBeTruthy();
-    expect(screen.getByText("Official Library · 922 chunks")).toBeTruthy();
-    expect(screen.getByText("STEM books · Preparing")).toBeTruthy();
+    expect(screen.queryByText("Official Library · 922 chunks")).toBeNull();
+    expect(screen.queryByText("STEM books · Preparing")).toBeNull();
     expect(screen.getByRole("heading", { name: "Sources" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Open library" })).toBeTruthy();
     expect(screen.getByText("Processed · 3 chunks")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Add spacex-s1.pdf to sources" }));
-    expect(onOfficialLibrarySourceAdd).toHaveBeenCalledWith("demo-spacex-s1");
+    fireEvent.click(screen.getByRole("button", { name: "Open library" }));
+    expect(onLibraryOpen).toHaveBeenCalledOnce();
   });
 
   it("hides source actions that are not wired", () => {

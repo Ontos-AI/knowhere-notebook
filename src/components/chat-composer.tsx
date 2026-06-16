@@ -8,9 +8,16 @@ import {
   type ReactElement,
   type UIEvent,
 } from "react";
-import { BarChart3, FileText, Send } from "lucide-react";
+import { BarChart3, FileText, Plus, Send } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { chatPromptTemplates } from "@/domains/chat/prompt-templates";
@@ -91,50 +98,11 @@ export function ChatComposer({
         </Button>
       ) : (
         <>
-          <div className="mb-2 flex gap-1.5 overflow-x-auto pb-1">
-            {chatPromptTemplates.map((template) => (
-              <Button
-                key={template.id}
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={isDisabled || isSending}
-                onClick={() => handleTemplateSelect(template.prompt)}
-                className="h-8 shrink-0 gap-1.5 rounded-full px-3 text-[11px] font-semibold"
-              >
-                <FileText className="size-3.5" />
-                <span>{template.title}</span>
-              </Button>
-            ))}
-            {onCreateDiagram && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={
-                  isDisabled ||
-                  isSending ||
-                  isCreatingDiagram ||
-                  !canCreateDiagram
-                }
-                onClick={onCreateDiagram}
-                className="h-8 shrink-0 gap-1.5 rounded-full px-3 text-[11px] font-semibold"
-                aria-label="Create diagram from latest answer"
-              >
-                {isCreatingDiagram ? (
-                  <Spinner className="size-3.5" />
-                ) : (
-                  <BarChart3 className="size-3.5" />
-                )}
-                <span>{isCreatingDiagram ? "Creating" : "Create diagram"}</span>
-              </Button>
-            )}
-          </div>
-          <div className="relative overflow-hidden rounded-md border border-border/80 bg-background">
+          <div className="relative overflow-hidden bg-background">
             {input.length > 0 && (
               <pre
                 aria-hidden="true"
-                className="pointer-events-none absolute inset-0 h-[120px] min-w-0 whitespace-pre-wrap break-words rounded-md border border-transparent p-3 font-sans text-sm leading-5 text-foreground sm:p-3.5"
+                className="pointer-events-none absolute inset-0 h-[128px] min-w-0 whitespace-pre-wrap break-words border border-transparent px-4 py-3 font-sans text-sm leading-5 text-foreground sm:px-5 sm:py-4"
               >
                 <span
                   style={{ transform: `translateY(-${textareaScrollTop}px)` }}
@@ -148,7 +116,7 @@ export function ChatComposer({
               ref={textareaRef}
               id={chatComposerId}
               name={chatComposerId}
-              className={`relative h-[120px] w-full min-w-0 resize-none rounded-md border-0 bg-transparent p-3 text-sm leading-5 shadow-none transition-all placeholder:text-muted-foreground focus-visible:ring-0 sm:p-3.5 ${
+              className={`relative h-[128px] w-full min-w-0 resize-none border-0 bg-transparent px-4 py-3 text-sm leading-5 shadow-none transition-all placeholder:text-muted-foreground focus-visible:ring-0 sm:px-5 sm:py-4 ${
                 input.length > 0 ? "text-transparent caret-foreground" : "text-foreground"
               }`}
               placeholder={
@@ -163,15 +131,19 @@ export function ChatComposer({
               onScroll={handleTextareaScroll}
             />
           </div>
-          <div className="mt-3 flex items-center justify-between gap-3">
-            <span className="hidden text-[10px] font-medium text-muted-foreground sm:inline">
-              Shift + Enter for a new line
-            </span>
+          <div className="flex items-center justify-between gap-3 px-4 pb-4 sm:px-5">
+            <CreateMenu
+              canCreateDiagram={canCreateDiagram}
+              isCreatingDiagram={isCreatingDiagram}
+              isDisabled={isDisabled || isSending}
+              onCreateDiagram={onCreateDiagram}
+              onTemplateSelect={handleTemplateSelect}
+            />
             <Button
               type="button"
               variant="default"
               size="sm"
-              className="ml-auto gap-1.5 px-4"
+              className="ml-auto h-12 min-w-28 gap-1.5 rounded-lg px-6"
               disabled={!canSend}
               onClick={handleSend}
               aria-label="Send message"
@@ -187,6 +159,65 @@ export function ChatComposer({
         </>
       )}
     </div>
+  );
+}
+
+function CreateMenu({
+  canCreateDiagram,
+  isCreatingDiagram,
+  isDisabled,
+  onCreateDiagram,
+  onTemplateSelect,
+}: {
+  readonly canCreateDiagram: boolean;
+  readonly isCreatingDiagram: boolean;
+  readonly isDisabled: boolean;
+  readonly onCreateDiagram?: () => void;
+  readonly onTemplateSelect: (prompt: string) => void;
+}): ReactElement {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          disabled={isDisabled}
+          className="h-9 gap-1.5 rounded-md border-0 bg-muted px-4 text-xs font-semibold text-muted-foreground shadow-none hover:bg-muted/80"
+        >
+          <Plus className="size-3.5" />
+          Create
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" side="top" className="w-72">
+        {chatPromptTemplates.map((template) => (
+          <DropdownMenuItem
+            key={template.id}
+            onSelect={() => onTemplateSelect(template.prompt)}
+          >
+            <FileText className="size-4" />
+            {template.title}
+          </DropdownMenuItem>
+        ))}
+        {onCreateDiagram ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              disabled={!canCreateDiagram || isCreatingDiagram}
+              onSelect={onCreateDiagram}
+              aria-label="Create diagram from latest answer"
+            >
+              {isCreatingDiagram ? (
+                <Spinner className="size-4" />
+              ) : (
+                <BarChart3 className="size-4" />
+              )}
+              {isCreatingDiagram ? "Creating diagram" : "Create diagram"}
+            </DropdownMenuItem>
+          </>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

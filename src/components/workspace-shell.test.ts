@@ -1110,8 +1110,17 @@ describe("WorkspaceShell", () => {
     const desktopSourcesPanel = within(
       screen.getByTestId("desktop-sources-panel"),
     );
+    await user.click(desktopSourcesPanel.getByRole("button", { name: "Open library" }));
+
+    const desktopLibraryPanel = within(
+      within(screen.getByTestId("desktop-chunks-panel")).getByTestId(
+        "official-library-panel",
+      ),
+    );
+    expect(desktopLibraryPanel.getByRole("heading", { name: "Library" }))
+      .toBeTruthy();
     await user.click(
-      desktopSourcesPanel.getByRole("button", {
+      desktopLibraryPanel.getByRole("button", {
         name: "Add spacex-s1.pdf to sources",
       }),
     );

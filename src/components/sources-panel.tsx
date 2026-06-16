@@ -4,7 +4,7 @@ import {
   type ReactElement,
   useState,
 } from "react";
-import { Plus, Database, FileText } from "lucide-react";
+import { BookOpen, Plus, Database } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -29,6 +29,7 @@ import type {
 export type SourcesPanelProps = {
   readonly isNarrow?: boolean;
   readonly addingLibrarySourceIds?: readonly string[];
+  readonly isLibraryOpen?: boolean;
   readonly officialLibrarySources?: readonly OfficialLibrarySourceView[];
   sources: SourceView[];
   onSourceUploaded?: (source: SourceView) => void;
@@ -36,6 +37,7 @@ export type SourcesPanelProps = {
   onSelectSource?: (sourceId: string | null) => void;
   onToggleIncluded?: (sourceId: string, included: boolean) => void;
   onArchiveSource?: (sourceId: string) => void;
+  onLibraryOpen?: () => void;
   onOfficialLibrarySourceAdd?: (demoSourceId: string) => void;
   archivingSourceIds?: readonly string[];
   /** When provided, the Upload button redirects to login instead of opening the dialog. */
@@ -44,7 +46,7 @@ export type SourcesPanelProps = {
 
 export function SourcesPanel({
   isNarrow = false,
-  addingLibrarySourceIds = [],
+  isLibraryOpen = false,
   officialLibrarySources = [],
   sources = [],
   onSourceUploaded,
@@ -52,7 +54,7 @@ export function SourcesPanel({
   onSelectSource,
   onToggleIncluded,
   onArchiveSource,
-  onOfficialLibrarySourceAdd,
+  onLibraryOpen,
   archivingSourceIds = [],
   onLoginClick,
 }: Partial<SourcesPanelProps> = {}): ReactElement {
@@ -66,25 +68,12 @@ export function SourcesPanel({
     confirmSourceId,
     sources,
   });
-  const librarySources = sources.filter(
-    (source) => source.officialLibrary !== undefined,
-  );
   const workspaceSources = sources.filter(
     (source) => source.officialLibrary === undefined,
   );
-  const visibleLibrarySourceIds = new Set(
-    librarySources.flatMap((source) =>
-      source.officialLibrary?.librarySourceId
-        ? [source.officialLibrary.librarySourceId]
-        : [],
-    ),
-  );
-  const plannedLibrarySources = officialLibrarySources.filter(
-    (source) =>
-      source.status !== "ready" &&
-      !visibleLibrarySourceIds.has(source.librarySourceId),
-  );
-  const addingLibrarySourceIdSet = new Set(addingLibrarySourceIds);
+  const hasLibrarySources =
+    officialLibrarySources.length > 0 ||
+    sources.some((source) => source.officialLibrary !== undefined);
 
   return (
     <aside className="z-10 flex h-full w-full shrink-0 flex-col border-r border-border/70 bg-background">
@@ -176,49 +165,24 @@ export function SourcesPanel({
       </div>
       <ScrollArea className="flex-1">
         <div className={isNarrow ? "px-2 py-3" : "px-4 py-4"}>
-          {(librarySources.length > 0 || plannedLibrarySources.length > 0) && (
-            <section className="mb-5">
-              <h3 className="mb-3 truncate text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
-                Official Library
-              </h3>
-              <div className="flex flex-col gap-1.5">
-                {librarySources.map((source) => (
-                  <SourceRow
-                    key={source.id}
-                    source={source}
-                    isSelected={source.id === selectedSourceId}
-                    onSelect={() =>
-                      onSelectSource?.(
-                        sourcePanelState.getNextSelectedSourceId({
-                          sourceId: source.id,
-                        }),
-                      )
-                    }
-                    onToggleIncluded={onToggleIncluded}
-                    onAddClick={
-                      onLoginClick ? () => onLoginClick() : onOfficialLibrarySourceAdd
-                    }
-                    isAdding={addingLibrarySourceIdSet.has(
-                      source.demoSourceId ?? source.id,
-                    )}
-                    isArchiving={false}
-                    isNarrow={isNarrow}
-                  />
-                ))}
-                {plannedLibrarySources.map((source) => (
-                  <PlannedLibraryRow
-                    key={source.librarySourceId}
-                    source={source}
-                    isNarrow={isNarrow}
-                  />
-                ))}
-              </div>
-            </section>
-          )}
-
-          <h3 className="mb-3 truncate text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
-            Sources
-          </h3>
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h3 className="truncate text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
+              Sources
+            </h3>
+            {hasLibrarySources && !isNarrow ? (
+              <button
+                type="button"
+                onClick={onLoginClick ? onLoginClick : onLibraryOpen}
+                className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-border/80 bg-background px-2 text-[11px] font-semibold text-foreground shadow-xs hover:bg-muted ${
+                  isLibraryOpen ? "border-primary/40 bg-primary/5 text-primary" : ""
+                }`}
+                aria-label="Open library"
+              >
+                <BookOpen className="size-3.5" />
+                open library
+              </button>
+            ) : null}
+          </div>
 
           {workspaceSources.length === 0 ? (
             <EmptySourcesState />
@@ -264,42 +228,6 @@ function EmptySourcesState(): ReactElement {
       <p className="mt-1 max-w-[180px] text-[11px] text-muted-foreground">
         Upload a document to read its parsed chunks and ask questions.
       </p>
-    </div>
-  );
-}
-
-function PlannedLibraryRow({
-  source,
-  isNarrow,
-}: {
-  readonly source: OfficialLibrarySourceView;
-  readonly isNarrow: boolean;
-}): ReactElement {
-  return (
-    <div
-      data-testid="official-library-planned-row"
-      className={`grid w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center border border-dashed border-border/70 bg-muted/20 text-left opacity-80 ${
-        isNarrow ? "gap-1.5 rounded-lg p-1.5" : "gap-2 rounded-lg p-2"
-      }`}
-    >
-      <div
-        className={`flex shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground ${
-          isNarrow ? "size-7" : "size-8"
-        }`}
-      >
-        <FileText className="size-4" />
-      </div>
-      <div className="min-w-0 overflow-hidden">
-        <p className="truncate text-sm font-medium text-foreground">
-          {source.title}
-        </p>
-        <p className="truncate text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-          {source.categoryLabel} · Preparing
-        </p>
-      </div>
-      <span className="justify-self-end rounded-md border border-border/70 px-2 py-1 text-[11px] font-semibold text-muted-foreground">
-        {isNarrow ? "Soon" : "Coming"}
-      </span>
     </div>
   );
 }

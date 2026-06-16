@@ -125,6 +125,11 @@ describe("useWorkspaceSourceWorkflow", () => {
       kind: "demo",
       demoSourceId: "demo-spacex-s1",
       title: "spacex-s1.pdf",
+      officialLibrary: {
+        librarySourceId: "financial-spacex-s1",
+        categoryId: "financial-reports",
+        sourceUrl: "https://example.com/spacex-s1.pdf",
+      },
     })
     const materializedSource = makeSource({
       id: "source_spacex",
@@ -152,6 +157,7 @@ describe("useWorkspaceSourceWorkflow", () => {
     expect(result.current.sources.map((source) => source.id)).toEqual([
       "source_spacex",
     ])
+    expect(result.current.selectedSourceId).toBe("source_spacex")
   })
 
   it("does not count unmaterialized Official Library sources as chat-ready", () => {
