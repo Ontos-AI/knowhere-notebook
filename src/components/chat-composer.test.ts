@@ -4,11 +4,21 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const mocks = vi.hoisted(() => ({
+  trackNotebookAssistantQuestionSubmitted: vi.fn(),
+}));
+
+vi.mock("@/lib/posthog", () => ({
+  trackNotebookAssistantQuestionSubmitted:
+    mocks.trackNotebookAssistantQuestionSubmitted,
+}));
+
 import { ChatComposer } from "./chat-composer";
 
 describe("ChatComposer", () => {
   afterEach(() => {
     cleanup();
+    vi.clearAllMocks();
   });
 
   it("sends trimmed input and clears the composer", async () => {
@@ -24,6 +34,13 @@ describe("ChatComposer", () => {
     await user.click(screen.getByRole("button", { name: "Send message" }));
 
     expect(onSend).toHaveBeenCalledWith("Summarize this document");
+    expect(mocks.trackNotebookAssistantQuestionSubmitted).toHaveBeenCalledWith({
+      context: undefined,
+      threadId: null,
+      selectedSourcesCount: 0,
+      sourceCountSnapshot: 0,
+      messageLength: "Summarize this document".length,
+    });
     expect((input as HTMLTextAreaElement).value).toBe("");
   });
 

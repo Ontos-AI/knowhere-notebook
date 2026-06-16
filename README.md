@@ -12,6 +12,8 @@ Upload documents, explore parsed content, and ask questions about your knowledge
 2. Fill in your API keys in `.env.local`:
    - `AI_GATEWAY_API_KEY` — your Vercel AI Gateway key for chat (optional `CHAT_MODEL` override)
    - `KNOWHERE_API_KEY` — optional development override that skips Dashboard auth and calls Knowhere directly
+   - `NEXT_PUBLIC_POSTHOG_KEY` — PostHog Project API key for front-end event tracking
+   - `NEXT_PUBLIC_POSTHOG_HOST` — PostHog host (default `https://app.posthog.com`)
 
 3. Install dependencies and run:
    ```bash
@@ -20,6 +22,43 @@ Upload documents, explore parsed content, and ask questions about your knowledge
    ```
 
 4. Open [http://localhost:3000](http://localhost:3000)
+
+## PostHog Tracking
+
+Notebook sends these product analytics events when PostHog is configured:
+
+- `notebook_upload_button_clicked`
+- `notebook_document_upload_completed` (`uploaded_count`, `file_types`, `total_size_bytes`)
+- `notebook_assistant_question_submitted` (`selected_sources_count`, `message_length`)
+- `notebook_dashboard_link_clicked`
+
+Notebook also calls PostHog `identify` for authenticated users and `reset` for
+guest sessions so insights can be grouped by user.
+
+### Connect Notebook to PostHog
+
+1. In PostHog, create/select a project.
+2. Copy the project API key and host.
+3. Set these values in `.env.local`:
+   ```bash
+   NEXT_PUBLIC_POSTHOG_KEY=phc_your_project_api_key
+   NEXT_PUBLIC_POSTHOG_HOST=https://app.posthog.com
+   ```
+4. Restart `pnpm dev` (or `npm run dev`), then trigger a few actions in Notebook.
+5. Open PostHog `Events` and filter by the event names above to verify ingestion.
+
+### Where to view the metrics
+
+Create four Trends insights in PostHog:
+
+1. Upload button clicks: count of `notebook_upload_button_clicked`
+2. Uploaded documents: `sum(uploaded_count)` on `notebook_document_upload_completed`
+3. Avg sources per question: `avg(selected_sources_count)` on `notebook_assistant_question_submitted`
+4. Users opening dashboard: `Unique users` on `notebook_dashboard_link_clicked`
+
+Pin those four insights to a `Notebook Tracking` dashboard for team reporting.
+
+GA4 field and event alignment guidance lives in `docs/ga4-alignment.md`.
 
 ## Tech Stack
 

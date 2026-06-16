@@ -3,6 +3,17 @@ import React, { type ReactElement } from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const mocks = vi.hoisted(() => ({
+  trackNotebookDocumentUploadCompleted: vi.fn(),
+  trackNotebookDocumentUploadFailed: vi.fn(),
+}));
+
+vi.mock("@/lib/posthog", () => ({
+  trackNotebookDocumentUploadCompleted:
+    mocks.trackNotebookDocumentUploadCompleted,
+  trackNotebookDocumentUploadFailed: mocks.trackNotebookDocumentUploadFailed,
+}));
+
 import type { SourceView } from "@/domains/sources/types";
 import { useSourceUploadDialogWorkflow } from "./source-upload-dialog-workflow";
 
@@ -53,6 +64,15 @@ describe("useSourceUploadDialogWorkflow", () => {
       expect(onSourceUploaded).toHaveBeenCalledWith(uploadedSource);
     });
     expect(uploadSource).toHaveBeenCalledWith(file);
+    expect(mocks.trackNotebookDocumentUploadCompleted).toHaveBeenCalledWith({
+      context: undefined,
+      uploadedCount: 1,
+      fileName: "notes.pdf",
+      fileType: "application/pdf",
+      fileSizeBytes: 5,
+      sourceCountBefore: 0,
+      sourceCountAfter: 1,
+    });
     expect(screen.getByTestId("is-dialog-open").textContent).toBe("false");
     expect(screen.getByTestId("selected-file-name").textContent).toBe("");
   });

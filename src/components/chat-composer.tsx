@@ -11,12 +11,20 @@ import { Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  trackNotebookAssistantQuestionSubmitted,
+  type AnalyticsContext,
+} from "@/lib/posthog";
 
 const chatComposerId = "chat-composer";
 
 export type ChatComposerProps = {
   readonly isDisabled?: boolean;
   readonly isSending?: boolean;
+  readonly activeThreadId?: string | null;
+  readonly analyticsContext?: AnalyticsContext;
+  readonly sourceCountSnapshot?: number;
+  readonly selectedSourcesCount?: number;
   readonly onLoginClick?: () => void;
   readonly onSend?: (text: string) => void;
 };
@@ -24,6 +32,10 @@ export type ChatComposerProps = {
 export function ChatComposer({
   isDisabled = false,
   isSending = false,
+  activeThreadId = null,
+  analyticsContext,
+  sourceCountSnapshot = 0,
+  selectedSourcesCount = 0,
   onLoginClick,
   onSend,
 }: ChatComposerProps): ReactElement {
@@ -44,6 +56,13 @@ export function ChatComposer({
 
   function handleSend(): void {
     if (!canSend) return;
+    void trackNotebookAssistantQuestionSubmitted({
+      context: analyticsContext,
+      threadId: activeThreadId,
+      selectedSourcesCount,
+      sourceCountSnapshot,
+      messageLength: trimmedInput.length,
+    });
     onSend?.(trimmedInput);
     setInput("");
   }

@@ -12,6 +12,7 @@ import { ChunksPanel } from "@/components/chunks-panel"
 import { MobileTabBar } from "@/components/mobile-tab-bar"
 import { SourcesPanel } from "@/components/sources-panel"
 import { TopNav } from "@/components/top-nav"
+import type { AnalyticsContext } from "@/lib/posthog"
 import { useWorkspaceResizeHandleWorkflow } from "@/components/workspace-resize-handle-workflow"
 import { workspaceShellState } from "@/components/workspace-shell-state"
 import type {
@@ -40,6 +41,11 @@ type WorkspaceShellUser = {
   readonly id: string
   readonly name: string | null
   readonly email: string | null
+}
+
+type WorkspaceShellWorkspace = {
+  readonly id: string
+  readonly namespace: string
 }
 
 type WorkspaceChatState = {
@@ -79,6 +85,8 @@ export type WorkspaceShellLayoutProps = {
   readonly sourceTitlesByDocumentId: Readonly<Record<string, string>>
   readonly sources: readonly SourceView[]
   readonly user: WorkspaceShellUser | undefined
+  readonly workspace?: WorkspaceShellWorkspace
+  readonly analyticsContext?: AnalyticsContext
   readonly onArchiveChatThread: (threadId: string) => void | Promise<void>
   readonly onArchiveSource: (sourceId: string) => void | Promise<void>
   readonly onChatSend: (text: string) => void | Promise<void>
@@ -135,6 +143,9 @@ export function WorkspaceShellLayout(
     <div className="flex h-screen w-full flex-col overflow-hidden bg-background">
       <TopNav
         dashboardUrl={props.dashboardUrl}
+        analyticsContext={props.analyticsContext}
+        hasChats={props.chatThreads.length > 0}
+        hasSources={props.readySourceCount > 0}
         userInitials={props.user ? initialsOf(props.user) : undefined}
         userName={
           props.user ? (props.user.name ?? props.user.email ?? undefined) : undefined
@@ -176,6 +187,8 @@ export function WorkspaceShellLayout(
               <SourcesPanel
                 sources={[...props.sources]}
                 isNarrow={isSourcesPanelNarrow}
+                analyticsContext={props.analyticsContext}
+                sourceCountSnapshot={props.sources.length}
                 onSourceUploaded={
                   props.isGuest ? undefined : props.onSourceUploaded
                 }
@@ -230,6 +243,8 @@ export function WorkspaceShellLayout(
               onSourceUploaded={
                 props.isGuest ? undefined : props.onSourceUploaded
               }
+              analyticsContext={props.analyticsContext}
+              sourceCountSnapshot={props.sources.length}
             />
           </div>
           <DesktopResizeHandle
@@ -277,6 +292,8 @@ export function WorkspaceShellLayout(
                 pendingCitationId={props.pendingCitationId}
                 pendingStatusText={props.chat.pendingStatusText}
                 sourceCount={props.readySourceCount}
+                analyticsContext={props.analyticsContext}
+                selectedSourcesCount={props.sources.filter((source) => !source.excludedFromQuery && source.status === "ready").length}
                 onSend={props.onChatSend}
                 onNewChat={props.isGuest ? undefined : props.onCreateChatThread}
                 onThreadSelect={
@@ -304,6 +321,8 @@ export function WorkspaceShellLayout(
       >
         <SourcesPanel
           sources={[...props.sources]}
+          analyticsContext={props.analyticsContext}
+          sourceCountSnapshot={props.sources.length}
           onSourceUploaded={props.isGuest ? undefined : props.onSourceUploaded}
           selectedSourceId={props.selectedSourceId}
           onSelectSource={(id) => {
@@ -339,6 +358,8 @@ export function WorkspaceShellLayout(
           onLoadMore={props.onLoadMoreChunks}
           onLoginClick={props.isGuest ? props.onLoginClick : undefined}
           onSourceUploaded={props.isGuest ? undefined : props.onSourceUploaded}
+          analyticsContext={props.analyticsContext}
+          sourceCountSnapshot={props.sources.length}
         />
       </div>
       <div
@@ -362,6 +383,8 @@ export function WorkspaceShellLayout(
           pendingCitationId={props.pendingCitationId}
           pendingStatusText={props.chat.pendingStatusText}
           sourceCount={props.readySourceCount}
+          analyticsContext={props.analyticsContext}
+          selectedSourcesCount={props.sources.filter((source) => !source.excludedFromQuery && source.status === "ready").length}
           onSend={props.onChatSend}
           onNewChat={props.isGuest ? undefined : props.onCreateChatThread}
           onThreadSelect={props.isGuest ? undefined : props.onSelectChatThread}

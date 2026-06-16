@@ -5,6 +5,12 @@ import useSWR, { useSWRConfig } from "swr"
 import useSWRMutation from "swr/mutation"
 
 import { workspaceChatState } from "@/components/workspace-chat-state"
+import {
+  trackNotebookAssistantAnswerCompleted,
+  trackNotebookAssistantAnswerFailed,
+  trackNotebookWorkspaceFirstQuestionAsked,
+  type AnalyticsContext,
+} from "@/lib/posthog"
 import { workspaceClient } from "@/domains/workspace/client"
 import {
   workspaceClientCache,
@@ -19,6 +25,7 @@ import type { SourceView } from "@/domains/sources/types"
 
 type WorkspaceChatWorkflowInput = {
   readonly activeChatThreadId?: string | null
+  readonly analyticsContext?: AnalyticsContext
   readonly initialChatMessages?: readonly ChatMessageView[]
   readonly initialChatThreads?: readonly ChatThreadView[]
   readonly isGuest?: boolean
@@ -49,6 +56,7 @@ const archiveChatThreadSWRKey = workspaceClient.keys.archiveChatThread
 
 export function useWorkspaceChatWorkflow({
   activeChatThreadId = null,
+  analyticsContext,
   initialChatMessages = [],
   initialChatThreads = [],
   isGuest = false,
@@ -64,6 +72,7 @@ export function useWorkspaceChatWorkflow({
     ),
   )
   const optimisticMessageSequence = useRef(0)
+  const didTrackFirstQuestionRef = useRef(initialChatMessages.length > 0)
   const { cache, mutate: mutateSWR } = useSWRConfig()
   const initialThreadRows = useMemo(
     () => [...initialChatThreads],
@@ -215,6 +224,10 @@ export function useWorkspaceChatWorkflow({
   }
 
   async function handleChatSend(text: string): Promise<void> {
+    const sendStart = Date.now()
+    const selectedSourcesCount = sources.filter(
+      (source) => source.status === "ready" && !source.excludedFromQuery,
+    ).length
     const demoSourceIds = getMaterializableDemoSourceIds(sources)
     if (demoSourceIds.length > 0) {
       setChat((current) =>
@@ -267,12 +280,32 @@ export function useWorkspaceChatWorkflow({
       })
 
       if (!body.threadId || !Array.isArray(body.messages)) {
+        void trackNotebookAssistantAnswerFailed({
+          context: analyticsContext,
+          threadId: chat.threadId,
+          latencyMs: Date.now() - sendStart,
+          errorType: "server",
+          errorMessage: body.message ?? "The assistant could not answer right now.",
+        })
         setChat((current) => ({
           ...workspaceChatState.failSend(current, optimisticId),
           error: body.message ?? "The assistant could not answer right now.",
         }))
         return
       }
+
+      if (!didTrackFirstQuestionRef.current) {
+        didTrackFirstQuestionRef.current = true
+        void trackNotebookWorkspaceFirstQuestionAsked({
+          context: analyticsContext,
+          selectedSourcesCount,
+        })
+      }
+      void trackNotebookAssistantAnswerCompleted({
+        context: analyticsContext,
+        threadId: body.threadId,
+        latencyMs: Date.now() - sendStart,
+      })
 
       void mutateChatThreads(
         (current = []) =>
@@ -303,6 +336,13 @@ export function useWorkspaceChatWorkflow({
         )
       }
     } catch {
+      void trackNotebookAssistantAnswerFailed({
+        context: analyticsContext,
+        threadId: chat.threadId,
+        latencyMs: Date.now() - sendStart,
+        errorType: "network",
+        errorMessage: "The assistant could not answer right now.",
+      })
       setChat((current) => workspaceChatState.failSend(current, optimisticId))
     }
   }

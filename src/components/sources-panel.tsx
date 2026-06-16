@@ -22,6 +22,7 @@ import { sourcePanelState } from "@/components/source-panel-state";
 import { SourceRow } from "@/components/source-row";
 import { SourceUploadDialog } from "@/components/source-upload-dialog";
 import type { SourceView } from "@/domains/sources/types";
+import type { AnalyticsContext } from "@/lib/posthog";
 
 export type SourcesPanelProps = {
   readonly isNarrow?: boolean;
@@ -32,6 +33,8 @@ export type SourcesPanelProps = {
   onToggleIncluded?: (sourceId: string, included: boolean) => void;
   onArchiveSource?: (sourceId: string) => void;
   archivingSourceIds?: readonly string[];
+  analyticsContext?: AnalyticsContext;
+  sourceCountSnapshot?: number;
   /** When provided, the Upload button redirects to login instead of opening the dialog. */
   onLoginClick?: () => void;
 };
@@ -45,6 +48,8 @@ export function SourcesPanel({
   onToggleIncluded,
   onArchiveSource,
   archivingSourceIds = [],
+  analyticsContext,
+  sourceCountSnapshot = sources.length,
   onLoginClick,
 }: Partial<SourcesPanelProps> = {}): ReactElement {
   const [confirmSourceId, setConfirmSourceId] = useState<string | null>(null);
@@ -122,6 +127,8 @@ export function SourcesPanel({
         ) : isNarrow ? (
           <SourceUploadDialog
             onSourceUploaded={onSourceUploaded}
+            analyticsContext={analyticsContext}
+            sourceCountSnapshot={sourceCountSnapshot}
             renderTrigger={({ isUploading, onClick, onDragOver, onDrop }) => (
               <Button
                 type="button"
@@ -143,7 +150,11 @@ export function SourcesPanel({
             )}
           />
         ) : (
-          <SourceUploadDialog onSourceUploaded={onSourceUploaded} />
+          <SourceUploadDialog
+            onSourceUploaded={onSourceUploaded}
+            analyticsContext={analyticsContext}
+            sourceCountSnapshot={sourceCountSnapshot}
+          />
         )}
       </div>
       <ScrollArea className="flex-1">

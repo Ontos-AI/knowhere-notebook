@@ -1,7 +1,8 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import type { ReactElement } from "react"
+import { usePathname } from "next/navigation"
 import { SWRConfig } from "swr"
 import {
   WorkspaceShellLayout,
@@ -12,6 +13,13 @@ import { useWorkspaceCitationFocus } from "@/components/workspace-citation-focus
 import { useWorkspaceChatWorkflow } from "@/components/workspace-chat-workflow"
 import { useWorkspaceSourceWorkflow } from "@/components/workspace-source-workflow"
 import { workspaceShellState } from "@/components/workspace-shell-state"
+import {
+  identifyUser,
+  resetUser,
+  trackNotebookWorkspaceFirstDocumentUploaded,
+  trackPageView,
+  type AnalyticsContext,
+} from "@/lib/posthog"
 import { workspaceClient } from "@/domains/workspace/client"
 import type {
   ChatMessageView,
@@ -70,6 +78,7 @@ function WorkspaceShellContent({
   activeChatThreadId,
   chatMessages: initialChatMessages,
   dashboardUrl,
+  workspace,
   initialPrefetchedChunksBySourceId,
   isGuest = false,
   loginUrl,
@@ -77,10 +86,20 @@ function WorkspaceShellContent({
   const [mobilePanel, setMobilePanel] = useState<PanelId>(
     isGuest ? "content" : "chat",
   )
+  const pathname = usePathname()
   const sourceWorkflow = useWorkspaceSourceWorkflow({
     initialSources: initialSources ?? [],
     isGuest,
   })
+  const analyticsContext = useMemo<AnalyticsContext>(
+    () => ({
+      workspaceId: workspace?.id,
+      workspaceNamespace: workspace?.namespace,
+      userId: user?.id,
+      isGuest,
+    }),
+    [isGuest, user?.id, workspace?.id, workspace?.namespace],
+  )
   const citationFocus = useWorkspaceCitationFocus({
     fetchChunks: workspaceClient.fetchChunks,
     initialPrefetchedChunksBySourceId:
@@ -91,6 +110,7 @@ function WorkspaceShellContent({
   })
   const chatWorkflow = useWorkspaceChatWorkflow({
     activeChatThreadId: activeChatThreadId ?? null,
+    analyticsContext,
     initialChatMessages: initialChatMessages ?? [],
     initialChatThreads: initialChatThreads ?? [],
     isGuest,
@@ -119,6 +139,34 @@ function WorkspaceShellContent({
   }
 
   const hasMessages = chatWorkflow.chat.messages.length > 0
+  const didTrackFirstDocumentRef = useRef(false)
+
+  useEffect(() => {
+    if (isGuest || !user) {
+      void resetUser()
+      return
+    }
+
+    void identifyUser({
+      id: user.id,
+      email: user.email,
+      name: user.name,
+    })
+  }, [isGuest, user?.id, user?.email, user?.name])
+
+  useEffect(() => {
+    void trackPageView(pathname, analyticsContext)
+  }, [analyticsContext, pathname])
+
+  function handleSourceUploaded(source: SourceView): void {
+    if (!didTrackFirstDocumentRef.current && sourceWorkflow.sources.length === 0) {
+      didTrackFirstDocumentRef.current = true
+      void trackNotebookWorkspaceFirstDocumentUploaded({
+        context: analyticsContext,
+      })
+    }
+    sourceWorkflow.handleSourceUploaded(source)
+  }
 
   return (
     <WorkspaceShellLayout
@@ -149,6 +197,8 @@ function WorkspaceShellContent({
       sourceTitlesByDocumentId={sourceWorkflow.sourceTitlesByDocumentId}
       sources={sourceWorkflow.sources}
       user={user}
+      workspace={workspace}
+      analyticsContext={analyticsContext}
       onArchiveChatThread={chatWorkflow.handleArchiveChatThread}
       onArchiveSource={sourceWorkflow.handleArchiveSource}
       onChatSend={chatWorkflow.handleChatSend}
@@ -166,7 +216,7 @@ function WorkspaceShellContent({
       onMobilePanelChange={setMobilePanel}
       onSelectChatThread={chatWorkflow.handleSelectChatThread}
       onSourceSelected={handleSourceSelected}
-      onSourceUploaded={sourceWorkflow.handleSourceUploaded}
+      onSourceUploaded={handleSourceUploaded}
       onToggleIncluded={sourceWorkflow.handleToggleIncluded}
     />
   )

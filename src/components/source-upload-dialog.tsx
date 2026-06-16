@@ -19,9 +19,15 @@ import {
 import { useSourceUploadDialogWorkflow } from "@/components/source-upload-dialog-workflow";
 import type { SourceView } from "@/domains/sources/types";
 import { MAX_UPLOAD_MB } from "@/domains/sources/validation";
+import {
+  trackNotebookUploadButtonClicked,
+  type AnalyticsContext,
+} from "@/lib/posthog";
 
 export type SourceUploadDialogProps = {
   readonly onSourceUploaded?: (source: SourceView) => void;
+  readonly analyticsContext?: AnalyticsContext;
+  readonly sourceCountSnapshot?: number;
   readonly renderTrigger?: (props: SourceUploadDialogTriggerProps) => ReactElement;
 };
 
@@ -34,6 +40,8 @@ export type SourceUploadDialogTriggerProps = {
 
 export function SourceUploadDialog({
   onSourceUploaded,
+  analyticsContext,
+  sourceCountSnapshot = 0,
   renderTrigger,
 }: SourceUploadDialogProps): ReactElement {
   const {
@@ -48,8 +56,19 @@ export function SourceUploadDialog({
     handleFileInputChange,
     handleSubmit,
     handleUploadDialogOpen,
-  } = useSourceUploadDialogWorkflow({ onSourceUploaded });
+  } = useSourceUploadDialogWorkflow({
+    onSourceUploaded,
+    analyticsContext,
+    sourceCountBefore: sourceCountSnapshot,
+  });
   const fileInputId = useId();
+  const handleOpenUploadDialog = (): void => {
+    void trackNotebookUploadButtonClicked({
+      context: analyticsContext,
+      sourceCountSnapshot,
+    });
+    handleUploadDialogOpen();
+  };
 
   return (
     <Dialog
@@ -59,14 +78,14 @@ export function SourceUploadDialog({
       {renderTrigger ? (
         renderTrigger({
           isUploading,
-          onClick: handleUploadDialogOpen,
+          onClick: handleOpenUploadDialog,
           onDragOver: handleUploadDragOver,
           onDrop: handleUploadDrop,
         })
       ) : (
         <Button
           type="button"
-          onClick={handleUploadDialogOpen}
+          onClick={handleOpenUploadDialog}
           onDragOver={handleUploadDragOver}
           onDrop={handleUploadDrop}
           size="sm"
