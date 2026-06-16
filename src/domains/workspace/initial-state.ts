@@ -17,7 +17,10 @@ import { sourceService } from "@/domains/sources/service"
 import { startBackgroundReconciliation } from "@/domains/sources/background-reconcile"
 import { sourceWorkflowRuntime } from "@/domains/sources/workflow-runtime"
 
-import type { SourceView } from "@/domains/sources/types"
+import type {
+  OfficialLibrarySourceView,
+  SourceView,
+} from "@/domains/sources/types"
 import { toSourceView } from "@/domains/sources/view"
 import type { AuthUser } from "@/infrastructure/auth"
 import type {
@@ -38,6 +41,7 @@ type WorkspaceShellInitialState = {
   readonly initialPrefetchedChunksBySourceId?: Record<string, ParsedChunkView[]>
   readonly isGuest?: boolean
   readonly loginUrl?: string
+  readonly officialLibrarySources?: OfficialLibrarySourceView[]
   readonly sources?: SourceView[]
   readonly user?: {
     readonly id: string
@@ -189,6 +193,7 @@ export const loadWorkspaceShellInitialStateEffect = (
 
       return {
         isGuest: true,
+        officialLibrarySources: toOfficialLibrarySourceViews(demoCatalog),
         sources: demoCatalog.sources.map(demoView.toSourceView),
         chatMessages: demoView.toChatMessages(demoCatalog),
         dashboardUrl: resolveDashboardUrl(),
@@ -330,6 +335,7 @@ export const loadWorkspaceShellInitialStateEffect = (
           ),
         ),
       ],
+      officialLibrarySources: toOfficialLibrarySourceViews(demoCatalog),
       chatThreads: chatThreads.map(toChatThreadView),
       activeChatThreadId: activeChatThread?.id ?? null,
       chatMessages,
@@ -352,4 +358,26 @@ export async function loadWorkspaceShellInitialState(
 
 function resolveDashboardUrl(): string | undefined {
   return process.env.DASHBOARD_ORIGIN
+}
+
+function toOfficialLibrarySourceViews(
+  catalog: DemoCatalog,
+): OfficialLibrarySourceView[] {
+  const categoryLabelById = new Map(
+    catalog.officialLibrary.categories.map((category) => [
+      category.categoryId,
+      category.label,
+    ]),
+  )
+  return catalog.officialLibrary.sources.map((source) => ({
+    librarySourceId: source.librarySourceId,
+    categoryId: source.categoryId,
+    categoryLabel: categoryLabelById.get(source.categoryId) ?? source.categoryId,
+    title: source.title,
+    sourceUrl: source.sourceUrl,
+    mimeType: source.mimeType,
+    status: source.status,
+    ...(source.demoSourceId ? { demoSourceId: source.demoSourceId } : {}),
+    ...(source.chunkCount !== undefined ? { chunkCount: source.chunkCount } : {}),
+  }))
 }

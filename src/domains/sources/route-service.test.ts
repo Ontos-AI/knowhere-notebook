@@ -502,10 +502,12 @@ describe("source route service", () => {
 });
 
 const emptyDemoCatalog: DemoCatalog = {
+  officialLibrary: { categories: [], sources: [] },
   sources: [],
 };
 
 const demoCatalog: DemoCatalog = {
+  officialLibrary: { categories: [], sources: [] },
   sources: [
     {
       demoSourceId: "demo-tsla-q4-2025",

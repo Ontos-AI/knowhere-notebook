@@ -21,6 +21,7 @@ import type {
 } from "@/domains/chat/types"
 import type { ParsedChunkView } from "@/domains/chunks/types"
 import type {
+  OfficialLibrarySourceView,
   SourceOriginalFileView,
   SourceView,
 } from "@/domains/sources/types"
@@ -52,6 +53,7 @@ type WorkspaceChatState = {
 }
 
 export type WorkspaceShellLayoutProps = {
+  readonly addingLibrarySourceIds: readonly string[]
   readonly archivingSourceIds: readonly string[]
   readonly archivingThreadIds: readonly string[]
   readonly chat: WorkspaceChatState
@@ -78,6 +80,7 @@ export type WorkspaceShellLayoutProps = {
   readonly selectedSourceTitle: string | null
   readonly sourceTitlesByDocumentId: Readonly<Record<string, string>>
   readonly sources: readonly SourceView[]
+  readonly officialLibrarySources: readonly OfficialLibrarySourceView[]
   readonly user: WorkspaceShellUser | undefined
   readonly onArchiveChatThread: (threadId: string) => void | Promise<void>
   readonly onArchiveSource: (sourceId: string) => void | Promise<void>
@@ -107,6 +110,9 @@ export type WorkspaceShellLayoutProps = {
   readonly onLoadMoreChunks: () => void
   readonly onLoginClick: () => void
   readonly onMobilePanelChange: (panel: PanelId) => void
+  readonly onOfficialLibrarySourceAdd: (
+    demoSourceId: string,
+  ) => void | Promise<void>
   readonly onSelectChatThread: (threadId: string) => void
   readonly onSourceSelected: (sourceId: string | null) => void
   readonly onSourceUploaded: (source: SourceView) => void
@@ -117,6 +123,8 @@ export function WorkspaceShellLayout(
   props: WorkspaceShellLayoutProps,
 ): ReactElement {
   const { onDesktopLayoutElementChange } = props
+  const addingLibrarySourceIds = props.addingLibrarySourceIds ?? []
+  const officialLibrarySources = props.officialLibrarySources ?? []
   const isSourcesPanelCollapsed =
     props.desktopPanelWidths.sources <=
     workspaceShellState.desktopSidePanelCompactThreshold
@@ -175,6 +183,7 @@ export function WorkspaceShellLayout(
             ) : (
               <SourcesPanel
                 sources={[...props.sources]}
+                officialLibrarySources={[...officialLibrarySources]}
                 isNarrow={isSourcesPanelNarrow}
                 onSourceUploaded={
                   props.isGuest ? undefined : props.onSourceUploaded
@@ -187,7 +196,11 @@ export function WorkspaceShellLayout(
                 onArchiveSource={
                   props.isGuest ? undefined : props.onArchiveSource
                 }
+                onOfficialLibrarySourceAdd={
+                  props.isGuest ? undefined : props.onOfficialLibrarySourceAdd
+                }
                 archivingSourceIds={[...props.archivingSourceIds]}
+                addingLibrarySourceIds={[...addingLibrarySourceIds]}
                 onLoginClick={props.isGuest ? props.onLoginClick : undefined}
               />
             )}
@@ -304,6 +317,7 @@ export function WorkspaceShellLayout(
       >
         <SourcesPanel
           sources={[...props.sources]}
+          officialLibrarySources={[...officialLibrarySources]}
           onSourceUploaded={props.isGuest ? undefined : props.onSourceUploaded}
           selectedSourceId={props.selectedSourceId}
           onSelectSource={(id) => {
@@ -312,7 +326,11 @@ export function WorkspaceShellLayout(
           }}
           onToggleIncluded={props.isGuest ? undefined : props.onToggleIncluded}
           onArchiveSource={props.isGuest ? undefined : props.onArchiveSource}
+          onOfficialLibrarySourceAdd={
+            props.isGuest ? undefined : props.onOfficialLibrarySourceAdd
+          }
           archivingSourceIds={[...props.archivingSourceIds]}
+          addingLibrarySourceIds={[...addingLibrarySourceIds]}
           onLoginClick={props.isGuest ? props.onLoginClick : undefined}
         />
       </div>

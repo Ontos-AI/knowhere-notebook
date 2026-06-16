@@ -39,11 +39,37 @@ export type DemoSource = {
     readonly sizeBytes: number
     readonly canDownload: boolean
   }
+  readonly officialLibrary?: OfficialLibrarySource
   readonly examples: readonly DemoExample[]
 }
 
 export type DemoCatalog = {
   readonly sources: readonly DemoSource[]
+  readonly officialLibrary: OfficialLibraryCatalog
+}
+
+export type OfficialLibraryCategory = {
+  readonly categoryId: string
+  readonly label: string
+  readonly description: string
+}
+
+export type OfficialLibrarySource = {
+  readonly librarySourceId: string
+  readonly categoryId: string
+  readonly title: string
+  readonly sourceUrl: string
+  readonly mimeType: string
+  readonly status: "ready" | "planned"
+  readonly demoSourceId?: string
+  readonly canonicalDocumentId?: string
+  readonly sizeBytes?: number
+  readonly chunkCount?: number
+}
+
+export type OfficialLibraryCatalog = {
+  readonly categories: readonly OfficialLibraryCategory[]
+  readonly sources: readonly OfficialLibrarySource[]
 }
 
 export type DemoChunk = {
@@ -91,6 +117,7 @@ export type MaterializedDemoSource = {
 
 type DemoCatalogResponse = {
   readonly sources?: readonly DemoSourceResponse[]
+  readonly official_library?: OfficialLibraryCatalogResponse
 }
 
 type DemoSourceResponse = {
@@ -102,6 +129,7 @@ type DemoSourceResponse = {
   readonly status?: unknown
   readonly chunk_count?: unknown
   readonly original_file?: DemoOriginalFileResponse
+  readonly official_library?: OfficialLibrarySourceResponse
   readonly examples?: readonly DemoExampleResponse[]
 }
 
@@ -161,6 +189,30 @@ type DemoChunkResponse = {
   readonly asset_url?: unknown
 }
 
+type OfficialLibraryCatalogResponse = {
+  readonly categories?: readonly OfficialLibraryCategoryResponse[]
+  readonly sources?: readonly OfficialLibrarySourceResponse[]
+}
+
+type OfficialLibraryCategoryResponse = {
+  readonly category_id?: unknown
+  readonly label?: unknown
+  readonly description?: unknown
+}
+
+type OfficialLibrarySourceResponse = {
+  readonly library_source_id?: unknown
+  readonly category_id?: unknown
+  readonly title?: unknown
+  readonly source_url?: unknown
+  readonly mime_type?: unknown
+  readonly status?: unknown
+  readonly demo_source_id?: unknown
+  readonly canonical_document_id?: unknown
+  readonly size_bytes?: unknown
+  readonly chunk_count?: unknown
+}
+
 type MaterializeResponse = {
   readonly sources?: readonly MaterializedDemoSourceResponse[]
 }
@@ -178,7 +230,10 @@ type MaterializedDemoSourceResponse = {
 
 const DEFAULT_KNOWHERE_BASE_URL = "https://api.knowhereto.ai"
 
-const emptyCatalog: DemoCatalog = { sources: [] }
+const emptyCatalog: DemoCatalog = {
+  sources: [],
+  officialLibrary: { categories: [], sources: [] },
+}
 
 // ---------------------------------------------------------------------------
 // Effect core
@@ -195,6 +250,7 @@ const fetchCatalogEffect = Effect.fn("knowhereDemo.fetchCatalog")(function* () {
   )) as DemoCatalogResponse
   return {
     sources: (body.sources ?? []).map(toDemoSource),
+    officialLibrary: toOfficialLibraryCatalog(body.official_library),
   }
 })
 
@@ -357,6 +413,9 @@ function assertOkEffect(
 }
 
 function toDemoSource(source: DemoSourceResponse): DemoSource {
+  const officialLibrary = source.official_library
+    ? toOfficialLibrarySource(source.official_library)
+    : undefined
   return {
     demoSourceId: requireString(source.demo_source_id),
     canonicalDocumentId: requireString(source.canonical_document_id),
@@ -366,6 +425,7 @@ function toDemoSource(source: DemoSourceResponse): DemoSource {
     status: "ready",
     chunkCount: requireNumber(source.chunk_count),
     originalFile: toOriginalFile(source.original_file),
+    ...(officialLibrary ? { officialLibrary } : {}),
     examples: (source.examples ?? []).map(toDemoExample),
   }
 }
@@ -451,6 +511,50 @@ function toMaterializedDemoSource(
   }
 }
 
+function toOfficialLibraryCatalog(
+  input: OfficialLibraryCatalogResponse | undefined,
+): OfficialLibraryCatalog {
+  const officialLibrary = input ?? {}
+  return {
+    categories: (officialLibrary.categories ?? []).map(
+      toOfficialLibraryCategory,
+    ),
+    sources: (officialLibrary.sources ?? []).map(toOfficialLibrarySource),
+  }
+}
+
+function toOfficialLibraryCategory(
+  category: OfficialLibraryCategoryResponse,
+): OfficialLibraryCategory {
+  return {
+    categoryId: requireString(category.category_id),
+    label: requireString(category.label),
+    description: requireString(category.description),
+  }
+}
+
+function toOfficialLibrarySource(
+  source: OfficialLibrarySourceResponse,
+): OfficialLibrarySource {
+  const status = requireString(source.status)
+  const demoSourceId = optionalString(source.demo_source_id)
+  const canonicalDocumentId = optionalString(source.canonical_document_id)
+  const sizeBytes = optionalNumber(source.size_bytes)
+  const chunkCount = optionalNumber(source.chunk_count)
+  return {
+    librarySourceId: requireString(source.library_source_id),
+    categoryId: requireString(source.category_id),
+    title: requireString(source.title),
+    sourceUrl: requireString(source.source_url),
+    mimeType: requireString(source.mime_type),
+    status: status === "ready" ? "ready" : "planned",
+    ...(demoSourceId ? { demoSourceId } : {}),
+    ...(canonicalDocumentId ? { canonicalDocumentId } : {}),
+    ...(sizeBytes !== undefined ? { sizeBytes } : {}),
+    ...(chunkCount !== undefined ? { chunkCount } : {}),
+  }
+}
+
 function toOriginalFile(
   input: DemoOriginalFileResponse | undefined,
 ): DemoSource["originalFile"] {
@@ -486,6 +590,10 @@ function requireNumber(value: unknown): number {
     return value
   }
   throw new Error("Expected finite number from Knowhere demo API.")
+}
+
+function optionalNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined
 }
 
 function toRecord(value: unknown): Readonly<Record<string, unknown>> {

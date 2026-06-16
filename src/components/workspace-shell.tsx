@@ -18,7 +18,10 @@ import type {
   ChatThreadView,
 } from "@/domains/chat/types"
 import type { ParsedChunkView } from "@/domains/chunks/types"
-import type { SourceView } from "@/domains/sources/types"
+import type {
+  OfficialLibrarySourceView,
+  SourceView,
+} from "@/domains/sources/types"
 
 export type { PanelId } from "@/components/workspace-shell-layout"
 
@@ -38,6 +41,7 @@ export type WorkspaceShellProps = {
     namespace: string
   }
   sources?: SourceView[]
+  officialLibrarySources?: OfficialLibrarySourceView[]
   chatThreads?: ChatThreadView[]
   activeChatThreadId?: string | null
   chatMessages?: ChatMessageView[]
@@ -66,6 +70,7 @@ export function WorkspaceShell(props: WorkspaceShellProps): ReactElement {
 function WorkspaceShellContent({
   user,
   sources: initialSources,
+  officialLibrarySources,
   chatThreads: initialChatThreads,
   activeChatThreadId,
   chatMessages: initialChatMessages,
@@ -123,6 +128,7 @@ function WorkspaceShellContent({
   return (
     <WorkspaceShellLayout
       archivingSourceIds={sourceWorkflow.archivingSourceIds}
+      addingLibrarySourceIds={sourceWorkflow.addingLibrarySourceIds}
       archivingThreadIds={chatWorkflow.archivingThreadIds}
       chat={chatWorkflow.chat}
       chatThreads={chatWorkflow.chatThreads}
@@ -148,6 +154,7 @@ function WorkspaceShellContent({
       selectedSourceTitle={selectedSourceTitle}
       sourceTitlesByDocumentId={sourceWorkflow.sourceTitlesByDocumentId}
       sources={sourceWorkflow.sources}
+      officialLibrarySources={officialLibrarySources ?? []}
       user={user}
       onArchiveChatThread={chatWorkflow.handleArchiveChatThread}
       onArchiveSource={sourceWorkflow.handleArchiveSource}
@@ -166,6 +173,7 @@ function WorkspaceShellContent({
       onMobilePanelChange={setMobilePanel}
       onSelectChatThread={chatWorkflow.handleSelectChatThread}
       onSourceSelected={handleSourceSelected}
+      onOfficialLibrarySourceAdd={sourceWorkflow.handleOfficialLibrarySourceAdd}
       onSourceUploaded={sourceWorkflow.handleSourceUploaded}
       onToggleIncluded={sourceWorkflow.handleToggleIncluded}
     />

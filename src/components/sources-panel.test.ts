@@ -174,6 +174,60 @@ describe("SourcesPanel", () => {
     expect(screen.getByText("Processed · 3 chunks")).toBeTruthy();
   });
 
+  it("groups ready and planned Official Library entries separately from sources", async () => {
+    const onSelectSource = vi.fn();
+    const onOfficialLibrarySourceAdd = vi.fn();
+
+    render(
+      React.createElement(C, {
+        sources: [
+          {
+            id: "demo-spacex-s1",
+            kind: "demo",
+            demoSourceId: "demo-spacex-s1",
+            title: "spacex-s1.pdf",
+            status: "ready",
+            chunkCount: 922,
+            officialLibrary: {
+              librarySourceId: "financial-spacex-s1",
+              categoryId: "financial-reports",
+              sourceUrl: "https://data.olivierroy.dev/spacex-s1.pdf",
+            },
+          },
+          {
+            id: "source_1",
+            kind: "workspace",
+            title: "lecture.pdf",
+            status: "ready",
+            chunkCount: 3,
+          },
+        ],
+        officialLibrarySources: [
+          {
+            librarySourceId: "stem-transformers",
+            categoryId: "stem-books",
+            categoryLabel: "STEM books",
+            title: "Transformers.pdf",
+            sourceUrl: "https://example.com/transformers.pdf",
+            mimeType: "application/pdf",
+            status: "planned",
+          },
+        ],
+        onSelectSource,
+        onOfficialLibrarySourceAdd,
+      }),
+    );
+
+    expect(screen.getByRole("heading", { name: "Official Library" })).toBeTruthy();
+    expect(screen.getByText("Official Library · 922 chunks")).toBeTruthy();
+    expect(screen.getByText("STEM books · Preparing")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Sources" })).toBeTruthy();
+    expect(screen.getByText("Processed · 3 chunks")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Add spacex-s1.pdf to sources" }));
+    expect(onOfficialLibrarySourceAdd).toHaveBeenCalledWith("demo-spacex-s1");
+  });
+
   it("hides source actions that are not wired", () => {
     render(
       React.createElement(C, {
