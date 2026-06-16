@@ -50,7 +50,7 @@ function getInitialSelectedSourceId(sources: readonly SourceView[]): string | nu
 }
 
 function getFirstReadySourceId(sources: readonly SourceView[]): string | null {
-  return sources.find((source) => source.status === "ready")?.id ?? null
+  return sources.find(isQueryableReadySource)?.id ?? null
 }
 
 function getResolvedSelectedSourceId(
@@ -58,9 +58,15 @@ function getResolvedSelectedSourceId(
   selectedSourceId: string | null,
 ): string | null {
   const selectedSource = sources.find((source) => source.id === selectedSourceId)
-  if (selectedSource?.status === "ready") return selectedSource.id
+  if (selectedSource && isQueryableReadySource(selectedSource)) {
+    return selectedSource.id
+  }
 
   return getFirstReadySourceId(sources)
+}
+
+function isQueryableReadySource(source: SourceView): boolean {
+  return source.status === "ready" && source.officialLibrary === undefined
 }
 
 function applyQueryExclusions(

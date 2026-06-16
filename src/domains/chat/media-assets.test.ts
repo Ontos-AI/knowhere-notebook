@@ -42,6 +42,39 @@ describe("chat media assets", () => {
     )
   })
 
+  it("prefers Notebook parsed asset URLs over existing upstream asset URLs", async () => {
+    const loadSourceAssetUrls = vi.fn().mockResolvedValue({
+      "images/image-6-情感分类模型.jpg":
+        "https://blob.example/workspaces/workspace_1/sources/source_doc/parsed-result/images/image-6-model.jpg",
+    })
+
+    const [result] = await enrichRetrievalResultsWithAssetUrls({
+      results: [
+        makeRetrievalResult({
+          chunkType: "image",
+          assetUrl:
+            "https://knowhere-storage.example/results/job_1/images/image-6-%E6%83%85%E6%84%9F%E5%88%86%E7%B1%BB%E6%A8%A1%E5%9E%8B.jpg?AWSAccessKeyId=test",
+          source: {
+            documentId: "doc_model",
+            sourceFileName: "model.pdf",
+            sectionPath: "images/image-6-情感分类模型.jpg",
+          },
+        }),
+      ],
+      sources: [
+        makeSource({
+          id: "source_doc",
+          knowhereDocumentId: "doc_model",
+        }),
+      ],
+      loadSourceAssetUrls,
+    })
+
+    expect(result?.assetUrl).toBe(
+      "https://blob.example/workspaces/workspace_1/sources/source_doc/parsed-result/images/image-6-model.jpg",
+    )
+  })
+
   it("adds image citation results for asset filenames that only appear in evidence text", async () => {
     const loadSourceAssetUrls = vi.fn().mockResolvedValue({
       "images/image-6-中华人民共和国居民身份证.jpg":

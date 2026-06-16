@@ -15,8 +15,10 @@ type WorkspaceSourceWorkflowInput = {
 }
 
 type WorkspaceSourceWorkflow = {
+  readonly addingLibrarySourceIds: string[]
   readonly archivingSourceIds: string[]
   readonly handleArchiveSource: (sourceId: string) => Promise<void>
+  readonly handleOfficialLibrarySourceAdd: (demoSourceId: string) => Promise<boolean>
   readonly handleSelectedSourceChange: (sourceId: string | null) => void
   readonly handleSourcesMaterialized: (
     demoSourceIds: readonly string[],
@@ -33,6 +35,7 @@ type WorkspaceSourceWorkflow = {
 
 const sourcesSWRKey = workspaceClient.keys.sources
 const archiveSourceSWRKey = workspaceClient.keys.archiveSource
+const materializeDemoSourceSWRKey = workspaceClient.keys.materializeDemoSources
 
 export function useWorkspaceSourceWorkflow({
   initialSources = [],
@@ -49,6 +52,9 @@ export function useWorkspaceSourceWorkflow({
     Record<string, boolean>
   >({})
   const [archivingSourceIds, setArchivingSourceIds] = useState<string[]>([])
+  const [addingLibrarySourceIds, setAddingLibrarySourceIds] = useState<string[]>(
+    [],
+  )
   const shouldRefreshSourcesOnMount =
     !isGuest && workspaceClientCache.hasPendingSources(initialSourceRows)
   const { data: serverSources, mutate: mutateSources } = useSWR(
@@ -81,12 +87,14 @@ export function useWorkspaceSourceWorkflow({
       ),
     [sources],
   )
-  const readySourceCount = sources.filter(
-    (source) => source.status === "ready",
-  ).length
+  const readySourceCount = sources.filter(isQueryableReadySource).length
   const { trigger: archiveSource } = useSWRMutation(
     archiveSourceSWRKey,
     archiveSourceMutation,
+  )
+  const { trigger: materializeDemoSources } = useSWRMutation(
+    materializeDemoSourceSWRKey,
+    materializeDemoSourcesMutation,
   )
 
   function handleSourceUploaded(source: SourceView): void {
@@ -115,8 +123,11 @@ export function useWorkspaceSourceWorkflow({
       { revalidate: false },
     )
     setSelectedSourceId((current) => {
-      if (!current || !materializedDemoSourceIdSet.has(current)) return current
-      return materializedSources[0]?.id ?? current
+      if (!current || materializedDemoSourceIdSet.has(current)) {
+        return materializedSources[0]?.id ?? current
+      }
+
+      return current
     })
   }
 
@@ -167,9 +178,31 @@ export function useWorkspaceSourceWorkflow({
     }
   }
 
+  async function handleOfficialLibrarySourceAdd(
+    demoSourceId: string,
+  ): Promise<boolean> {
+    setAddingLibrarySourceIds((current) =>
+      workspaceSourceState.addPendingId(current, demoSourceId),
+    )
+    try {
+      const materializedSources = await materializeDemoSources([demoSourceId])
+      handleSourcesMaterialized([demoSourceId], materializedSources)
+      return true
+    } catch {
+      // Keep the library source visible when materialization fails.
+      return false
+    } finally {
+      setAddingLibrarySourceIds((current) =>
+        workspaceSourceState.removePendingId(current, demoSourceId),
+      )
+    }
+  }
+
   return {
+    addingLibrarySourceIds,
     archivingSourceIds,
     handleArchiveSource,
+    handleOfficialLibrarySourceAdd,
     handleSelectedSourceChange,
     handleSourcesMaterialized,
     handleSourceUploaded,
@@ -182,9 +215,28 @@ export function useWorkspaceSourceWorkflow({
   }
 }
 
+function isQueryableReadySource(source: SourceView): boolean {
+  if (source.status !== "ready") return false
+
+  return !isUnmaterializedOfficialLibrarySource(source)
+}
+
+function isUnmaterializedOfficialLibrarySource(source: SourceView): boolean {
+  return source.kind === "demo" && source.officialLibrary !== undefined
+}
+
 function archiveSourceMutation(
   _key: string,
   { arg: sourceId }: { readonly arg: string },
 ): ReturnType<typeof workspaceClient.archiveSource> {
   return workspaceClient.archiveSource(sourceId)
+}
+
+function materializeDemoSourcesMutation(
+  _key: string,
+  { arg: demoSourceIds }: { readonly arg: readonly string[] },
+): ReturnType<typeof workspaceClient.materializeDemoSources> {
+  return workspaceClient.materializeDemoSources({
+    demoSourceIds: [...demoSourceIds],
+  })
 }

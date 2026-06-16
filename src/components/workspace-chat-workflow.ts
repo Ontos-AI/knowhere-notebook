@@ -38,6 +38,7 @@ type WorkspaceChatWorkflow = {
   readonly handleArchiveChatThread: (threadId: string) => Promise<void>
   readonly handleChatSend: (text: string) => Promise<void>
   readonly handleCreateChatThread: () => Promise<void>
+  readonly handleRefreshActiveChatThread: () => Promise<void>
   readonly handleSelectChatThread: (threadId: string) => void
   readonly isCreatingThread: boolean
   readonly loadingThreadId: string | null
@@ -214,6 +215,29 @@ export function useWorkspaceChatWorkflow({
     }
   }
 
+  async function handleRefreshActiveChatThread(): Promise<void> {
+    const threadId = chat.threadId
+    if (!threadId) return
+
+    try {
+      const fresh = await workspaceClient.fetchChatThread(threadId)
+      if (!fresh.thread || !Array.isArray(fresh.messages)) return
+      const messages = fresh.messages
+
+      void mutateSWR(
+        workspaceClientCache.getChatThreadKey(threadId),
+        fresh,
+        { revalidate: false },
+      )
+      setChat((current) => {
+        if (current.threadId !== fresh.requestedThreadId) return current
+        return { ...current, messages: [...messages] }
+      })
+    } catch {
+      // Materialization can still succeed even if the current thread refresh fails.
+    }
+  }
+
   async function handleChatSend(text: string): Promise<void> {
     const demoSourceIds = getMaterializableDemoSourceIds(sources)
     if (demoSourceIds.length > 0) {
@@ -224,19 +248,7 @@ export function useWorkspaceChatWorkflow({
         const materializedSources =
           await workspaceClient.materializeDemoSources({ demoSourceIds })
         onSourcesMaterialized?.(demoSourceIds, materializedSources)
-        if (chat.threadId) {
-          try {
-            const fresh = await workspaceClient.fetchChatThread(chat.threadId)
-            setChat((current) => {
-              if (current.threadId !== fresh.requestedThreadId) return current
-              if (!fresh.thread || !Array.isArray(fresh.messages))
-                return current
-              return { ...current, messages: [...fresh.messages] }
-            })
-          } catch {
-            // stale citations until page reload — materialization succeeded
-          }
-        }
+        await handleRefreshActiveChatThread()
       } catch {
         setChat((current) => ({
           ...current,
@@ -247,6 +259,16 @@ export function useWorkspaceChatWorkflow({
         }))
         return
       }
+    }
+    if (!hasQueryableReadySource(sources)) {
+      setChat((current) => ({
+        ...current,
+        isSending: false,
+        isLoading: false,
+        pendingStatusText: null,
+        error: "Add a ready source before asking questions.",
+      }))
+      return
     }
 
     optimisticMessageSequence.current += 1
@@ -314,6 +336,7 @@ export function useWorkspaceChatWorkflow({
     handleArchiveChatThread,
     handleChatSend,
     handleCreateChatThread,
+    handleRefreshActiveChatThread,
     handleSelectChatThread,
     isCreatingThread,
     loadingThreadId,
@@ -325,10 +348,23 @@ function getMaterializableDemoSourceIds(
 ): string[] {
   const demoSourceIds = sources
     .filter((source) => source.kind === "demo")
+    .filter((source) => source.officialLibrary === undefined)
     .filter((source) => !source.excludedFromQuery)
     .map((source) => source.demoSourceId ?? source.id)
 
   return Array.from(new Set(demoSourceIds))
+}
+
+function hasQueryableReadySource(sources: readonly SourceView[]): boolean {
+  return sources.some(
+    (source) =>
+      source.status === "ready" &&
+      !isUnmaterializedOfficialLibrarySource(source),
+  )
+}
+
+function isUnmaterializedOfficialLibrarySource(source: SourceView): boolean {
+  return source.kind === "demo" && source.officialLibrary !== undefined
 }
 
 function fetchChatThreadByKey([

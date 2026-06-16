@@ -1,15 +1,26 @@
 "use client";
 
-import { type CSSProperties, type ReactElement } from "react";
+import { type CSSProperties, type ReactElement, type ReactNode } from "react";
 import { type VirtualItem } from "@tanstack/react-virtual";
 import { ImageIcon, MessageCircle } from "lucide-react";
-import ReactMarkdown, { type Components } from "react-markdown";
+import ReactMarkdown, {
+  defaultUrlTransform,
+  type Components,
+} from "react-markdown";
 import remarkGfm from "remark-gfm";
 
+import { ChatDiagramCard } from "@/components/chat-diagram-card";
 import { useChatMessageListWorkflow } from "@/components/chat-message-list-workflow";
 import { chatPanelModel } from "@/components/chat-panel-model";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import type { ChatDiagramChartSpec } from "@/domains/chat/diagram";
 import type {
   ChatArtifactView,
   ChatCitationView,
@@ -39,6 +50,33 @@ type DisplayDerivedTableArtifact = {
   readonly rows: readonly (readonly string[])[];
 };
 
+type InlineCitationMarkdown = {
+  readonly content: string;
+  readonly usedCitationIds: ReadonlySet<string>;
+};
+
+export type ChatDiagramState =
+  | {
+      readonly status: "idle";
+    }
+  | {
+      readonly status: "loading";
+    }
+  | {
+      readonly status: "ready";
+      readonly diagram: ChatDiagramChartSpec;
+    }
+  | {
+      readonly status: "empty";
+      readonly reason: string;
+    }
+  | {
+      readonly status: "error";
+      readonly message: string;
+    };
+
+const idleDiagramState: ChatDiagramState = { status: "idle" };
+
 const assistantMarkdownComponents: Components = {
   p: ({ children }) => (
     <p className="whitespace-pre-wrap break-words">{children}</p>
@@ -46,6 +84,7 @@ const assistantMarkdownComponents: Components = {
 };
 
 export type ChatMessageListProps = {
+  readonly diagramStatesByMessageId?: Readonly<Record<string, ChatDiagramState>>;
   readonly isDisabled?: boolean;
   readonly isSending?: boolean;
   readonly messages?: readonly ChatMessageView[];
@@ -60,6 +99,7 @@ export type ChatMessageListProps = {
 };
 
 export function ChatMessageList({
+  diagramStatesByMessageId = {},
   isDisabled = false,
   isSending = false,
   messages = [],
@@ -103,6 +143,9 @@ export function ChatMessageList({
                 virtualItem={virtualItem}
                 message={getVirtualMessage(virtualItem)}
                 measureElement={measureElement}
+                diagramState={
+                  diagramStatesByMessageId[getVirtualMessage(virtualItem)?.id ?? ""]
+                }
                 onCitationClick={onCitationClick}
                 pendingCitationId={pendingCitationId}
                 sourceTitlesByDocumentId={sourceTitlesByDocumentId}
@@ -168,6 +211,7 @@ function ThinkingProgressBubble({
 }
 
 function VirtualMessageRow({
+  diagramState,
   virtualItem,
   message,
   measureElement,
@@ -175,6 +219,7 @@ function VirtualMessageRow({
   pendingCitationId,
   sourceTitlesByDocumentId,
 }: {
+  readonly diagramState?: ChatDiagramState;
   readonly virtualItem: VirtualItem;
   readonly message: ChatMessageView | undefined;
   readonly measureElement: (node: HTMLDivElement | null) => void;
@@ -203,6 +248,7 @@ function VirtualMessageRow({
       className="min-w-0 pb-4 sm:pb-5"
     >
       <MessageBubble
+        diagramState={diagramState ?? idleDiagramState}
         message={message}
         onCitationClick={onCitationClick}
         pendingCitationId={pendingCitationId}
@@ -229,9 +275,9 @@ function EmptyChat({
       </h3>
       <p className="text-[13px] leading-relaxed text-muted-foreground">
         {needsLogin
-          ? "Log in to start asking questions about your sources."
-          : disabled
-            ? "Upload a document to start asking questions."
+            ? "Log in to start asking questions about your sources."
+            : disabled
+            ? "Add a ready source to start asking questions."
             : "Ask anything about your sources. Answers include source links when Notebook finds support."}
       </p>
     </div>
@@ -239,11 +285,13 @@ function EmptyChat({
 }
 
 function MessageBubble({
+  diagramState,
   message,
   onCitationClick,
   pendingCitationId,
   sourceTitlesByDocumentId,
 }: {
+  readonly diagramState: ChatDiagramState;
   readonly message: ChatMessageView;
   readonly onCitationClick?: (
     citation: ChatCitationView,
@@ -275,11 +323,20 @@ function MessageBubble({
       ? displayImageArtifacts
       : getDisplayImageCitations(message, sourceTitlesByDocumentId);
   const displayDerivedTables = getDisplayDerivedTableArtifacts(message);
+  const inlineCitationMarkdown = buildInlineCitationMarkdown(
+    message.content,
+    displayCitations,
+  );
 
   return (
     <div className="flex min-w-0 flex-col items-start">
       <div className="max-w-[92%] overflow-hidden rounded-2xl rounded-tl-sm border border-border/70 bg-card px-3 py-2.5 text-sm leading-relaxed text-foreground shadow-xs sm:max-w-[90%] sm:px-4 sm:py-3">
-        <AssistantMessageContent content={message.content} />
+        <AssistantMessageContent
+          content={inlineCitationMarkdown.content}
+          displayCitations={displayCitations}
+          onCitationClick={onCitationClick}
+          pendingCitationId={pendingCitationId}
+        />
         {displayDerivedTables.length > 0 && (
           <div className="mt-3 space-y-3 border-t border-border/70 pt-2.5">
             {displayDerivedTables.map((artifact) => (
@@ -290,6 +347,7 @@ function MessageBubble({
             ))}
           </div>
         )}
+        <AssistantDiagram state={diagramState} />
         {displayImageCitations.length > 0 && (
           <div className="mt-3 border-t border-border/70 pt-2.5">
             <p className="mb-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
@@ -318,35 +376,181 @@ function MessageBubble({
             </div>
           </div>
         )}
-        {displayCitations.length > 0 && (
-          <div className="mt-3 border-t border-border/70 pt-2.5">
-            <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-              Sources used
-            </p>
-            <div className="flex flex-wrap gap-1.5">
-              {displayCitations.map(({ citation, citationId, label }) => {
-                const isPending = citationId === pendingCitationId;
-
-                return (
-                  <button
-                    key={citationId}
-                    type="button"
-                    disabled={!onCitationClick || isPending}
-                    onClick={() => onCitationClick?.(citation, citationId)}
-                    className="inline-flex max-w-full cursor-pointer items-center gap-1 whitespace-normal rounded-sm px-0.5 py-0 text-left text-[11px] font-semibold text-primary underline decoration-primary/45 underline-offset-4 transition-colors hover:text-primary/80 hover:decoration-primary focus:outline-none focus:ring-4 focus:ring-ring/15 focus:ring-offset-2 focus:ring-offset-background disabled:cursor-wait disabled:opacity-75"
-                    aria-label={`Open source ${label}`}
-                  >
-                    {isPending && <Spinner className="size-3" />}
-                    <span className="min-w-0 break-words">{label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );
+}
+
+function AssistantDiagram({
+  state,
+}: {
+  readonly state: ChatDiagramState;
+}): ReactElement | null {
+  if (state.status === "idle") return null;
+
+  return (
+    <div className="mt-3 border-t border-border/70 pt-2.5">
+      {state.status === "loading" && (
+        <div
+          role="status"
+          className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground"
+        >
+          <Spinner className="size-3.5" />
+          <span>Creating diagram</span>
+        </div>
+      )}
+      {state.status === "ready" && (
+        <ChatDiagramCard diagram={state.diagram} />
+      )}
+      {state.status === "empty" && (
+        <p className="mt-2 text-xs text-muted-foreground">{state.reason}</p>
+      )}
+      {state.status === "error" && (
+        <p className="mt-2 text-xs text-destructive">{state.message}</p>
+      )}
+    </div>
+  );
+}
+
+function buildInlineCitationMarkdown(
+  content: string,
+  displayCitations: readonly DisplayCitation[],
+): InlineCitationMarkdown {
+  const usedCitationIds = new Set<string>();
+  let rewrittenContent = content;
+
+  for (const [index, displayCitation] of displayCitations.entries()) {
+    const replacement = `[${escapeMarkdownLinkText(
+      getCitationChipText(displayCitation.label),
+    )}](${getCitationHref(displayCitation.citationId)})`;
+
+    for (const token of getInlineCitationTokens(displayCitation, index)) {
+      if (!rewrittenContent.includes(token)) continue;
+
+      rewrittenContent = rewrittenContent.replaceAll(token, replacement);
+      usedCitationIds.add(displayCitation.citationId);
+    }
+  }
+
+  const unusedCitations = displayCitations.filter(
+    ({ citationId }): boolean => !usedCitationIds.has(citationId),
+  );
+  if (unusedCitations.length > 0) {
+    const fallbackLinks = unusedCitations.map(
+      (displayCitation): string =>
+        `[${escapeMarkdownLinkText(
+          getCitationChipText(displayCitation.label),
+        )}](${getCitationHref(displayCitation.citationId)})`,
+    );
+    rewrittenContent = insertFallbackCitationLinks(
+      rewrittenContent,
+      fallbackLinks,
+    );
+    for (const displayCitation of unusedCitations) {
+      usedCitationIds.add(displayCitation.citationId);
+    }
+  }
+
+  return {
+    content: rewrittenContent,
+    usedCitationIds,
+  };
+}
+
+function insertFallbackCitationLinks(
+  content: string,
+  citationLinks: readonly string[],
+): string {
+  if (citationLinks.length === 0) return content;
+
+  const inlineLinks = citationLinks.join(" ");
+  const trimmedContent = content.trimEnd();
+  if (!trimmedContent) return inlineLinks;
+
+  const blocks = splitMarkdownBlocks(trimmedContent);
+  const firstTextBlockIndex = blocks.findIndex(({ text }): boolean =>
+    canAppendInlineCitationLinks(text),
+  );
+  if (firstTextBlockIndex === -1) {
+    return `${trimmedContent}\n\n${inlineLinks}`;
+  }
+
+  return blocks
+    .map((block, index): string => {
+      if (index !== firstTextBlockIndex) return `${block.text}${block.separator}`;
+
+      return `${block.text.trimEnd()} ${inlineLinks}${block.separator}`;
+    })
+    .join("");
+}
+
+function splitMarkdownBlocks(
+  content: string,
+): readonly { readonly text: string; readonly separator: string }[] {
+  const parts = content.split(/(\n{2,})/u);
+  const blocks: { text: string; separator: string }[] = [];
+  for (let index = 0; index < parts.length; index += 2) {
+    const text = parts[index] ?? "";
+    if (text.length === 0) continue;
+    blocks.push({
+      text,
+      separator: parts[index + 1] ?? "",
+    });
+  }
+
+  return blocks;
+}
+
+function canAppendInlineCitationLinks(block: string): boolean {
+  const trimmedBlock = block.trim();
+  if (!trimmedBlock) return false;
+  if (/^(?:```|~~~)/u.test(trimmedBlock)) return false;
+  if (/^\s*\|.+\|\s*$/mu.test(trimmedBlock)) return false;
+  if (/^\s{0,3}(?:#{1,6}\s|[-*+]\s|\d+[.)]\s|>)/u.test(trimmedBlock)) {
+    return false;
+  }
+
+  return true;
+}
+
+function getInlineCitationTokens(
+  displayCitation: DisplayCitation,
+  index: number,
+): readonly string[] {
+  const label = displayCitation.label;
+  const slashLabel = label.replace(/\s+·\s+/gu, " / ");
+  const sourceName = getCitationChipText(label);
+  const sectionPath = getTrimmedCitationField(
+    displayCitation.citation.source.sectionPath,
+  );
+  const description = getTrimmedCitationField(displayCitation.citation.description);
+  const citationNumber = index + 1;
+  const tokens = [
+    `[${label}]`,
+    `[${slashLabel}]`,
+    `[Source ${citationNumber}: ${label}]`,
+    `[Source ${citationNumber}: ${slashLabel}]`,
+    sectionPath ? `[${sourceName} / ${sectionPath}]` : null,
+    description ? `[${sourceName} / ${description}]` : null,
+  ];
+
+  return Array.from(
+    new Set(tokens.filter((token): token is string => Boolean(token))),
+  ).sort((left, right): number => right.length - left.length);
+}
+
+function getCitationChipText(label: string): string {
+  const [sourceName] = label.split(/\s+·\s+/u);
+  const normalized = sourceName?.trim();
+  return normalized && normalized.length > 0 ? normalized : label;
+}
+
+function getCitationHref(citationId: string): string {
+  return `citation://${encodeURIComponent(citationId)}`;
+}
+
+function escapeMarkdownLinkText(value: string): string {
+  return value.replace(/\\/gu, "\\\\").replace(/\]/gu, "\\]");
 }
 
 function DerivedTableArtifactView({
@@ -399,19 +603,110 @@ function DerivedTableArtifactView({
 
 function AssistantMessageContent({
   content,
+  displayCitations,
+  onCitationClick,
+  pendingCitationId,
 }: {
   readonly content: string;
+  readonly displayCitations: readonly DisplayCitation[];
+  readonly onCitationClick?: (
+    citation: ChatCitationView,
+    citationId: string,
+  ) => void;
+  readonly pendingCitationId?: string | null;
 }): ReactElement {
+  const inlineCitationsByHref = new Map(
+    displayCitations.map((displayCitation): readonly [string, DisplayCitation] => [
+      getCitationHref(displayCitation.citationId),
+      displayCitation,
+    ]),
+  );
+  const markdownComponents: Components = {
+    ...assistantMarkdownComponents,
+    a: ({ href, children }) => {
+      const displayCitation = href ? inlineCitationsByHref.get(href) : undefined;
+      if (!displayCitation) {
+        return (
+          <a
+            href={href}
+            target="_blank"
+            rel="noreferrer"
+            className="font-semibold text-primary underline decoration-primary/40 underline-offset-4 hover:text-primary/80"
+          >
+            {children}
+          </a>
+        );
+      }
+
+      return (
+        <CitationChip
+          citation={displayCitation.citation}
+          citationId={displayCitation.citationId}
+          label={displayCitation.label}
+          text={children}
+          isPending={displayCitation.citationId === pendingCitationId}
+          onCitationClick={onCitationClick}
+        />
+      );
+    },
+  };
+
   return (
     <div className="chat-markdown-content min-w-0 max-w-full overflow-x-auto">
       <ReactMarkdown
-        components={assistantMarkdownComponents}
+        components={markdownComponents}
         remarkPlugins={[remarkGfm]}
         skipHtml
+        urlTransform={transformAssistantMarkdownUrl}
       >
         {content}
       </ReactMarkdown>
     </div>
+  );
+}
+
+function transformAssistantMarkdownUrl(value: string): string {
+  return value.startsWith("citation://") ? value : defaultUrlTransform(value);
+}
+
+function CitationChip({
+  citation,
+  citationId,
+  isPending,
+  label,
+  onCitationClick,
+  text,
+}: {
+  readonly citation: ChatCitationView;
+  readonly citationId: string;
+  readonly isPending: boolean;
+  readonly label: string;
+  readonly onCitationClick?: (
+    citation: ChatCitationView,
+    citationId: string,
+  ) => void;
+  readonly text: ReactNode;
+}): ReactElement {
+  return (
+    <TooltipProvider delayDuration={0}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            disabled={!onCitationClick || isPending}
+            onClick={() => onCitationClick?.(citation, citationId)}
+            className="inline-flex max-w-[250px] cursor-pointer items-center gap-1 rounded-full border border-primary/25 bg-primary/10 px-2 py-0.5 align-baseline text-[11px] font-semibold leading-4 text-primary transition-colors hover:border-primary/45 hover:bg-primary/15 hover:text-primary/80 focus:outline-none focus:ring-4 focus:ring-ring/15 focus:ring-offset-2 focus:ring-offset-background disabled:cursor-wait disabled:opacity-75"
+            aria-label={`Open source ${label}`}
+          >
+            {isPending && <Spinner className="size-3" />}
+            <span className="min-w-0 truncate">{text}</span>
+          </button>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-[320px] break-words">
+          {label}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }
 

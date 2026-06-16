@@ -10,6 +10,7 @@ import {
 import { ChatPanel } from "@/components/chat-panel"
 import { ChunksPanel } from "@/components/chunks-panel"
 import { MobileTabBar } from "@/components/mobile-tab-bar"
+import { OfficialLibraryPanel } from "@/components/official-library-panel"
 import { SourcesPanel } from "@/components/sources-panel"
 import { TopNav } from "@/components/top-nav"
 import { useWorkspaceResizeHandleWorkflow } from "@/components/workspace-resize-handle-workflow"
@@ -21,11 +22,13 @@ import type {
 } from "@/domains/chat/types"
 import type { ParsedChunkView } from "@/domains/chunks/types"
 import type {
+  OfficialLibrarySourceView,
   SourceOriginalFileView,
   SourceView,
 } from "@/domains/sources/types"
 
 export type PanelId = "sources" | "content" | "chat"
+export type ContentView = "chunks" | "library"
 
 type DesktopPanelKey = keyof typeof workspaceShellState.minimumDesktopPanelWidths
 type DesktopSidePanelKey = Exclude<DesktopPanelKey, "chunks">
@@ -52,6 +55,7 @@ type WorkspaceChatState = {
 }
 
 export type WorkspaceShellLayoutProps = {
+  readonly addingLibrarySourceIds: readonly string[]
   readonly archivingSourceIds: readonly string[]
   readonly archivingThreadIds: readonly string[]
   readonly chat: WorkspaceChatState
@@ -62,6 +66,7 @@ export type WorkspaceShellLayoutProps = {
   readonly focusedChunk: FocusedChunkState
   readonly hasMessages: boolean
   readonly hasMoreSelectedChunks: boolean
+  readonly contentView: ContentView
   readonly isCreatingThread: boolean
   readonly isGuest: boolean
   readonly isSelectedAllChunksLoading: boolean
@@ -78,6 +83,7 @@ export type WorkspaceShellLayoutProps = {
   readonly selectedSourceTitle: string | null
   readonly sourceTitlesByDocumentId: Readonly<Record<string, string>>
   readonly sources: readonly SourceView[]
+  readonly officialLibrarySources: readonly OfficialLibrarySourceView[]
   readonly user: WorkspaceShellUser | undefined
   readonly onArchiveChatThread: (threadId: string) => void | Promise<void>
   readonly onArchiveSource: (sourceId: string) => void | Promise<void>
@@ -106,7 +112,11 @@ export type WorkspaceShellLayoutProps = {
   readonly onLoadAllChunks: () => void
   readonly onLoadMoreChunks: () => void
   readonly onLoginClick: () => void
+  readonly onLibraryOpen: () => void
   readonly onMobilePanelChange: (panel: PanelId) => void
+  readonly onOfficialLibrarySourceAdd: (
+    demoSourceId: string,
+  ) => void | Promise<void>
   readonly onSelectChatThread: (threadId: string) => void
   readonly onSourceSelected: (sourceId: string | null) => void
   readonly onSourceUploaded: (source: SourceView) => void
@@ -117,6 +127,8 @@ export function WorkspaceShellLayout(
   props: WorkspaceShellLayoutProps,
 ): ReactElement {
   const { onDesktopLayoutElementChange } = props
+  const addingLibrarySourceIds = props.addingLibrarySourceIds ?? []
+  const officialLibrarySources = props.officialLibrarySources ?? []
   const isSourcesPanelCollapsed =
     props.desktopPanelWidths.sources <=
     workspaceShellState.desktopSidePanelCompactThreshold
@@ -175,6 +187,8 @@ export function WorkspaceShellLayout(
             ) : (
               <SourcesPanel
                 sources={[...props.sources]}
+                officialLibrarySources={[...officialLibrarySources]}
+                isLibraryOpen={props.contentView === "library"}
                 isNarrow={isSourcesPanelNarrow}
                 onSourceUploaded={
                   props.isGuest ? undefined : props.onSourceUploaded
@@ -187,7 +201,12 @@ export function WorkspaceShellLayout(
                 onArchiveSource={
                   props.isGuest ? undefined : props.onArchiveSource
                 }
+                onOfficialLibrarySourceAdd={
+                  props.isGuest ? undefined : props.onOfficialLibrarySourceAdd
+                }
+                onLibraryOpen={props.onLibraryOpen}
                 archivingSourceIds={[...props.archivingSourceIds]}
+                addingLibrarySourceIds={[...addingLibrarySourceIds]}
                 onLoginClick={props.isGuest ? props.onLoginClick : undefined}
               />
             )}
@@ -213,24 +232,35 @@ export function WorkspaceShellLayout(
               width: `${props.desktopPanelWidths.chunks}px`,
             }}
           >
-            <ChunksPanel
-              chunks={[...props.selectedChunks]}
-              selectedSource={props.selectedSourceTitle}
-              selectedSourceFile={props.selectedSourceFile}
-              citationListViewRequestId={props.citationListViewRequestId}
-              focusedChunkId={props.focusedChunk.chunkId}
-              focusedChunkRequestId={props.focusedChunk.requestId}
-              isLoading={props.isSelectedChunksLoading}
-              isLoadingAllChunks={props.isSelectedAllChunksLoading}
-              isLoadingMore={props.isSelectedChunksLoadingMore}
-              hasMoreChunks={props.hasMoreSelectedChunks}
-              onLoadAllChunks={props.onLoadAllChunks}
-              onLoadMore={props.onLoadMoreChunks}
-              onLoginClick={props.isGuest ? props.onLoginClick : undefined}
-              onSourceUploaded={
-                props.isGuest ? undefined : props.onSourceUploaded
-              }
-            />
+            {props.contentView === "library" ? (
+              <OfficialLibraryPanel
+                addingLibrarySourceIds={[...addingLibrarySourceIds]}
+                officialLibrarySources={[...officialLibrarySources]}
+                sources={[...props.sources]}
+                onOfficialLibrarySourceAdd={
+                  props.isGuest ? undefined : props.onOfficialLibrarySourceAdd
+                }
+              />
+            ) : (
+              <ChunksPanel
+                chunks={[...props.selectedChunks]}
+                selectedSource={props.selectedSourceTitle}
+                selectedSourceFile={props.selectedSourceFile}
+                citationListViewRequestId={props.citationListViewRequestId}
+                focusedChunkId={props.focusedChunk.chunkId}
+                focusedChunkRequestId={props.focusedChunk.requestId}
+                isLoading={props.isSelectedChunksLoading}
+                isLoadingAllChunks={props.isSelectedAllChunksLoading}
+                isLoadingMore={props.isSelectedChunksLoadingMore}
+                hasMoreChunks={props.hasMoreSelectedChunks}
+                onLoadAllChunks={props.onLoadAllChunks}
+                onLoadMore={props.onLoadMoreChunks}
+                onLoginClick={props.isGuest ? props.onLoginClick : undefined}
+                onSourceUploaded={
+                  props.isGuest ? undefined : props.onSourceUploaded
+                }
+              />
+            )}
           </div>
           <DesktopResizeHandle
             label="Resize parsed chunks and chat"
@@ -304,6 +334,8 @@ export function WorkspaceShellLayout(
       >
         <SourcesPanel
           sources={[...props.sources]}
+          officialLibrarySources={[...officialLibrarySources]}
+          isLibraryOpen={props.contentView === "library"}
           onSourceUploaded={props.isGuest ? undefined : props.onSourceUploaded}
           selectedSourceId={props.selectedSourceId}
           onSelectSource={(id) => {
@@ -312,7 +344,15 @@ export function WorkspaceShellLayout(
           }}
           onToggleIncluded={props.isGuest ? undefined : props.onToggleIncluded}
           onArchiveSource={props.isGuest ? undefined : props.onArchiveSource}
+          onOfficialLibrarySourceAdd={
+            props.isGuest ? undefined : props.onOfficialLibrarySourceAdd
+          }
+          onLibraryOpen={() => {
+            props.onLibraryOpen()
+            props.onMobilePanelChange("content")
+          }}
           archivingSourceIds={[...props.archivingSourceIds]}
+          addingLibrarySourceIds={[...addingLibrarySourceIds]}
           onLoginClick={props.isGuest ? props.onLoginClick : undefined}
         />
       </div>
@@ -324,22 +364,33 @@ export function WorkspaceShellLayout(
           props.mobilePanel === "content" ? "flex flex-col" : "hidden"
         }`}
       >
-        <ChunksPanel
-          chunks={[...props.selectedChunks]}
-          selectedSource={props.selectedSourceTitle}
-          selectedSourceFile={props.selectedSourceFile}
-          citationListViewRequestId={props.citationListViewRequestId}
-          focusedChunkId={props.focusedChunk.chunkId}
-          focusedChunkRequestId={props.focusedChunk.requestId}
-          isLoading={props.isSelectedChunksLoading}
-          isLoadingAllChunks={props.isSelectedAllChunksLoading}
-          isLoadingMore={props.isSelectedChunksLoadingMore}
-          hasMoreChunks={props.hasMoreSelectedChunks}
-          onLoadAllChunks={props.onLoadAllChunks}
-          onLoadMore={props.onLoadMoreChunks}
-          onLoginClick={props.isGuest ? props.onLoginClick : undefined}
-          onSourceUploaded={props.isGuest ? undefined : props.onSourceUploaded}
-        />
+        {props.contentView === "library" ? (
+          <OfficialLibraryPanel
+            addingLibrarySourceIds={[...addingLibrarySourceIds]}
+            officialLibrarySources={[...officialLibrarySources]}
+            sources={[...props.sources]}
+            onOfficialLibrarySourceAdd={
+              props.isGuest ? undefined : props.onOfficialLibrarySourceAdd
+            }
+          />
+        ) : (
+          <ChunksPanel
+            chunks={[...props.selectedChunks]}
+            selectedSource={props.selectedSourceTitle}
+            selectedSourceFile={props.selectedSourceFile}
+            citationListViewRequestId={props.citationListViewRequestId}
+            focusedChunkId={props.focusedChunk.chunkId}
+            focusedChunkRequestId={props.focusedChunk.requestId}
+            isLoading={props.isSelectedChunksLoading}
+            isLoadingAllChunks={props.isSelectedAllChunksLoading}
+            isLoadingMore={props.isSelectedChunksLoadingMore}
+            hasMoreChunks={props.hasMoreSelectedChunks}
+            onLoadAllChunks={props.onLoadAllChunks}
+            onLoadMore={props.onLoadMoreChunks}
+            onLoginClick={props.isGuest ? props.onLoginClick : undefined}
+            onSourceUploaded={props.isGuest ? undefined : props.onSourceUploaded}
+          />
+        )}
       </div>
       <div
         id="panel-chat"
