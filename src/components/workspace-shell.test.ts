@@ -202,7 +202,9 @@ describe("WorkspaceShell", () => {
     );
     expect(desktopLibraryPanel.getByRole("heading", { name: "Library" }))
       .toBeTruthy();
-    expect(desktopLibraryPanel.getByText("Transformers.pdf")).toBeTruthy();
+    expect(
+      desktopLibraryPanel.getByRole("button", { name: "Open STEM books" }),
+    ).toBeTruthy();
     expect(window.location.href).not.toContain("/login");
   });
 
@@ -1160,6 +1162,11 @@ describe("WorkspaceShell", () => {
     );
     expect(desktopLibraryPanel.getByRole("heading", { name: "Library" }))
       .toBeTruthy();
+    await user.click(
+      desktopLibraryPanel.getByRole("button", {
+        name: "Open Financial Reports",
+      }),
+    );
     await user.click(
       desktopLibraryPanel.getByRole("button", {
         name: "Add spacex-s1.pdf to sources",

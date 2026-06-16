@@ -31,6 +31,10 @@ describe("OfficialLibraryPanel", () => {
       }),
     );
 
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open Financial Reports" }),
+    );
+
     const pdfIcon = container.querySelector<HTMLImageElement>(
       '[data-testid="official-library-pdf-icon"] img',
     );
@@ -41,7 +45,7 @@ describe("OfficialLibraryPanel", () => {
     expect(screen.getByText("spacex-s1.pdf")).toBeTruthy();
   });
 
-  it("shows the uploaded category backgrounds in the all-categories view", () => {
+  it("opens to the all-categories view", () => {
     render(
       React.createElement(OfficialLibraryPanel, {
         officialLibrarySources: [
@@ -88,8 +92,6 @@ describe("OfficialLibraryPanel", () => {
         ],
       }),
     );
-
-    fireEvent.click(screen.getByRole("button", { name: "All" }));
 
     expect(
       screen

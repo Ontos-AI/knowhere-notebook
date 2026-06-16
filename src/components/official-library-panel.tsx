@@ -68,18 +68,14 @@ export function OfficialLibraryPanel({
     () => getLibraryCategories(libraryItems),
     [libraryItems],
   );
-  const [selectedCategoryId, setSelectedCategoryId] = useState<
-    string | null | undefined
-  >(undefined);
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(
+    null,
+  );
   const resolvedCategoryId =
-    selectedCategoryId === undefined
-      ? (categories[0]?.categoryId ?? null)
-      : selectedCategoryId !== null &&
-          categories.some(
-            (category) => category.categoryId === selectedCategoryId,
-          )
-        ? selectedCategoryId
-        : null;
+    selectedCategoryId !== null &&
+    categories.some((category) => category.categoryId === selectedCategoryId)
+      ? selectedCategoryId
+      : null;
   const selectedCategory = categories.find(
     (category) => category.categoryId === resolvedCategoryId,
   );
