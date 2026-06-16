@@ -228,21 +228,18 @@ function OfficialLibraryCard({
 function PdfFileIcon(): ReactElement {
   return (
     <div
-      className="relative h-[74px] w-[58px]"
+      className="relative h-[74px] w-[65px]"
       data-testid="official-library-pdf-icon"
     >
       <Image
         alt=""
         draggable={false}
-        height={68}
+        height={74}
         loading="eager"
         src={officialLibraryAssetPaths.pdfDocumentIcon}
-        width={50}
-        className="absolute inset-x-1 top-0 h-[68px] w-[50px] object-contain opacity-90"
+        width={65}
+        className="h-[74px] w-[65px] object-contain"
       />
-      <div className="absolute bottom-4 left-1/2 rounded-sm bg-red-500 px-1.5 py-0.5 text-center font-mono text-[13px] font-bold leading-none text-white shadow-sm -translate-x-1/2">
-        .pdf
-      </div>
     </div>
   );
 }
