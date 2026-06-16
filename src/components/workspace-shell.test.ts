@@ -985,6 +985,160 @@ describe("WorkspaceShell", () => {
     expect(desktopSourcesPanel.queryByText("No sources yet.")).toBeNull();
   });
 
+  it("refreshes the active chat after adding an Official Library source", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
+      const request = input instanceof Request
+        ? input
+        : new Request(new URL(String(input), "http://localhost").toString(), init);
+      const path = getRequestPath(request);
+
+      if (path === "/api/demo-sources/materialize" && request.method === "POST") {
+        return Response.json({
+          sources: [
+            {
+              id: "source_spacex",
+              kind: "workspace",
+              title: "spacex-s1.pdf",
+              status: "ready",
+              mimeType: "application/pdf",
+              documentId: "doc_user_copy",
+              chunkCount: 1,
+            },
+          ],
+        });
+      }
+
+      if (path === "/api/chat/threads/thread_1") {
+        return Response.json({
+          thread: {
+            id: "thread_1",
+            title: "Current chat",
+            createdAt: "2026-05-07T00:00:00.000Z",
+            updatedAt: "2026-05-07T00:00:00.000Z",
+          },
+          messages: [
+            {
+              id: "assistant_refreshed",
+              role: "assistant",
+              content: "Refreshed materialized answer.",
+              citations: [
+                {
+                  content: "User-copy cited section",
+                  chunkType: "text",
+                  score: 0.91,
+                  source: {
+                    documentId: "doc_user_copy",
+                    sourceFileName: "spacex-s1.pdf",
+                    sectionPath: "Overview",
+                  },
+                },
+              ],
+            },
+          ],
+        });
+      }
+
+      if (path === "/api/sources/source_spacex/chunks") {
+        return Response.json({
+          chunks: [
+            {
+              chunkId: "source_spacex:chunk_1",
+              documentId: "doc_user_copy",
+              sectionPath: "Overview",
+              type: "text",
+              content: "User-copy cited section",
+              sourceTitle: "spacex-s1.pdf",
+            },
+          ],
+        });
+      }
+
+      return Response.json({ message: "Unexpected request" }, { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetch);
+    const user = userEvent.setup();
+
+    render(
+      React.createElement(C, {
+        sources: [
+          {
+            id: "demo-spacex-s1",
+            kind: "demo",
+            demoSourceId: "demo-spacex-s1",
+            title: "spacex-s1.pdf",
+            status: "ready",
+            mimeType: "application/pdf",
+            documentId: "demo-doc-spacex-s1",
+            officialLibrary: {
+              librarySourceId: "financial-spacex-s1",
+              categoryId: "financial-reports",
+              sourceUrl: "https://example.com/spacex-s1.pdf",
+            },
+          },
+        ],
+        chatThreads: [
+          {
+            id: "thread_1",
+            title: "Current chat",
+            createdAt: "2026-05-07T00:00:00.000Z",
+            updatedAt: "2026-05-07T00:00:00.000Z",
+          },
+        ],
+        activeChatThreadId: "thread_1",
+        chatMessages: [
+          {
+            id: "assistant_seeded",
+            role: "assistant",
+            content: "Seeded canonical answer.",
+            citations: [
+              {
+                content: "Canonical cited section",
+                chunkType: "text",
+                score: 0.91,
+                source: {
+                  documentId: "demo-doc-spacex-s1",
+                  sourceFileName: "spacex-s1.pdf",
+                  sectionPath: "Overview",
+                },
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    const desktopSourcesPanel = within(
+      screen.getByTestId("desktop-sources-panel"),
+    );
+    await user.click(
+      desktopSourcesPanel.getByRole("button", {
+        name: "Add spacex-s1.pdf to sources",
+      }),
+    );
+
+    const desktopChatPanel = within(screen.getByTestId("desktop-chat-panel"));
+    await desktopChatPanel.findByText("Refreshed materialized answer.");
+    expect(desktopChatPanel.queryByText("Seeded canonical answer.")).toBeNull();
+
+    await user.click(
+      desktopChatPanel.getByRole("button", {
+        name: "Open source spacex-s1.pdf · Overview",
+      }),
+    );
+
+    await waitFor(() => {
+      const topRow = screen
+        .getByTestId("desktop-chunks-panel")
+        .querySelector<HTMLElement>('[data-index="0"]');
+
+      expect(topRow?.getAttribute("data-chunk-id")).toBe(
+        "source_spacex:chunk_1",
+      );
+      expect(topRow?.getAttribute("data-focused-chunk")).toBe("true");
+    });
+    expect(countFetches(fetch, "/api/chat/threads/thread_1")).toBe(1);
+  });
+
   it("uses cached chat data when reopening a previously loaded thread", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
       const path = getRequestPath(input);

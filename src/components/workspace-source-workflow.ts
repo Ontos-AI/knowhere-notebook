@@ -18,7 +18,7 @@ type WorkspaceSourceWorkflow = {
   readonly addingLibrarySourceIds: string[]
   readonly archivingSourceIds: string[]
   readonly handleArchiveSource: (sourceId: string) => Promise<void>
-  readonly handleOfficialLibrarySourceAdd: (demoSourceId: string) => Promise<void>
+  readonly handleOfficialLibrarySourceAdd: (demoSourceId: string) => Promise<boolean>
   readonly handleSelectedSourceChange: (sourceId: string | null) => void
   readonly handleSourcesMaterialized: (
     demoSourceIds: readonly string[],
@@ -179,15 +179,17 @@ export function useWorkspaceSourceWorkflow({
 
   async function handleOfficialLibrarySourceAdd(
     demoSourceId: string,
-  ): Promise<void> {
+  ): Promise<boolean> {
     setAddingLibrarySourceIds((current) =>
       workspaceSourceState.addPendingId(current, demoSourceId),
     )
     try {
       const materializedSources = await materializeDemoSources([demoSourceId])
       handleSourcesMaterialized([demoSourceId], materializedSources)
+      return true
     } catch {
       // Keep the library source visible when materialization fails.
+      return false
     } finally {
       setAddingLibrarySourceIds((current) =>
         workspaceSourceState.removePendingId(current, demoSourceId),

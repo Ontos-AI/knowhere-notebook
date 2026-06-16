@@ -22,7 +22,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 
   try {
-    await notebookRequestContext.getAuthenticatedWithClient()
+    await notebookRequestContext.getAuthenticated()
     const diagram = await generateChatDiagramSpec({
       answer: body.value.answer,
     })

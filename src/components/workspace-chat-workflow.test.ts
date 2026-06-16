@@ -141,6 +141,47 @@ describe("useWorkspaceChatWorkflow", () => {
     )
     expect(result.current.chat.isSending).toBe(false)
   })
+
+  it("does not auto-materialize Official Library demo sources when sending chat", async () => {
+    const librarySource = makeSource({
+      id: "demo-spacex-s1",
+      kind: "demo",
+      demoSourceId: "demo-spacex-s1",
+      officialLibrary: {
+        librarySourceId: "financial-spacex-s1",
+        categoryId: "financial-reports",
+        sourceUrl: "https://example.com/spacex-s1.pdf",
+      },
+    })
+    mocks.fetchChatThreads.mockResolvedValue([])
+    mocks.sendChatMessage.mockResolvedValue({
+      threadId: "thread_1",
+      messages: [
+        {
+          id: "message_assistant",
+          role: "assistant",
+          content: "Answer",
+        },
+      ],
+    })
+
+    const { result } = renderWorkspaceChatWorkflow({
+      initialChatThreads: [],
+      initialChatMessages: [],
+      sources: [librarySource],
+    })
+
+    await act(async () => {
+      await result.current.handleChatSend("Summarize it")
+    })
+
+    expect(mocks.materializeDemoSources).not.toHaveBeenCalled()
+    expect(mocks.sendChatMessage).toHaveBeenCalledWith({
+      message: "Summarize it",
+      threadId: undefined,
+      excludedSourceIds: [],
+    })
+  })
 })
 
 function renderWorkspaceChatWorkflow(input: {

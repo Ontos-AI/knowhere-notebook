@@ -123,6 +123,16 @@ function WorkspaceShellContent({
     citationFocus.handleSourceSelected(sourceId)
   }
 
+  async function handleOfficialLibrarySourceAdd(
+    demoSourceId: string,
+  ): Promise<void> {
+    const didMaterialize =
+      await sourceWorkflow.handleOfficialLibrarySourceAdd(demoSourceId)
+    if (didMaterialize) {
+      await chatWorkflow.handleRefreshActiveChatThread()
+    }
+  }
+
   const hasMessages = chatWorkflow.chat.messages.length > 0
 
   return (
@@ -173,7 +183,7 @@ function WorkspaceShellContent({
       onMobilePanelChange={setMobilePanel}
       onSelectChatThread={chatWorkflow.handleSelectChatThread}
       onSourceSelected={handleSourceSelected}
-      onOfficialLibrarySourceAdd={sourceWorkflow.handleOfficialLibrarySourceAdd}
+      onOfficialLibrarySourceAdd={handleOfficialLibrarySourceAdd}
       onSourceUploaded={sourceWorkflow.handleSourceUploaded}
       onToggleIncluded={sourceWorkflow.handleToggleIncluded}
     />

@@ -141,7 +141,9 @@ describe("useWorkspaceSourceWorkflow", () => {
     })
 
     await act(async () => {
-      await result.current.handleOfficialLibrarySourceAdd("demo-spacex-s1")
+      await expect(
+        result.current.handleOfficialLibrarySourceAdd("demo-spacex-s1"),
+      ).resolves.toBe(true)
     })
 
     expect(mocks.materializeDemoSources).toHaveBeenCalledWith({
@@ -149,6 +151,32 @@ describe("useWorkspaceSourceWorkflow", () => {
     })
     expect(result.current.sources.map((source) => source.id)).toEqual([
       "source_spacex",
+    ])
+  })
+
+  it("reports failed Official Library materialization without changing sources", async () => {
+    const demoSource = makeSource({
+      id: "demo-spacex-s1",
+      kind: "demo",
+      demoSourceId: "demo-spacex-s1",
+      title: "spacex-s1.pdf",
+    })
+    mocks.fetchSources.mockResolvedValue([demoSource])
+    mocks.materializeDemoSources.mockRejectedValue(new Error("Bad gateway"))
+
+    const { result } = renderWorkspaceSourceWorkflow({
+      initialSources: [demoSource],
+      isGuest: false,
+    })
+
+    await act(async () => {
+      await expect(
+        result.current.handleOfficialLibrarySourceAdd("demo-spacex-s1"),
+      ).resolves.toBe(false)
+    })
+
+    expect(result.current.sources.map((source) => source.id)).toEqual([
+      "demo-spacex-s1",
     ])
   })
 })

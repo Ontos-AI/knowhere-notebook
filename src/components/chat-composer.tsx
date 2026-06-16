@@ -134,7 +134,7 @@ export function ChatComposer({
             {input.length > 0 && (
               <pre
                 aria-hidden="true"
-                className="pointer-events-none absolute inset-0 h-[84px] min-w-0 whitespace-pre-wrap break-words rounded-2xl border border-transparent p-3 text-sm leading-5 text-foreground sm:p-3.5"
+                className="pointer-events-none absolute inset-0 h-[84px] min-w-0 whitespace-pre-wrap break-words rounded-2xl border border-transparent p-3 font-sans text-sm leading-5 text-foreground sm:p-3.5"
               >
                 <span
                   style={{ transform: `translateY(-${textareaScrollTop}px)` }}
