@@ -258,10 +258,11 @@ describe("ChatPanel", () => {
 
     expect(within(citationButton).getByRole("status", { name: "Loading" }))
       .toBeTruthy();
-    expect(citationButton.className).toContain("underline");
+    expect(citationButton.className).toContain("rounded-full");
+    expect(citationButton.className).toContain("max-w-[250px]");
     expect(citationButton.className).toContain("text-primary");
     expect(citationButton.className).not.toContain("bg-muted");
-    expect(citationButton.className).not.toContain("border-border");
+    expect(citationButton.className).not.toContain("underline");
 
     await user.click(citationButton);
     expect(onCitationClick).not.toHaveBeenCalled();
@@ -296,10 +297,11 @@ describe("ChatPanel", () => {
       name: /Open source TSLA-Q4-2025-UPDATE\.PDF/,
     });
 
-    expect(sourceLink.className).toContain("whitespace-normal");
-    expect(sourceLink.className).toContain("underline");
-    expect(sourceLink.className).not.toContain("rounded-lg");
-    expect(sourceLink.className).not.toContain("bg-muted");
+    expect(sourceLink.className).toContain("max-w-[250px]");
+    expect(sourceLink.className).toContain("rounded-full");
+    expect(sourceLink.className).not.toContain("underline");
+    expect(within(sourceLink).getByText("TSLA-Q4-2025-UPDATE.PDF").className)
+      .toContain("truncate");
   });
 
   it("shows button-level loading for chat API actions", async () => {

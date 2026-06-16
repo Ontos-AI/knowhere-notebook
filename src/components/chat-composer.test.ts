@@ -50,4 +50,22 @@ describe("ChatComposer", () => {
     await user.click(loginButton);
     expect(onLoginClick).toHaveBeenCalledOnce();
   });
+
+  it("inserts expert templates and highlights bracket placeholders", async () => {
+    const user = userEvent.setup();
+
+    render(React.createElement(ChatComposer));
+
+    await user.click(
+      screen.getByRole("button", { name: /IPO Prospectus Risk Mining/ }),
+    );
+
+    const input = screen.getByPlaceholderText(
+      "Ask a question about your documents…",
+    ) as HTMLTextAreaElement;
+    expect(input.value).toContain("prospectus of [Company Name]");
+    expect(screen.getByText("[Company Name]").className).toContain(
+      "text-primary",
+    );
+  });
 });

@@ -1,18 +1,23 @@
 "use client";
 
 import {
+  useRef,
   useState,
   type ChangeEvent,
   type KeyboardEvent,
   type ReactElement,
+  type UIEvent,
 } from "react";
-import { Send } from "lucide-react";
+import { FileText, Send } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
+import { chatPromptTemplates } from "@/domains/chat/prompt-templates";
 
 const chatComposerId = "chat-composer";
+const placeholderPattern = /(\[[^\]\r\n]{1,80}\])/gu;
+const placeholderSegmentPattern = /^\[[^\]\r\n]{1,80}\]$/u;
 
 export type ChatComposerProps = {
   readonly isDisabled?: boolean;
@@ -28,6 +33,8 @@ export function ChatComposer({
   onSend,
 }: ChatComposerProps): ReactElement {
   const [input, setInput] = useState("");
+  const [textareaScrollTop, setTextareaScrollTop] = useState(0);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const trimmedInput = input.trim();
   const canSend = !isDisabled && !isSending && trimmedInput.length > 0;
 
@@ -46,6 +53,20 @@ export function ChatComposer({
     if (!canSend) return;
     onSend?.(trimmedInput);
     setInput("");
+    setTextareaScrollTop(0);
+  }
+
+  function handleTemplateSelect(prompt: string): void {
+    setInput(prompt);
+    setTextareaScrollTop(0);
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(prompt.length, prompt.length);
+    });
+  }
+
+  function handleTextareaScroll(event: UIEvent<HTMLTextAreaElement>): void {
+    setTextareaScrollTop(event.currentTarget.scrollTop);
   }
 
   return (
@@ -64,11 +85,43 @@ export function ChatComposer({
         </Button>
       ) : (
         <>
-          <div className="rounded-2xl shadow-sm">
+          <div className="mb-2 flex gap-1.5 overflow-x-auto pb-1">
+            {chatPromptTemplates.map((template) => (
+              <Button
+                key={template.id}
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={isDisabled || isSending}
+                onClick={() => handleTemplateSelect(template.prompt)}
+                className="h-8 shrink-0 gap-1.5 rounded-full px-3 text-[11px] font-semibold"
+              >
+                <FileText className="size-3.5" />
+                <span>{template.title}</span>
+              </Button>
+            ))}
+          </div>
+          <div className="relative overflow-hidden rounded-2xl bg-muted/60 shadow-sm">
+            {input.length > 0 && (
+              <pre
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 h-[84px] min-w-0 whitespace-pre-wrap break-words rounded-2xl border border-transparent p-3 text-sm leading-5 text-foreground sm:p-3.5"
+              >
+                <span
+                  style={{ transform: `translateY(-${textareaScrollTop}px)` }}
+                  className="block"
+                >
+                  {renderHighlightedInput(input)}
+                </span>
+              </pre>
+            )}
             <Textarea
+              ref={textareaRef}
               id={chatComposerId}
               name={chatComposerId}
-              className="h-[84px] w-full min-w-0 resize-none rounded-2xl border-input bg-muted/60 p-3 text-sm text-foreground transition-all placeholder:text-muted-foreground hover:border-primary/50 focus-visible:border-primary focus-visible:ring-0 sm:p-3.5"
+              className={`relative h-[84px] w-full min-w-0 resize-none rounded-2xl border-input bg-transparent p-3 text-sm leading-5 transition-all placeholder:text-muted-foreground hover:border-primary/50 focus-visible:border-primary focus-visible:ring-0 sm:p-3.5 ${
+                input.length > 0 ? "text-transparent caret-foreground" : "text-foreground"
+              }`}
               placeholder={
                 isDisabled
                   ? "Upload a document to start asking questions."
@@ -78,6 +131,7 @@ export function ChatComposer({
               onChange={handleInputChange}
               disabled={isDisabled}
               onKeyDown={handleKeyDown}
+              onScroll={handleTextareaScroll}
             />
           </div>
           <div className="mt-3 flex items-center justify-between gap-3">
@@ -105,4 +159,23 @@ export function ChatComposer({
       )}
     </div>
   );
+}
+
+function renderHighlightedInput(value: string): readonly ReactElement[] {
+  return value
+    .split(placeholderPattern)
+    .map((segment, index): ReactElement => {
+      const key = `${index}-${segment.slice(0, 12)}`;
+      if (placeholderSegmentPattern.test(segment)) {
+        return (
+          <span
+            key={key}
+            className="rounded-sm bg-primary/10 px-0.5 font-semibold text-primary"
+          >
+          {segment}
+        </span>
+      );
+    }
+      return <span key={key}>{segment}</span>;
+    });
 }

@@ -484,7 +484,9 @@ describe("WorkspaceShell", () => {
     });
     await user.click(sendButton);
 
-    const firstCitation = await desktopChatPanel.findByText("doc.pdf · First");
+    const firstCitation = await desktopChatPanel.findByRole("button", {
+      name: "Open source doc.pdf · First",
+    });
     await user.click(firstCitation);
 
     await waitFor(() => {
@@ -502,13 +504,13 @@ describe("WorkspaceShell", () => {
     });
     expect(countFetches(fetch, "/api/sources/source_1/chunks")).toBe(1);
 
-    const secondCitation = desktopChatPanel
-      .getByText("doc.pdf · Second")
-      .closest("button");
+    const secondCitation = desktopChatPanel.getByRole("button", {
+      name: "Open source doc.pdf · Second",
+    }) as HTMLButtonElement;
     await waitFor(() => {
-      expect(secondCitation?.disabled).toBe(false);
+      expect(secondCitation.disabled).toBe(false);
     });
-    await user.click(secondCitation!);
+    await user.click(secondCitation);
 
     await waitFor(() => {
       const topRow = screen
