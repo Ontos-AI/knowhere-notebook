@@ -1,6 +1,6 @@
 import { Effect } from "effect"
 
-import type { Source, Workspace } from "@/infrastructure/db/schema"
+import type { Workspace } from "@/infrastructure/db/schema"
 import { routeResult } from "@/lib/route-result"
 import { startBackgroundReconciliation } from "./background-reconcile"
 import { validateSourceBlobUploadInput } from "./blob-upload"
