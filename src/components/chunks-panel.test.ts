@@ -15,6 +15,9 @@ import { ChunksPanel } from "./chunks-panel";
 import { sourceOriginalPreviewRequest } from "./source-original-preview-request";
 
 const C = ChunksPanel as React.FC<Record<string, unknown>>;
+const virtualizerScrollResetDelayMs = 150;
+
+let shouldFlushVirtualizerTimers: boolean = false;
 
 vi.mock("react-pdf", () => ({
   pdfjs: {
@@ -28,6 +31,7 @@ vi.mock("react-pdf", () => ({
 
 describe("ChunksPanel", () => {
   beforeEach(() => {
+    shouldFlushVirtualizerTimers = false;
     globalThis.ResizeObserver = class ResizeObserver {
       observe() {}
       unobserve() {}
@@ -35,7 +39,11 @@ describe("ChunksPanel", () => {
     };
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    if (shouldFlushVirtualizerTimers) {
+      await flushVirtualizerTimers();
+    }
+
     cleanup();
     sourceOriginalPreviewRequest.clearCacheForTests();
     vi.unstubAllGlobals();
@@ -504,6 +512,47 @@ describe("ChunksPanel", () => {
       ).toBeNull();
     });
     expect(screen.getByTestId("chunk-card-shell-robotics_chunk")).toBeTruthy();
+  });
+
+  it("switches source-only citation navigation from tree to list view", async () => {
+    mockVisibleVirtualViewport();
+    const chunks = [
+      {
+        chunkId: "image_details_chunk",
+        type: "image",
+        content: "",
+        sectionPath: "images/image-81-__details_.jpg",
+        sourceTitle: "product-manual.pdf",
+      },
+    ];
+    const { rerender } = render(
+      React.createElement(C, {
+        chunks,
+        selectedSource: "product-manual.pdf",
+        citationListViewRequestId: 0,
+      }),
+    );
+
+    expect(
+      screen.getByRole("tree", { name: "Parsed chunk sections" }),
+    ).toBeTruthy();
+
+    rerender(
+      React.createElement(C, {
+        chunks,
+        selectedSource: "product-manual.pdf",
+        citationListViewRequestId: 1,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("tree", { name: "Parsed chunk sections" }),
+      ).toBeNull();
+    });
+    expect(
+      screen.getByTestId("chunk-card-shell-image_details_chunk"),
+    ).toBeTruthy();
   });
 
   it("shows a large upload target when no document is selected", async () => {
@@ -1386,6 +1435,8 @@ function createFileDropEvent(file: File): Event {
 function mockVirtualViewportWithChunkHeights(
   heightsByChunkId: Readonly<Record<string, number>>,
 ): void {
+  shouldFlushVirtualizerTimers = true;
+
   vi.spyOn(window.HTMLElement.prototype, "offsetHeight", "get")
     .mockImplementation(function getOffsetHeight(this: HTMLElement): number {
       if (this.hasAttribute("data-radix-scroll-area-viewport")) return 720;
@@ -1396,4 +1447,12 @@ function mockVirtualViewportWithChunkHeights(
     });
   vi.spyOn(window.HTMLElement.prototype, "offsetWidth", "get")
     .mockImplementation((): number => 720);
+}
+
+async function flushVirtualizerTimers(): Promise<void> {
+  await act(async () => {
+    await new Promise<void>((resolve) => {
+      window.setTimeout(resolve, virtualizerScrollResetDelayMs + 25);
+    });
+  });
 }

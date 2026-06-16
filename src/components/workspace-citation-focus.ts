@@ -27,6 +27,7 @@ type WorkspaceCitationFocusInput = {
 }
 
 type WorkspaceCitationFocus = {
+  readonly citationListViewRequestId: number
   readonly focusedChunk: FocusedChunkState
   readonly handleCitationClick: (
     citation: ChatCitationView,
@@ -60,6 +61,8 @@ export function useWorkspaceCitationFocus({
   const [pendingCitationId, setPendingCitationId] = useState<string | null>(
     null,
   )
+  const [citationListViewRequestId, setCitationListViewRequestId] =
+    useState<number>(0)
   const [fullChunkLoadingSourceId, setFullChunkLoadingSourceId] = useState<
     string | null
   >(null)
@@ -184,6 +187,7 @@ export function useWorkspaceCitationFocus({
           citation,
         )
         if (!source) return
+        setCitationListViewRequestId((current) => current + 1)
 
         const loadedChunkId = workspaceCitationState.getLoadedCitationChunkId({
           citation,
@@ -260,6 +264,7 @@ export function useWorkspaceCitationFocus({
   )
 
   return {
+    citationListViewRequestId,
     focusedChunk,
     handleCitationClick,
     handleLoadAllChunks,

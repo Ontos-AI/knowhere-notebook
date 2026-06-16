@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { RetrievalResult } from "@ontos-ai/knowhere-sdk";
 import { Either } from "effect";
+import type { HarnessRunResult } from "@/agent-harness";
 
 import { handleChatTurn } from "./service";
 import type { ChatMessage, ChatThread, Source, Workspace } from "@/infrastructure/db/schema";
@@ -21,7 +22,7 @@ describe("handleChatTurn", () => {
     const repository = makeRepository();
     const generateAnswer = vi.fn(async ({ searchSources }) => {
       await searchSources({ query: "What does the document say?" });
-      return "Grounded answer.";
+      return makeHarnessRunResult("Grounded answer.");
     });
     const sources = [
       makeSource({ id: "source_included", knowhereDocumentId: "doc_included" }),
@@ -66,7 +67,6 @@ describe("handleChatTurn", () => {
       sources,
       excludedSourceIds: ["source_excluded"],
       searchSources: expect.any(Function),
-      readRetrievedChunk: expect.any(Function),
     });
     expect(repository.appendMessageToThread).toHaveBeenNthCalledWith(1, "workspace_1", {
       threadId: "thread_1",
@@ -78,6 +78,7 @@ describe("handleChatTurn", () => {
       role: "assistant",
       content: "Grounded answer.",
       citations: [makeRetrievalResult()],
+      artifacts: [],
     });
   });
 
@@ -172,7 +173,7 @@ describe("handleChatTurn", () => {
       await searchSources({
         query: "Tesla Q4 2025 Update energy generation and storage deployments",
       });
-      return "Grounded answer.";
+      return makeHarnessRunResult("Grounded answer.");
     });
     const sources = [makeSource({ title: "TSLA-Q4-2025-Update.pdf" })];
 
@@ -215,7 +216,6 @@ describe("handleChatTurn", () => {
       sources,
       excludedSourceIds: [],
       searchSources: expect.any(Function),
-      readRetrievedChunk: expect.any(Function),
     });
     expect(retrieval.query).toHaveBeenCalledWith({
       namespace: "notebook-namespace",
@@ -304,6 +304,7 @@ function makeMessage(overrides: Partial<ChatMessage> = {}): ChatMessage {
     role: overrides.role ?? "user",
     content: overrides.content ?? "message",
     citations: null,
+    artifacts: null,
     createdAt: new Date("2026-05-06T00:00:00Z"),
     ...overrides,
   };
@@ -322,5 +323,32 @@ function makeRetrievalResult(
       sectionPath: "Intro",
     },
     ...overrides,
+  };
+}
+
+function makeHarnessRunResult(text: string): HarnessRunResult {
+  return {
+    manifest: {
+      text,
+      citations: [],
+      artifacts: [],
+      unresolved: [],
+    },
+    trace: {
+      ledger: {
+        retrievalCount: 0,
+        chunks: [],
+        assets: [],
+        evidenceText: [],
+        stopReasons: [],
+        failureReasons: [],
+        decisionTraces: [],
+      },
+      finalized: true,
+      priorTurnReads: [],
+      toolCalls: [],
+      validationErrors: [],
+      revisionsUsed: 0,
+    },
   };
 }

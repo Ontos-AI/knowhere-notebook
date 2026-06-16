@@ -233,6 +233,12 @@ export type NewChatThread = typeof chatThreads.$inferInsert;
  * (see `src/lib/types.ts#CitationView[]`). Stored only on assistant
  * rows. It intentionally excludes retrieval `content`, because that is
  * source chunk text and must stay upstream in Knowhere.
+ *
+ * `artifacts` is JSONB of the agent-selected display artifacts
+ * (see `ChatArtifactView[]`): the exact images/tables the harness chose to
+ * show, with their asset URLs and labels. Persisted so artifact selection
+ * (e.g. "only two charts") survives reload instead of falling back to every
+ * retrieved media citation. It carries no upstream chunk text.
  */
 export const chatMessages = pgTable(
   "chat_messages",
@@ -244,6 +250,7 @@ export const chatMessages = pgTable(
     role: text("role").notNull(),
     content: text("content").notNull(),
     citations: jsonb("citations"),
+    artifacts: jsonb("artifacts"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

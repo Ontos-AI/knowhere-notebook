@@ -57,6 +57,13 @@
       "when": 1778569500000,
       "tag": "0007_normalize_legacy_demo_sources",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1781257344080,
+      "tag": "0008_chat_message_artifacts",
+      "breakpoints": true
     }
   ]
 }

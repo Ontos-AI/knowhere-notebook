@@ -30,11 +30,26 @@ export type ChatCitationView = CitationView & {
   readonly content?: string
 }
 
+export type ChatArtifactView = {
+  readonly type: "image" | "table" | "derived_table"
+  readonly ref?: string
+  readonly title?: string
+  readonly columns?: readonly string[]
+  readonly rows?: readonly (readonly string[])[]
+  readonly sourceRefs?: readonly string[]
+  readonly assetUrl?: string
+  readonly label?: string
+  readonly display?: boolean
+  readonly reason?: string
+  readonly citation?: ChatCitationView
+}
+
 export type ChatMessageView = {
   readonly id: string
   readonly role: "user" | "assistant"
   readonly content: string
   readonly citations?: readonly ChatCitationView[]
+  readonly artifacts?: readonly ChatArtifactView[]
 }
 
 export type ChatThreadView = {

@@ -51,6 +51,7 @@ export type ChunksPanelProps = {
   selectedSourceFile?: SourceOriginalFileView | null;
   focusedChunkId?: string | null;
   focusedChunkRequestId?: number;
+  citationListViewRequestId?: number;
   isLoading?: boolean;
   isLoadingMore?: boolean;
   isLoadingAllChunks?: boolean;
@@ -64,6 +65,7 @@ export type ChunksPanelProps = {
 type ChunkDisplayMode = "list" | "tree";
 
 type ChunkDisplayModeState = {
+  readonly handledCitationListViewRequestId: number;
   readonly handledFocusedChunkRequestId: number;
   readonly mode: ChunkDisplayMode;
 };
@@ -74,6 +76,7 @@ export function ChunksPanel({
   selectedSourceFile = null,
   focusedChunkId = null,
   focusedChunkRequestId = 0,
+  citationListViewRequestId = 0,
   isLoading = false,
   isLoadingMore = false,
   isLoadingAllChunks = false,
@@ -94,6 +97,7 @@ export function ChunksPanel({
   >(null);
   const [chunkDisplayModeState, setChunkDisplayModeState] =
     useState<ChunkDisplayModeState>(() => ({
+      handledCitationListViewRequestId: citationListViewRequestId,
       handledFocusedChunkRequestId:
         focusedChunkId === null ? focusedChunkRequestId : -1,
       mode: "tree",
@@ -152,27 +156,30 @@ export function ChunksPanel({
   }, [rememberOriginalPreview, selectOriginalView]);
   const handleListModeSelected = useCallback((): void => {
     setChunkDisplayModeState({
+      handledCitationListViewRequestId: citationListViewRequestId,
       handledFocusedChunkRequestId: focusedChunkRequestId,
       mode: "list",
     });
-  }, [focusedChunkRequestId]);
+  }, [citationListViewRequestId, focusedChunkRequestId]);
   const handleTreeModeSelected = useCallback((): void => {
     setChunkDisplayModeState({
+      handledCitationListViewRequestId: citationListViewRequestId,
       handledFocusedChunkRequestId: focusedChunkRequestId,
       mode: "tree",
     });
-  }, [focusedChunkRequestId]);
+  }, [citationListViewRequestId, focusedChunkRequestId]);
   const handleTreeChunkFocus = useCallback(
     (chunkId: string | null): void => {
       requestChunkFocus(chunkId);
       if (chunkId !== null) {
         setChunkDisplayModeState({
+          handledCitationListViewRequestId: citationListViewRequestId,
           handledFocusedChunkRequestId: focusedChunkRequestId,
           mode: "list",
         });
       }
     },
-    [focusedChunkRequestId, requestChunkFocus],
+    [citationListViewRequestId, focusedChunkRequestId, requestChunkFocus],
   );
   const canZoomSectionTreeOut: boolean =
     sectionTreeZoomPercent > sectionTreeMinimumZoomPercent;
@@ -218,9 +225,11 @@ export function ChunksPanel({
     [],
   );
   const chunkDisplayMode: ChunkDisplayMode =
-    focusedChunkId !== null &&
-    chunkDisplayModeState.handledFocusedChunkRequestId !==
-      focusedChunkRequestId
+    (focusedChunkId !== null &&
+      chunkDisplayModeState.handledFocusedChunkRequestId !==
+        focusedChunkRequestId) ||
+    chunkDisplayModeState.handledCitationListViewRequestId !==
+      citationListViewRequestId
       ? "list"
       : chunkDisplayModeState.mode;
   const headerTitle = focusedChunkId ? "Referenced Chunks" : "Parsed Chunks";

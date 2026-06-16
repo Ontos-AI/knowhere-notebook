@@ -1,11 +1,14 @@
 import type {
   RetrievalQueryParams,
   RetrievalQueryResponse,
-  RetrievalSource,
 } from "@ontos-ai/knowhere-sdk"
 
 import type { Source } from "@/infrastructure/db/schema"
-import type { ChatCitationView } from "@/domains/chat/types"
+import type { HarnessRunResult } from "@/agent-harness"
+import type {
+  ChatArtifactView,
+  ChatCitationView,
+} from "@/domains/chat/types"
 import type { LoadSourceAssetUrls } from "./media-assets"
 
 export type RetrievalClient = {
@@ -39,22 +42,7 @@ export type AgenticRetrievalQuery = Pick<
   readonly purpose?: string
 }
 
-export type RetrievedChunkReference = {
-  id: string
-  chunkId: string | null
-  kind: "result" | "referencedChunk"
-  resultIndex: number | null
-  chunkType: string
-  score: number | null
-  source: RetrievalSource
-  hasAssetUrl: boolean
-  contentLength: number
-  contentPreview: string
-  contentTruncated: boolean
-}
-
 export type AgenticRetrievalResponse = RetrievalQueryResponse & {
-  chunkReferences: readonly RetrievedChunkReference[]
   retrievalPlan?: AgenticRetrievalPlan
 }
 
@@ -62,40 +50,13 @@ export type SearchSources = (
   input: AgenticRetrievalQuery,
 ) => Promise<AgenticRetrievalResponse>
 
-export type ReadRetrievedChunkInput = {
-  id: string
-  offset?: number
-  limit?: number
-}
-
-export type ReadRetrievedChunkResult = {
-  id: string
-  chunkId: string | null
-  found: boolean
-  chunkType: string | null
-  score: number | null
-  source: RetrievalSource | null
-  hasAssetUrl: boolean
-  offset: number
-  limit: number
-  contentLength: number
-  contentSlice: string
-  hasMoreContent: boolean
-  nextOffset: number | null
-}
-
-export type ReadRetrievedChunk = (
-  input: ReadRetrievedChunkInput,
-) => Promise<ReadRetrievedChunkResult>
-
 export type GenerateAnswer = (input: {
   question: string
   messages: readonly ChatHistoryMessage[]
   sources: readonly Source[]
   excludedSourceIds: readonly string[]
   searchSources: SearchSources
-  readRetrievedChunk: ReadRetrievedChunk
-}) => Promise<string>
+}) => Promise<HarnessRunResult>
 
 export type AnswerQuestionInput = {
   question: string
@@ -111,4 +72,5 @@ export type AnswerQuestionInput = {
 export type AnswerQuestionResult = {
   answer: string
   citations: ChatCitationView[]
+  artifacts?: ChatArtifactView[]
 }
