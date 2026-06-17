@@ -493,15 +493,18 @@ function buildCitationContentMarkdown(
     for (const token of getInlineCitationTokens(displayCitation, index)) {
       if (!rewrittenContent.includes(token)) continue;
 
-      rewrittenContent = rewrittenContent.replaceAll(token, "");
+      rewrittenContent = removeInlineCitationToken(rewrittenContent, token);
     }
   }
 
-  return rewrittenContent
-    .replace(/[ \t]{2,}/gu, " ")
-    .replace(/[ \t]+\n/gu, "\n")
-    .replace(/\n{3,}/gu, "\n\n")
-    .trimEnd();
+  return rewrittenContent;
+}
+
+function removeInlineCitationToken(content: string, token: string): string {
+  return content
+    .replaceAll(` ${token}`, "")
+    .replaceAll(`${token} `, "")
+    .replaceAll(token, "");
 }
 
 function getInlineCitationTokens(
@@ -527,6 +530,8 @@ function getInlineCitationTokens(
     sectionLabel ? `[Source ${citationNumber}: ${sectionLabel}]` : null,
     descriptionLabel ? `[${descriptionLabel}]` : null,
     descriptionLabel ? `[Source ${citationNumber}: ${descriptionLabel}]` : null,
+    description ? `[${description}]` : null,
+    description ? `[Source ${citationNumber}: ${description}]` : null,
   ];
 
   return Array.from(

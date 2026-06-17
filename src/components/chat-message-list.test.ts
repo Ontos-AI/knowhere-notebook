@@ -118,6 +118,62 @@ describe("ChatMessageList", () => {
     ).toHaveLength(2);
   });
 
+  it("removes description-only source labels without changing other markdown whitespace", () => {
+    render(
+      React.createElement(ChatMessageList, {
+        messages: [
+          {
+            id: "assistant_1",
+            role: "assistant",
+            content: [
+              "Revenue improved [Source 1: revenue growth].",
+              "",
+              "```ts",
+              "const  value = 1;",
+              "```",
+            ].join("\n"),
+            citations: [
+              {
+                chunkType: "text",
+                score: 0.9,
+                description: "revenue growth",
+                source: {
+                  documentId: "doc_1",
+                  sourceFileName: "notes.pdf",
+                  sectionPath: "Revenue",
+                },
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(screen.getByText("Revenue improved.")).toBeTruthy();
+    expect(screen.queryByText(/Source 1/u)).toBeNull();
+    expect(document.querySelector("code.language-ts")?.textContent).toContain(
+      "const  value = 1;",
+    );
+  });
+
+  it("preserves repeated spaces when there are no citation tokens to remove", () => {
+    render(
+      React.createElement(ChatMessageList, {
+        messages: [
+          {
+            id: "assistant_1",
+            role: "assistant",
+            content: ["```ts", "const  value = 1;", "```"].join("\n"),
+          },
+        ],
+      }),
+    );
+
+    expect(document.querySelector("code.language-ts")?.textContent).toContain(
+      "const  value = 1;",
+    );
+  });
+
   it("renders image citations as viewable image attachments", () => {
     render(
       React.createElement(ChatMessageList, {
