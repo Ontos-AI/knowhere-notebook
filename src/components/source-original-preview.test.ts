@@ -616,6 +616,27 @@ describe("SourceOriginalPreview", () => {
     ).toBeNull();
   });
 
+  it("renders public demo PDFs with the browser PDF viewer instead of fetching bytes", () => {
+    render(
+      React.createElement(SourceOriginalPreview, {
+        sourceTitle: "demo.pdf",
+        file: {
+          url: "https://example.com/demo.pdf",
+          mimeType: "application/pdf",
+          canDownload: false,
+          pdfPreviewMode: "browser",
+        },
+        targetPageNumber: 3,
+        targetPageRequestId: 1,
+      }),
+    );
+
+    const iframe = screen.getByTitle("demo.pdf original PDF");
+    expect(iframe.getAttribute("src")).toBe("https://example.com/demo.pdf#page=3");
+    expect(screen.queryByTestId("pdf-document")).toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("keeps the download action for uploaded originals by default", () => {
     render(
       React.createElement(SourceOriginalPreview, {

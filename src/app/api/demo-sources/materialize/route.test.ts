@@ -52,7 +52,7 @@ describe("POST /api/demo-sources/materialize", () => {
         chunkCount: 70,
         status: "created",
         originalFile: {
-          url: "/api/v1/demo/sources/demo-tsla-q4-2025/original",
+          url: "https://example.com/tsla-q4-2025.pdf",
           mimeType: "application/pdf",
           sizeBytes: 5648867,
           canDownload: false,
@@ -80,12 +80,14 @@ describe("POST /api/demo-sources/materialize", () => {
           title: "TSLA-Q4-2025-Update.pdf",
           mimeType: "application/pdf",
           status: "ready",
+          demoSourceId: "demo-tsla-q4-2025",
           documentId: "doc_user_copy",
           originalFile: {
-            url: "/api/demo-sources/demo-tsla-q4-2025/original",
+            url: "https://example.com/tsla-q4-2025.pdf",
             mimeType: "application/pdf",
             sizeBytes: 5648867,
             canDownload: false,
+            pdfPreviewMode: "browser",
           },
           chunkCount: 70,
         },
@@ -106,8 +108,54 @@ describe("POST /api/demo-sources/materialize", () => {
         mimeType: "application/pdf",
         sizeBytes: 5648867,
         knowhereDocumentId: "doc_user_copy",
-        originalBlobUrl: "/api/demo-sources/demo-tsla-q4-2025/original",
+        originalBlobUrl: "https://example.com/tsla-q4-2025.pdf",
       },
+    )
+  })
+
+  it("does not store non-public legacy demo original routes", async () => {
+    const workspace = makeWorkspace()
+    mocks.getAuthenticatedWithClient.mockResolvedValue({
+      apiKey: "jwt_123",
+      workspace,
+    })
+    mocks.materializeSources.mockResolvedValue([
+      {
+        demoSourceId: "legacy-demo",
+        documentId: "doc_legacy_copy",
+        title: "Legacy-Demo.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 10,
+        chunkCount: 1,
+        status: "created",
+        originalFile: {
+          url: "https://api.knowhere.example/api/v1/demo/sources/legacy-demo/original",
+          mimeType: "application/pdf",
+          sizeBytes: 10,
+          canDownload: false,
+        },
+      },
+    ])
+    mocks.upsertMaterializedDemoSource.mockResolvedValue(
+      makeSource(workspace.id, { originalBlobUrl: null }),
+    )
+
+    const response = await POST(
+      new Request("http://localhost:3001/api/demo-sources/materialize", {
+        method: "POST",
+        body: JSON.stringify({
+          demoSourceIds: ["legacy-demo"],
+        }),
+      }),
+    )
+
+    expect(response.status).toBe(200)
+    expect(mocks.upsertMaterializedDemoSource).toHaveBeenCalledWith(
+      workspace.id,
+      expect.objectContaining({
+        demoSourceId: "legacy-demo",
+        originalBlobUrl: null,
+      }),
     )
   })
 
@@ -172,7 +220,10 @@ function makeWorkspace(): Workspace {
   }
 }
 
-function makeSource(workspaceId: string): Source {
+function makeSource(
+  workspaceId: string,
+  overrides: Partial<Source> = {},
+): Source {
   return {
     id: "source_demo",
     workspaceId,
@@ -186,10 +237,11 @@ function makeSource(workspaceId: string): Source {
     stagedBlobPathname: null,
     stagedBlobUrl: null,
     originalBlobPathname: null,
-    originalBlobUrl: "/api/demo-sources/demo-tsla-q4-2025/original",
+    originalBlobUrl: "https://example.com/tsla-q4-2025.pdf",
     demoKey: "demo-tsla-q4-2025",
     createdAt: new Date("2026-05-10T00:00:00.000Z"),
     updatedAt: new Date("2026-05-10T00:00:00.000Z"),
     deletedAt: null,
+    ...overrides,
   }
 }

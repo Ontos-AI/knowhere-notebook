@@ -81,18 +81,35 @@ describe("toSourceView", () => {
           mimeType: "application/pdf",
           sizeBytes: 5648867,
           knowhereDocumentId: "doc_user_copy",
-          originalBlobUrl: "/api/demo-sources/demo-tsla-q4-2025/original",
+          originalBlobUrl: "https://example.com/tsla-q4-2025.pdf",
         }),
         { chunkCount: 70 },
       ),
     ).toMatchObject({
       title: "TSLA-Q4-2025-Update.pdf",
+      demoSourceId: "demo-tsla-q4-2025",
       documentId: "doc_user_copy",
       chunkCount: 70,
       originalFile: {
-        url: "/api/demo-sources/demo-tsla-q4-2025/original",
+        url: "https://example.com/tsla-q4-2025.pdf",
         canDownload: false,
+        pdfPreviewMode: "browser",
       },
     });
+  });
+
+  it("does not expose legacy demo original proxy routes", () => {
+    const view = toSourceView(
+      makeSource({
+        demoKey: "demo-tsla-q4-2025",
+        title: "TSLA-Q4-2025-Update.pdf",
+        mimeType: "application/pdf",
+        knowhereDocumentId: "doc_user_copy",
+        originalBlobUrl: "/api/demo-sources/demo-tsla-q4-2025/original",
+      }),
+    );
+
+    expect(view.demoSourceId).toBe("demo-tsla-q4-2025");
+    expect(view.originalFile).toBeUndefined();
   });
 });

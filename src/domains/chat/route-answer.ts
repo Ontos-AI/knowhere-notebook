@@ -4,6 +4,7 @@ import {
   generateAgenticOutputManifest,
   parseChatRequestBody,
 } from "@/domains/chat"
+import { hardenChatMediaAssetUrls } from "@/domains/chat/media-asset-hardening"
 import {
   handleChatTurn,
   type ChatTurnError,
@@ -58,6 +59,8 @@ const answerChatEffect = (input: AnswerChatInput) =>
     const sources = yield* Effect.tryPromise(() =>
       reconcileSourcesForWorkspace(workspace, client),
     )
+    const loadSourceAssetUrls = (source: (typeof sources)[number]) =>
+      sourceService.getParseAssetUrls(workspace.id, source.id)
 
     const result: Either.Either<ChatTurnValue, ChatAnswerFailure> =
       yield* Effect.tryPromise(() =>
@@ -69,8 +72,15 @@ const answerChatEffect = (input: AnswerChatInput) =>
           excludedSourceIds: body.value.excludedSourceIds,
           retrieval: client.retrieval,
           generateAnswer: generateAgenticOutputManifest,
-          loadSourceAssetUrls: (source) =>
-            sourceService.getParseAssetUrls(workspace.id, source.id),
+          loadSourceAssetUrls,
+          hardenMediaAssetUrls: ({ results, artifacts }) =>
+            hardenChatMediaAssetUrls({
+              workspaceId: workspace.id,
+              sources,
+              results,
+              artifacts,
+              loadSourceAssetUrls,
+            }),
           repository: chatTurnPersistence.createRepository(),
         }),
       ).pipe(

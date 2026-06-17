@@ -1,15 +1,21 @@
 "use client";
 
 import {
+  useMemo,
+  useState,
   type ReactElement,
 } from "react";
 import { History, Plus } from "lucide-react";
 import { ChatComposer } from "@/components/chat-composer";
 import { ChatHistorySheet } from "@/components/chat-history-sheet";
-import { ChatMessageList } from "@/components/chat-message-list";
+import {
+  ChatMessageList,
+  type ChatDiagramState,
+} from "@/components/chat-message-list";
 import { useChatPanelWorkflow } from "@/components/chat-panel-workflow";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import type { ChatDiagramSpec } from "@/domains/chat/diagram";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -31,6 +37,11 @@ import type {
   ChatMessageView,
   ChatThreadView,
 } from "@/domains/chat/types";
+import { workspaceClient } from "@/domains/workspace/client";
+import {
+  trackNotebookAssistantQuestionSubmitted,
+  type AnalyticsContext,
+} from "@/lib/posthog";
 
 export type ChatPanelProps = {
   messages: ChatMessageView[];
@@ -44,6 +55,8 @@ export type ChatPanelProps = {
   onLoginClick?: () => void;
   sourceTitlesByDocumentId?: Readonly<Record<string, string>>;
   sourceCount?: number;
+  selectedSourcesCount?: number;
+  analyticsContext?: AnalyticsContext;
   isSending?: boolean;
   isHistoryLoading?: boolean;
   isCreatingThread?: boolean;
@@ -66,6 +79,8 @@ export function ChatPanel({
   onLoginClick,
   sourceTitlesByDocumentId = {},
   sourceCount = 0,
+  selectedSourcesCount = 0,
+  analyticsContext,
   isSending = false,
   isHistoryLoading = false,
   isCreatingThread = false,
@@ -90,6 +105,68 @@ export function ChatPanel({
     onThreadArchive,
     threads,
   });
+  const [diagramStatesByMessageId, setDiagramStatesByMessageId] = useState<
+    Readonly<Record<string, ChatDiagramState>>
+  >({});
+  const diagramTargetMessage = useMemo(
+    (): ChatMessageView | undefined => getLatestDiagramTargetMessage(messages),
+    [messages],
+  );
+  const diagramTargetState =
+    diagramTargetMessage ? diagramStatesByMessageId[diagramTargetMessage.id] : undefined;
+  const canCreateDiagram =
+    Boolean(diagramTargetMessage) &&
+    !isDisabled &&
+    !isSending &&
+    diagramTargetState?.status !== "loading";
+
+  async function handleCreateDiagramCommand(
+    targetMessage: ChatMessageView | undefined = diagramTargetMessage,
+  ): Promise<void> {
+    if (!targetMessage || isDisabled || isSending) return;
+
+    const messageId = targetMessage.id;
+    if (diagramStatesByMessageId[messageId]?.status === "loading") return;
+
+    setDiagramStatesByMessageId((current) => ({
+      ...current,
+      [messageId]: { status: "loading" },
+    }));
+
+    try {
+      const response = await workspaceClient.createChatDiagram({
+        answer: targetMessage.content,
+      });
+      setDiagramStatesByMessageId((current) => ({
+        ...current,
+        [messageId]: toChatDiagramState(response.diagram, response.message),
+      }));
+    } catch {
+      setDiagramStatesByMessageId((current) => ({
+        ...current,
+        [messageId]: {
+          status: "error",
+          message: "Diagram could not be created.",
+        },
+      }));
+    }
+  }
+
+  function handleComposerSend(text: string): void {
+    if (isCreateDiagramCommand(text)) {
+      void handleCreateDiagramCommand();
+      return;
+    }
+
+    void trackNotebookAssistantQuestionSubmitted({
+      context: analyticsContext,
+      threadId: activeThreadId,
+      selectedSourcesCount,
+      sourceCountSnapshot: sourceCount,
+      messageLength: text.length,
+    });
+    onSend?.(text);
+  }
 
   return (
     <section
@@ -194,22 +271,68 @@ export function ChatPanel({
       />
 
       <ChatMessageList
+        diagramStatesByMessageId={diagramStatesByMessageId}
         isDisabled={isDisabled}
+        isDiagramActionDisabled={isDisabled || isSending}
         isSending={isSending}
         messages={messages}
         needsLogin={Boolean(onLoginClick)}
         onCitationClick={onCitationClick}
+        onCreateDiagram={handleCreateDiagramCommand}
         pendingCitationId={pendingCitationId}
         pendingStatusText={pendingStatusText}
         sourceTitlesByDocumentId={sourceTitlesByDocumentId}
       />
 
       <ChatComposer
+        canCreateDiagram={canCreateDiagram}
         isDisabled={isDisabled}
+        isCreatingDiagram={diagramTargetState?.status === "loading"}
         isSending={isSending}
+        onCreateDiagram={() => handleCreateDiagramCommand()}
         onLoginClick={onLoginClick}
-        onSend={onSend}
+        onSend={handleComposerSend}
       />
     </section>
   );
+}
+
+function isCreateDiagramCommand(text: string): boolean {
+  const normalizedText = text.trim().toLowerCase();
+  return normalizedText === "/diagram" || normalizedText === "/create-diagram";
+}
+
+function getLatestDiagramTargetMessage(
+  messages: readonly ChatMessageView[],
+): ChatMessageView | undefined {
+  return [...messages]
+    .reverse()
+    .find(
+      (message): boolean =>
+        message.role === "assistant" && message.content.trim().length > 0,
+    );
+}
+
+function toChatDiagramState(
+  diagram: ChatDiagramSpec | null | undefined,
+  fallbackMessage: string | undefined,
+): ChatDiagramState {
+  if (!diagram) {
+    return {
+      status: "error",
+      message: fallbackMessage ?? "Diagram could not be created.",
+    };
+  }
+
+  if (diagram.type === "none") {
+    return {
+      status: "empty",
+      reason: diagram.reason,
+    };
+  }
+
+  return {
+    status: "ready",
+    diagram,
+  };
 }

@@ -11,6 +11,11 @@ import {
 
 import type { SourceView } from "@/domains/sources/types";
 import { postSourceUpload } from "@/domains/sources/upload-request";
+import {
+  trackNotebookDocumentUploadCompleted,
+  trackNotebookDocumentUploadFailed,
+  type AnalyticsContext,
+} from "@/lib/posthog";
 
 type SourceUploadResponseBody = {
   readonly message?: string;
@@ -30,7 +35,9 @@ type SourceUploadDialogMessage = {
 };
 
 type SourceUploadDialogWorkflowInput = {
+  readonly analyticsContext?: AnalyticsContext;
   readonly onSourceUploaded?: (source: SourceView) => void;
+  readonly sourceCountBefore?: number;
   readonly uploadSource?: UploadSource;
 };
 
@@ -52,7 +59,9 @@ const defaultUploadFailureMessage =
   "Upload failed. Try again or choose another file.";
 
 export function useSourceUploadDialogWorkflow({
+  analyticsContext,
   onSourceUploaded,
+  sourceCountBefore = 0,
   uploadSource = postSourceUpload,
 }: SourceUploadDialogWorkflowInput): SourceUploadDialogWorkflow {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -89,6 +98,13 @@ export function useSourceUploadDialogWorkflow({
       const { body } = response;
 
       if (!isSuccessfulStatus(response.status) || !body.source) {
+        void trackNotebookDocumentUploadFailed({
+          context: analyticsContext,
+          fileType: file.type || null,
+          fileSizeBytes: file.size,
+          errorType: getUploadFailureErrorType(response.status),
+          errorMessage: body.message ?? defaultUploadFailureMessage,
+        });
         setMessage({
           isSuccess: false,
           text: body.message ?? defaultUploadFailureMessage,
@@ -97,9 +113,24 @@ export function useSourceUploadDialogWorkflow({
       }
 
       clearSelectedFile();
+      void trackNotebookDocumentUploadCompleted({
+        context: analyticsContext,
+        uploadedCount: 1,
+        fileType: file.type,
+        fileSizeBytes: file.size,
+        sourceCountBefore,
+        sourceCountAfter: sourceCountBefore + 1,
+      });
       onSourceUploaded?.(body.source);
       setIsDialogOpen(false);
     } catch {
+      void trackNotebookDocumentUploadFailed({
+        context: analyticsContext,
+        fileType: file.type || null,
+        fileSizeBytes: file.size,
+        errorType: "network",
+        errorMessage: defaultUploadFailureMessage,
+      });
       setMessage({
         isSuccess: false,
         text: defaultUploadFailureMessage,
@@ -173,6 +204,12 @@ export function useSourceUploadDialogWorkflow({
 
 function isSuccessfulStatus(status: number): boolean {
   return status >= 200 && status < 300;
+}
+
+function getUploadFailureErrorType(
+  status: number,
+): "validation" | "server" {
+  return status === 400 ? "validation" : "server";
 }
 
 function hasDraggedFiles(event: DragEvent<HTMLElement>): boolean {

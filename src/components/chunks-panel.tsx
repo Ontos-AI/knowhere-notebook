@@ -43,6 +43,7 @@ import { useSourceOriginalPreviewWarmup } from "@/components/source-original-pre
 import { sourceOriginalPreviewModel } from "@/components/source-original-preview-model";
 import type { ParsedChunkView } from "@/domains/chunks/types";
 import type { SourceOriginalFileView, SourceView } from "@/domains/sources/types";
+import type { AnalyticsContext } from "@/lib/posthog";
 import { cn } from "@/lib/utils";
 
 export type ChunksPanelProps = {
@@ -60,6 +61,8 @@ export type ChunksPanelProps = {
   onLoadAllChunks?: () => void;
   onLoginClick?: () => void;
   onSourceUploaded?: (source: SourceView) => void;
+  analyticsContext?: AnalyticsContext;
+  sourceCountSnapshot?: number;
 };
 
 type ChunkDisplayMode = "list" | "tree";
@@ -85,6 +88,8 @@ export function ChunksPanel({
   onLoadAllChunks,
   onLoginClick,
   onSourceUploaded,
+  analyticsContext,
+  sourceCountSnapshot = 0,
 }: Partial<ChunksPanelProps> = {}) {
   const originalPreviewCacheKey = selectedSourceFile?.url ?? null;
   const isOriginalPreviewAvailable =
@@ -111,6 +116,7 @@ export function ChunksPanel({
     handleParsedViewSelected,
     handleViewportScroll,
     hasOriginalFile,
+    hasOriginalView,
     measureVirtualChunkElement,
     originalTargetPageNumber,
     originalTargetPageRequestId,
@@ -320,7 +326,7 @@ export function ChunksPanel({
               </button>
             </div>
           ) : null}
-          {hasOriginalFile ? (
+          {hasOriginalView ? (
             <div className="flex shrink-0 rounded-lg border border-border bg-muted/40 p-0.5">
               <button
                 type="button"
@@ -362,6 +368,8 @@ export function ChunksPanel({
                   <EmptySourceUploadState
                     onLoginClick={onLoginClick}
                     onSourceUploaded={onSourceUploaded}
+                    analyticsContext={analyticsContext}
+                    sourceCountSnapshot={sourceCountSnapshot}
                   />
                 )
               ) : isTreeModeVisible ? (
@@ -967,11 +975,15 @@ function truncateTreeLabel(value: string): string {
 }
 
 function EmptySourceUploadState({
+  analyticsContext,
   onLoginClick,
   onSourceUploaded,
+  sourceCountSnapshot = 0,
 }: {
+  readonly analyticsContext?: AnalyticsContext;
   readonly onLoginClick?: () => void;
   readonly onSourceUploaded?: (source: SourceView) => void;
+  readonly sourceCountSnapshot?: number;
 }): ReactNode {
   if (onLoginClick) {
     return (
@@ -999,6 +1011,8 @@ function EmptySourceUploadState({
   return (
     <SourceUploadDialog
       onSourceUploaded={onSourceUploaded}
+      analyticsContext={analyticsContext}
+      sourceCountSnapshot={sourceCountSnapshot}
       renderTrigger={({ onClick, onDragOver, onDrop }) => (
         <button
           type="button"

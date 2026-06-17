@@ -9,16 +9,19 @@ import type { SourceView } from "@/domains/sources/types"
 const mocks = vi.hoisted(() => ({
   archiveSource: vi.fn(),
   fetchSources: vi.fn(),
+  materializeDemoSources: vi.fn(),
 }))
 
 vi.mock("@/domains/workspace/client", () => ({
   workspaceClient: {
     keys: {
       archiveSource: "archive-source",
+      materializeDemoSources: "/api/demo-sources/materialize",
       sources: "/api/sources",
     },
     archiveSource: mocks.archiveSource,
     fetchSources: mocks.fetchSources,
+    materializeDemoSources: mocks.materializeDemoSources,
   },
 }))
 
@@ -114,6 +117,98 @@ describe("useWorkspaceSourceWorkflow", () => {
       status: "ready",
       documentId: "document_1",
     })
+  })
+
+  it("materializes one Official Library source through the workflow", async () => {
+    const demoSource = makeSource({
+      id: "demo-spacex-s1",
+      kind: "demo",
+      demoSourceId: "demo-spacex-s1",
+      title: "spacex-s1.pdf",
+      officialLibrary: {
+        librarySourceId: "financial-spacex-s1",
+        categoryId: "financial-reports",
+        sourceUrl: "https://example.com/spacex-s1.pdf",
+      },
+    })
+    const materializedSource = makeSource({
+      id: "source_spacex",
+      kind: "workspace",
+      demoSourceId: "demo-spacex-s1",
+      title: "spacex-s1.pdf",
+      documentId: "doc_spacex",
+    })
+    mocks.fetchSources.mockResolvedValue([demoSource])
+    mocks.materializeDemoSources.mockResolvedValue([materializedSource])
+
+    const { result } = renderWorkspaceSourceWorkflow({
+      initialSources: [demoSource],
+      isGuest: false,
+    })
+
+    await act(async () => {
+      await expect(
+        result.current.handleOfficialLibrarySourceAdd("demo-spacex-s1"),
+      ).resolves.toBe(true)
+    })
+
+    expect(mocks.materializeDemoSources).toHaveBeenCalledWith({
+      demoSourceIds: ["demo-spacex-s1"],
+    })
+    expect(result.current.sources.map((source) => source.id)).toEqual([
+      "source_spacex",
+    ])
+    expect(result.current.sources[0]).toMatchObject({
+      demoSourceId: "demo-spacex-s1",
+    })
+    expect(result.current.selectedSourceId).toBe("source_spacex")
+  })
+
+  it("does not count unmaterialized Official Library sources as chat-ready", () => {
+    const librarySource = makeSource({
+      id: "demo-spacex-s1",
+      kind: "demo",
+      demoSourceId: "demo-spacex-s1",
+      title: "spacex-s1.pdf",
+      officialLibrary: {
+        librarySourceId: "financial-spacex-s1",
+        categoryId: "financial-reports",
+        sourceUrl: "https://example.com/spacex-s1.pdf",
+      },
+    })
+
+    const { result } = renderWorkspaceSourceWorkflow({
+      initialSources: [librarySource],
+      isGuest: false,
+    })
+
+    expect(result.current.readySourceCount).toBe(0)
+  })
+
+  it("reports failed Official Library materialization without changing sources", async () => {
+    const demoSource = makeSource({
+      id: "demo-spacex-s1",
+      kind: "demo",
+      demoSourceId: "demo-spacex-s1",
+      title: "spacex-s1.pdf",
+    })
+    mocks.fetchSources.mockResolvedValue([demoSource])
+    mocks.materializeDemoSources.mockRejectedValue(new Error("Bad gateway"))
+
+    const { result } = renderWorkspaceSourceWorkflow({
+      initialSources: [demoSource],
+      isGuest: false,
+    })
+
+    await act(async () => {
+      await expect(
+        result.current.handleOfficialLibrarySourceAdd("demo-spacex-s1"),
+      ).resolves.toBe(false)
+    })
+
+    expect(result.current.sources.map((source) => source.id)).toEqual([
+      "demo-spacex-s1",
+    ])
   })
 })
 

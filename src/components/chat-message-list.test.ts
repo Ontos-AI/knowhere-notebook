@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import React from "react";
 import { cleanup, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ChatMessageList } from "./chat-message-list";
@@ -57,6 +58,131 @@ describe("ChatMessageList", () => {
     expect(
       screen.getByRole("button", { name: "Open source Syllabus.pdf" }),
     ).toBeTruthy();
+  });
+
+  it("renders citations in a bottom source area as file chips", async () => {
+    const user = userEvent.setup();
+
+    render(
+      React.createElement(ChatMessageList, {
+        messages: [
+          {
+            id: "assistant_1",
+            role: "assistant",
+            content: [
+              "Capital expenditure appears in the appendix. [Source 1: spacex-s1.pdf / Assets / tables / table-25 Capital Expenditures.html]",
+              "Drivers are discussed elsewhere. [Source 3: spacex-s1.pdf / MD&A / Drivers of Our Performance]",
+            ].join("\n\n"),
+            citations: [
+              {
+                chunkType: "table",
+                score: 0.9,
+                source: {
+                  documentId: "doc_1",
+                  sourceFileName: "spacex-s1.pdf",
+                  sectionPath:
+                    "Assets / tables / table-25 Capital Expenditures.html",
+                },
+              },
+              {
+                chunkType: "table",
+                score: 0.91,
+                source: {
+                  documentId: "doc_1",
+                  sourceFileName: "spacex-s1.pdf",
+                  sectionPath:
+                    "Assets / tables / table-25 Capital Expenditures.html",
+                },
+              },
+              {
+                chunkType: "text",
+                score: 0.8,
+                source: {
+                  documentId: "doc_1",
+                  sourceFileName: "spacex-s1.pdf",
+                  sectionPath: "MD&A / Drivers of Our Performance",
+                },
+              },
+            ],
+          },
+        ],
+        onCitationClick: vi.fn(),
+      }),
+    );
+
+    expect(screen.getByText("Capital expenditure appears in the appendix."))
+      .toBeTruthy();
+    expect(screen.queryByText(/Source 1/u)).toBeNull();
+    expect(screen.queryByText(/Source 3/u)).toBeNull();
+    expect(screen.getByText("Sources")).toBeTruthy();
+    const sourceChips = screen.getAllByRole("button", {
+      name: "Open source spacex-s1.pdf",
+    });
+
+    expect(sourceChips).toHaveLength(2);
+
+    await user.hover(sourceChips[0]!);
+
+    const tooltip = await screen.findByRole("tooltip");
+    expect(tooltip.textContent).toBe(
+      "spacex-s1.pdf · Assets / tables / table-25 Capital Expenditures.html",
+    );
+  });
+
+  it("removes description-only source labels without changing other markdown whitespace", () => {
+    render(
+      React.createElement(ChatMessageList, {
+        messages: [
+          {
+            id: "assistant_1",
+            role: "assistant",
+            content: [
+              "Revenue improved [Source 1: revenue growth].",
+              "",
+              "```ts",
+              "const  value = 1;",
+              "```",
+            ].join("\n"),
+            citations: [
+              {
+                chunkType: "text",
+                score: 0.9,
+                description: "revenue growth",
+                source: {
+                  documentId: "doc_1",
+                  sourceFileName: "notes.pdf",
+                  sectionPath: "Revenue",
+                },
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(screen.getByText("Revenue improved.")).toBeTruthy();
+    expect(screen.queryByText(/Source 1/u)).toBeNull();
+    expect(document.querySelector("code.language-ts")?.textContent).toContain(
+      "const  value = 1;",
+    );
+  });
+
+  it("preserves repeated spaces when there are no citation tokens to remove", () => {
+    render(
+      React.createElement(ChatMessageList, {
+        messages: [
+          {
+            id: "assistant_1",
+            role: "assistant",
+            content: ["```ts", "const  value = 1;", "```"].join("\n"),
+          },
+        ],
+      }),
+    );
+
+    expect(document.querySelector("code.language-ts")?.textContent).toContain(
+      "const  value = 1;",
+    );
   });
 
   it("renders image citations as viewable image attachments", () => {
@@ -196,7 +322,7 @@ describe("ChatMessageList", () => {
     expect(screen.queryByRole("img")).toBeNull();
     expect(
       screen.getByRole("button", {
-        name: "Open source source.pdf · Candidate image",
+        name: "Open source source.pdf",
       }),
     ).toBeTruthy();
   });
@@ -333,7 +459,7 @@ describe("ChatMessageList", () => {
     ).toBeTruthy();
     expect(
       screen.getAllByRole("button", {
-        name: "Open source 商务标文件.pdf · 二、法定代表人身份证明",
+        name: "Open source 商务标文件.pdf",
       }),
     ).toHaveLength(1);
   });

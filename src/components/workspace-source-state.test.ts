@@ -28,6 +28,36 @@ describe("workspaceSourceState", () => {
     );
   });
 
+  it("can select an unmaterialized Official Library row for preview", () => {
+    const sources: readonly SourceView[] = [
+      {
+        id: "demo-spacex-s1",
+        kind: "demo",
+        demoSourceId: "demo-spacex-s1",
+        title: "spacex-s1.pdf",
+        status: "ready",
+        mimeType: "application/pdf",
+        excludedFromQuery: false,
+        officialLibrary: {
+          librarySourceId: "financial-spacex-s1",
+          categoryId: "financial-reports",
+          sourceUrl: "https://example.com/spacex-s1.pdf",
+        },
+      },
+      {
+        id: "source_ready",
+        title: "ready.pdf",
+        status: "ready",
+        mimeType: "application/pdf",
+        excludedFromQuery: false,
+      },
+    ];
+
+    expect(workspaceSourceState.getInitialSelectedSourceId(sources)).toBe(
+      "demo-spacex-s1",
+    );
+  });
+
   it("applies source query exclusions without mutating the source list", () => {
     const sources: readonly SourceView[] = [
       {

@@ -5,6 +5,7 @@ import { chatCitationPersistence } from "@/domains/chat/chat-citation-persistenc
 import { chatMessageRepository } from "@/domains/chat/chat-message-repository"
 import { chatThreadRepository } from "@/domains/chat/chat-thread-repository"
 import type { ChatCitationView } from "@/domains/chat/types"
+import { demoOriginalFile } from "@/domains/demo/original-file"
 import { databaseRuntime } from "@/domains/workspace/database-runtime"
 import { sourceService } from "@/domains/sources/service"
 import { toSourceView } from "@/domains/sources/view"
@@ -69,9 +70,7 @@ export async function POST(request: Request): Promise<NextResponse> {
                 mimeType: source.mimeType,
                 sizeBytes: source.sizeBytes,
                 knowhereDocumentId: source.documentId,
-                originalBlobUrl: `/api/demo-sources/${encodeURIComponent(
-                  source.demoSourceId,
-                )}/original`,
+                originalBlobUrl: demoOriginalFile.getPublicUrl(source),
               }),
             )
             return toSourceView(row, { chunkCount: source.chunkCount })

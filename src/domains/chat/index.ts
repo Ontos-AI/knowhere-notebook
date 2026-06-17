@@ -218,7 +218,7 @@ export const answerQuestionWithRetrieval = (
       }
     }
 
-    const results = yield* Effect.tryPromise(() =>
+    const enrichedResults = yield* Effect.tryPromise(() =>
       enrichRetrievalResultsWithAssetUrls({
         results: useNotebookSourceTitles(rawResults, input.sources),
         sources: input.sources,
@@ -226,21 +226,35 @@ export const answerQuestionWithRetrieval = (
         evidenceText: formatRetrievalEvidenceText(retrievalResponses),
       }),
     )
+    const artifacts = toChatArtifactViewsFromHarness(generatedAnswer, input.sources)
+    const hardenedMedia = yield* Effect.tryPromise(() =>
+      hardenAnswerMediaAssetUrls({
+        input,
+        results: enrichedResults,
+        artifacts,
+      }),
+    )
     const answer = sanitizeGeneratedAnswer({
       answer: generatedAnswer.manifest.text,
-      results,
+      results: getGeneratedAnswerSanitizerResults({
+        rawResults,
+        enrichedResults,
+        hardenedResults: hardenedMedia.results,
+        artifacts,
+        hardenedArtifacts: hardenedMedia.artifacts,
+      }),
     })
-    const citationResults = results
-    const artifacts = toChatArtifactViewsFromHarness(generatedAnswer, input.sources)
+    const citationResults = hardenedMedia.results
+    const displayArtifacts = hardenedMedia.artifacts ?? []
     logger.info("chat-agent: answer complete", {
       answerLength: answer.length,
       citationCount: citationResults.length,
-      artifactCount: artifacts?.length ?? 0,
+      artifactCount: displayArtifacts.length,
     })
     return {
       answer,
       citations: toChatCitationViews(citationResults, answer),
-      artifacts: artifacts ?? [],
+      artifacts: displayArtifacts,
     }
   })
 
@@ -382,6 +396,114 @@ function normalizeHarnessSource(
   }
 }
 
+type AnswerMediaAssetHardeningInput = {
+  readonly input: AnswerQuestionInput
+  readonly results: readonly RetrievalResult[]
+  readonly artifacts?: readonly ChatArtifactView[]
+}
+
+async function hardenAnswerMediaAssetUrls({
+  input,
+  results,
+  artifacts,
+}: AnswerMediaAssetHardeningInput): Promise<{
+  readonly results: RetrievalResult[]
+  readonly artifacts?: ChatArtifactView[]
+}> {
+  if (!input.hardenMediaAssetUrls) {
+    return {
+      results: [...results],
+      ...(artifacts ? { artifacts: [...artifacts] } : {}),
+    }
+  }
+
+  try {
+    const hardened = await input.hardenMediaAssetUrls({ results, artifacts })
+    const hardenedArtifacts = hardened.artifacts ?? artifacts
+    return {
+      results: hardened.results,
+      ...(hardenedArtifacts ? { artifacts: [...hardenedArtifacts] } : {}),
+    }
+  } catch (error) {
+    logger.warn("chat-agent: media asset hardening failed; using raw URLs", {
+      error: formatUnknownError(error),
+    })
+    return {
+      results: [...results],
+      ...(artifacts ? { artifacts: [...artifacts] } : {}),
+    }
+  }
+}
+
+type GeneratedAnswerSanitizerResultsInput = {
+  readonly rawResults: readonly RetrievalResult[]
+  readonly enrichedResults: readonly RetrievalResult[]
+  readonly hardenedResults: readonly RetrievalResult[]
+  readonly artifacts?: readonly ChatArtifactView[]
+  readonly hardenedArtifacts?: readonly ChatArtifactView[]
+}
+
+function getGeneratedAnswerSanitizerResults({
+  rawResults,
+  enrichedResults,
+  hardenedResults,
+  artifacts,
+  hardenedArtifacts,
+}: GeneratedAnswerSanitizerResultsInput): RetrievalResult[] {
+  return [
+    ...rawResults,
+    ...enrichedResults,
+    ...hardenedResults,
+    ...toArtifactSanitizerResults(artifacts),
+    ...toArtifactSanitizerResults(hardenedArtifacts),
+  ]
+}
+
+function toArtifactSanitizerResults(
+  artifacts: readonly ChatArtifactView[] | undefined,
+): RetrievalResult[] {
+  return (artifacts ?? []).flatMap((artifact): RetrievalResult[] => {
+    const results: RetrievalResult[] = []
+    if (artifact.assetUrl) {
+      results.push(
+        toArtifactSanitizerResult({
+          assetUrl: artifact.assetUrl,
+          artifact,
+          citation: artifact.citation,
+        }),
+      )
+    }
+    if (artifact.citation?.assetUrl) {
+      results.push(
+        toArtifactSanitizerResult({
+          assetUrl: artifact.citation.assetUrl,
+          artifact,
+          citation: artifact.citation,
+        }),
+      )
+    }
+    return results
+  })
+}
+
+function toArtifactSanitizerResult(input: {
+  readonly assetUrl: string
+  readonly artifact: ChatArtifactView
+  readonly citation?: ChatCitationView
+}): RetrievalResult {
+  return {
+    content: input.citation?.content ?? "",
+    chunkType: input.citation?.chunkType ?? input.artifact.type,
+    score: input.citation?.score ?? null,
+    assetUrl: input.assetUrl,
+    source: {
+      documentId: input.citation?.source.documentId ?? undefined,
+      sourceFileName: input.citation?.source.sourceFileName ?? undefined,
+      sectionPath: input.citation?.source.sectionPath ?? undefined,
+    },
+  }
+}
+
 type GeneratedAnswerSanitizerInput = {
   readonly answer: string
   readonly results: readonly RetrievalResult[]
@@ -449,6 +571,11 @@ function truncateLogText(value: string, limit: number): string {
 
 function redactRawUrls(value: string): string {
   return value.replace(RAW_URL_PATTERN, REDACTED_MEDIA_URL)
+}
+
+function formatUnknownError(error: unknown): string {
+  if (error instanceof Error) return error.message
+  return String(error)
 }
 
 function buildRetrievalQueryParams(input: {

@@ -240,10 +240,11 @@ describe("source route service", () => {
             status: "ready",
             documentId: "demo-doc-tsla-q4-2025",
             originalFile: {
-              url: "/api/demo-sources/demo-tsla-q4-2025/original",
+              url: "https://example.com/tsla-q4-2025.pdf",
               mimeType: "application/pdf",
               sizeBytes: 1024,
               canDownload: false,
+              pdfPreviewMode: "browser",
             },
             chunkCount: 70,
           },
@@ -378,6 +379,7 @@ describe("source route service", () => {
           expect.objectContaining({
             id: "source_demo",
             kind: "workspace",
+            demoSourceId: "demo-tsla-q4-2025",
             documentId: "doc_user_copy",
             chunkCount: 70,
           }),
@@ -411,10 +413,11 @@ describe("source route service", () => {
             status: "ready",
             documentId: "demo-doc-tsla-q4-2025",
             originalFile: {
-              url: "/api/demo-sources/demo-tsla-q4-2025/original",
+              url: "https://example.com/tsla-q4-2025.pdf",
               mimeType: "application/pdf",
               sizeBytes: 1024,
               canDownload: false,
+              pdfPreviewMode: "browser",
             },
             chunkCount: 70,
           },
@@ -502,10 +505,12 @@ describe("source route service", () => {
 });
 
 const emptyDemoCatalog: DemoCatalog = {
+  officialLibrary: { categories: [], sources: [] },
   sources: [],
 };
 
 const demoCatalog: DemoCatalog = {
+  officialLibrary: { categories: [], sources: [] },
   sources: [
     {
       demoSourceId: "demo-tsla-q4-2025",
@@ -516,7 +521,7 @@ const demoCatalog: DemoCatalog = {
       status: "ready",
       chunkCount: 70,
       originalFile: {
-        url: "/api/v1/demo/sources/demo-tsla-q4-2025/original",
+        url: "https://example.com/tsla-q4-2025.pdf",
         mimeType: "application/pdf",
         sizeBytes: 1024,
         canDownload: false,

@@ -13,10 +13,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   uploadBlob: vi.fn(),
+  trackNotebookUploadButtonClicked: vi.fn(),
+  trackNotebookDocumentUploadCompleted: vi.fn(),
+  trackNotebookDocumentUploadFailed: vi.fn(),
 }));
 
 vi.mock("@vercel/blob/client", () => ({
   upload: mocks.uploadBlob,
+}));
+
+vi.mock("@/lib/posthog", () => ({
+  trackNotebookUploadButtonClicked: mocks.trackNotebookUploadButtonClicked,
+  trackNotebookDocumentUploadCompleted:
+    mocks.trackNotebookDocumentUploadCompleted,
+  trackNotebookDocumentUploadFailed: mocks.trackNotebookDocumentUploadFailed,
 }));
 
 import { SourceUploadDialog } from "./source-upload-dialog";
@@ -60,6 +70,7 @@ describe("SourceUploadDialog", () => {
     render(React.createElement(SourceUploadDialog, { onSourceUploaded }));
 
     await user.click(screen.getByRole("button", { name: "Upload Document" }));
+    expect(mocks.trackNotebookUploadButtonClicked).toHaveBeenCalledOnce();
     const dialog = screen.getByRole("dialog");
     const file = new File(["hello"], "drop.pdf", { type: "application/pdf" });
     const dropEvent = createFileDropEvent(file);

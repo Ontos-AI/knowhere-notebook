@@ -261,10 +261,7 @@ function addAssetCitationResults(
   const seenAssetUrls = new Set<string>()
   const output: RetrievalResult[] = []
 
-  if (existingAssetUrl) {
-    seenAssetUrls.add(existingAssetUrl)
-    output.push(result)
-  } else if (resultMatches.length > 0) {
+  if (resultMatches.length > 0) {
     const [firstMatch, ...remainingMatches] = resultMatches
     seenAssetUrls.add(firstMatch.assetUrl)
     output.push(toAssetResult(result, firstMatch))
@@ -273,6 +270,9 @@ function addAssetCitationResults(
       seenAssetUrls.add(match.assetUrl)
       output.push(toAssetResult(result, match))
     }
+  } else if (existingAssetUrl) {
+    seenAssetUrls.add(existingAssetUrl)
+    output.push(result)
   } else {
     output.push(result)
   }
@@ -376,6 +376,23 @@ function resolveAssetReferenceMatchesFromText(
     [normalized],
     assetUrlsByFilePath,
   )
+}
+
+export function resolveAssetUrlFromReferenceText(input: {
+  readonly values: readonly (string | null | undefined)[]
+  readonly assetUrlsByFilePath: Readonly<Record<string, string>>
+}): string | null {
+  const normalizedHaystacks = input.values.flatMap((value): string[] => {
+    const normalized = normalizeAssetLookupText(value)
+    return normalized ? [normalized] : []
+  })
+  if (normalizedHaystacks.length === 0) return null
+
+  const [match] = resolveAssetReferenceMatchesFromHaystacks(
+    normalizedHaystacks,
+    input.assetUrlsByFilePath,
+  )
+  return match?.assetUrl ?? null
 }
 
 function resolveAssetReferenceMatchesFromHaystacks(

@@ -4,6 +4,14 @@ import userEvent from "@testing-library/user-event"
 import { createElement } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
+const mocks = vi.hoisted(() => ({
+  trackNotebookDashboardLinkClicked: vi.fn(),
+}))
+
+vi.mock("@/lib/posthog", () => ({
+  trackNotebookDashboardLinkClicked: mocks.trackNotebookDashboardLinkClicked,
+}))
+
 import { ThemeProvider } from "@/components/theme-provider"
 import { TopNav, type TopNavProps } from "./top-nav"
 
@@ -23,6 +31,7 @@ describe("TopNav", () => {
 
   afterEach(() => {
     cleanup()
+    vi.clearAllMocks()
     vi.unstubAllGlobals()
   })
 
@@ -43,6 +52,16 @@ describe("TopNav", () => {
     const link = screen.getByRole("link", { name: "Open Dashboard" })
 
     expect(link.getAttribute("href")).toBe("https://dashboard.example.test")
+    await user.click(link)
+    expect(mocks.trackNotebookDashboardLinkClicked).toHaveBeenCalledWith(
+      {
+        context: undefined,
+        targetUrl: "https://dashboard.example.test",
+        fromPage: "/",
+        hasSources: false,
+        hasChats: false,
+      },
+    )
     await user.click(screen.getByRole("button", { name: "Toggle theme" }))
 
     expect(screen.getByRole("menuitem", { name: "Light" })).toBeTruthy()

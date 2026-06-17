@@ -46,6 +46,10 @@ describe("knowhereDemoApi", () => {
 
     await expect(knowhereDemoApi.fetchCatalog()).resolves.toEqual({
       sources: [],
+      officialLibrary: {
+        categories: [],
+        sources: [],
+      },
     })
 
     expect(nextCacheMocks.cacheLife).toHaveBeenCalledWith("max")
@@ -100,6 +104,79 @@ describe("knowhereDemoApi", () => {
       "demo-chunks",
       "demo-tsla-q4-2025",
     )
+  })
+
+  it("maps Official Library metadata from the demo catalog", async () => {
+    globalThis.fetch = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          sources: [
+            {
+              demo_source_id: "demo-spacex-s1",
+              canonical_document_id: "demo-doc-spacex-s1",
+              title: "spacex-s1.pdf",
+              mime_type: "application/pdf",
+              size_bytes: 7441414,
+              status: "ready",
+              chunk_count: 922,
+              original_file: {
+                url: "/api/v1/demo/sources/demo-spacex-s1/original",
+                mime_type: "application/pdf",
+                size_bytes: 7441414,
+                can_download: false,
+              },
+              official_library: {
+                library_source_id: "financial-spacex-s1",
+                category_id: "financial-reports",
+                title: "spacex-s1.pdf",
+                source_url: "https://data.olivierroy.dev/spacex-s1.pdf",
+                mime_type: "application/pdf",
+                status: "ready",
+                demo_source_id: "demo-spacex-s1",
+              },
+              examples: [],
+            },
+          ],
+          official_library: {
+            categories: [
+              {
+                category_id: "financial-reports",
+                label: "Financial reports",
+                description: "Company filings.",
+              },
+            ],
+            sources: [
+              {
+                library_source_id: "financial-spacex-s1",
+                category_id: "financial-reports",
+                title: "spacex-s1.pdf",
+                source_url: "https://data.olivierroy.dev/spacex-s1.pdf",
+                mime_type: "application/pdf",
+                status: "ready",
+                demo_source_id: "demo-spacex-s1",
+                canonical_document_id: "demo-doc-spacex-s1",
+                size_bytes: 7441414,
+                chunk_count: 922,
+              },
+            ],
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    )
+
+    const catalog = await knowhereDemoApi.fetchCatalog()
+
+    expect(catalog.sources[0]?.officialLibrary).toMatchObject({
+      librarySourceId: "financial-spacex-s1",
+      categoryId: "financial-reports",
+      demoSourceId: "demo-spacex-s1",
+    })
+    expect(catalog.officialLibrary.sources[0]).toMatchObject({
+      librarySourceId: "financial-spacex-s1",
+      status: "ready",
+      chunkCount: 922,
+    })
   })
 })
 

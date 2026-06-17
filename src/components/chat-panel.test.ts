@@ -4,9 +4,25 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const analyticsMocks = vi.hoisted(() => ({
+  trackNotebookAssistantQuestionSubmitted: vi.fn(),
+}));
+
+vi.mock("@/lib/posthog", () => ({
+  trackNotebookAssistantQuestionSubmitted:
+    analyticsMocks.trackNotebookAssistantQuestionSubmitted,
+}));
+
+import { workspaceClient } from "@/domains/workspace/client";
 import { ChatPanel } from "./chat-panel";
 
 const C = ChatPanel as React.FC<Record<string, unknown>>;
+
+vi.mock("@/domains/workspace/client", () => ({
+  workspaceClient: {
+    createChatDiagram: vi.fn(),
+  },
+}));
 
 describe("ChatPanel", () => {
   beforeEach(() => {
@@ -15,6 +31,8 @@ describe("ChatPanel", () => {
       unobserve() {}
       disconnect() {}
     };
+    vi.mocked(workspaceClient.createChatDiagram).mockReset();
+    analyticsMocks.trackNotebookAssistantQuestionSubmitted.mockReset();
     mockVisibleVirtualViewport();
   });
 
@@ -35,7 +53,7 @@ describe("ChatPanel", () => {
     expect(container.textContent).not.toMatch(/grounded|citation/i);
   });
 
-  it("labels assistant evidence as sources used", () => {
+  it("renders assistant evidence as inline source chips", () => {
     render(
       React.createElement(C, {
         messages: [
@@ -59,8 +77,229 @@ describe("ChatPanel", () => {
       }),
     );
 
-    expect(screen.getByText("Sources used")).toBeTruthy();
+    expect(
+      screen.getByRole("button", {
+        name: "Open source syllabus.pdf",
+      }),
+    ).toBeTruthy();
+    expect(screen.queryByText("Sources used")).toBeNull();
     expect(screen.queryByText("Citations")).toBeNull();
+  });
+
+  it("creates diagrams only through the explicit composer command", async () => {
+    const user = userEvent.setup();
+    vi.mocked(workspaceClient.createChatDiagram).mockResolvedValue({
+      diagram: {
+        type: "bar",
+        source: "chart-visualization-skills",
+        title: "Revenue by Segment",
+        axisYTitle: "Revenue",
+        data: [
+          { category: "Cloud", value: 42 },
+          { category: "Ads", value: 28 },
+        ],
+      },
+    });
+
+    render(
+      React.createElement(C, {
+        messages: [
+          {
+            id: "assistant_1",
+            role: "assistant",
+            content: "Cloud revenue was 42 and Ads revenue was 28.",
+          },
+        ],
+      }),
+    );
+
+    expect(
+      screen.queryByRole("button", { name: "Create diagram" }),
+    ).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Create" }));
+    await user.click(
+      screen.getByRole("menuitem", {
+        name: "Create diagram from latest answer",
+      }),
+    );
+
+    expect(workspaceClient.createChatDiagram).toHaveBeenCalledWith({
+      answer: "Cloud revenue was 42 and Ads revenue was 28.",
+    });
+    expect(await screen.findByText("Revenue by Segment")).toBeTruthy();
+    expect(
+      screen.getByRole("img", { name: "Revenue by Segment" }),
+    ).toBeTruthy();
+  });
+
+  it("creates a diagram directly from an assistant answer", async () => {
+    const user = userEvent.setup();
+    vi.mocked(workspaceClient.createChatDiagram).mockResolvedValue({
+      diagram: {
+        type: "column",
+        source: "chart-visualization-skills",
+        title: "Revenue by Segment",
+        data: [
+          { category: "Cloud", value: 42 },
+          { category: "Ads", value: 28 },
+        ],
+      },
+    });
+
+    render(
+      React.createElement(C, {
+        messages: [
+          {
+            id: "assistant_1",
+            role: "assistant",
+            content: "Cloud revenue was 42 and Ads revenue was 28.",
+          },
+        ],
+      }),
+    );
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Create diagram for this answer",
+      }),
+    );
+
+    expect(workspaceClient.createChatDiagram).toHaveBeenCalledWith({
+      answer: "Cloud revenue was 42 and Ads revenue was 28.",
+    });
+    expect(await screen.findByText("Revenue by Segment")).toBeTruthy();
+    expect(
+      screen.queryByRole("button", {
+        name: "Create diagram for this answer",
+      }),
+    ).toBeNull();
+  });
+
+  it("shows a friendly no-diagram state for non-chartable answers", async () => {
+    const user = userEvent.setup();
+    vi.mocked(workspaceClient.createChatDiagram).mockResolvedValue({
+      diagram: {
+        type: "none",
+        reason:
+          "No clear chartable data was found. Ask for a table or numeric comparison first.",
+      },
+    });
+
+    render(
+      React.createElement(C, {
+        messages: [
+          {
+            id: "assistant_1",
+            role: "assistant",
+            content: "This is a qualitative summary without comparable numbers.",
+          },
+        ],
+      }),
+    );
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Create diagram for this answer",
+      }),
+    );
+
+    expect(await screen.findByText("No diagram created")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "No clear chartable data was found. Ask for a table or numeric comparison first.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", {
+        name: "Try diagram again for this answer",
+      }),
+    ).toBeTruthy();
+  });
+
+  it("treats slash diagram text as a local command instead of a chat message", async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn();
+    vi.mocked(workspaceClient.createChatDiagram).mockResolvedValue({
+      diagram: {
+        type: "bar",
+        source: "chart-visualization-skills",
+        title: "Revenue by Segment",
+        data: [
+          { category: "Cloud", value: 42 },
+          { category: "Ads", value: 28 },
+        ],
+      },
+    });
+
+    render(
+      React.createElement(C, {
+        messages: [
+          {
+            id: "assistant_1",
+            role: "assistant",
+            content: "Cloud revenue was 42 and Ads revenue was 28.",
+          },
+        ],
+        onSend,
+      }),
+    );
+
+    await user.type(
+      screen.getByPlaceholderText("Ask a question about your documents…"),
+      "/diagram",
+    );
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+
+    expect(onSend).not.toHaveBeenCalled();
+    expect(
+      analyticsMocks.trackNotebookAssistantQuestionSubmitted,
+    ).not.toHaveBeenCalled();
+    expect(workspaceClient.createChatDiagram).toHaveBeenCalledWith({
+      answer: "Cloud revenue was 42 and Ads revenue was 28.",
+    });
+  });
+
+  it("tracks normal composer sends as assistant questions", async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn();
+
+    render(
+      React.createElement(C, {
+        activeThreadId: "thread_1",
+        analyticsContext: {
+          workspaceId: "workspace_1",
+          workspaceNamespace: "demo",
+          userId: "user_1",
+          isGuest: false,
+        },
+        selectedSourcesCount: 2,
+        sourceCount: 4,
+        onSend,
+      }),
+    );
+
+    await user.type(
+      screen.getByPlaceholderText("Ask a question about your documents…"),
+      "Summarize revenue",
+    );
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+
+    expect(onSend).toHaveBeenCalledWith("Summarize revenue");
+    expect(
+      analyticsMocks.trackNotebookAssistantQuestionSubmitted,
+    ).toHaveBeenCalledWith({
+      context: {
+        workspaceId: "workspace_1",
+        workspaceNamespace: "demo",
+        userId: "user_1",
+        isGuest: false,
+      },
+      threadId: "thread_1",
+      selectedSourcesCount: 2,
+      sourceCountSnapshot: 4,
+      messageLength: "Summarize revenue".length,
+    });
   });
 
   it("uses Notebook source titles for generated Knowhere citation filenames", () => {
@@ -159,10 +398,10 @@ describe("ChatPanel", () => {
 
     expect(duplicatedSourceLinks).toHaveLength(1);
     expect(
-      screen.getByRole("button", {
-        name: "Open source Q2 2026 Earnings Deck.pdf · Mark Murphy / Non-GAAP operating results",
+      screen.getAllByRole("button", {
+        name: "Open source Q2 2026 Earnings Deck.pdf",
       }),
-    ).toBeTruthy();
+    ).toHaveLength(1);
 
     await user.click(duplicatedSourceLinks[0]);
 
@@ -223,7 +462,7 @@ describe("ChatPanel", () => {
     );
   });
 
-  it("renders citation links as button-backed links with per-citation loading feedback", async () => {
+  it("renders source buttons as text-only chips with pending state", async () => {
     const user = userEvent.setup();
     const onCitationClick = vi.fn();
 
@@ -253,21 +492,34 @@ describe("ChatPanel", () => {
     );
 
     const citationButton = screen.getByRole("button", {
-      name: "Open source syllabus.pdf · Schedule",
+      name: "Open source syllabus.pdf",
     });
 
-    expect(within(citationButton).getByRole("status", { name: "Loading" }))
-      .toBeTruthy();
-    expect(citationButton.className).toContain("underline");
-    expect(citationButton.className).toContain("text-primary");
-    expect(citationButton.className).not.toContain("bg-muted");
+    expect(screen.getByText("Sources")).toBeTruthy();
+    expect(citationButton.getAttribute("aria-busy")).toBe("true");
+    expect(citationButton.textContent).toBe("syllabus.pdf");
+    expect(citationButton.className).toContain("rounded-md");
+    expect(citationButton.className).toContain("h-8");
+    expect(citationButton.className).toContain("max-w-[250px]");
+    expect(citationButton.className).toContain("font-mono");
+    expect(citationButton.className).toContain("text-[#cfd3dc]");
+    expect(citationButton.className).toContain("bg-[#5c606b]");
+    expect(citationButton.className).toContain("border-transparent");
+    expect(citationButton.className).toContain("hover:border-[#8f96a8]");
+    expect(citationButton.className).toContain("hover:bg-[#4f535e]");
+    expect(citationButton.className).toContain("hover:text-white");
+    expect(citationButton.className).toContain(
+      "hover:shadow-[0_0_0_2px_rgba(143,150,168,0.22)]",
+    );
     expect(citationButton.className).not.toContain("border-border");
+    expect(citationButton.className).not.toContain("bg-background/80");
+    expect(citationButton.className).not.toContain("underline");
 
     await user.click(citationButton);
     expect(onCitationClick).not.toHaveBeenCalled();
   });
 
-  it("keeps long citation links wrapped without making them look like chips", () => {
+  it("keeps long bottom source labels constrained", () => {
     render(
       React.createElement(C, {
         messages: [
@@ -296,10 +548,15 @@ describe("ChatPanel", () => {
       name: /Open source TSLA-Q4-2025-UPDATE\.PDF/,
     });
 
-    expect(sourceLink.className).toContain("whitespace-normal");
-    expect(sourceLink.className).toContain("underline");
-    expect(sourceLink.className).not.toContain("rounded-lg");
-    expect(sourceLink.className).not.toContain("bg-muted");
+    expect(screen.getByText("Sources")).toBeTruthy();
+    expect(sourceLink.className).toContain("max-w-[250px]");
+    expect(sourceLink.className).toContain("rounded-md");
+    expect(sourceLink.className).not.toContain("underline");
+    expect(
+      within(sourceLink).getByText(
+        /TSLA-Q4-2025-UPDATE\.PDF/u,
+      ).className,
+    ).toContain("truncate");
   });
 
   it("shows button-level loading for chat API actions", async () => {
@@ -413,7 +670,7 @@ describe("ChatPanel", () => {
     );
 
     expect(
-      screen.queryByPlaceholderText("Upload a document to start asking questions."),
+      screen.queryByPlaceholderText("Add a ready source to start asking questions."),
     ).toBeNull();
     expect(
       screen.queryByRole("button", { name: "Send message" }),

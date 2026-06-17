@@ -49,11 +49,30 @@ describe("loadWorkspaceShellInitialState", () => {
         status: "ready",
         documentId: "demo-doc-tsla-q4-2025",
         originalFile: {
-          url: "/api/demo-sources/demo-tsla-q4-2025/original",
+          url: "https://example.com/tsla-q4-2025.pdf",
           mimeType: "application/pdf",
           sizeBytes: 1024,
           canDownload: false,
+          pdfPreviewMode: "browser",
         },
+        officialLibrary: {
+          librarySourceId: "financial-tsla-q4-2025",
+          categoryId: "financial-reports",
+          sourceUrl: "https://example.com/tsla-q4-2025.pdf",
+        },
+        chunkCount: 70,
+      },
+    ])
+    expect(state.officialLibrarySources).toEqual([
+      {
+        librarySourceId: "financial-tsla-q4-2025",
+        categoryId: "financial-reports",
+        categoryLabel: "Financial reports",
+        title: "TSLA-Q4-2025-Update.pdf",
+        sourceUrl: "https://example.com/tsla-q4-2025.pdf",
+        mimeType: "application/pdf",
+        status: "ready",
+        demoSourceId: "demo-tsla-q4-2025",
         chunkCount: 70,
       },
     ])
@@ -431,6 +450,42 @@ function createDependencies(
 
 function makeDemoCatalog(): DemoCatalog {
   return {
+    officialLibrary: {
+      categories: [
+        {
+          categoryId: "financial-reports",
+          label: "Financial reports",
+          description: "Company filings.",
+        },
+        {
+          categoryId: "stem-books",
+          label: "STEM books",
+          description: "Course materials.",
+        },
+      ],
+      sources: [
+        {
+          librarySourceId: "financial-tsla-q4-2025",
+          categoryId: "financial-reports",
+          title: "TSLA-Q4-2025-Update.pdf",
+          sourceUrl: "https://example.com/tsla-q4-2025.pdf",
+          mimeType: "application/pdf",
+          status: "ready",
+          demoSourceId: "demo-tsla-q4-2025",
+          canonicalDocumentId: "demo-doc-tsla-q4-2025",
+          sizeBytes: 1024,
+          chunkCount: 70,
+        },
+        {
+          librarySourceId: "stem-transformers",
+          categoryId: "stem-books",
+          title: "Transformers.pdf",
+          sourceUrl: "https://example.com/transformers.pdf",
+          mimeType: "application/pdf",
+          status: "planned",
+        },
+      ],
+    },
     sources: [
       {
         demoSourceId: "demo-tsla-q4-2025",
@@ -445,6 +500,15 @@ function makeDemoCatalog(): DemoCatalog {
           mimeType: "application/pdf",
           sizeBytes: 1024,
           canDownload: false,
+        },
+        officialLibrary: {
+          librarySourceId: "financial-tsla-q4-2025",
+          categoryId: "financial-reports",
+          title: "TSLA-Q4-2025-Update.pdf",
+          sourceUrl: "https://example.com/tsla-q4-2025.pdf",
+          mimeType: "application/pdf",
+          status: "ready",
+          demoSourceId: "demo-tsla-q4-2025",
         },
         examples: [
           {

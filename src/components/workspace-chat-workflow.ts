@@ -5,6 +5,12 @@ import useSWR, { useSWRConfig } from "swr"
 import useSWRMutation from "swr/mutation"
 
 import { workspaceChatState } from "@/components/workspace-chat-state"
+import {
+  trackNotebookAssistantAnswerCompleted,
+  trackNotebookAssistantAnswerFailed,
+  trackNotebookWorkspaceFirstQuestionAsked,
+  type AnalyticsContext,
+} from "@/lib/posthog"
 import { workspaceClient } from "@/domains/workspace/client"
 import {
   workspaceClientCache,
@@ -19,6 +25,7 @@ import type { SourceView } from "@/domains/sources/types"
 
 type WorkspaceChatWorkflowInput = {
   readonly activeChatThreadId?: string | null
+  readonly analyticsContext?: AnalyticsContext
   readonly initialChatMessages?: readonly ChatMessageView[]
   readonly initialChatThreads?: readonly ChatThreadView[]
   readonly isGuest?: boolean
@@ -38,6 +45,7 @@ type WorkspaceChatWorkflow = {
   readonly handleArchiveChatThread: (threadId: string) => Promise<void>
   readonly handleChatSend: (text: string) => Promise<void>
   readonly handleCreateChatThread: () => Promise<void>
+  readonly handleRefreshActiveChatThread: () => Promise<void>
   readonly handleSelectChatThread: (threadId: string) => void
   readonly isCreatingThread: boolean
   readonly loadingThreadId: string | null
@@ -49,6 +57,7 @@ const archiveChatThreadSWRKey = workspaceClient.keys.archiveChatThread
 
 export function useWorkspaceChatWorkflow({
   activeChatThreadId = null,
+  analyticsContext,
   initialChatMessages = [],
   initialChatThreads = [],
   isGuest = false,
@@ -64,6 +73,7 @@ export function useWorkspaceChatWorkflow({
     ),
   )
   const optimisticMessageSequence = useRef(0)
+  const didTrackFirstQuestionRef = useRef(initialChatMessages.length > 0)
   const { cache, mutate: mutateSWR } = useSWRConfig()
   const initialThreadRows = useMemo(
     () => [...initialChatThreads],
@@ -214,7 +224,34 @@ export function useWorkspaceChatWorkflow({
     }
   }
 
+  async function handleRefreshActiveChatThread(): Promise<void> {
+    const threadId = chat.threadId
+    if (!threadId) return
+
+    try {
+      const fresh = await workspaceClient.fetchChatThread(threadId)
+      if (!fresh.thread || !Array.isArray(fresh.messages)) return
+      const messages = fresh.messages
+
+      void mutateSWR(
+        workspaceClientCache.getChatThreadKey(threadId),
+        fresh,
+        { revalidate: false },
+      )
+      setChat((current) => {
+        if (current.threadId !== fresh.requestedThreadId) return current
+        return { ...current, messages: [...messages] }
+      })
+    } catch {
+      // Materialization can still succeed even if the current thread refresh fails.
+    }
+  }
+
   async function handleChatSend(text: string): Promise<void> {
+    const sendStart = Date.now()
+    const selectedSourcesCount = sources.filter(
+      (source) => source.status === "ready" && !source.excludedFromQuery,
+    ).length
     const demoSourceIds = getMaterializableDemoSourceIds(sources)
     if (demoSourceIds.length > 0) {
       setChat((current) =>
@@ -224,19 +261,7 @@ export function useWorkspaceChatWorkflow({
         const materializedSources =
           await workspaceClient.materializeDemoSources({ demoSourceIds })
         onSourcesMaterialized?.(demoSourceIds, materializedSources)
-        if (chat.threadId) {
-          try {
-            const fresh = await workspaceClient.fetchChatThread(chat.threadId)
-            setChat((current) => {
-              if (current.threadId !== fresh.requestedThreadId) return current
-              if (!fresh.thread || !Array.isArray(fresh.messages))
-                return current
-              return { ...current, messages: [...fresh.messages] }
-            })
-          } catch {
-            // stale citations until page reload — materialization succeeded
-          }
-        }
+        await handleRefreshActiveChatThread()
       } catch {
         setChat((current) => ({
           ...current,
@@ -247,6 +272,16 @@ export function useWorkspaceChatWorkflow({
         }))
         return
       }
+    }
+    if (!hasQueryableReadySource(sources)) {
+      setChat((current) => ({
+        ...current,
+        isSending: false,
+        isLoading: false,
+        pendingStatusText: null,
+        error: "Add a ready source before asking questions.",
+      }))
+      return
     }
 
     optimisticMessageSequence.current += 1
@@ -267,12 +302,32 @@ export function useWorkspaceChatWorkflow({
       })
 
       if (!body.threadId || !Array.isArray(body.messages)) {
+        void trackNotebookAssistantAnswerFailed({
+          context: analyticsContext,
+          threadId: chat.threadId,
+          latencyMs: Date.now() - sendStart,
+          errorType: "server",
+          errorMessage: body.message ?? "The assistant could not answer right now.",
+        })
         setChat((current) => ({
           ...workspaceChatState.failSend(current, optimisticId),
           error: body.message ?? "The assistant could not answer right now.",
         }))
         return
       }
+
+      if (!didTrackFirstQuestionRef.current) {
+        didTrackFirstQuestionRef.current = true
+        void trackNotebookWorkspaceFirstQuestionAsked({
+          context: analyticsContext,
+          selectedSourcesCount,
+        })
+      }
+      void trackNotebookAssistantAnswerCompleted({
+        context: analyticsContext,
+        threadId: body.threadId,
+        latencyMs: Date.now() - sendStart,
+      })
 
       void mutateChatThreads(
         (current = []) =>
@@ -303,6 +358,13 @@ export function useWorkspaceChatWorkflow({
         )
       }
     } catch {
+      void trackNotebookAssistantAnswerFailed({
+        context: analyticsContext,
+        threadId: chat.threadId,
+        latencyMs: Date.now() - sendStart,
+        errorType: "network",
+        errorMessage: "The assistant could not answer right now.",
+      })
       setChat((current) => workspaceChatState.failSend(current, optimisticId))
     }
   }
@@ -314,6 +376,7 @@ export function useWorkspaceChatWorkflow({
     handleArchiveChatThread,
     handleChatSend,
     handleCreateChatThread,
+    handleRefreshActiveChatThread,
     handleSelectChatThread,
     isCreatingThread,
     loadingThreadId,
@@ -325,10 +388,23 @@ function getMaterializableDemoSourceIds(
 ): string[] {
   const demoSourceIds = sources
     .filter((source) => source.kind === "demo")
+    .filter((source) => source.officialLibrary === undefined)
     .filter((source) => !source.excludedFromQuery)
     .map((source) => source.demoSourceId ?? source.id)
 
   return Array.from(new Set(demoSourceIds))
+}
+
+function hasQueryableReadySource(sources: readonly SourceView[]): boolean {
+  return sources.some(
+    (source) =>
+      source.status === "ready" &&
+      !isUnmaterializedOfficialLibrarySource(source),
+  )
+}
+
+function isUnmaterializedOfficialLibrarySource(source: SourceView): boolean {
+  return source.kind === "demo" && source.officialLibrary !== undefined
 }
 
 function fetchChatThreadByKey([
