@@ -1,7 +1,7 @@
 "use client";
 
 import { type CSSProperties, type ReactElement, useMemo, useState } from "react";
-import { Check, ChevronRight, FileText, Plus, RotateCcw } from "lucide-react";
+import { BookOpen, Check, ChevronRight, FileText, Plus } from "lucide-react";
 import Image from "next/image";
 
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -92,7 +92,11 @@ export function OfficialLibraryPanel({
     >
       <header className="flex h-24 shrink-0 items-center border-b border-border/70 px-6">
         <h2 className="flex items-center gap-2 text-xl font-bold tracking-tight text-foreground">
-          <RotateCcw className="size-4" />
+          <BookOpen
+            aria-hidden="true"
+            className="size-4"
+            data-testid="official-library-heading-icon"
+          />
           Library
         </h2>
       </header>
@@ -225,13 +229,21 @@ function OfficialLibraryCard({
           </Tooltip>
         </TooltipProvider>
       )}
-      <PdfFileIcon />
-      <h3 className="mt-3 max-w-[132px] truncate text-sm font-bold text-foreground">
-        {item.title}
-      </h3>
-      <p className="mt-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-        {getLibraryMetadata(item)}
-      </p>
+      <a
+        aria-label={`Open ${item.title} PDF preview`}
+        className="flex min-w-0 flex-col items-center rounded-sm focus:outline-none focus:ring-2 focus:ring-foreground focus:ring-offset-2"
+        href={item.sourceUrl}
+        rel="noopener noreferrer"
+        target="_blank"
+      >
+        <PdfFileIcon />
+        <h3 className="mt-3 max-w-[132px] truncate text-sm font-bold text-foreground">
+          {item.title}
+        </h3>
+        <p className="mt-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+          {getLibraryMetadata(item)}
+        </p>
+      </a>
     </article>
   );
 }
