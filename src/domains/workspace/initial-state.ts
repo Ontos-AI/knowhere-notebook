@@ -29,7 +29,11 @@ import type {
   Source,
   Workspace,
 } from "@/infrastructure/db/schema"
-import { knowhereDemoApi, type DemoCatalog } from "@/integrations/knowhere-demo"
+import {
+  knowhereDemoApi,
+  type DemoCatalog,
+  type OfficialLibrarySource,
+} from "@/integrations/knowhere-demo"
 import { effectOperation } from "@/lib/effect-operation"
 import { notebookRequestContext } from "./request-context"
 
@@ -369,15 +373,29 @@ function toOfficialLibrarySourceViews(
       category.label,
     ]),
   )
-  return catalog.officialLibrary.sources.map((source) => ({
-    librarySourceId: source.librarySourceId,
-    categoryId: source.categoryId,
-    categoryLabel: categoryLabelById.get(source.categoryId) ?? source.categoryId,
-    title: source.title,
-    sourceUrl: source.sourceUrl,
-    mimeType: source.mimeType,
-    status: source.status,
-    ...(source.demoSourceId ? { demoSourceId: source.demoSourceId } : {}),
-    ...(source.chunkCount !== undefined ? { chunkCount: source.chunkCount } : {}),
-  }))
+  return catalog.officialLibrary.sources
+    .filter(isReadyOfficialLibrarySource)
+    .map((source) => ({
+      librarySourceId: source.librarySourceId,
+      categoryId: source.categoryId,
+      categoryLabel:
+        categoryLabelById.get(source.categoryId) ?? source.categoryId,
+      title: source.title,
+      sourceUrl: source.sourceUrl,
+      mimeType: source.mimeType,
+      status: source.status,
+      demoSourceId: source.demoSourceId,
+      ...(source.chunkCount !== undefined
+        ? { chunkCount: source.chunkCount }
+        : {}),
+    }))
+}
+
+function isReadyOfficialLibrarySource(
+  source: OfficialLibrarySource,
+): source is OfficialLibrarySource & {
+  readonly status: "ready"
+  readonly demoSourceId: string
+} {
+  return source.status === "ready" && source.demoSourceId !== undefined
 }

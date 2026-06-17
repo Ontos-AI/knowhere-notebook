@@ -74,15 +74,6 @@ describe("loadWorkspaceShellInitialState", () => {
         demoSourceId: "demo-tsla-q4-2025",
         chunkCount: 70,
       },
-      {
-        librarySourceId: "stem-transformers",
-        categoryId: "stem-books",
-        categoryLabel: "STEM books",
-        title: "Transformers.pdf",
-        sourceUrl: "https://example.com/transformers.pdf",
-        mimeType: "application/pdf",
-        status: "planned",
-      },
     ])
     expect(state.chatMessages).toEqual([
       {
