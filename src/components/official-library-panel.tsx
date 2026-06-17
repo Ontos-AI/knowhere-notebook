@@ -199,7 +199,7 @@ function OfficialLibraryCard({
               type="button"
               disabled={!canAdd || isAdding}
               onClick={onAdd}
-              className="absolute right-3 top-1 inline-flex size-6 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-background hover:text-foreground group-hover:opacity-100 focus:opacity-100 disabled:cursor-not-allowed disabled:opacity-40"
+              className="absolute right-3 top-1 inline-flex size-6 items-center justify-center rounded-md bg-background/95 text-muted-foreground opacity-100 shadow-xs transition-opacity hover:bg-background hover:text-foreground focus:opacity-100 disabled:cursor-not-allowed disabled:opacity-40 min-[1116px]:bg-transparent min-[1116px]:opacity-0 min-[1116px]:shadow-none min-[1116px]:group-hover:opacity-100"
               aria-label={`Add ${item.title} to sources`}
             >
               {isAdding ? <Spinner className="size-3.5" /> : <Plus className="size-4" />}
