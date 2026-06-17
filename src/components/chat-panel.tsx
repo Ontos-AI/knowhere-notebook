@@ -273,12 +273,10 @@ export function ChatPanel({
       <ChatMessageList
         diagramStatesByMessageId={diagramStatesByMessageId}
         isDisabled={isDisabled}
-        isDiagramActionDisabled={isDisabled || isSending}
         isSending={isSending}
         messages={messages}
         needsLogin={Boolean(onLoginClick)}
         onCitationClick={onCitationClick}
-        onCreateDiagram={handleCreateDiagramCommand}
         pendingCitationId={pendingCitationId}
         pendingStatusText={pendingStatusText}
         sourceTitlesByDocumentId={sourceTitlesByDocumentId}

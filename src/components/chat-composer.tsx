@@ -150,7 +150,7 @@ export function ChatComposer({
               <pre
                 aria-hidden="true"
                 data-testid="chat-composer-highlight-layer"
-                className="pointer-events-none absolute inset-0 h-[128px] min-w-0 whitespace-pre-wrap break-words border border-transparent px-4 py-3 font-sans text-sm leading-5 text-foreground sm:px-5 sm:py-4"
+                className="pointer-events-none absolute inset-0 h-[128px] min-w-0 whitespace-pre-wrap break-words border border-transparent px-4 py-3 font-sans text-sm font-normal leading-5 text-foreground sm:px-5 sm:py-4"
               >
                 <span
                   style={{ transform: `translateY(-${textareaScrollTop}px)` }}
@@ -164,7 +164,7 @@ export function ChatComposer({
               ref={textareaRef}
               id={chatComposerId}
               name={chatComposerId}
-              className="relative h-[128px] w-full min-w-0 resize-none border-0 bg-transparent px-4 py-3 text-sm leading-5 text-foreground shadow-none placeholder:text-muted-foreground focus-visible:ring-0 sm:px-5 sm:py-4"
+              className="relative h-[128px] w-full min-w-0 resize-none border-0 bg-transparent px-4 py-3 text-sm font-normal leading-5 text-foreground shadow-none placeholder:text-muted-foreground focus-visible:ring-0 sm:px-5 sm:py-4"
               placeholder={
                 isDisabled
                   ? "Add a ready source to start asking questions."
