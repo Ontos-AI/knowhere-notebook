@@ -15,12 +15,6 @@ import { chatPanelModel } from "@/components/chat-panel-model";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import type { ChatDiagramChartSpec } from "@/domains/chat/diagram";
 import type {
   ChatArtifactView,
@@ -337,7 +331,8 @@ function MessageBubble({
   const displayDerivedTables = getDisplayDerivedTableArtifacts(message);
   const citationContentMarkdown = buildCitationContentMarkdown(
     message.content,
-    displayCitations,
+    message.citations ?? [],
+    sourceTitlesByDocumentId,
   );
 
   return (
@@ -484,11 +479,17 @@ function AssistantDiagram({
 
 function buildCitationContentMarkdown(
   content: string,
-  displayCitations: readonly DisplayCitation[],
+  citations: readonly ChatCitationView[],
+  sourceTitlesByDocumentId: Readonly<Record<string, string>>,
 ): string {
   let rewrittenContent = content;
 
-  for (const [index, displayCitation] of displayCitations.entries()) {
+  for (const [index, citation] of citations.entries()) {
+    const displayCitation = {
+      citation,
+      citationId: "",
+      label: getCitationSourceChipLabel(citation, sourceTitlesByDocumentId),
+    };
     for (const token of getInlineCitationTokens(displayCitation, index)) {
       if (!rewrittenContent.includes(token)) continue;
 
@@ -514,14 +515,18 @@ function getInlineCitationTokens(
     displayCitation.citation.source.sectionPath,
   );
   const description = getTrimmedCitationField(displayCitation.citation.description);
+  const sectionLabel = sectionPath ? `${sourceName} / ${sectionPath}` : null;
+  const descriptionLabel = description ? `${sourceName} / ${description}` : null;
   const citationNumber = index + 1;
   const tokens = [
     `[${label}]`,
     `[${slashLabel}]`,
     `[Source ${citationNumber}: ${label}]`,
     `[Source ${citationNumber}: ${slashLabel}]`,
-    sectionPath ? `[${sourceName} / ${sectionPath}]` : null,
-    description ? `[${sourceName} / ${description}]` : null,
+    sectionLabel ? `[${sectionLabel}]` : null,
+    sectionLabel ? `[Source ${citationNumber}: ${sectionLabel}]` : null,
+    descriptionLabel ? `[${descriptionLabel}]` : null,
+    descriptionLabel ? `[Source ${citationNumber}: ${descriptionLabel}]` : null,
   ];
 
   return Array.from(
@@ -638,12 +643,11 @@ function AssistantSources({
         Sources
       </p>
       <div className="flex flex-wrap gap-1.5">
-        {displayCitations.map((displayCitation, index) => (
+        {displayCitations.map((displayCitation) => (
           <CitationChip
             key={displayCitation.citationId}
             citation={displayCitation.citation}
             citationId={displayCitation.citationId}
-            index={index + 1}
             label={displayCitation.label}
             isPending={displayCitation.citationId === pendingCitationId}
             onCitationClick={onCitationClick}
@@ -661,14 +665,12 @@ function transformAssistantMarkdownUrl(value: string): string {
 function CitationChip({
   citation,
   citationId,
-  index,
   isPending,
   label,
   onCitationClick,
 }: {
   readonly citation: ChatCitationView;
   readonly citationId: string;
-  readonly index: number;
   readonly isPending: boolean;
   readonly label: string;
   readonly onCitationClick?: (
@@ -677,26 +679,16 @@ function CitationChip({
   ) => void;
 }): ReactElement {
   return (
-    <TooltipProvider delayDuration={0}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            disabled={!onCitationClick || isPending}
-            onClick={() => onCitationClick?.(citation, citationId)}
-            className="inline-flex max-w-[250px] cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background/80 px-2.5 py-1 text-left text-[11px] font-semibold leading-4 text-foreground shadow-xs transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary focus:outline-none focus:ring-4 focus:ring-ring/15 focus:ring-offset-2 focus:ring-offset-background disabled:cursor-wait disabled:opacity-75"
-            aria-label={`Open source ${label}`}
-          >
-            {isPending && <Spinner className="size-3" />}
-            <span className="shrink-0 text-muted-foreground">{index}</span>
-            <span className="min-w-0 truncate">{label}</span>
-          </button>
-        </TooltipTrigger>
-        <TooltipContent className="max-w-[320px] break-words">
-          {label}
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+    <button
+      type="button"
+      disabled={!onCitationClick || isPending}
+      onClick={() => onCitationClick?.(citation, citationId)}
+      aria-busy={isPending}
+      className="inline-flex h-8 max-w-[250px] cursor-pointer items-center rounded-md bg-[#5c606b] px-3 text-left font-mono text-xs font-semibold leading-none text-[#cfd3dc] shadow-none transition-colors hover:bg-[#686d7a] hover:text-white focus:outline-none focus:ring-4 focus:ring-ring/15 focus:ring-offset-2 focus:ring-offset-background disabled:cursor-wait disabled:opacity-75"
+      aria-label={`Open source ${label}`}
+    >
+      <span className="min-w-0 truncate">{label}</span>
+    </button>
   );
 }
 
@@ -708,7 +700,7 @@ function getDisplayCitations(
   const displayCitations: DisplayCitation[] = [];
 
   for (const [index, citation] of (message.citations ?? []).entries()) {
-    const label = chatPanelModel.getCitationLabel(
+    const label = getCitationSourceChipLabel(
       citation,
       sourceTitlesByDocumentId,
     );
@@ -724,6 +716,28 @@ function getDisplayCitations(
   }
 
   return displayCitations;
+}
+
+function getCitationSourceChipLabel(
+  citation: ChatCitationView,
+  sourceTitlesByDocumentId: Readonly<Record<string, string>>,
+): string {
+  const documentId = getTrimmedCitationField(citation.source.documentId);
+  const sourceTitle = documentId
+    ? getTrimmedCitationField(sourceTitlesByDocumentId[documentId])
+    : null;
+  if (sourceTitle) return sourceTitle;
+
+  const sourceFileName = getTrimmedCitationField(citation.source.sourceFileName);
+  if (sourceFileName && !isGeneratedKnowhereFileName(sourceFileName)) {
+    return sourceFileName;
+  }
+
+  return "Source";
+}
+
+function isGeneratedKnowhereFileName(value: string): boolean {
+  return /^document-[A-Za-z0-9_-]{16,}\.[A-Za-z0-9]+$/u.test(value);
 }
 
 function getDisplayImageCitations(
@@ -842,16 +856,28 @@ function getCitationDisplayKey(
 ): string {
   const documentId = getTrimmedCitationField(citation.source.documentId);
   if (documentId) {
-    return joinCitationDisplayKeyParts(["document", documentId, label]);
+    return joinCitationDisplayKeyParts([
+      "document",
+      documentId,
+      getMeaningfulCitationKeyField(citation.source.sectionPath) ?? "",
+      getMeaningfulCitationKeyField(citation.description) ?? "",
+      label,
+    ]);
   }
 
   return joinCitationDisplayKeyParts([
     "fallback",
     getTrimmedCitationField(citation.source.sourceFileName) ?? "",
-    getTrimmedCitationField(citation.source.sectionPath) ?? "",
-    getTrimmedCitationField(citation.description) ?? "",
+    getMeaningfulCitationKeyField(citation.source.sectionPath) ?? "",
+    getMeaningfulCitationKeyField(citation.description) ?? "",
     label,
   ]);
+}
+
+function getMeaningfulCitationKeyField(value: string | null | undefined): string | null {
+  const field = getTrimmedCitationField(value);
+  if (!field || field === "Root" || isGeneratedKnowhereFileName(field)) return null;
+  return field;
 }
 
 function getTrimmedCitationField(value: string | null | undefined): string | null {

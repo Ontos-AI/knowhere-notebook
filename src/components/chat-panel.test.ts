@@ -79,7 +79,7 @@ describe("ChatPanel", () => {
 
     expect(
       screen.getByRole("button", {
-        name: "Open source syllabus.pdf · Schedule",
+        name: "Open source syllabus.pdf",
       }),
     ).toBeTruthy();
     expect(screen.queryByText("Sources used")).toBeNull();
@@ -398,10 +398,10 @@ describe("ChatPanel", () => {
 
     expect(duplicatedSourceLinks).toHaveLength(1);
     expect(
-      screen.getByRole("button", {
-        name: "Open source Q2 2026 Earnings Deck.pdf · Mark Murphy / Non-GAAP operating results",
+      screen.getAllByRole("button", {
+        name: "Open source Q2 2026 Earnings Deck.pdf",
       }),
-    ).toBeTruthy();
+    ).toHaveLength(1);
 
     await user.click(duplicatedSourceLinks[0]);
 
@@ -462,7 +462,7 @@ describe("ChatPanel", () => {
     );
   });
 
-  it("renders source buttons with per-citation loading feedback", async () => {
+  it("renders source buttons as text-only chips with pending state", async () => {
     const user = userEvent.setup();
     const onCitationClick = vi.fn();
 
@@ -492,17 +492,20 @@ describe("ChatPanel", () => {
     );
 
     const citationButton = screen.getByRole("button", {
-      name: "Open source syllabus.pdf · Schedule",
+      name: "Open source syllabus.pdf",
     });
 
     expect(screen.getByText("Sources")).toBeTruthy();
-    expect(within(citationButton).getByRole("status", { name: "Loading" }))
-      .toBeTruthy();
+    expect(citationButton.getAttribute("aria-busy")).toBe("true");
+    expect(citationButton.textContent).toBe("syllabus.pdf");
     expect(citationButton.className).toContain("rounded-md");
+    expect(citationButton.className).toContain("h-8");
     expect(citationButton.className).toContain("max-w-[250px]");
-    expect(citationButton.className).toContain("text-foreground");
-    expect(citationButton.className).toContain("bg-background/80");
-    expect(citationButton.className).not.toContain("bg-muted");
+    expect(citationButton.className).toContain("font-mono");
+    expect(citationButton.className).toContain("text-[#cfd3dc]");
+    expect(citationButton.className).toContain("bg-[#5c606b]");
+    expect(citationButton.className).not.toContain("border-border");
+    expect(citationButton.className).not.toContain("bg-background/80");
     expect(citationButton.className).not.toContain("underline");
 
     await user.click(citationButton);
@@ -544,7 +547,7 @@ describe("ChatPanel", () => {
     expect(sourceLink.className).not.toContain("underline");
     expect(
       within(sourceLink).getByText(
-        /TSLA-Q4-2025-UPDATE\.PDF · TABLE-1 TESLA/u,
+        /TSLA-Q4-2025-UPDATE\.PDF/u,
       ).className,
     ).toContain("truncate");
   });

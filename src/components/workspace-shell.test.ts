@@ -332,7 +332,7 @@ describe("WorkspaceShell", () => {
     const citationButton = await findStableConnectedElement(() => {
       const desktopChatPanel = within(screen.getByTestId("desktop-chat-panel"));
       return desktopChatPanel.getByRole("button", {
-        name: "Open source demo.pdf · Demo citation",
+        name: "Open source demo.pdf",
       });
     });
     fireEvent.click(citationButton);
@@ -418,7 +418,7 @@ describe("WorkspaceShell", () => {
     const citationButton = await findStableConnectedElement(() => {
       const mobileChatPanel = within(document.getElementById("panel-chat")!);
       return mobileChatPanel.getByRole("button", {
-        name: "Open source demo.pdf · Demo citation",
+        name: "Open source demo.pdf",
       });
     });
     fireEvent.click(citationButton);
@@ -527,9 +527,18 @@ describe("WorkspaceShell", () => {
     });
     await user.click(sendButton);
 
-    const firstCitation = await desktopChatPanel.findByRole("button", {
-      name: "Open source doc.pdf · First",
+    await desktopChatPanel.findAllByRole("button", {
+      name: "Open source doc.pdf",
     });
+    const citationButtons = desktopChatPanel.getAllByRole(
+      "button",
+      {
+        name: "Open source doc.pdf",
+      },
+    );
+    expect(citationButtons).toHaveLength(2);
+    const firstCitation = citationButtons[0] as HTMLButtonElement;
+    const secondCitation = citationButtons[1] as HTMLButtonElement;
     await user.click(firstCitation);
 
     await waitFor(() => {
@@ -547,9 +556,6 @@ describe("WorkspaceShell", () => {
     });
     expect(countFetches(fetch, "/api/sources/source_1/chunks")).toBe(1);
 
-    const secondCitation = desktopChatPanel.getByRole("button", {
-      name: "Open source doc.pdf · Second",
-    }) as HTMLButtonElement;
     await waitFor(() => {
       expect(secondCitation.disabled).toBe(false);
     });
@@ -640,7 +646,7 @@ describe("WorkspaceShell", () => {
     await user.click(sendButton);
 
     const citation = await desktopChatPanel.findByRole("button", {
-      name: "Open source doc.pdf · First",
+      name: "Open source doc.pdf",
     });
     await user.click(citation);
     await waitFor(() => {
@@ -778,7 +784,7 @@ describe("WorkspaceShell", () => {
     const desktopChatPanel = within(screen.getByTestId("desktop-chat-panel"));
     await user.click(
       desktopChatPanel.getByRole("button", {
-        name: "Open source doc.pdf · Repeated",
+        name: "Open source doc.pdf",
       }),
     );
 

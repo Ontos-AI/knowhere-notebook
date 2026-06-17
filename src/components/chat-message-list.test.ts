@@ -59,15 +59,17 @@ describe("ChatMessageList", () => {
     ).toBeTruthy();
   });
 
-  it("renders citations in a bottom source area with distinct labels", () => {
+  it("renders citations in a bottom source area as file chips", () => {
     render(
       React.createElement(ChatMessageList, {
         messages: [
           {
             id: "assistant_1",
             role: "assistant",
-            content:
+            content: [
               "Capital expenditure appears in the appendix. [Source 1: spacex-s1.pdf / Assets / tables / table-25 Capital Expenditures.html]",
+              "Drivers are discussed elsewhere. [Source 3: spacex-s1.pdf / MD&A / Drivers of Our Performance]",
+            ].join("\n\n"),
             citations: [
               {
                 chunkType: "table",
@@ -107,22 +109,13 @@ describe("ChatMessageList", () => {
     expect(screen.getByText("Capital expenditure appears in the appendix."))
       .toBeTruthy();
     expect(screen.queryByText(/Source 1/u)).toBeNull();
+    expect(screen.queryByText(/Source 3/u)).toBeNull();
     expect(screen.getByText("Sources")).toBeTruthy();
     expect(
-      screen.getByRole("button", {
-        name: "Open source spacex-s1.pdf · Assets / tables / table-25 Capital Expenditures.html",
-      }),
-    ).toBeTruthy();
-    expect(
-      screen.getByRole("button", {
-        name: "Open source spacex-s1.pdf · MD&A / Drivers of Our Performance",
-      }),
-    ).toBeTruthy();
-    expect(
       screen.getAllByRole("button", {
-        name: "Open source spacex-s1.pdf · Assets / tables / table-25 Capital Expenditures.html",
+        name: "Open source spacex-s1.pdf",
       }),
-    ).toHaveLength(1);
+    ).toHaveLength(2);
   });
 
   it("renders image citations as viewable image attachments", () => {
@@ -262,7 +255,7 @@ describe("ChatMessageList", () => {
     expect(screen.queryByRole("img")).toBeNull();
     expect(
       screen.getByRole("button", {
-        name: "Open source source.pdf · Candidate image",
+        name: "Open source source.pdf",
       }),
     ).toBeTruthy();
   });
@@ -399,7 +392,7 @@ describe("ChatMessageList", () => {
     ).toBeTruthy();
     expect(
       screen.getAllByRole("button", {
-        name: "Open source 商务标文件.pdf · 二、法定代表人身份证明",
+        name: "Open source 商务标文件.pdf",
       }),
     ).toHaveLength(1);
   });
