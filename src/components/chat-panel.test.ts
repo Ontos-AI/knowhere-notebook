@@ -123,6 +123,90 @@ describe("ChatPanel", () => {
     ).toBeTruthy();
   });
 
+  it("creates a diagram directly from an assistant answer", async () => {
+    const user = userEvent.setup();
+    vi.mocked(workspaceClient.createChatDiagram).mockResolvedValue({
+      diagram: {
+        type: "column",
+        source: "chart-visualization-skills",
+        title: "Revenue by Segment",
+        data: [
+          { category: "Cloud", value: 42 },
+          { category: "Ads", value: 28 },
+        ],
+      },
+    });
+
+    render(
+      React.createElement(C, {
+        messages: [
+          {
+            id: "assistant_1",
+            role: "assistant",
+            content: "Cloud revenue was 42 and Ads revenue was 28.",
+          },
+        ],
+      }),
+    );
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Create diagram for this answer",
+      }),
+    );
+
+    expect(workspaceClient.createChatDiagram).toHaveBeenCalledWith({
+      answer: "Cloud revenue was 42 and Ads revenue was 28.",
+    });
+    expect(await screen.findByText("Revenue by Segment")).toBeTruthy();
+    expect(
+      screen.queryByRole("button", {
+        name: "Create diagram for this answer",
+      }),
+    ).toBeNull();
+  });
+
+  it("shows a friendly no-diagram state for non-chartable answers", async () => {
+    const user = userEvent.setup();
+    vi.mocked(workspaceClient.createChatDiagram).mockResolvedValue({
+      diagram: {
+        type: "none",
+        reason:
+          "No clear chartable data was found. Ask for a table or numeric comparison first.",
+      },
+    });
+
+    render(
+      React.createElement(C, {
+        messages: [
+          {
+            id: "assistant_1",
+            role: "assistant",
+            content: "This is a qualitative summary without comparable numbers.",
+          },
+        ],
+      }),
+    );
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Create diagram for this answer",
+      }),
+    );
+
+    expect(await screen.findByText("No diagram created")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "No clear chartable data was found. Ask for a table or numeric comparison first.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", {
+        name: "Try diagram again for this answer",
+      }),
+    ).toBeTruthy();
+  });
+
   it("treats slash diagram text as a local command instead of a chat message", async () => {
     const user = userEvent.setup();
     const onSend = vi.fn();
