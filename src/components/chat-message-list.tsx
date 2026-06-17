@@ -15,6 +15,12 @@ import { chatPanelModel } from "@/components/chat-panel-model";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import type { ChatDiagramChartSpec } from "@/domains/chat/diagram";
 import type {
   ChatArtifactView,
@@ -26,6 +32,7 @@ type DisplayCitation = {
   readonly citation: ChatCitationView;
   readonly citationId: string;
   readonly label: string;
+  readonly tooltipLabel: string;
 };
 
 type DisplayImageCitation = DisplayCitation & {
@@ -489,6 +496,10 @@ function buildCitationContentMarkdown(
       citation,
       citationId: "",
       label: getCitationSourceChipLabel(citation, sourceTitlesByDocumentId),
+      tooltipLabel: chatPanelModel.getCitationLabel(
+        citation,
+        sourceTitlesByDocumentId,
+      ),
     };
     for (const token of getInlineCitationTokens(displayCitation, index)) {
       if (!rewrittenContent.includes(token)) continue;
@@ -647,18 +658,21 @@ function AssistantSources({
       <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
         Sources
       </p>
-      <div className="flex flex-wrap gap-1.5">
-        {displayCitations.map((displayCitation) => (
-          <CitationChip
-            key={displayCitation.citationId}
-            citation={displayCitation.citation}
-            citationId={displayCitation.citationId}
-            label={displayCitation.label}
-            isPending={displayCitation.citationId === pendingCitationId}
-            onCitationClick={onCitationClick}
-          />
-        ))}
-      </div>
+      <TooltipProvider delayDuration={0}>
+        <div className="flex flex-wrap gap-1.5">
+          {displayCitations.map((displayCitation) => (
+            <CitationChip
+              key={displayCitation.citationId}
+              citation={displayCitation.citation}
+              citationId={displayCitation.citationId}
+              label={displayCitation.label}
+              tooltipLabel={displayCitation.tooltipLabel}
+              isPending={displayCitation.citationId === pendingCitationId}
+              onCitationClick={onCitationClick}
+            />
+          ))}
+        </div>
+      </TooltipProvider>
     </div>
   );
 }
@@ -673,27 +687,40 @@ function CitationChip({
   isPending,
   label,
   onCitationClick,
+  tooltipLabel,
 }: {
   readonly citation: ChatCitationView;
   readonly citationId: string;
   readonly isPending: boolean;
   readonly label: string;
+  readonly tooltipLabel: string;
   readonly onCitationClick?: (
     citation: ChatCitationView,
     citationId: string,
   ) => void;
 }): ReactElement {
   return (
-    <button
-      type="button"
-      disabled={!onCitationClick || isPending}
-      onClick={() => onCitationClick?.(citation, citationId)}
-      aria-busy={isPending}
-      className="inline-flex h-8 max-w-[250px] cursor-pointer items-center rounded-md border border-transparent bg-[#5c606b] px-3 text-left font-mono text-xs font-semibold leading-none text-[#cfd3dc] shadow-none transition-[background-color,border-color,color,box-shadow,transform] hover:border-[#8f96a8] hover:bg-[#4f535e] hover:text-white hover:shadow-[0_0_0_2px_rgba(143,150,168,0.22)] active:translate-y-px active:bg-[#454955] focus:outline-none focus:ring-4 focus:ring-ring/15 focus:ring-offset-2 focus:ring-offset-background disabled:cursor-wait disabled:opacity-75 disabled:hover:border-transparent disabled:hover:bg-[#5c606b] disabled:hover:text-[#cfd3dc] disabled:hover:shadow-none"
-      aria-label={`Open source ${label}`}
-    >
-      <span className="min-w-0 truncate">{label}</span>
-    </button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          disabled={!onCitationClick || isPending}
+          onClick={() => onCitationClick?.(citation, citationId)}
+          aria-busy={isPending}
+          className="inline-flex h-8 max-w-[250px] cursor-pointer items-center rounded-md border border-transparent bg-[#5c606b] px-3 text-left font-mono text-xs font-semibold leading-none text-[#cfd3dc] shadow-none transition-[background-color,border-color,color,box-shadow,transform] hover:border-[#8f96a8] hover:bg-[#4f535e] hover:text-white hover:shadow-[0_0_0_2px_rgba(143,150,168,0.22)] active:translate-y-px active:bg-[#454955] focus:outline-none focus:ring-4 focus:ring-ring/15 focus:ring-offset-2 focus:ring-offset-background disabled:cursor-wait disabled:opacity-75 disabled:hover:border-transparent disabled:hover:bg-[#5c606b] disabled:hover:text-[#cfd3dc] disabled:hover:shadow-none"
+          aria-label={`Open source ${label}`}
+        >
+          <span className="min-w-0 truncate">{label}</span>
+        </button>
+      </TooltipTrigger>
+      <TooltipContent
+        side="top"
+        align="start"
+        className="max-w-[320px] bg-popover text-popover-foreground shadow-lg"
+      >
+        {tooltipLabel}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -717,6 +744,10 @@ function getDisplayCitations(
       citation,
       citationId: chatPanelModel.getCitationId(message.id, index),
       label,
+      tooltipLabel: chatPanelModel.getCitationLabel(
+        citation,
+        sourceTitlesByDocumentId,
+      ),
     });
   }
 
@@ -758,10 +789,15 @@ function getDisplayImageCitations(
     if (seenAssetUrls.has(assetUrl)) continue;
 
     seenAssetUrls.add(assetUrl);
+    const label = chatPanelModel.getCitationLabel(
+      citation,
+      sourceTitlesByDocumentId,
+    );
     imageCitations.push({
       citation,
       citationId: chatPanelModel.getCitationId(message.id, index),
-      label: chatPanelModel.getCitationLabel(citation, sourceTitlesByDocumentId),
+      label,
+      tooltipLabel: label,
       assetUrl,
     });
   }
