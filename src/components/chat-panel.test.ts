@@ -504,6 +504,13 @@ describe("ChatPanel", () => {
     expect(citationButton.className).toContain("font-mono");
     expect(citationButton.className).toContain("text-[#cfd3dc]");
     expect(citationButton.className).toContain("bg-[#5c606b]");
+    expect(citationButton.className).toContain("border-transparent");
+    expect(citationButton.className).toContain("hover:border-[#8f96a8]");
+    expect(citationButton.className).toContain("hover:bg-[#4f535e]");
+    expect(citationButton.className).toContain("hover:text-white");
+    expect(citationButton.className).toContain(
+      "hover:shadow-[0_0_0_2px_rgba(143,150,168,0.22)]",
+    );
     expect(citationButton.className).not.toContain("border-border");
     expect(citationButton.className).not.toContain("bg-background/80");
     expect(citationButton.className).not.toContain("underline");

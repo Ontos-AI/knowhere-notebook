@@ -1,7 +1,7 @@
 "use client";
 
 import { type CSSProperties, type ReactElement, useMemo, useState } from "react";
-import { BookOpen, Check, ChevronRight, FileText, Plus } from "lucide-react";
+import { Check, ChevronRight, FileText, Plus, RotateCcw } from "lucide-react";
 import Image from "next/image";
 
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -21,6 +21,7 @@ type OfficialLibraryPanelProps = {
   readonly addingLibrarySourceIds?: readonly string[];
   readonly officialLibrarySources?: readonly OfficialLibrarySourceView[];
   readonly sources?: readonly SourceView[];
+  readonly onBack?: () => void;
   readonly onOfficialLibrarySourceAdd?: (demoSourceId: string) => void;
 };
 
@@ -59,6 +60,7 @@ export function OfficialLibraryPanel({
   addingLibrarySourceIds = [],
   officialLibrarySources = [],
   sources = [],
+  onBack,
   onOfficialLibrarySourceAdd,
 }: OfficialLibraryPanelProps): ReactElement {
   const libraryItems = useMemo(
@@ -91,12 +93,19 @@ export function OfficialLibraryPanel({
       className="z-0 flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-background"
     >
       <header className="flex h-24 shrink-0 items-center border-b border-border/70 px-6">
-        <h2 className="flex items-center gap-2 text-xl font-bold tracking-tight text-foreground">
-          <BookOpen
-            aria-hidden="true"
+        <button
+          type="button"
+          aria-label="Back to sources"
+          onClick={onBack}
+          disabled={!onBack}
+          className="-ml-1 mr-2 inline-flex size-9 items-center justify-center rounded-md text-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus:ring-2 focus:ring-foreground focus:ring-offset-2 disabled:cursor-default disabled:opacity-100 disabled:hover:bg-transparent"
+        >
+          <RotateCcw
             className="size-4"
-            data-testid="official-library-heading-icon"
+            data-testid="official-library-back-icon"
           />
+        </button>
+        <h2 className="text-xl font-bold tracking-tight text-foreground">
           Library
         </h2>
       </header>

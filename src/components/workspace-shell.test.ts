@@ -205,6 +205,14 @@ describe("WorkspaceShell", () => {
     expect(
       desktopLibraryPanel.getByRole("button", { name: "Open STEM books" }),
     ).toBeTruthy();
+    await user.click(
+      desktopLibraryPanel.getByRole("button", { name: "Back to sources" }),
+    );
+    expect(
+      within(screen.getByTestId("desktop-chunks-panel")).queryByTestId(
+        "official-library-panel",
+      ),
+    ).toBeNull();
     expect(window.location.href).not.toContain("/login");
   });
 
