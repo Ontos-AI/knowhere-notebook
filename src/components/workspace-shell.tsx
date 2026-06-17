@@ -169,20 +169,26 @@ function WorkspaceShellContent({
   const hasMessages = chatWorkflow.chat.messages.length > 0
   const didTrackFirstDocumentRef = useRef(false)
   const analyticsContextRef = useRef(analyticsContext)
-  analyticsContextRef.current = analyticsContext
+  const userId = user?.id
+  const userEmail = user?.email
+  const userName = user?.name
 
   useEffect(() => {
-    if (isGuest || !user) {
+    analyticsContextRef.current = analyticsContext
+  }, [analyticsContext])
+
+  useEffect(() => {
+    if (isGuest || !userId) {
       void resetUser()
       return
     }
 
     void identifyUser({
-      id: user.id,
-      email: user.email,
-      name: user.name,
+      id: userId,
+      email: userEmail,
+      name: userName,
     })
-  }, [isGuest, user?.id, user?.email, user?.name])
+  }, [isGuest, userEmail, userId, userName])
 
   useEffect(() => {
     void trackPageView(analyticsContextRef.current)
