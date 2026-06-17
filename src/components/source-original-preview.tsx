@@ -114,6 +114,16 @@ function renderPreview(
         </figure>
       );
     case "pdf":
+      if (file.pdfPreviewMode === "browser") {
+        return (
+          <BrowserPdfPreview
+            sourceTitle={sourceTitle}
+            file={file}
+            targetPageNumber={options.targetPageNumber}
+            targetPageRequestId={options.targetPageRequestId}
+          />
+        );
+      }
       return (
         <SourceOriginalPdfPreview
           key={file.url}
@@ -141,6 +151,34 @@ function renderReadingPreview(
     <div className="mx-auto w-full min-w-0 max-w-4xl">
       <SourceOriginalTextPreview file={file} variant={variant} />
     </div>
+  );
+}
+
+function BrowserPdfPreview({
+  sourceTitle,
+  file,
+  targetPageNumber,
+  targetPageRequestId,
+}: {
+  readonly sourceTitle: string;
+  readonly file: SourceOriginalFileView;
+  readonly targetPageNumber: number | null;
+  readonly targetPageRequestId: number;
+}): ReactNode {
+  const previewUrl = sourceOriginalPreviewModel.getBrowserPdfPreviewUrl(
+    file.url,
+    targetPageNumber,
+  );
+
+  return (
+    <iframe
+      key={`${previewUrl}:${targetPageRequestId}`}
+      title={`${sourceTitle} original PDF`}
+      src={previewUrl}
+      className="h-[calc(100dvh-18rem)] min-h-[520px] w-full rounded-md border-0 bg-background"
+      loading="lazy"
+      referrerPolicy="no-referrer-when-downgrade"
+    />
   );
 }
 

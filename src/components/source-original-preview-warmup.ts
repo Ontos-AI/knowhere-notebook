@@ -16,6 +16,7 @@ export function useSourceOriginalPreviewWarmup({
   file,
 }: SourceOriginalPreviewWarmupInput): void {
   const fileMimeType = file?.mimeType
+  const filePdfPreviewMode = file?.pdfPreviewMode
   const fileSizeBytes = file?.sizeBytes
   const fileUrl = file?.url
 
@@ -26,6 +27,7 @@ export function useSourceOriginalPreviewWarmup({
       url: fileUrl,
       mimeType: fileMimeType,
       sizeBytes: fileSizeBytes,
+      ...(filePdfPreviewMode ? { pdfPreviewMode: filePdfPreviewMode } : {}),
     }
 
     const kind = sourceOriginalPreviewModel.getPreviewKind(
@@ -40,7 +42,12 @@ export function useSourceOriginalPreviewWarmup({
 
     const controller = new AbortController()
 
-    if (kind === "pdf" || kind === "docx") {
+    if (kind === "pdf" && previewFile.pdfPreviewMode !== "browser") {
+      sourceOriginalPreviewRequest.prefetchArrayBuffer(
+        fileUrl,
+        controller.signal,
+      )
+    } else if (kind === "docx") {
       sourceOriginalPreviewRequest.prefetchArrayBuffer(
         fileUrl,
         controller.signal,
@@ -52,5 +59,5 @@ export function useSourceOriginalPreviewWarmup({
     return () => {
       controller.abort()
     }
-  }, [fileMimeType, fileSizeBytes, fileUrl, sourceTitle])
+  }, [fileMimeType, filePdfPreviewMode, fileSizeBytes, fileUrl, sourceTitle])
 }

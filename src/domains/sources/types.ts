@@ -5,6 +5,7 @@ export type SourceOriginalFileView = {
   readonly mimeType: string
   readonly sizeBytes?: number
   readonly canDownload?: boolean
+  readonly pdfPreviewMode?: "browser"
 }
 
 export type SourceKind = "workspace" | "demo"

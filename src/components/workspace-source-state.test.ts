@@ -28,7 +28,7 @@ describe("workspaceSourceState", () => {
     );
   });
 
-  it("does not select unmaterialized Official Library rows as the initial source", () => {
+  it("can select an unmaterialized Official Library row for preview", () => {
     const sources: readonly SourceView[] = [
       {
         id: "demo-spacex-s1",
@@ -54,7 +54,7 @@ describe("workspaceSourceState", () => {
     ];
 
     expect(workspaceSourceState.getInitialSelectedSourceId(sources)).toBe(
-      "source_ready",
+      "demo-spacex-s1",
     );
   });
 

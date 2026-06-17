@@ -49,10 +49,11 @@ describe("loadWorkspaceShellInitialState", () => {
         status: "ready",
         documentId: "demo-doc-tsla-q4-2025",
         originalFile: {
-          url: "/api/demo-sources/demo-tsla-q4-2025/original",
+          url: "https://example.com/tsla-q4-2025.pdf",
           mimeType: "application/pdf",
           sizeBytes: 1024,
           canDownload: false,
+          pdfPreviewMode: "browser",
         },
         officialLibrary: {
           librarySourceId: "financial-tsla-q4-2025",
