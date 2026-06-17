@@ -1044,6 +1044,7 @@ describe("WorkspaceShell", () => {
               title: "spacex-s1.pdf",
               status: "ready",
               mimeType: "application/pdf",
+              demoSourceId: "demo-spacex-s1",
               documentId: "doc_user_copy",
               chunkCount: 1,
             },
@@ -1103,6 +1104,19 @@ describe("WorkspaceShell", () => {
 
     render(
       React.createElement(C, {
+        officialLibrarySources: [
+          {
+            librarySourceId: "financial-spacex-s1",
+            categoryId: "financial-reports",
+            categoryLabel: "Financial Reports",
+            title: "spacex-s1.pdf",
+            sourceUrl: "https://example.com/spacex-s1.pdf",
+            mimeType: "application/pdf",
+            status: "ready",
+            demoSourceId: "demo-spacex-s1",
+            chunkCount: 922,
+          },
+        ],
         sources: [
           {
             id: "demo-spacex-s1",
@@ -1176,23 +1190,21 @@ describe("WorkspaceShell", () => {
     const desktopChatPanel = within(screen.getByTestId("desktop-chat-panel"));
     await desktopChatPanel.findByText("Refreshed materialized answer.");
     expect(desktopChatPanel.queryByText("Seeded canonical answer.")).toBeNull();
-
-    await user.click(
-      desktopChatPanel.getByRole("button", {
-        name: "Open source spacex-s1.pdf · Overview",
-      }),
+    const refreshedLibraryPanel = within(
+      within(screen.getByTestId("desktop-chunks-panel")).getByTestId(
+        "official-library-panel",
+      ),
     );
-
-    await waitFor(() => {
-      const topRow = screen
-        .getByTestId("desktop-chunks-panel")
-        .querySelector<HTMLElement>('[data-index="0"]');
-
-      expect(topRow?.getAttribute("data-chunk-id")).toBe(
-        "source_spacex:chunk_1",
-      );
-      expect(topRow?.getAttribute("data-focused-chunk")).toBe("true");
-    });
+    expect(
+      refreshedLibraryPanel.getByRole("heading", { name: "Library" }),
+    ).toBeTruthy();
+    expect(refreshedLibraryPanel.getByLabelText("spacex-s1.pdf already added"))
+      .toBeTruthy();
+    expect(
+      refreshedLibraryPanel.queryByRole("button", {
+        name: "Add spacex-s1.pdf to sources",
+      }),
+    ).toBeNull();
     expect(countFetches(fetch, "/api/chat/threads/thread_1")).toBe(1);
   });
 

@@ -29,6 +29,7 @@ export function toSourceView(
     title: source.title,
     mimeType: source.mimeType,
     status: toSourceStatus(source.status),
+    ...(source.demoKey ? { demoSourceId: source.demoKey } : {}),
     documentId: source.knowhereDocumentId ?? undefined,
     ...(originalFile ? { originalFile } : {}),
     ...(options.chunkCount !== undefined
