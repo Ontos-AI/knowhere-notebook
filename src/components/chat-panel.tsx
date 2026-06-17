@@ -38,7 +38,10 @@ import type {
   ChatThreadView,
 } from "@/domains/chat/types";
 import { workspaceClient } from "@/domains/workspace/client";
-import type { AnalyticsContext } from "@/lib/posthog";
+import {
+  trackNotebookAssistantQuestionSubmitted,
+  type AnalyticsContext,
+} from "@/lib/posthog";
 
 export type ChatPanelProps = {
   messages: ChatMessageView[];
@@ -155,6 +158,13 @@ export function ChatPanel({
       return;
     }
 
+    void trackNotebookAssistantQuestionSubmitted({
+      context: analyticsContext,
+      threadId: activeThreadId,
+      selectedSourcesCount,
+      sourceCountSnapshot: sourceCount,
+      messageLength: text.length,
+    });
     onSend?.(text);
   }
 
@@ -279,10 +289,6 @@ export function ChatPanel({
         isDisabled={isDisabled}
         isCreatingDiagram={diagramTargetState?.status === "loading"}
         isSending={isSending}
-        activeThreadId={activeThreadId}
-        analyticsContext={analyticsContext}
-        sourceCountSnapshot={sourceCount}
-        selectedSourcesCount={selectedSourcesCount}
         onCreateDiagram={() => handleCreateDiagramCommand()}
         onLoginClick={onLoginClick}
         onSend={handleComposerSend}

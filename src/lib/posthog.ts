@@ -3,6 +3,8 @@
 import posthog, { type Properties } from "posthog-js";
 let isInitialized = false;
 
+const POSTHOG_CLOUD_HOST: string = "https://us.i.posthog.com";
+
 export type AnalyticsContext = {
   readonly workspaceId?: string;
   readonly workspaceNamespace?: string;
@@ -21,14 +23,14 @@ function getPostHogKey(): string | null {
 
 function getPostHogHost(): string {
   const host = process.env.NEXT_PUBLIC_POSTHOG_HOST?.trim();
-  return host && host.length > 0 ? host : "https://app.posthog.com";
+  return host && host.length > 0 ? host : POSTHOG_CLOUD_HOST;
 }
 
 export function isPostHogEnabled(): boolean {
   return getPostHogKey() !== null;
 }
 
-export async function initPostHogClient(): Promise<void> {
+export function initPostHogClient(): void {
   const key = getPostHogKey();
   if (!key) return;
   if (typeof window === "undefined" || isInitialized) return;
@@ -42,14 +44,19 @@ export async function initPostHogClient(): Promise<void> {
   isInitialized = true;
 }
 
-export async function trackEvent(
+function ensurePostHogClient(): boolean {
+  if (typeof window === "undefined" || !isPostHogEnabled()) return false;
+  if (!isInitialized) initPostHogClient();
+  return isInitialized;
+}
+
+export function trackEvent(
   eventName: string,
   properties?: Properties,
 ): Promise<void> {
-  if (typeof window === "undefined" || !isPostHogEnabled()) return;
-  if (!isInitialized) await initPostHogClient();
-  if (!isInitialized) return;
+  if (!ensurePostHogClient()) return Promise.resolve();
   posthog.capture(eventName, properties);
+  return Promise.resolve();
 }
 
 function buildBaseProperties(context?: AnalyticsContext): Properties {
@@ -63,14 +70,12 @@ function buildBaseProperties(context?: AnalyticsContext): Properties {
   };
 }
 
-export async function identifyUser(input: {
+export function identifyUser(input: {
   id: string;
   email?: string | null;
   name?: string | null;
-}): Promise<void> {
-  if (typeof window === "undefined" || !isPostHogEnabled()) return;
-  if (!isInitialized) await initPostHogClient();
-  if (!isInitialized) return;
+}): void {
+  if (!ensurePostHogClient()) return;
 
   posthog.identify(input.id, {
     email: input.email ?? undefined,
@@ -78,10 +83,8 @@ export async function identifyUser(input: {
   });
 }
 
-export async function resetUser(): Promise<void> {
-  if (typeof window === "undefined" || !isPostHogEnabled()) return;
-  if (!isInitialized) await initPostHogClient();
-  if (!isInitialized) return;
+export function resetUser(): void {
+  if (!ensurePostHogClient()) return;
   posthog.reset();
 }
 
@@ -108,7 +111,6 @@ export function trackNotebookUploadButtonClicked(
 export function trackNotebookDocumentUploadCompleted(input: {
   readonly context?: AnalyticsContext;
   uploadedCount: number;
-  fileName: string;
   fileType: string;
   fileSizeBytes: number;
   sourceCountBefore: number;
@@ -117,7 +119,6 @@ export function trackNotebookDocumentUploadCompleted(input: {
   return trackEvent("notebook_document_upload_completed", {
     ...buildBaseProperties(input.context),
     uploaded_count: input.uploadedCount,
-    file_names: [input.fileName],
     file_types: [input.fileType || "unknown"],
     total_size_bytes: input.fileSizeBytes,
     source_count_before: input.sourceCountBefore,

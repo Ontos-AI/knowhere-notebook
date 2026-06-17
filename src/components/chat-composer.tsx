@@ -21,11 +21,6 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { chatPromptTemplates } from "@/domains/chat/prompt-templates";
-import {
-  trackNotebookAssistantQuestionSubmitted,
-  type AnalyticsContext,
-} from "@/lib/posthog";
-
 const chatComposerId = "chat-composer";
 const placeholderPattern = /(\[[^\]\r\n]{1,80}\])/gu;
 const placeholderSegmentPattern = /^\[[^\]\r\n]{1,80}\]$/u;
@@ -35,10 +30,6 @@ export type ChatComposerProps = {
   readonly isDisabled?: boolean;
   readonly isCreatingDiagram?: boolean;
   readonly isSending?: boolean;
-  readonly activeThreadId?: string | null;
-  readonly analyticsContext?: AnalyticsContext;
-  readonly sourceCountSnapshot?: number;
-  readonly selectedSourcesCount?: number;
   readonly onCreateDiagram?: () => void;
   readonly onLoginClick?: () => void;
   readonly onSend?: (text: string) => void;
@@ -49,10 +40,6 @@ export function ChatComposer({
   isDisabled = false,
   isCreatingDiagram = false,
   isSending = false,
-  activeThreadId = null,
-  analyticsContext,
-  sourceCountSnapshot = 0,
-  selectedSourcesCount = 0,
   onCreateDiagram,
   onLoginClick,
   onSend,
@@ -76,13 +63,6 @@ export function ChatComposer({
 
   function handleSend(): void {
     if (!canSend) return;
-    void trackNotebookAssistantQuestionSubmitted({
-      context: analyticsContext,
-      threadId: activeThreadId,
-      selectedSourcesCount,
-      sourceCountSnapshot,
-      messageLength: trimmedInput.length,
-    });
     onSend?.(trimmedInput);
     setInput("");
     setTextareaScrollTop(0);

@@ -4,6 +4,15 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const analyticsMocks = vi.hoisted(() => ({
+  trackNotebookAssistantQuestionSubmitted: vi.fn(),
+}));
+
+vi.mock("@/lib/posthog", () => ({
+  trackNotebookAssistantQuestionSubmitted:
+    analyticsMocks.trackNotebookAssistantQuestionSubmitted,
+}));
+
 import { workspaceClient } from "@/domains/workspace/client";
 import { ChatPanel } from "./chat-panel";
 
@@ -23,6 +32,7 @@ describe("ChatPanel", () => {
       disconnect() {}
     };
     vi.mocked(workspaceClient.createChatDiagram).mockReset();
+    analyticsMocks.trackNotebookAssistantQuestionSubmitted.mockReset();
     mockVisibleVirtualViewport();
   });
 
@@ -242,8 +252,53 @@ describe("ChatPanel", () => {
     await user.click(screen.getByRole("button", { name: "Send message" }));
 
     expect(onSend).not.toHaveBeenCalled();
+    expect(
+      analyticsMocks.trackNotebookAssistantQuestionSubmitted,
+    ).not.toHaveBeenCalled();
     expect(workspaceClient.createChatDiagram).toHaveBeenCalledWith({
       answer: "Cloud revenue was 42 and Ads revenue was 28.",
+    });
+  });
+
+  it("tracks normal composer sends as assistant questions", async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn();
+
+    render(
+      React.createElement(C, {
+        activeThreadId: "thread_1",
+        analyticsContext: {
+          workspaceId: "workspace_1",
+          workspaceNamespace: "demo",
+          userId: "user_1",
+          isGuest: false,
+        },
+        selectedSourcesCount: 2,
+        sourceCount: 4,
+        onSend,
+      }),
+    );
+
+    await user.type(
+      screen.getByPlaceholderText("Ask a question about your documents…"),
+      "Summarize revenue",
+    );
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+
+    expect(onSend).toHaveBeenCalledWith("Summarize revenue");
+    expect(
+      analyticsMocks.trackNotebookAssistantQuestionSubmitted,
+    ).toHaveBeenCalledWith({
+      context: {
+        workspaceId: "workspace_1",
+        workspaceNamespace: "demo",
+        userId: "user_1",
+        isGuest: false,
+      },
+      threadId: "thread_1",
+      selectedSourcesCount: 2,
+      sourceCountSnapshot: 4,
+      messageLength: "Summarize revenue".length,
     });
   });
 

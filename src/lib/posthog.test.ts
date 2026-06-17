@@ -80,8 +80,33 @@ describe("posthog", () => {
     expect(mocks.init).toHaveBeenCalledWith(
       "phc_test_key",
       expect.objectContaining({
-        api_host: "https://app.posthog.com",
+        api_host: "https://us.i.posthog.com",
       }),
+    );
+  });
+
+  it("resets guest identity before capturing a pageview in the same effect flush", async () => {
+    vi.resetModules();
+    process.env.NEXT_PUBLIC_POSTHOG_KEY = "phc_test_key";
+    const { resetUser: resetGuest, trackPageView: trackView } =
+      await import("./posthog");
+    window.history.pushState({}, "", "/workspace/guest");
+
+    resetGuest();
+    await trackView({
+      isGuest: true,
+    });
+
+    expect(mocks.reset).toHaveBeenCalledOnce();
+    expect(mocks.capture).toHaveBeenCalledWith(
+      "$pageview",
+      expect.objectContaining({
+        $pathname: "/workspace/guest",
+        is_guest: true,
+      }),
+    );
+    expect(mocks.reset.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.capture.mock.invocationCallOrder[0],
     );
   });
 

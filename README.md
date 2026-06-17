@@ -13,7 +13,7 @@ Upload documents, explore parsed content, and ask questions about your knowledge
    - `AI_GATEWAY_API_KEY` — your Vercel AI Gateway key for chat (optional `CHAT_MODEL` override)
    - `KNOWHERE_API_KEY` — optional development override that skips Dashboard auth and calls Knowhere directly
    - `NEXT_PUBLIC_POSTHOG_KEY` — PostHog Project API key for front-end event tracking
-   - `NEXT_PUBLIC_POSTHOG_HOST` — PostHog host (default `https://app.posthog.com`)
+   - `NEXT_PUBLIC_POSTHOG_HOST` — PostHog ingestion host (default `https://us.i.posthog.com`)
 
 3. Install dependencies and run:
    ```bash
@@ -38,11 +38,11 @@ guest sessions so insights can be grouped by user.
 ### Connect Notebook to PostHog
 
 1. In PostHog, create/select a project.
-2. Copy the project API key and host.
+2. Copy the project API key and ingestion host.
 3. Set these values in `.env.local`:
    ```bash
    NEXT_PUBLIC_POSTHOG_KEY=phc_your_project_api_key
-   NEXT_PUBLIC_POSTHOG_HOST=https://app.posthog.com
+   NEXT_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com
    ```
 4. Restart `pnpm dev` (or `npm run dev`), then trigger a few actions in Notebook.
 5. Open PostHog `Events` and filter by the event names above to verify ingestion.

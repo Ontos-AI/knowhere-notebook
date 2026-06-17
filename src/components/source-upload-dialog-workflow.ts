@@ -102,7 +102,7 @@ export function useSourceUploadDialogWorkflow({
           context: analyticsContext,
           fileType: file.type || null,
           fileSizeBytes: file.size,
-          errorType: "server",
+          errorType: getUploadFailureErrorType(response.status),
           errorMessage: body.message ?? defaultUploadFailureMessage,
         });
         setMessage({
@@ -116,7 +116,6 @@ export function useSourceUploadDialogWorkflow({
       void trackNotebookDocumentUploadCompleted({
         context: analyticsContext,
         uploadedCount: 1,
-        fileName: file.name,
         fileType: file.type,
         fileSizeBytes: file.size,
         sourceCountBefore,
@@ -205,6 +204,12 @@ export function useSourceUploadDialogWorkflow({
 
 function isSuccessfulStatus(status: number): boolean {
   return status >= 200 && status < 300;
+}
+
+function getUploadFailureErrorType(
+  status: number,
+): "validation" | "server" {
+  return status === 400 ? "validation" : "server";
 }
 
 function hasDraggedFiles(event: DragEvent<HTMLElement>): boolean {

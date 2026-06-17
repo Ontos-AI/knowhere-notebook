@@ -67,7 +67,6 @@ describe("useSourceUploadDialogWorkflow", () => {
     expect(mocks.trackNotebookDocumentUploadCompleted).toHaveBeenCalledWith({
       context: undefined,
       uploadedCount: 1,
-      fileName: "notes.pdf",
       fileType: "application/pdf",
       fileSizeBytes: 5,
       sourceCountBefore: 0,
@@ -133,6 +132,40 @@ describe("useSourceUploadDialogWorkflow", () => {
     expect(uploadSource).not.toHaveBeenCalled();
     expect(screen.getByTestId("upload-message").textContent).toBe(
       "Choose a document to upload.",
+    );
+  });
+
+  it("classifies local upload validation failures separately from server failures", async () => {
+    const uploadSource = vi.fn(async () => ({
+      status: 400,
+      body: { message: "Unsupported file type." },
+    }));
+    const file = new File(["hello"], "notes.exe", {
+      type: "application/x-msdownload",
+    });
+
+    render(
+      React.createElement(SourceUploadDialogWorkflowHarness, {
+        uploadSource,
+      }),
+    );
+
+    fireEvent.change(screen.getByLabelText("file-input"), {
+      target: { files: [file] },
+    });
+    fireEvent.submit(screen.getByTestId("upload-form"));
+
+    await waitFor(() => {
+      expect(mocks.trackNotebookDocumentUploadFailed).toHaveBeenCalledWith({
+        context: undefined,
+        fileType: "application/x-msdownload",
+        fileSizeBytes: 5,
+        errorType: "validation",
+        errorMessage: "Unsupported file type.",
+      });
+    });
+    expect(screen.getByTestId("upload-message").textContent).toBe(
+      "Unsupported file type.",
     );
   });
 });
