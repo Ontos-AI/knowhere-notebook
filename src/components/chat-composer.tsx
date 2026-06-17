@@ -5,6 +5,7 @@ import {
   useState,
   type ChangeEvent,
   type KeyboardEvent,
+  type MouseEvent,
   type ReactElement,
   type UIEvent,
 } from "react";
@@ -25,6 +26,12 @@ import { chatPromptTemplates } from "@/domains/chat/prompt-templates";
 const chatComposerId = "chat-composer";
 const placeholderPattern = /(\[[^\]\r\n]{1,80}\])/gu;
 const placeholderSegmentPattern = /^\[[^\]\r\n]{1,80}\]$/u;
+const placeholderRangePattern = /\[[^\]\r\n]{1,80}\]/gu;
+
+type TextRange = {
+  readonly start: number;
+  readonly end: number;
+};
 
 export type ChatComposerProps = {
   readonly canCreateDiagram?: boolean;
@@ -46,13 +53,16 @@ export function ChatComposer({
   onSend,
 }: ChatComposerProps): ReactElement {
   const [input, setInput] = useState("");
+  const [hasActiveTextSelection, setHasActiveTextSelection] = useState(false);
   const [textareaScrollTop, setTextareaScrollTop] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const trimmedInput = input.trim();
   const canSend = !isDisabled && !isSending && trimmedInput.length > 0;
+  const shouldShowHighlightLayer = input.length > 0 && !hasActiveTextSelection;
 
   function handleInputChange(event: ChangeEvent<HTMLTextAreaElement>): void {
     setInput(event.target.value);
+    setHasActiveTextSelection(false);
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>): void {
@@ -73,13 +83,51 @@ export function ChatComposer({
     setInput(prompt);
     setTextareaScrollTop(0);
     requestAnimationFrame(() => {
-      textareaRef.current?.focus();
-      textareaRef.current?.setSelectionRange(prompt.length, prompt.length);
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+
+      textarea.focus();
+      const placeholderRange = getFirstPlaceholderRange(prompt);
+      if (!placeholderRange) {
+        textarea.setSelectionRange(prompt.length, prompt.length);
+        setHasActiveTextSelection(false);
+        return;
+      }
+
+      textarea.setSelectionRange(placeholderRange.start, placeholderRange.end);
+      setHasActiveTextSelection(true);
     });
   }
 
   function handleTextareaScroll(event: UIEvent<HTMLTextAreaElement>): void {
     setTextareaScrollTop(event.currentTarget.scrollTop);
+  }
+
+  function handleTextareaClick(event: MouseEvent<HTMLTextAreaElement>): void {
+    const textarea = event.currentTarget;
+    if (textarea.selectionStart !== textarea.selectionEnd) {
+      setHasActiveTextSelection(true);
+      return;
+    }
+
+    const placeholderRange = getPlaceholderRangeAtPosition(
+      textarea.value,
+      textarea.selectionStart,
+    );
+    if (!placeholderRange) {
+      setHasActiveTextSelection(false);
+      return;
+    }
+
+    textarea.setSelectionRange(placeholderRange.start, placeholderRange.end);
+    setHasActiveTextSelection(true);
+  }
+
+  function refreshTextareaSelectionState(): void {
+    const textarea = textareaRef.current;
+    setHasActiveTextSelection(
+      Boolean(textarea && textarea.selectionStart !== textarea.selectionEnd),
+    );
   }
 
   return (
@@ -99,9 +147,10 @@ export function ChatComposer({
       ) : (
         <>
           <div className="relative overflow-hidden bg-background">
-            {input.length > 0 && (
+            {shouldShowHighlightLayer && (
               <pre
                 aria-hidden="true"
+                data-testid="chat-composer-highlight-layer"
                 className="pointer-events-none absolute inset-0 h-[128px] min-w-0 whitespace-pre-wrap break-words border border-transparent px-4 py-3 font-sans text-sm leading-5 text-foreground sm:px-5 sm:py-4"
               >
                 <span
@@ -117,7 +166,9 @@ export function ChatComposer({
               id={chatComposerId}
               name={chatComposerId}
               className={`relative h-[128px] w-full min-w-0 resize-none border-0 bg-transparent px-4 py-3 text-sm leading-5 shadow-none transition-all placeholder:text-muted-foreground focus-visible:ring-0 sm:px-5 sm:py-4 ${
-                input.length > 0 ? "text-transparent caret-foreground" : "text-foreground"
+                shouldShowHighlightLayer
+                  ? "text-transparent caret-foreground"
+                  : "text-foreground"
               }`}
               placeholder={
                 isDisabled
@@ -127,8 +178,12 @@ export function ChatComposer({
               value={input}
               onChange={handleInputChange}
               disabled={isDisabled}
+              onBlur={() => setHasActiveTextSelection(false)}
+              onClick={handleTextareaClick}
               onKeyDown={handleKeyDown}
+              onKeyUp={refreshTextareaSelectionState}
               onScroll={handleTextareaScroll}
+              onSelect={refreshTextareaSelectionState}
             />
           </div>
           <div className="flex items-center justify-between gap-3 px-4 pb-4 sm:px-5">
@@ -238,4 +293,25 @@ function renderHighlightedInput(value: string): readonly ReactElement[] {
     }
       return <span key={key}>{segment}</span>;
     });
+}
+
+function getFirstPlaceholderRange(value: string): TextRange | null {
+  const [firstMatch] = value.matchAll(placeholderRangePattern);
+  if (!firstMatch) return null;
+  const start = firstMatch.index;
+  return { start, end: start + firstMatch[0].length };
+}
+
+function getPlaceholderRangeAtPosition(
+  value: string,
+  position: number,
+): TextRange | null {
+  for (const match of value.matchAll(placeholderRangePattern)) {
+    const start = match.index;
+    const end = start + match[0].length;
+    if (position >= start && position <= end) {
+      return { start, end };
+    }
+  }
+  return null;
 }
