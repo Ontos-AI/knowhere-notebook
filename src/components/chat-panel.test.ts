@@ -462,7 +462,7 @@ describe("ChatPanel", () => {
     );
   });
 
-  it("renders citation links as button-backed links with per-citation loading feedback", async () => {
+  it("renders source buttons with per-citation loading feedback", async () => {
     const user = userEvent.setup();
     const onCitationClick = vi.fn();
 
@@ -495,11 +495,13 @@ describe("ChatPanel", () => {
       name: "Open source syllabus.pdf · Schedule",
     });
 
+    expect(screen.getByText("Sources")).toBeTruthy();
     expect(within(citationButton).getByRole("status", { name: "Loading" }))
       .toBeTruthy();
-    expect(citationButton.className).toContain("rounded-full");
+    expect(citationButton.className).toContain("rounded-md");
     expect(citationButton.className).toContain("max-w-[250px]");
-    expect(citationButton.className).toContain("text-primary");
+    expect(citationButton.className).toContain("text-foreground");
+    expect(citationButton.className).toContain("bg-background/80");
     expect(citationButton.className).not.toContain("bg-muted");
     expect(citationButton.className).not.toContain("underline");
 
@@ -507,7 +509,7 @@ describe("ChatPanel", () => {
     expect(onCitationClick).not.toHaveBeenCalled();
   });
 
-  it("keeps long citation links wrapped without making them look like chips", () => {
+  it("keeps long bottom source labels constrained", () => {
     render(
       React.createElement(C, {
         messages: [
@@ -536,11 +538,15 @@ describe("ChatPanel", () => {
       name: /Open source TSLA-Q4-2025-UPDATE\.PDF/,
     });
 
+    expect(screen.getByText("Sources")).toBeTruthy();
     expect(sourceLink.className).toContain("max-w-[250px]");
-    expect(sourceLink.className).toContain("rounded-full");
+    expect(sourceLink.className).toContain("rounded-md");
     expect(sourceLink.className).not.toContain("underline");
-    expect(within(sourceLink).getByText("TSLA-Q4-2025-UPDATE.PDF").className)
-      .toContain("truncate");
+    expect(
+      within(sourceLink).getByText(
+        /TSLA-Q4-2025-UPDATE\.PDF · TABLE-1 TESLA/u,
+      ).className,
+    ).toContain("truncate");
   });
 
   it("shows button-level loading for chat API actions", async () => {

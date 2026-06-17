@@ -79,12 +79,20 @@ describe("ChatComposer", () => {
       expect(input.selectionStart).toBe(placeholderStart);
       expect(input.selectionEnd).toBe(placeholderEnd);
     });
+    expect(input.className).toContain("text-foreground");
+    expect(input.className).not.toContain("text-transparent");
     expect(screen.queryByTestId("chat-composer-highlight-layer")).toBeNull();
 
     await user.type(input, "Acme Robotics", { skipClick: true });
 
     expect(input.value).toContain("prospectus of Acme Robotics");
     expect(input.value).not.toContain("[Company Name]");
+    expect(input.selectionStart).toBe(
+      placeholderStart + "Acme Robotics".length,
+    );
+    expect(input.selectionEnd).toBe(placeholderStart + "Acme Robotics".length);
+    expect(input.className).toContain("text-foreground");
+    expect(input.className).not.toContain("text-transparent");
   });
 
   it("highlights placeholders when text is not selected", async () => {
@@ -105,6 +113,8 @@ describe("ChatComposer", () => {
     input.setSelectionRange(input.value.length, input.value.length);
     fireEvent.select(input);
 
+    expect(input.className).toContain("text-foreground");
+    expect(input.className).not.toContain("text-transparent");
     expect(screen.getByText("[Company Name]").className).toContain(
       "text-primary",
     );

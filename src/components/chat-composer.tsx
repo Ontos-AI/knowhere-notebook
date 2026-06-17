@@ -164,11 +164,7 @@ export function ChatComposer({
               ref={textareaRef}
               id={chatComposerId}
               name={chatComposerId}
-              className={`relative h-[128px] w-full min-w-0 resize-none border-0 bg-transparent px-4 py-3 text-sm leading-5 shadow-none transition-all placeholder:text-muted-foreground focus-visible:ring-0 sm:px-5 sm:py-4 ${
-                shouldShowHighlightLayer
-                  ? "text-transparent caret-foreground"
-                  : "text-foreground"
-              }`}
+              className="relative h-[128px] w-full min-w-0 resize-none border-0 bg-transparent px-4 py-3 text-sm leading-5 text-foreground shadow-none placeholder:text-muted-foreground focus-visible:ring-0 sm:px-5 sm:py-4"
               placeholder={
                 isDisabled
                   ? "Add a ready source to start asking questions."
@@ -284,7 +280,7 @@ function renderHighlightedInput(value: string): readonly ReactElement[] {
         return (
           <span
             key={key}
-            className="rounded-sm bg-primary/10 px-0.5 font-semibold text-primary"
+            className="rounded-sm bg-primary/10 text-primary"
           >
           {segment}
         </span>

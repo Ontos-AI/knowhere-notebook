@@ -59,6 +59,72 @@ describe("ChatMessageList", () => {
     ).toBeTruthy();
   });
 
+  it("renders citations in a bottom source area with distinct labels", () => {
+    render(
+      React.createElement(ChatMessageList, {
+        messages: [
+          {
+            id: "assistant_1",
+            role: "assistant",
+            content:
+              "Capital expenditure appears in the appendix. [Source 1: spacex-s1.pdf / Assets / tables / table-25 Capital Expenditures.html]",
+            citations: [
+              {
+                chunkType: "table",
+                score: 0.9,
+                source: {
+                  documentId: "doc_1",
+                  sourceFileName: "spacex-s1.pdf",
+                  sectionPath:
+                    "Assets / tables / table-25 Capital Expenditures.html",
+                },
+              },
+              {
+                chunkType: "table",
+                score: 0.91,
+                source: {
+                  documentId: "doc_1",
+                  sourceFileName: "spacex-s1.pdf",
+                  sectionPath:
+                    "Assets / tables / table-25 Capital Expenditures.html",
+                },
+              },
+              {
+                chunkType: "text",
+                score: 0.8,
+                source: {
+                  documentId: "doc_1",
+                  sourceFileName: "spacex-s1.pdf",
+                  sectionPath: "MD&A / Drivers of Our Performance",
+                },
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(screen.getByText("Capital expenditure appears in the appendix."))
+      .toBeTruthy();
+    expect(screen.queryByText(/Source 1/u)).toBeNull();
+    expect(screen.getByText("Sources")).toBeTruthy();
+    expect(
+      screen.getByRole("button", {
+        name: "Open source spacex-s1.pdf · Assets / tables / table-25 Capital Expenditures.html",
+      }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", {
+        name: "Open source spacex-s1.pdf · MD&A / Drivers of Our Performance",
+      }),
+    ).toBeTruthy();
+    expect(
+      screen.getAllByRole("button", {
+        name: "Open source spacex-s1.pdf · Assets / tables / table-25 Capital Expenditures.html",
+      }),
+    ).toHaveLength(1);
+  });
+
   it("renders image citations as viewable image attachments", () => {
     render(
       React.createElement(ChatMessageList, {
