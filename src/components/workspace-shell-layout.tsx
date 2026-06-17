@@ -13,6 +13,7 @@ import { MobileTabBar } from "@/components/mobile-tab-bar"
 import { OfficialLibraryPanel } from "@/components/official-library-panel"
 import { SourcesPanel } from "@/components/sources-panel"
 import { TopNav } from "@/components/top-nav"
+import type { AnalyticsContext } from "@/lib/posthog"
 import { useWorkspaceResizeHandleWorkflow } from "@/components/workspace-resize-handle-workflow"
 import { workspaceShellState } from "@/components/workspace-shell-state"
 import type {
@@ -85,6 +86,7 @@ export type WorkspaceShellLayoutProps = {
   readonly sources: readonly SourceView[]
   readonly officialLibrarySources: readonly OfficialLibrarySourceView[]
   readonly user: WorkspaceShellUser | undefined
+  readonly analyticsContext?: AnalyticsContext
   readonly onArchiveChatThread: (threadId: string) => void | Promise<void>
   readonly onArchiveSource: (sourceId: string) => void | Promise<void>
   readonly onChatSend: (text: string) => void | Promise<void>
@@ -129,6 +131,9 @@ export function WorkspaceShellLayout(
   const { onDesktopLayoutElementChange } = props
   const addingLibrarySourceIds = props.addingLibrarySourceIds ?? []
   const officialLibrarySources = props.officialLibrarySources ?? []
+  const selectedSourcesCount = props.sources.filter(
+    (source) => !source.excludedFromQuery && source.status === "ready",
+  ).length
   const isSourcesPanelCollapsed =
     props.desktopPanelWidths.sources <=
     workspaceShellState.desktopSidePanelCompactThreshold
@@ -147,6 +152,9 @@ export function WorkspaceShellLayout(
     <div className="flex h-screen w-full flex-col overflow-hidden bg-background">
       <TopNav
         dashboardUrl={props.dashboardUrl}
+        analyticsContext={props.analyticsContext}
+        hasChats={props.chatThreads.length > 0}
+        hasSources={props.readySourceCount > 0}
         userInitials={props.user ? initialsOf(props.user) : undefined}
         userName={
           props.user ? (props.user.name ?? props.user.email ?? undefined) : undefined
@@ -190,6 +198,8 @@ export function WorkspaceShellLayout(
                 officialLibrarySources={[...officialLibrarySources]}
                 isLibraryOpen={props.contentView === "library"}
                 isNarrow={isSourcesPanelNarrow}
+                analyticsContext={props.analyticsContext}
+                sourceCountSnapshot={props.sources.length}
                 onSourceUploaded={
                   props.isGuest ? undefined : props.onSourceUploaded
                 }
@@ -259,6 +269,8 @@ export function WorkspaceShellLayout(
                 onSourceUploaded={
                   props.isGuest ? undefined : props.onSourceUploaded
                 }
+                analyticsContext={props.analyticsContext}
+                sourceCountSnapshot={props.sources.length}
               />
             )}
           </div>
@@ -307,6 +319,8 @@ export function WorkspaceShellLayout(
                 pendingCitationId={props.pendingCitationId}
                 pendingStatusText={props.chat.pendingStatusText}
                 sourceCount={props.readySourceCount}
+                analyticsContext={props.analyticsContext}
+                selectedSourcesCount={selectedSourcesCount}
                 onSend={props.onChatSend}
                 onNewChat={props.isGuest ? undefined : props.onCreateChatThread}
                 onThreadSelect={
@@ -334,6 +348,8 @@ export function WorkspaceShellLayout(
       >
         <SourcesPanel
           sources={[...props.sources]}
+          analyticsContext={props.analyticsContext}
+          sourceCountSnapshot={props.sources.length}
           officialLibrarySources={[...officialLibrarySources]}
           isLibraryOpen={props.contentView === "library"}
           onSourceUploaded={props.isGuest ? undefined : props.onSourceUploaded}
@@ -389,6 +405,8 @@ export function WorkspaceShellLayout(
             onLoadMore={props.onLoadMoreChunks}
             onLoginClick={props.isGuest ? props.onLoginClick : undefined}
             onSourceUploaded={props.isGuest ? undefined : props.onSourceUploaded}
+            analyticsContext={props.analyticsContext}
+            sourceCountSnapshot={props.sources.length}
           />
         )}
       </div>
@@ -413,6 +431,8 @@ export function WorkspaceShellLayout(
           pendingCitationId={props.pendingCitationId}
           pendingStatusText={props.chat.pendingStatusText}
           sourceCount={props.readySourceCount}
+          analyticsContext={props.analyticsContext}
+          selectedSourcesCount={selectedSourcesCount}
           onSend={props.onChatSend}
           onNewChat={props.isGuest ? undefined : props.onCreateChatThread}
           onThreadSelect={props.isGuest ? undefined : props.onSelectChatThread}

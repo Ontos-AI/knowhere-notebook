@@ -38,6 +38,10 @@ import type {
   ChatThreadView,
 } from "@/domains/chat/types";
 import { workspaceClient } from "@/domains/workspace/client";
+import {
+  trackNotebookAssistantQuestionSubmitted,
+  type AnalyticsContext,
+} from "@/lib/posthog";
 
 export type ChatPanelProps = {
   messages: ChatMessageView[];
@@ -51,6 +55,8 @@ export type ChatPanelProps = {
   onLoginClick?: () => void;
   sourceTitlesByDocumentId?: Readonly<Record<string, string>>;
   sourceCount?: number;
+  selectedSourcesCount?: number;
+  analyticsContext?: AnalyticsContext;
   isSending?: boolean;
   isHistoryLoading?: boolean;
   isCreatingThread?: boolean;
@@ -73,6 +79,8 @@ export function ChatPanel({
   onLoginClick,
   sourceTitlesByDocumentId = {},
   sourceCount = 0,
+  selectedSourcesCount = 0,
+  analyticsContext,
   isSending = false,
   isHistoryLoading = false,
   isCreatingThread = false,
@@ -150,6 +158,13 @@ export function ChatPanel({
       return;
     }
 
+    void trackNotebookAssistantQuestionSubmitted({
+      context: analyticsContext,
+      threadId: activeThreadId,
+      selectedSourcesCount,
+      sourceCountSnapshot: sourceCount,
+      messageLength: text.length,
+    });
     onSend?.(text);
   }
 

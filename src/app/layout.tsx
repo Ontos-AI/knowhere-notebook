@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
 import { appMetadata } from "@/lib/app-metadata";
+import { PostHogInitializer } from "@/providers/posthog-initializer";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -34,7 +35,7 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          {children}
+          <PostHogInitializer>{children}</PostHogInitializer>
         </ThemeProvider>
       </body>
     </html>

@@ -22,7 +22,6 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { chatPromptTemplates } from "@/domains/chat/prompt-templates";
-
 const chatComposerId = "chat-composer";
 const placeholderPattern = /(\[[^\]\r\n]{1,80}\])/gu;
 const placeholderSegmentPattern = /^\[[^\]\r\n]{1,80}\]$/u;
