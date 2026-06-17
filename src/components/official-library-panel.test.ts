@@ -45,6 +45,38 @@ describe("OfficialLibraryPanel", () => {
     expect(screen.getByText("spacex-s1.pdf")).toBeTruthy();
   });
 
+  it("keeps file add actions visible on mobile", () => {
+    render(
+      React.createElement(OfficialLibraryPanel, {
+        officialLibrarySources: [
+          {
+            librarySourceId: "financial-spacex-s1",
+            categoryId: "financial-reports",
+            categoryLabel: "Financial Reports",
+            title: "spacex-s1.pdf",
+            sourceUrl: "https://example.com/spacex-s1.pdf",
+            mimeType: "application/pdf",
+            status: "ready",
+            demoSourceId: "demo-spacex-s1",
+            chunkCount: 922,
+          },
+        ],
+        onOfficialLibrarySourceAdd: vi.fn(),
+      }),
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open Financial Reports" }),
+    );
+
+    const addButton = screen.getByRole("button", {
+      name: "Add spacex-s1.pdf to sources",
+    });
+
+    expect(addButton.className).toContain("opacity-100");
+    expect(addButton.className).toContain("min-[1116px]:opacity-0");
+  });
+
   it("opens to the all-categories view", () => {
     render(
       React.createElement(OfficialLibraryPanel, {
