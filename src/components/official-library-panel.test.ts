@@ -45,6 +45,67 @@ describe("OfficialLibraryPanel", () => {
     expect(screen.getByText("spacex-s1.pdf")).toBeTruthy();
   });
 
+  it("uses a library icon in the panel heading", () => {
+    const { container } = render(
+      React.createElement(OfficialLibraryPanel, {
+        officialLibrarySources: [
+          {
+            librarySourceId: "financial-spacex-s1",
+            categoryId: "financial-reports",
+            categoryLabel: "Financial Reports",
+            title: "spacex-s1.pdf",
+            sourceUrl: "https://example.com/spacex-s1.pdf",
+            mimeType: "application/pdf",
+            status: "ready",
+            demoSourceId: "demo-spacex-s1",
+            chunkCount: 922,
+          },
+        ],
+      }),
+    );
+
+    const headingIcon = container.querySelector<SVGSVGElement>(
+      '[data-testid="official-library-heading-icon"]',
+    );
+
+    expect(headingIcon?.className.baseVal).toContain("lucide-book-open");
+    expect(headingIcon?.className.baseVal).not.toContain("rotate-ccw");
+  });
+
+  it("opens library documents as browser PDF previews", () => {
+    render(
+      React.createElement(OfficialLibraryPanel, {
+        officialLibrarySources: [
+          {
+            librarySourceId: "financial-spacex-s1",
+            categoryId: "financial-reports",
+            categoryLabel: "Financial Reports",
+            title: "spacex-s1.pdf",
+            sourceUrl: "https://example.com/spacex-s1.pdf",
+            mimeType: "application/pdf",
+            status: "ready",
+            demoSourceId: "demo-spacex-s1",
+            chunkCount: 922,
+          },
+        ],
+      }),
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open Financial Reports" }),
+    );
+
+    const previewLink = screen.getByRole("link", {
+      name: "Open spacex-s1.pdf PDF preview",
+    });
+
+    expect(previewLink.getAttribute("href")).toBe(
+      "https://example.com/spacex-s1.pdf",
+    );
+    expect(previewLink.getAttribute("target")).toBe("_blank");
+    expect(previewLink.getAttribute("rel")).toBe("noopener noreferrer");
+  });
+
   it("keeps file add actions visible on mobile", () => {
     render(
       React.createElement(OfficialLibraryPanel, {
