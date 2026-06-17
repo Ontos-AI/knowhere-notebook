@@ -114,6 +114,7 @@ export type WorkspaceShellLayoutProps = {
   readonly onLoadAllChunks: () => void
   readonly onLoadMoreChunks: () => void
   readonly onLoginClick: () => void
+  readonly onLibraryBack: () => void
   readonly onLibraryOpen: () => void
   readonly onMobilePanelChange: (panel: PanelId) => void
   readonly onOfficialLibrarySourceAdd: (
@@ -247,6 +248,7 @@ export function WorkspaceShellLayout(
                 addingLibrarySourceIds={[...addingLibrarySourceIds]}
                 officialLibrarySources={[...officialLibrarySources]}
                 sources={[...props.sources]}
+                onBack={props.onLibraryBack}
                 onOfficialLibrarySourceAdd={
                   props.isGuest ? undefined : props.onOfficialLibrarySourceAdd
                 }
@@ -385,6 +387,7 @@ export function WorkspaceShellLayout(
             addingLibrarySourceIds={[...addingLibrarySourceIds]}
             officialLibrarySources={[...officialLibrarySources]}
             sources={[...props.sources]}
+            onBack={props.onLibraryBack}
             onOfficialLibrarySourceAdd={
               props.isGuest ? undefined : props.onOfficialLibrarySourceAdd
             }
