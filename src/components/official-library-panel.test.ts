@@ -77,6 +77,51 @@ describe("OfficialLibraryPanel", () => {
     expect(addButton.className).toContain("min-[1116px]:opacity-0");
   });
 
+  it("marks already added library documents and removes duplicate add actions", () => {
+    const onOfficialLibrarySourceAdd = vi.fn();
+
+    render(
+      React.createElement(OfficialLibraryPanel, {
+        sources: [
+          {
+            id: "source_spacex",
+            kind: "workspace",
+            demoSourceId: "demo-spacex-s1",
+            title: "spacex-s1.pdf",
+            status: "ready",
+            mimeType: "application/pdf",
+            documentId: "doc_user_copy",
+          },
+        ],
+        officialLibrarySources: [
+          {
+            librarySourceId: "financial-spacex-s1",
+            categoryId: "financial-reports",
+            categoryLabel: "Financial Reports",
+            title: "spacex-s1.pdf",
+            sourceUrl: "https://example.com/spacex-s1.pdf",
+            mimeType: "application/pdf",
+            status: "ready",
+            demoSourceId: "demo-spacex-s1",
+            chunkCount: 922,
+          },
+        ],
+        onOfficialLibrarySourceAdd,
+      }),
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open Financial Reports" }),
+    );
+
+    expect(screen.getByLabelText("spacex-s1.pdf already added")).toBeTruthy();
+    expect(screen.getByText("Added")).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Add spacex-s1.pdf to sources" }),
+    ).toBeNull();
+    expect(onOfficialLibrarySourceAdd).not.toHaveBeenCalled();
+  });
+
   it("opens to the all-categories view", () => {
     render(
       React.createElement(OfficialLibraryPanel, {

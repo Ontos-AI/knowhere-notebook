@@ -80,6 +80,7 @@ describe("POST /api/demo-sources/materialize", () => {
           title: "TSLA-Q4-2025-Update.pdf",
           mimeType: "application/pdf",
           status: "ready",
+          demoSourceId: "demo-tsla-q4-2025",
           documentId: "doc_user_copy",
           originalFile: {
             url: "/api/demo-sources/demo-tsla-q4-2025/original",

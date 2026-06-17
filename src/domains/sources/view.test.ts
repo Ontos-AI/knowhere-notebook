@@ -87,6 +87,7 @@ describe("toSourceView", () => {
       ),
     ).toMatchObject({
       title: "TSLA-Q4-2025-Update.pdf",
+      demoSourceId: "demo-tsla-q4-2025",
       documentId: "doc_user_copy",
       chunkCount: 70,
       originalFile: {

@@ -134,6 +134,7 @@ describe("useWorkspaceSourceWorkflow", () => {
     const materializedSource = makeSource({
       id: "source_spacex",
       kind: "workspace",
+      demoSourceId: "demo-spacex-s1",
       title: "spacex-s1.pdf",
       documentId: "doc_spacex",
     })
@@ -157,6 +158,9 @@ describe("useWorkspaceSourceWorkflow", () => {
     expect(result.current.sources.map((source) => source.id)).toEqual([
       "source_spacex",
     ])
+    expect(result.current.sources[0]).toMatchObject({
+      demoSourceId: "demo-spacex-s1",
+    })
     expect(result.current.selectedSourceId).toBe("source_spacex")
   })
 

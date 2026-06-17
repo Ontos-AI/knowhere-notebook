@@ -137,7 +137,6 @@ function WorkspaceShellContent({
     const didMaterialize =
       await sourceWorkflow.handleOfficialLibrarySourceAdd(demoSourceId)
     if (didMaterialize) {
-      setContentView("chunks")
       await chatWorkflow.handleRefreshActiveChatThread()
     }
   }

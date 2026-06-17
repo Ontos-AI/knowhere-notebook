@@ -1,7 +1,7 @@
 "use client";
 
 import { type CSSProperties, type ReactElement, useMemo, useState } from "react";
-import { ChevronRight, FileText, Plus, RotateCcw } from "lucide-react";
+import { Check, ChevronRight, FileText, Plus, RotateCcw } from "lucide-react";
 import Image from "next/image";
 
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -31,6 +31,7 @@ type LibraryItem = {
   readonly demoSourceId?: string;
   readonly librarySourceId: string;
   readonly mimeType: string;
+  readonly isAdded: boolean;
   readonly sourceUrl: string;
   readonly status: "ready" | "planned";
   readonly title: string;
@@ -188,28 +189,42 @@ function OfficialLibraryCard({
   readonly item: LibraryItem;
   readonly onAdd?: () => void;
 }): ReactElement {
-  const canAdd = item.status === "ready" && Boolean(onAdd);
+  const canAdd = item.status === "ready" && Boolean(onAdd) && !item.isAdded;
 
   return (
     <article className="group relative flex min-w-0 flex-col items-center rounded-sm p-3 text-center transition-colors hover:bg-muted/60">
-      <TooltipProvider delayDuration={0}>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              disabled={!canAdd || isAdding}
-              onClick={onAdd}
-              className="absolute right-3 top-1 inline-flex size-6 items-center justify-center rounded-md bg-background/95 text-muted-foreground opacity-100 shadow-xs transition-opacity hover:bg-background hover:text-foreground focus:opacity-100 disabled:cursor-not-allowed disabled:opacity-40 min-[1116px]:bg-transparent min-[1116px]:opacity-0 min-[1116px]:shadow-none min-[1116px]:group-hover:opacity-100"
-              aria-label={`Add ${item.title} to sources`}
-            >
-              {isAdding ? <Spinner className="size-3.5" /> : <Plus className="size-4" />}
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="top" className="bg-zinc-950 text-white">
-            add to sources
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
+      {item.isAdded ? (
+        <span
+          aria-label={`${item.title} already added`}
+          className="absolute right-3 top-1 inline-flex h-6 items-center gap-1 rounded-md bg-primary/10 px-2 text-[11px] font-semibold text-primary"
+        >
+          <Check className="size-3" />
+          Added
+        </span>
+      ) : (
+        <TooltipProvider delayDuration={0}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                disabled={!canAdd || isAdding}
+                onClick={onAdd}
+                className="absolute right-3 top-1 inline-flex size-6 items-center justify-center rounded-md bg-background/95 text-muted-foreground opacity-100 shadow-xs transition-opacity hover:bg-background hover:text-foreground focus:opacity-100 disabled:cursor-not-allowed disabled:opacity-40 min-[1116px]:bg-transparent min-[1116px]:opacity-0 min-[1116px]:shadow-none min-[1116px]:group-hover:opacity-100"
+                aria-label={`Add ${item.title} to sources`}
+              >
+                {isAdding ? (
+                  <Spinner className="size-3.5" />
+                ) : (
+                  <Plus className="size-4" />
+                )}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="bg-zinc-950 text-white">
+              add to sources
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      )}
       <PdfFileIcon />
       <h3 className="mt-3 max-w-[132px] truncate text-sm font-bold text-foreground">
         {item.title}
@@ -257,6 +272,11 @@ function getLibraryItems(
   sources: readonly SourceView[],
   officialLibrarySources: readonly OfficialLibrarySourceView[],
 ): LibraryItem[] {
+  const addedDemoSourceIdSet = new Set(
+    sources
+      .filter((source) => source.kind !== "demo")
+      .flatMap((source) => (source.demoSourceId ? [source.demoSourceId] : [])),
+  );
   const metadataByLibrarySourceId = new Map(
     officialLibrarySources.map((source) => [source.librarySourceId, source]),
   );
@@ -268,6 +288,9 @@ function getLibraryItems(
       categoryLabel: source.categoryLabel,
       chunkCount: source.chunkCount,
       demoSourceId: source.demoSourceId,
+      isAdded:
+        source.demoSourceId !== undefined &&
+        addedDemoSourceIdSet.has(source.demoSourceId),
       librarySourceId: source.librarySourceId,
       mimeType: source.mimeType,
       sourceUrl: source.sourceUrl,
@@ -289,6 +312,11 @@ function getLibraryItems(
         getCategoryLabel(source.officialLibrary.categoryId),
       chunkCount: source.chunkCount ?? metadata?.chunkCount,
       demoSourceId: source.demoSourceId ?? metadata?.demoSourceId,
+      isAdded:
+        (source.demoSourceId !== undefined &&
+          addedDemoSourceIdSet.has(source.demoSourceId)) ||
+        (metadata?.demoSourceId !== undefined &&
+          addedDemoSourceIdSet.has(metadata.demoSourceId)),
       librarySourceId: source.officialLibrary.librarySourceId,
       mimeType: source.mimeType,
       sourceUrl: source.officialLibrary.sourceUrl,

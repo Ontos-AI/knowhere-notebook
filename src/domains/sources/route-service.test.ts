@@ -378,6 +378,7 @@ describe("source route service", () => {
           expect.objectContaining({
             id: "source_demo",
             kind: "workspace",
+            demoSourceId: "demo-tsla-q4-2025",
             documentId: "doc_user_copy",
             chunkCount: 70,
           }),
