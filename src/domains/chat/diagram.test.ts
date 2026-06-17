@@ -1,16 +1,21 @@
-import { generateObject } from "ai"
+import { generateObject, NoObjectGeneratedError } from "ai"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
+  buildChatDiagramRepairPrompt,
   buildChatDiagramPrompt,
   generateChatDiagramSpec,
   parseChatDiagramRequestBody,
   retrieveAntvChartSkills,
 } from "./diagram"
 
-vi.mock("ai", () => ({
-  generateObject: vi.fn(),
-}))
+vi.mock("ai", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("ai")>()
+  return {
+    ...actual,
+    generateObject: vi.fn(),
+  }
+})
 
 describe("parseChatDiagramRequestBody", () => {
   it("accepts trimmed answer content", () => {
@@ -60,6 +65,21 @@ describe("buildChatDiagramPrompt", () => {
   })
 })
 
+describe("buildChatDiagramRepairPrompt", () => {
+  it("guides failed object generation into a valid chart or no-diagram object", () => {
+    const prompt = buildChatDiagramRepairPrompt({
+      answer: "Cloud revenue was 42 and Ads revenue was 28.",
+      failedOutput: "Here is a chart: ```json {} ```",
+    })
+
+    expect(prompt).toContain("Return one valid JSON object only")
+    expect(prompt).toContain("\"type\":\"none\"")
+    expect(prompt).toContain("\"source\":\"chart-visualization-skills\"")
+    expect(prompt).toContain("Previous invalid output")
+    expect(prompt).toContain("Cloud revenue was 42")
+  })
+})
+
 describe("generateChatDiagramSpec", () => {
   afterEach(() => {
     delete process.env.AI_GATEWAY_API_KEY
@@ -100,6 +120,61 @@ describe("generateChatDiagramSpec", () => {
         { category: "Ads", time: undefined, value: 28 },
       ],
     })
+  })
+
+  it("repairs schema-mismatched object output once before returning a chart", async () => {
+    process.env.AI_GATEWAY_API_KEY = "test_gateway_key"
+    vi.mocked(generateObject)
+      .mockRejectedValueOnce(makeNoObjectGeneratedError())
+      .mockResolvedValueOnce({
+        object: {
+          type: "column",
+          source: "chart-visualization-skills",
+          title: "Revenue by Segment",
+          data: [
+            { category: "Cloud", value: 42 },
+            { category: "Ads", value: 28 },
+          ],
+        },
+      } as Awaited<ReturnType<typeof generateObject>>)
+
+    const spec = await generateChatDiagramSpec({
+      answer: "Cloud revenue was 42 and Ads revenue was 28.",
+    })
+
+    expect(generateObject).toHaveBeenCalledTimes(2)
+    expect(vi.mocked(generateObject).mock.calls[1]?.[0]).toEqual({
+      model: "google/gemini-3-flash",
+      schema: expect.any(Object),
+      prompt: expect.stringContaining("The previous diagram-generation output"),
+    })
+    expect(spec).toEqual({
+      type: "column",
+      source: "chart-visualization-skills",
+      title: "Revenue by Segment",
+      axisXTitle: undefined,
+      axisYTitle: undefined,
+      data: [
+        { category: "Cloud", time: undefined, value: 42 },
+        { category: "Ads", time: undefined, value: 28 },
+      ],
+    })
+  })
+
+  it("returns a no-diagram response when schema repair also fails", async () => {
+    process.env.AI_GATEWAY_API_KEY = "test_gateway_key"
+    vi.mocked(generateObject).mockRejectedValue(makeNoObjectGeneratedError())
+
+    await expect(
+      generateChatDiagramSpec({
+        answer: "This answer contains no chartable numbers.",
+      }),
+    ).resolves.toEqual({
+      type: "none",
+      reason:
+        "No clear chartable data was found. Ask for a table or numeric comparison first.",
+    })
+    expect(generateObject).toHaveBeenCalledTimes(2)
   })
 
   it("normalizes sparse chart specs into no-diagram responses", async () => {
@@ -146,3 +221,31 @@ describe("generateChatDiagramSpec", () => {
     })
   })
 })
+
+function makeNoObjectGeneratedError(): NoObjectGeneratedError {
+  return new NoObjectGeneratedError({
+    message: "No object generated: response did not match schema.",
+    cause: new Error("schema mismatch"),
+    text: "Here is a chart that does not match the schema.",
+    response: {
+      id: "response_1",
+      modelId: "test-model",
+      timestamp: new Date("2026-01-01T00:00:00Z"),
+    },
+    usage: {
+      inputTokens: 1,
+      inputTokenDetails: {
+        noCacheTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+      },
+      outputTokens: 1,
+      outputTokenDetails: {
+        textTokens: 1,
+        reasoningTokens: 0,
+      },
+      totalTokens: 2,
+    },
+    finishReason: "stop",
+  })
+}
