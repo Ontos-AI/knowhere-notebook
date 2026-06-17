@@ -116,6 +116,11 @@ describe("ChatPanel", () => {
     expect(
       screen.queryByRole("button", { name: "Create diagram" }),
     ).toBeNull();
+    expect(
+      screen.queryByRole("button", {
+        name: "Create diagram for this answer",
+      }),
+    ).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Create" }));
     await user.click(
@@ -131,49 +136,6 @@ describe("ChatPanel", () => {
     expect(
       screen.getByRole("img", { name: "Revenue by Segment" }),
     ).toBeTruthy();
-  });
-
-  it("creates a diagram directly from an assistant answer", async () => {
-    const user = userEvent.setup();
-    vi.mocked(workspaceClient.createChatDiagram).mockResolvedValue({
-      diagram: {
-        type: "column",
-        source: "chart-visualization-skills",
-        title: "Revenue by Segment",
-        data: [
-          { category: "Cloud", value: 42 },
-          { category: "Ads", value: 28 },
-        ],
-      },
-    });
-
-    render(
-      React.createElement(C, {
-        messages: [
-          {
-            id: "assistant_1",
-            role: "assistant",
-            content: "Cloud revenue was 42 and Ads revenue was 28.",
-          },
-        ],
-      }),
-    );
-
-    await user.click(
-      screen.getByRole("button", {
-        name: "Create diagram for this answer",
-      }),
-    );
-
-    expect(workspaceClient.createChatDiagram).toHaveBeenCalledWith({
-      answer: "Cloud revenue was 42 and Ads revenue was 28.",
-    });
-    expect(await screen.findByText("Revenue by Segment")).toBeTruthy();
-    expect(
-      screen.queryByRole("button", {
-        name: "Create diagram for this answer",
-      }),
-    ).toBeNull();
   });
 
   it("shows a friendly no-diagram state for non-chartable answers", async () => {
@@ -198,9 +160,16 @@ describe("ChatPanel", () => {
       }),
     );
 
-    await user.click(
-      screen.getByRole("button", {
+    expect(
+      screen.queryByRole("button", {
         name: "Create diagram for this answer",
+      }),
+    ).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Create" }));
+    await user.click(
+      screen.getByRole("menuitem", {
+        name: "Create diagram from latest answer",
       }),
     );
 
@@ -211,10 +180,10 @@ describe("ChatPanel", () => {
       ),
     ).toBeTruthy();
     expect(
-      screen.getByRole("button", {
+      screen.queryByRole("button", {
         name: "Try diagram again for this answer",
       }),
-    ).toBeTruthy();
+    ).toBeNull();
   });
 
   it("treats slash diagram text as a local command instead of a chat message", async () => {
@@ -502,14 +471,15 @@ describe("ChatPanel", () => {
     expect(citationButton.className).toContain("h-8");
     expect(citationButton.className).toContain("max-w-[250px]");
     expect(citationButton.className).toContain("font-mono");
-    expect(citationButton.className).toContain("text-[#cfd3dc]");
-    expect(citationButton.className).toContain("bg-[#5c606b]");
-    expect(citationButton.className).toContain("border-transparent");
-    expect(citationButton.className).toContain("hover:border-[#8f96a8]");
-    expect(citationButton.className).toContain("hover:bg-[#4f535e]");
-    expect(citationButton.className).toContain("hover:text-white");
+    expect(citationButton.className).toContain("text-primary");
+    expect(citationButton.className).toContain("bg-primary/10");
+    expect(citationButton.className).toContain("border-primary/20");
+    expect(citationButton.className).toContain("hover:border-primary/35");
+    expect(citationButton.className).toContain("hover:bg-primary/15");
+    expect(citationButton.className).toContain("dark:bg-[#5c606b]");
+    expect(citationButton.className).toContain("dark:text-[#cfd3dc]");
     expect(citationButton.className).toContain(
-      "hover:shadow-[0_0_0_2px_rgba(143,150,168,0.22)]",
+      "hover:shadow-[0_0_0_2px_rgba(37,99,235,0.12)]",
     );
     expect(citationButton.className).not.toContain("border-border");
     expect(citationButton.className).not.toContain("bg-background/80");
