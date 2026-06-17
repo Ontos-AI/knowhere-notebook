@@ -1,4 +1,4 @@
-import { generateObject } from "ai"
+import { generateObject, NoObjectGeneratedError } from "ai"
 import g2SkillIndex from "@antv/chart-visualization-skills/dist/index/g2.index.json"
 import type { Skill } from "@antv/chart-visualization-skills"
 import { z } from "zod"
@@ -14,6 +14,9 @@ const ANTV_CHART_SKILL_TOP_K = 5
 const MAX_ANTV_SKILL_QUERY_CHARS = 500
 const MAX_ANTV_SKILL_CONTENT_CHARS = 2_400
 const MAX_ANTV_SKILL_CONTEXT_CHARS = 16_000
+const MAX_FAILED_OBJECT_OUTPUT_CHARS = 4_000
+const DEFAULT_NO_DIAGRAM_REASON =
+  "No clear chartable data was found. Ask for a table or numeric comparison first."
 const ANTV_CHART_SEARCH_STOP_WORDS = new Set([
   "the",
   "and",
@@ -136,17 +139,69 @@ export async function generateChatDiagramSpec(input: {
   }
 
   const prompt = buildChatDiagramPrompt(input.answer)
+  let failedOutput: string | undefined
+  try {
+    return await requestChatDiagramObject({
+      attempt: "initial",
+      prompt,
+    })
+  } catch (error) {
+    if (!NoObjectGeneratedError.isInstance(error)) {
+      throw error
+    }
+
+    failedOutput = error.text
+    logger.warn("chat-diagram: llm object generation failed", {
+      attempt: "initial",
+      detail: summarizeUnknownError(error),
+      generatedTextLength: error.text?.length ?? 0,
+    })
+  }
+
+  const repairPrompt = buildChatDiagramRepairPrompt({
+    answer: input.answer,
+    failedOutput,
+  })
+
+  try {
+    return await requestChatDiagramObject({
+      attempt: "repair",
+      prompt: repairPrompt,
+    })
+  } catch (error) {
+    if (!NoObjectGeneratedError.isInstance(error)) {
+      throw error
+    }
+
+    logger.warn("chat-diagram: llm object repair failed", {
+      attempt: "repair",
+      detail: summarizeUnknownError(error),
+      generatedTextLength: error.text?.length ?? 0,
+    })
+    return {
+      type: "none",
+      reason: DEFAULT_NO_DIAGRAM_REASON,
+    }
+  }
+}
+
+async function requestChatDiagramObject(input: {
+  readonly attempt: "initial" | "repair"
+  readonly prompt: string
+}): Promise<ChatDiagramSpec> {
   logger.info("chat-diagram: llm request", {
+    attempt: input.attempt,
     model: CHAT_MODEL,
-    promptCharLength: prompt.length,
+    promptCharLength: input.prompt.length,
   })
   const response = await generateObject({
     model: CHAT_MODEL,
     schema: chatDiagramSpecSchema,
-    prompt,
+    prompt: input.prompt,
   })
   const spec = normalizeChatDiagramSpec(response.object)
   logger.info("chat-diagram: llm response", {
+    attempt: input.attempt,
     model: CHAT_MODEL,
     type: spec.type,
     dataPointCount: spec.type === "none" ? 0 : spec.data.length,
@@ -191,6 +246,43 @@ export function buildChatDiagramPrompt(answer: string): string {
     "Answer content:",
     answer,
   ].join("\n")
+}
+
+export function buildChatDiagramRepairPrompt(input: {
+  readonly answer: string
+  readonly failedOutput?: string
+}): string {
+  const failedOutput = input.failedOutput?.trim()
+
+  return [
+    "The previous diagram-generation output did not match the required schema.",
+    "Return one valid JSON object only. Do not include Markdown, prose, code fences, comments, or extra keys.",
+    "",
+    "Allowed JSON shapes:",
+    `{"type":"none","reason":"${DEFAULT_NO_DIAGRAM_REASON}"}`,
+    '{"type":"column","source":"chart-visualization-skills","title":"Revenue by Segment","axisYTitle":"USD billions","data":[{"category":"Cloud","value":42},{"category":"Ads","value":28}]}',
+    '{"type":"line","source":"chart-visualization-skills","title":"Revenue Trend","axisXTitle":"Period","axisYTitle":"USD billions","data":[{"time":"2024","value":10},{"time":"2025","value":14}]}',
+    "",
+    "Repair rules:",
+    "- If the answer does not contain at least two explicit comparable numbers or time points, return the none object.",
+    "- If making a chart would require inferred, fabricated, hidden, or unit-mixed values, return the none object.",
+    '- For charts, source must be exactly "chart-visualization-skills".',
+    "- For bar, column, and pie data, use category + value.",
+    "- For line data, use time + value.",
+    "- Use at most 12 data points.",
+    "",
+    "Answer content:",
+    input.answer,
+    failedOutput
+      ? [
+          "",
+          "Previous invalid output:",
+          failedOutput.slice(0, MAX_FAILED_OBJECT_OUTPUT_CHARS),
+        ].join("\n")
+      : "",
+  ]
+    .filter((part): boolean => part.length > 0)
+    .join("\n")
 }
 
 export function getAntvChartSkillContext(answer: string): string {

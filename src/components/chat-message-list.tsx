@@ -2,7 +2,7 @@
 
 import { type CSSProperties, type ReactElement, type ReactNode } from "react";
 import { type VirtualItem } from "@tanstack/react-virtual";
-import { ImageIcon, MessageCircle } from "lucide-react";
+import { BarChart3, ImageIcon, MessageCircle } from "lucide-react";
 import ReactMarkdown, {
   defaultUrlTransform,
   type Components,
@@ -12,6 +12,7 @@ import remarkGfm from "remark-gfm";
 import { ChatDiagramCard } from "@/components/chat-diagram-card";
 import { useChatMessageListWorkflow } from "@/components/chat-message-list-workflow";
 import { chatPanelModel } from "@/components/chat-panel-model";
+import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
 import {
@@ -86,6 +87,7 @@ const assistantMarkdownComponents: Components = {
 export type ChatMessageListProps = {
   readonly diagramStatesByMessageId?: Readonly<Record<string, ChatDiagramState>>;
   readonly isDisabled?: boolean;
+  readonly isDiagramActionDisabled?: boolean;
   readonly isSending?: boolean;
   readonly messages?: readonly ChatMessageView[];
   readonly needsLogin?: boolean;
@@ -95,18 +97,21 @@ export type ChatMessageListProps = {
   ) => void;
   readonly pendingCitationId?: string | null;
   readonly pendingStatusText?: string | null;
+  readonly onCreateDiagram?: (message: ChatMessageView) => void;
   readonly sourceTitlesByDocumentId?: Readonly<Record<string, string>>;
 };
 
 export function ChatMessageList({
   diagramStatesByMessageId = {},
   isDisabled = false,
+  isDiagramActionDisabled = false,
   isSending = false,
   messages = [],
   needsLogin = false,
   onCitationClick,
   pendingCitationId = null,
   pendingStatusText = null,
+  onCreateDiagram,
   sourceTitlesByDocumentId = {},
 }: ChatMessageListProps): ReactElement {
   const {
@@ -147,6 +152,8 @@ export function ChatMessageList({
                   diagramStatesByMessageId[getVirtualMessage(virtualItem)?.id ?? ""]
                 }
                 onCitationClick={onCitationClick}
+                isDiagramActionDisabled={isDiagramActionDisabled}
+                onCreateDiagram={onCreateDiagram}
                 pendingCitationId={pendingCitationId}
                 sourceTitlesByDocumentId={sourceTitlesByDocumentId}
               />
@@ -216,6 +223,8 @@ function VirtualMessageRow({
   message,
   measureElement,
   onCitationClick,
+  isDiagramActionDisabled,
+  onCreateDiagram,
   pendingCitationId,
   sourceTitlesByDocumentId,
 }: {
@@ -227,6 +236,8 @@ function VirtualMessageRow({
     citation: ChatCitationView,
     citationId: string,
   ) => void;
+  readonly isDiagramActionDisabled: boolean;
+  readonly onCreateDiagram?: (message: ChatMessageView) => void;
   readonly pendingCitationId?: string | null;
   readonly sourceTitlesByDocumentId: Readonly<Record<string, string>>;
 }): ReactElement | null {
@@ -249,8 +260,10 @@ function VirtualMessageRow({
     >
       <MessageBubble
         diagramState={diagramState ?? idleDiagramState}
+        isDiagramActionDisabled={isDiagramActionDisabled}
         message={message}
         onCitationClick={onCitationClick}
+        onCreateDiagram={onCreateDiagram}
         pendingCitationId={pendingCitationId}
         sourceTitlesByDocumentId={sourceTitlesByDocumentId}
       />
@@ -286,17 +299,21 @@ function EmptyChat({
 
 function MessageBubble({
   diagramState,
+  isDiagramActionDisabled,
   message,
   onCitationClick,
+  onCreateDiagram,
   pendingCitationId,
   sourceTitlesByDocumentId,
 }: {
   readonly diagramState: ChatDiagramState;
+  readonly isDiagramActionDisabled: boolean;
   readonly message: ChatMessageView;
   readonly onCitationClick?: (
     citation: ChatCitationView,
     citationId: string,
   ) => void;
+  readonly onCreateDiagram?: (message: ChatMessageView) => void;
   readonly pendingCitationId?: string | null;
   readonly sourceTitlesByDocumentId: Readonly<Record<string, string>>;
 }): ReactElement {
@@ -348,6 +365,12 @@ function MessageBubble({
           </div>
         )}
         <AssistantDiagram state={diagramState} />
+        <AssistantDiagramAction
+          isDisabled={isDiagramActionDisabled}
+          message={message}
+          onCreateDiagram={onCreateDiagram}
+          state={diagramState}
+        />
         {displayImageCitations.length > 0 && (
           <div className="mt-3 border-t border-border/70 pt-2.5">
             <p className="mb-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
@@ -381,6 +404,49 @@ function MessageBubble({
   );
 }
 
+function AssistantDiagramAction({
+  isDisabled,
+  message,
+  onCreateDiagram,
+  state,
+}: {
+  readonly isDisabled: boolean;
+  readonly message: ChatMessageView;
+  readonly onCreateDiagram?: (message: ChatMessageView) => void;
+  readonly state: ChatDiagramState;
+}): ReactElement | null {
+  if (
+    !onCreateDiagram ||
+    state.status === "loading" ||
+    state.status === "ready" ||
+    message.content.trim().length === 0
+  ) {
+    return null;
+  }
+
+  const label =
+    state.status === "empty" || state.status === "error"
+      ? "Try diagram again"
+      : "Create diagram";
+
+  return (
+    <div className="mt-3 border-t border-border/70 pt-2.5">
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        aria-label={`${label} for this answer`}
+        disabled={isDisabled}
+        className="h-8 gap-1.5 rounded-md px-2.5 text-xs font-semibold"
+        onClick={() => onCreateDiagram(message)}
+      >
+        <BarChart3 className="size-3.5" />
+        {label}
+      </Button>
+    </div>
+  );
+}
+
 function AssistantDiagram({
   state,
 }: {
@@ -403,7 +469,14 @@ function AssistantDiagram({
         <ChatDiagramCard diagram={state.diagram} />
       )}
       {state.status === "empty" && (
-        <p className="mt-2 text-xs text-muted-foreground">{state.reason}</p>
+        <div className="rounded-md border border-dashed border-border/80 bg-muted/35 px-3 py-2.5">
+          <p className="text-xs font-semibold text-foreground">
+            No diagram created
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            {state.reason}
+          </p>
+        </div>
       )}
       {state.status === "error" && (
         <p className="mt-2 text-xs text-destructive">{state.message}</p>
