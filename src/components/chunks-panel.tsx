@@ -116,6 +116,7 @@ export function ChunksPanel({
     handleParsedViewSelected,
     handleViewportScroll,
     hasOriginalFile,
+    hasOriginalView,
     measureVirtualChunkElement,
     originalTargetPageNumber,
     originalTargetPageRequestId,
@@ -325,7 +326,7 @@ export function ChunksPanel({
               </button>
             </div>
           ) : null}
-          {hasOriginalFile ? (
+          {hasOriginalView ? (
             <div className="flex shrink-0 rounded-lg border border-border bg-muted/40 p-0.5">
               <button
                 type="button"

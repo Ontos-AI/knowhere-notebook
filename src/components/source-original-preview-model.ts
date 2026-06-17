@@ -18,6 +18,7 @@ export const sourceOriginalPreviewModel = {
   canPreviewOriginalFile,
   pdfPageAspectRatio,
   getInitialPdfPageWidth,
+  getBrowserPdfPreviewUrl,
   getOriginalDownloadUrl,
   getPdfCanvasDevicePixelRatio,
   getPdfPageAspectRatio,
@@ -135,6 +136,16 @@ function getSafePdfPageAspectRatio(width: number, height: number): number {
 function getInitialPdfPageWidth(): number {
   if (typeof window === "undefined") return 640;
   return Math.max(1, Math.min(640, window.innerWidth - 48));
+}
+
+function getBrowserPdfPreviewUrl(
+  url: string,
+  targetPageNumber: number | null,
+): string {
+  if (!targetPageNumber) return url;
+
+  const [urlWithoutFragment] = url.split("#");
+  return `${urlWithoutFragment}#page=${targetPageNumber}`;
 }
 
 function getPdfCanvasDevicePixelRatio(): number {

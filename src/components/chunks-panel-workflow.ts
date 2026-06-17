@@ -39,6 +39,7 @@ type ChunksPanelWorkflow = {
   readonly handleParsedViewSelected: () => void
   readonly handleViewportScroll: UIEventHandler<HTMLDivElement>
   readonly hasOriginalFile: boolean
+  readonly hasOriginalView: boolean
   readonly measureVirtualChunkElement: (node: HTMLDivElement | null) => void
   readonly originalTargetPageNumber: number | null
   readonly originalTargetPageRequestId: number
@@ -90,8 +91,9 @@ export function useChunksPanelWorkflow({
     localFocusedChunk?.parentRequestId === focusedChunkRequestId
       ? localFocusedChunk.requestId
       : focusedChunkRequestId
+  const hasOriginalView = selectedSource !== null
   const hasOriginalFile = selectedSource !== null && selectedSourceFile !== null
-  const visibleView = hasOriginalFile ? activeView : "parsed"
+  const visibleView = hasOriginalView ? activeView : "parsed"
   const visibleChunks = useMemo(
     () => chunksPanelState.getChunksWithFocusedFirst(chunks, activeFocusedChunkId),
     [activeFocusedChunkId, chunks],
@@ -222,8 +224,8 @@ export function useChunksPanelWorkflow({
   }, [activeFocusedChunkId, activeFocusedChunkRequestId, scrollToFocusedChunk])
 
   useEffect(() => {
-    if (!hasOriginalFile) setActiveView("parsed")
-  }, [hasOriginalFile])
+    if (!hasOriginalView) setActiveView("parsed")
+  }, [hasOriginalView])
 
   useEffect(() => {
     if (focusedChunkId) setActiveView("parsed")
@@ -240,6 +242,7 @@ export function useChunksPanelWorkflow({
     handleParsedViewSelected,
     handleViewportScroll,
     hasOriginalFile,
+    hasOriginalView,
     measureVirtualChunkElement,
     originalTargetPageNumber: originalTargetPage.pageNumber,
     originalTargetPageRequestId: originalTargetPage.requestId,

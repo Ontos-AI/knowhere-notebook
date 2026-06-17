@@ -165,6 +165,10 @@ function WorkspaceShellContent({
     setContentView("library")
   }
 
+  function handleLibraryBack(): void {
+    setContentView("chunks")
+  }
+
   const hasMessages = chatWorkflow.chat.messages.length > 0
   const didTrackFirstDocumentRef = useRef(false)
   const analyticsContextRef = useRef(analyticsContext)
@@ -250,6 +254,7 @@ function WorkspaceShellContent({
       onLoadAllChunks={citationFocus.handleLoadAllChunks}
       onLoadMoreChunks={citationFocus.handleLoadMoreChunks}
       onLoginClick={redirectToLogin}
+      onLibraryBack={handleLibraryBack}
       onLibraryOpen={handleLibraryOpen}
       onMobilePanelChange={setMobilePanel}
       onSelectChatThread={chatWorkflow.handleSelectChatThread}

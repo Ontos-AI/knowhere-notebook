@@ -57,4 +57,24 @@ describe("useSourceOriginalPreviewWarmup", () => {
 
     expect(fetchOriginal).not.toHaveBeenCalled()
   })
+
+  it("does not predownload browser-viewed public PDFs", async () => {
+    const fetchOriginal = vi.fn<typeof globalThis.fetch>()
+    vi.stubGlobal("fetch", fetchOriginal)
+
+    renderHook(() =>
+      useSourceOriginalPreviewWarmup({
+        sourceTitle: "demo.pdf",
+        file: {
+          url: "https://example.com/demo.pdf",
+          mimeType: "application/pdf",
+          pdfPreviewMode: "browser",
+        },
+      }),
+    )
+
+    await Promise.resolve()
+
+    expect(fetchOriginal).not.toHaveBeenCalled()
+  })
 })

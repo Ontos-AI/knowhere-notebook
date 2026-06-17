@@ -689,7 +689,7 @@ function CitationChip({
       disabled={!onCitationClick || isPending}
       onClick={() => onCitationClick?.(citation, citationId)}
       aria-busy={isPending}
-      className="inline-flex h-8 max-w-[250px] cursor-pointer items-center rounded-md bg-[#5c606b] px-3 text-left font-mono text-xs font-semibold leading-none text-[#cfd3dc] shadow-none transition-colors hover:bg-[#686d7a] hover:text-white focus:outline-none focus:ring-4 focus:ring-ring/15 focus:ring-offset-2 focus:ring-offset-background disabled:cursor-wait disabled:opacity-75"
+      className="inline-flex h-8 max-w-[250px] cursor-pointer items-center rounded-md border border-transparent bg-[#5c606b] px-3 text-left font-mono text-xs font-semibold leading-none text-[#cfd3dc] shadow-none transition-[background-color,border-color,color,box-shadow,transform] hover:border-[#8f96a8] hover:bg-[#4f535e] hover:text-white hover:shadow-[0_0_0_2px_rgba(143,150,168,0.22)] active:translate-y-px active:bg-[#454955] focus:outline-none focus:ring-4 focus:ring-ring/15 focus:ring-offset-2 focus:ring-offset-background disabled:cursor-wait disabled:opacity-75 disabled:hover:border-transparent disabled:hover:bg-[#5c606b] disabled:hover:text-[#cfd3dc] disabled:hover:shadow-none"
       aria-label={`Open source ${label}`}
     >
       <span className="min-w-0 truncate">{label}</span>

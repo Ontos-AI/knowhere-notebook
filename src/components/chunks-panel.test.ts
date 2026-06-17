@@ -641,6 +641,23 @@ describe("ChunksPanel", () => {
     expect(screen.getByText("Preview is not available for this file.")).toBeTruthy();
   });
 
+  it("shows the existing unavailable state when a selected source has no public original", async () => {
+    const user = userEvent.setup();
+
+    render(
+      React.createElement(C, {
+        chunks: [],
+        selectedSource: "legacy-demo.pdf",
+        selectedSourceFile: null,
+      }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Original" }));
+
+    expect(screen.getByRole("heading", { name: "Original File" })).toBeTruthy();
+    expect(screen.getByText("Original file is not available.")).toBeTruthy();
+  });
+
   it("renders browser-supported image originals inline", async () => {
     const user = userEvent.setup();
 

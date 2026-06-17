@@ -16,7 +16,7 @@ type UpsertMaterializedDemoSourceInput = {
   readonly mimeType: string
   readonly sizeBytes: number
   readonly knowhereDocumentId: string
-  readonly originalBlobUrl: string
+  readonly originalBlobUrl: string | null
 }
 
 type DemoSourceRepository = {

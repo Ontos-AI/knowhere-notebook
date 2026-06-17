@@ -1,6 +1,7 @@
 import { parsedChunkNormalization } from "@/domains/chunks/normalization"
 import type { ChatMessageView } from "@/domains/chat/types"
 import type { ParsedChunkView } from "@/domains/chunks/types"
+import { demoOriginalFile } from "@/domains/demo/original-file"
 import type { SourceView } from "@/domains/sources/types"
 import type {
   DemoCatalog,
@@ -15,6 +16,8 @@ export const demoView = {
 } as const
 
 function toSourceView(source: DemoSource): SourceView {
+  const originalFile = demoOriginalFile.toSourceOriginalFileView(source)
+
   return {
     id: source.demoSourceId,
     kind: "demo",
@@ -23,12 +26,7 @@ function toSourceView(source: DemoSource): SourceView {
     mimeType: source.mimeType,
     status: "ready",
     documentId: source.canonicalDocumentId,
-    originalFile: {
-      url: `/api/demo-sources/${encodeURIComponent(source.demoSourceId)}/original`,
-      mimeType: source.originalFile.mimeType,
-      sizeBytes: source.originalFile.sizeBytes,
-      canDownload: source.originalFile.canDownload,
-    },
+    ...(originalFile ? { originalFile } : {}),
     ...(source.officialLibrary
       ? {
           officialLibrary: {

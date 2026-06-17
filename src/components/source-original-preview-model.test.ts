@@ -62,4 +62,19 @@ describe("sourceOriginalPreviewModel", () => {
       "/demo.pdf",
     );
   });
+
+  it("builds browser PDF URLs for target pages", () => {
+    expect(
+      sourceOriginalPreviewModel.getBrowserPdfPreviewUrl(
+        "https://example.com/report.pdf",
+        7,
+      ),
+    ).toBe("https://example.com/report.pdf#page=7");
+    expect(
+      sourceOriginalPreviewModel.getBrowserPdfPreviewUrl(
+        "https://example.com/report.pdf#page=2",
+        3,
+      ),
+    ).toBe("https://example.com/report.pdf#page=3");
+  });
 });

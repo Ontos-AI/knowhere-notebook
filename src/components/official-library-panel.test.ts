@@ -45,7 +45,8 @@ describe("OfficialLibraryPanel", () => {
     expect(screen.getByText("spacex-s1.pdf")).toBeTruthy();
   });
 
-  it("uses a library icon in the panel heading", () => {
+  it("renders the header back button", () => {
+    const onBack = vi.fn();
     const { container } = render(
       React.createElement(OfficialLibraryPanel, {
         officialLibrarySources: [
@@ -61,15 +62,18 @@ describe("OfficialLibraryPanel", () => {
             chunkCount: 922,
           },
         ],
+        onBack,
       }),
     );
 
-    const headingIcon = container.querySelector<SVGSVGElement>(
-      '[data-testid="official-library-heading-icon"]',
+    const backButton = screen.getByRole("button", { name: "Back to sources" });
+    const backIcon = container.querySelector<SVGSVGElement>(
+      '[data-testid="official-library-back-icon"]',
     );
 
-    expect(headingIcon?.className.baseVal).toContain("lucide-book-open");
-    expect(headingIcon?.className.baseVal).not.toContain("rotate-ccw");
+    expect(backIcon?.className.baseVal).toContain("lucide-rotate-ccw");
+    fireEvent.click(backButton);
+    expect(onBack).toHaveBeenCalledOnce();
   });
 
   it("opens library documents as browser PDF previews", () => {
