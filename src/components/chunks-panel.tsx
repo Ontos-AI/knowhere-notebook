@@ -979,7 +979,7 @@ function EmptySourceUploadState({
   onSourceUploaded,
   sourceCountSnapshot = 0,
 }: {
-  readonly analyticsContext?: import("@/lib/posthog").AnalyticsContext;
+  readonly analyticsContext?: AnalyticsContext;
   readonly onLoginClick?: () => void;
   readonly onSourceUploaded?: (source: SourceView) => void;
   readonly sourceCountSnapshot?: number;

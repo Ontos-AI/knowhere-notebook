@@ -20,7 +20,8 @@ function getPostHogKey(): string | null {
 }
 
 function getPostHogHost(): string {
-  return process.env.NEXT_PUBLIC_POSTHOG_HOST ?? "https://app.posthog.com";
+  const host = process.env.NEXT_PUBLIC_POSTHOG_HOST?.trim();
+  return host && host.length > 0 ? host : "https://app.posthog.com";
 }
 
 export function isPostHogEnabled(): boolean {
@@ -85,13 +86,13 @@ export async function resetUser(): Promise<void> {
 }
 
 export function trackPageView(
-  pathname: string,
   context?: AnalyticsContext,
 ): Promise<void> {
+  if (typeof window === "undefined") return Promise.resolve();
   return trackEvent("$pageview", {
     ...buildBaseProperties(context),
-    from_page: pathname,
-    $current_url: pathname,
+    $current_url: window.location.href,
+    $pathname: window.location.pathname,
   });
 }
 

@@ -168,6 +168,8 @@ function WorkspaceShellContent({
 
   const hasMessages = chatWorkflow.chat.messages.length > 0
   const didTrackFirstDocumentRef = useRef(false)
+  const analyticsContextRef = useRef(analyticsContext)
+  analyticsContextRef.current = analyticsContext
 
   useEffect(() => {
     if (isGuest || !user) {
@@ -183,8 +185,8 @@ function WorkspaceShellContent({
   }, [isGuest, user?.id, user?.email, user?.name])
 
   useEffect(() => {
-    void trackPageView(pathname, analyticsContext)
-  }, [analyticsContext, pathname])
+    void trackPageView(analyticsContextRef.current)
+  }, [pathname])
 
   function handleSourceUploaded(source: SourceView): void {
     if (!didTrackFirstDocumentRef.current && sourceWorkflow.sources.length === 0) {
@@ -228,7 +230,6 @@ function WorkspaceShellContent({
       sources={sourceWorkflow.sources}
       officialLibrarySources={officialLibrarySources ?? []}
       user={user}
-      workspace={workspace}
       analyticsContext={analyticsContext}
       onArchiveChatThread={chatWorkflow.handleArchiveChatThread}
       onArchiveSource={sourceWorkflow.handleArchiveSource}

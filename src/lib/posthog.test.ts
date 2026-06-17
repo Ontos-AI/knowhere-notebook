@@ -26,6 +26,7 @@ import {
 
 describe("posthog", () => {
   const originalKey = process.env.NEXT_PUBLIC_POSTHOG_KEY;
+  const originalHost = process.env.NEXT_PUBLIC_POSTHOG_HOST;
 
   afterEach(() => {
     vi.clearAllMocks();
@@ -33,6 +34,11 @@ describe("posthog", () => {
       delete process.env.NEXT_PUBLIC_POSTHOG_KEY;
     } else {
       process.env.NEXT_PUBLIC_POSTHOG_KEY = originalKey;
+    }
+    if (originalHost === undefined) {
+      delete process.env.NEXT_PUBLIC_POSTHOG_HOST;
+    } else {
+      process.env.NEXT_PUBLIC_POSTHOG_HOST = originalHost;
     }
   });
 
@@ -62,5 +68,47 @@ describe("posthog", () => {
       name: "User One",
     });
     expect(mocks.reset).toHaveBeenCalledOnce();
+  });
+
+  it("falls back to default host when NEXT_PUBLIC_POSTHOG_HOST is blank", async () => {
+    vi.resetModules();
+    process.env.NEXT_PUBLIC_POSTHOG_KEY = "phc_test_key";
+    process.env.NEXT_PUBLIC_POSTHOG_HOST = "   ";
+    const { initPostHogClient: initClient } = await import("./posthog");
+    await initClient();
+
+    expect(mocks.init).toHaveBeenCalledWith(
+      "phc_test_key",
+      expect.objectContaining({
+        api_host: "https://app.posthog.com",
+      }),
+    );
+  });
+
+  it("tracks pageview with full url metadata", async () => {
+    vi.resetModules();
+    process.env.NEXT_PUBLIC_POSTHOG_KEY = "phc_test_key";
+    const { initPostHogClient: initClient, trackPageView: trackView } =
+      await import("./posthog");
+    window.history.pushState({}, "", "/workspace/test");
+    await initClient();
+    await trackView({
+      workspaceId: "ws_1",
+      isGuest: false,
+    });
+
+    expect(mocks.capture).toHaveBeenCalledWith(
+      "$pageview",
+      expect.objectContaining({
+        $current_url: window.location.href,
+        $pathname: "/workspace/test",
+        workspace_id: "ws_1",
+        is_guest: false,
+      }),
+    );
+    const payload = mocks.capture.mock.calls[0]?.[1] as
+      | Record<string, unknown>
+      | undefined;
+    expect(payload).not.toHaveProperty("from_page");
   });
 });

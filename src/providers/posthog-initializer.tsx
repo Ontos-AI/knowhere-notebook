@@ -3,7 +3,7 @@
 import { type ReactNode, useEffect } from "react";
 import { initPostHogClient } from "@/lib/posthog";
 
-export function PostHogProvider({
+export function PostHogInitializer({
   children,
 }: {
   children: ReactNode;

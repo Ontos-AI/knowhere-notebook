@@ -46,11 +46,6 @@ type WorkspaceShellUser = {
   readonly email: string | null
 }
 
-type WorkspaceShellWorkspace = {
-  readonly id: string
-  readonly namespace: string
-}
-
 type WorkspaceChatState = {
   readonly threadId: string | null
   readonly messages: ChatMessageView[]
@@ -91,7 +86,6 @@ export type WorkspaceShellLayoutProps = {
   readonly sources: readonly SourceView[]
   readonly officialLibrarySources: readonly OfficialLibrarySourceView[]
   readonly user: WorkspaceShellUser | undefined
-  readonly workspace?: WorkspaceShellWorkspace
   readonly analyticsContext?: AnalyticsContext
   readonly onArchiveChatThread: (threadId: string) => void | Promise<void>
   readonly onArchiveSource: (sourceId: string) => void | Promise<void>
@@ -137,6 +131,9 @@ export function WorkspaceShellLayout(
   const { onDesktopLayoutElementChange } = props
   const addingLibrarySourceIds = props.addingLibrarySourceIds ?? []
   const officialLibrarySources = props.officialLibrarySources ?? []
+  const selectedSourcesCount = props.sources.filter(
+    (source) => !source.excludedFromQuery && source.status === "ready",
+  ).length
   const isSourcesPanelCollapsed =
     props.desktopPanelWidths.sources <=
     workspaceShellState.desktopSidePanelCompactThreshold
@@ -323,7 +320,7 @@ export function WorkspaceShellLayout(
                 pendingStatusText={props.chat.pendingStatusText}
                 sourceCount={props.readySourceCount}
                 analyticsContext={props.analyticsContext}
-                selectedSourcesCount={props.sources.filter((source) => !source.excludedFromQuery && source.status === "ready").length}
+                selectedSourcesCount={selectedSourcesCount}
                 onSend={props.onChatSend}
                 onNewChat={props.isGuest ? undefined : props.onCreateChatThread}
                 onThreadSelect={
@@ -435,7 +432,7 @@ export function WorkspaceShellLayout(
           pendingStatusText={props.chat.pendingStatusText}
           sourceCount={props.readySourceCount}
           analyticsContext={props.analyticsContext}
-          selectedSourcesCount={props.sources.filter((source) => !source.excludedFromQuery && source.status === "ready").length}
+          selectedSourcesCount={selectedSourcesCount}
           onSend={props.onChatSend}
           onNewChat={props.isGuest ? undefined : props.onCreateChatThread}
           onThreadSelect={props.isGuest ? undefined : props.onSelectChatThread}
