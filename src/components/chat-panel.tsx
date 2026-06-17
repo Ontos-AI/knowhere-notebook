@@ -117,10 +117,14 @@ export function ChatPanel({
     !isSending &&
     diagramTargetState?.status !== "loading";
 
-  async function handleCreateDiagramCommand(): Promise<void> {
-    if (!diagramTargetMessage || !canCreateDiagram) return;
+  async function handleCreateDiagramCommand(
+    targetMessage: ChatMessageView | undefined = diagramTargetMessage,
+  ): Promise<void> {
+    if (!targetMessage || isDisabled || isSending) return;
 
-    const messageId = diagramTargetMessage.id;
+    const messageId = targetMessage.id;
+    if (diagramStatesByMessageId[messageId]?.status === "loading") return;
+
     setDiagramStatesByMessageId((current) => ({
       ...current,
       [messageId]: { status: "loading" },
@@ -128,7 +132,7 @@ export function ChatPanel({
 
     try {
       const response = await workspaceClient.createChatDiagram({
-        answer: diagramTargetMessage.content,
+        answer: targetMessage.content,
       });
       setDiagramStatesByMessageId((current) => ({
         ...current,
@@ -259,17 +263,19 @@ export function ChatPanel({
       <ChatMessageList
         diagramStatesByMessageId={diagramStatesByMessageId}
         isDisabled={isDisabled}
+        isDiagramActionDisabled={isDisabled || isSending}
         isSending={isSending}
         messages={messages}
         needsLogin={Boolean(onLoginClick)}
         onCitationClick={onCitationClick}
+        onCreateDiagram={handleCreateDiagramCommand}
         pendingCitationId={pendingCitationId}
         pendingStatusText={pendingStatusText}
         sourceTitlesByDocumentId={sourceTitlesByDocumentId}
       />
 
       <ChatComposer
-        canCreateDiagram={Boolean(diagramTargetMessage)}
+        canCreateDiagram={canCreateDiagram}
         isDisabled={isDisabled}
         isCreatingDiagram={diagramTargetState?.status === "loading"}
         isSending={isSending}
@@ -277,7 +283,7 @@ export function ChatPanel({
         analyticsContext={analyticsContext}
         sourceCountSnapshot={sourceCount}
         selectedSourcesCount={selectedSourcesCount}
-        onCreateDiagram={handleCreateDiagramCommand}
+        onCreateDiagram={() => handleCreateDiagramCommand()}
         onLoginClick={onLoginClick}
         onSend={handleComposerSend}
       />
