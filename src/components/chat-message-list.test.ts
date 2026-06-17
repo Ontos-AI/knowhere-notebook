@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import React from "react";
 import { cleanup, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ChatMessageList } from "./chat-message-list";
@@ -59,7 +60,9 @@ describe("ChatMessageList", () => {
     ).toBeTruthy();
   });
 
-  it("renders citations in a bottom source area as file chips", () => {
+  it("renders citations in a bottom source area as file chips", async () => {
+    const user = userEvent.setup();
+
     render(
       React.createElement(ChatMessageList, {
         messages: [
@@ -103,6 +106,7 @@ describe("ChatMessageList", () => {
             ],
           },
         ],
+        onCitationClick: vi.fn(),
       }),
     );
 
@@ -111,11 +115,18 @@ describe("ChatMessageList", () => {
     expect(screen.queryByText(/Source 1/u)).toBeNull();
     expect(screen.queryByText(/Source 3/u)).toBeNull();
     expect(screen.getByText("Sources")).toBeTruthy();
-    expect(
-      screen.getAllByRole("button", {
-        name: "Open source spacex-s1.pdf",
-      }),
-    ).toHaveLength(2);
+    const sourceChips = screen.getAllByRole("button", {
+      name: "Open source spacex-s1.pdf",
+    });
+
+    expect(sourceChips).toHaveLength(2);
+
+    await user.hover(sourceChips[0]!);
+
+    const tooltip = await screen.findByRole("tooltip");
+    expect(tooltip.textContent).toBe(
+      "spacex-s1.pdf · Assets / tables / table-25 Capital Expenditures.html",
+    );
   });
 
   it("removes description-only source labels without changing other markdown whitespace", () => {

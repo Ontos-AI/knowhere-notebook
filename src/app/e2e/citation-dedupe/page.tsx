@@ -44,7 +44,7 @@ const chatMessages: ChatMessageView[] = [
         source: {
           documentId: "doc_first",
           sourceFileName: "report.pdf",
-          sectionPath: "Root",
+          sectionPath: "Revenue / FY2026 outlook",
         },
       },
       {
@@ -53,7 +53,7 @@ const chatMessages: ChatMessageView[] = [
         source: {
           documentId: "doc_second",
           sourceFileName: "report.pdf",
-          sectionPath: "Root",
+          sectionPath: "Operations / AI infrastructure",
         },
       },
     ],
