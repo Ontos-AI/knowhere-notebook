@@ -2,7 +2,7 @@
 
 import { type CSSProperties, type ReactElement } from "react";
 import { type VirtualItem } from "@tanstack/react-virtual";
-import { BarChart3, ImageIcon, MessageCircle } from "lucide-react";
+import { ImageIcon, MessageCircle } from "lucide-react";
 import ReactMarkdown, {
   defaultUrlTransform,
   type Components,
@@ -12,7 +12,6 @@ import remarkGfm from "remark-gfm";
 import { ChatDiagramCard } from "@/components/chat-diagram-card";
 import { useChatMessageListWorkflow } from "@/components/chat-message-list-workflow";
 import { chatPanelModel } from "@/components/chat-panel-model";
-import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
 import {
@@ -83,7 +82,6 @@ const assistantMarkdownComponents: Components = {
 export type ChatMessageListProps = {
   readonly diagramStatesByMessageId?: Readonly<Record<string, ChatDiagramState>>;
   readonly isDisabled?: boolean;
-  readonly isDiagramActionDisabled?: boolean;
   readonly isSending?: boolean;
   readonly messages?: readonly ChatMessageView[];
   readonly needsLogin?: boolean;
@@ -93,21 +91,18 @@ export type ChatMessageListProps = {
   ) => void;
   readonly pendingCitationId?: string | null;
   readonly pendingStatusText?: string | null;
-  readonly onCreateDiagram?: (message: ChatMessageView) => void;
   readonly sourceTitlesByDocumentId?: Readonly<Record<string, string>>;
 };
 
 export function ChatMessageList({
   diagramStatesByMessageId = {},
   isDisabled = false,
-  isDiagramActionDisabled = false,
   isSending = false,
   messages = [],
   needsLogin = false,
   onCitationClick,
   pendingCitationId = null,
   pendingStatusText = null,
-  onCreateDiagram,
   sourceTitlesByDocumentId = {},
 }: ChatMessageListProps): ReactElement {
   const {
@@ -148,8 +143,6 @@ export function ChatMessageList({
                   diagramStatesByMessageId[getVirtualMessage(virtualItem)?.id ?? ""]
                 }
                 onCitationClick={onCitationClick}
-                isDiagramActionDisabled={isDiagramActionDisabled}
-                onCreateDiagram={onCreateDiagram}
                 pendingCitationId={pendingCitationId}
                 sourceTitlesByDocumentId={sourceTitlesByDocumentId}
               />
@@ -219,8 +212,6 @@ function VirtualMessageRow({
   message,
   measureElement,
   onCitationClick,
-  isDiagramActionDisabled,
-  onCreateDiagram,
   pendingCitationId,
   sourceTitlesByDocumentId,
 }: {
@@ -232,8 +223,6 @@ function VirtualMessageRow({
     citation: ChatCitationView,
     citationId: string,
   ) => void;
-  readonly isDiagramActionDisabled: boolean;
-  readonly onCreateDiagram?: (message: ChatMessageView) => void;
   readonly pendingCitationId?: string | null;
   readonly sourceTitlesByDocumentId: Readonly<Record<string, string>>;
 }): ReactElement | null {
@@ -256,10 +245,8 @@ function VirtualMessageRow({
     >
       <MessageBubble
         diagramState={diagramState ?? idleDiagramState}
-        isDiagramActionDisabled={isDiagramActionDisabled}
         message={message}
         onCitationClick={onCitationClick}
-        onCreateDiagram={onCreateDiagram}
         pendingCitationId={pendingCitationId}
         sourceTitlesByDocumentId={sourceTitlesByDocumentId}
       />
@@ -295,21 +282,17 @@ function EmptyChat({
 
 function MessageBubble({
   diagramState,
-  isDiagramActionDisabled,
   message,
   onCitationClick,
-  onCreateDiagram,
   pendingCitationId,
   sourceTitlesByDocumentId,
 }: {
   readonly diagramState: ChatDiagramState;
-  readonly isDiagramActionDisabled: boolean;
   readonly message: ChatMessageView;
   readonly onCitationClick?: (
     citation: ChatCitationView,
     citationId: string,
   ) => void;
-  readonly onCreateDiagram?: (message: ChatMessageView) => void;
   readonly pendingCitationId?: string | null;
   readonly sourceTitlesByDocumentId: Readonly<Record<string, string>>;
 }): ReactElement {
@@ -359,12 +342,6 @@ function MessageBubble({
           </div>
         )}
         <AssistantDiagram state={diagramState} />
-        <AssistantDiagramAction
-          isDisabled={isDiagramActionDisabled}
-          message={message}
-          onCreateDiagram={onCreateDiagram}
-          state={diagramState}
-        />
         {displayImageCitations.length > 0 && (
           <div className="mt-3 border-t border-border/70 pt-2.5">
             <p className="mb-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
@@ -399,49 +376,6 @@ function MessageBubble({
           pendingCitationId={pendingCitationId}
         />
       </div>
-    </div>
-  );
-}
-
-function AssistantDiagramAction({
-  isDisabled,
-  message,
-  onCreateDiagram,
-  state,
-}: {
-  readonly isDisabled: boolean;
-  readonly message: ChatMessageView;
-  readonly onCreateDiagram?: (message: ChatMessageView) => void;
-  readonly state: ChatDiagramState;
-}): ReactElement | null {
-  if (
-    !onCreateDiagram ||
-    state.status === "loading" ||
-    state.status === "ready" ||
-    message.content.trim().length === 0
-  ) {
-    return null;
-  }
-
-  const label =
-    state.status === "empty" || state.status === "error"
-      ? "Try diagram again"
-      : "Create diagram";
-
-  return (
-    <div className="mt-3 border-t border-border/70 pt-2.5">
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        aria-label={`${label} for this answer`}
-        disabled={isDisabled}
-        className="h-8 gap-1.5 rounded-md px-2.5 text-xs font-semibold"
-        onClick={() => onCreateDiagram(message)}
-      >
-        <BarChart3 className="size-3.5" />
-        {label}
-      </Button>
     </div>
   );
 }
@@ -707,7 +641,7 @@ function CitationChip({
           disabled={!onCitationClick || isPending}
           onClick={() => onCitationClick?.(citation, citationId)}
           aria-busy={isPending}
-          className="inline-flex h-8 max-w-[250px] cursor-pointer items-center rounded-md border border-transparent bg-[#5c606b] px-3 text-left font-mono text-xs font-semibold leading-none text-[#cfd3dc] shadow-none transition-[background-color,border-color,color,box-shadow,transform] hover:border-[#8f96a8] hover:bg-[#4f535e] hover:text-white hover:shadow-[0_0_0_2px_rgba(143,150,168,0.22)] active:translate-y-px active:bg-[#454955] focus:outline-none focus:ring-4 focus:ring-ring/15 focus:ring-offset-2 focus:ring-offset-background disabled:cursor-wait disabled:opacity-75 disabled:hover:border-transparent disabled:hover:bg-[#5c606b] disabled:hover:text-[#cfd3dc] disabled:hover:shadow-none"
+          className="inline-flex h-8 max-w-[250px] cursor-pointer items-center rounded-md border border-primary/20 bg-primary/10 px-3 text-left font-mono text-xs font-semibold leading-none text-primary shadow-[0_1px_0_rgba(15,23,42,0.06)] transition-[background-color,border-color,color,box-shadow,transform] hover:border-primary/35 hover:bg-primary/15 hover:text-primary hover:shadow-[0_0_0_2px_rgba(37,99,235,0.12)] active:translate-y-px active:bg-primary/20 focus:outline-none focus:ring-4 focus:ring-ring/15 focus:ring-offset-2 focus:ring-offset-background disabled:cursor-wait disabled:opacity-75 disabled:hover:border-primary/20 disabled:hover:bg-primary/10 disabled:hover:text-primary disabled:hover:shadow-[0_1px_0_rgba(15,23,42,0.06)] dark:border-transparent dark:bg-[#5c606b] dark:text-[#cfd3dc] dark:shadow-none dark:hover:border-[#8f96a8] dark:hover:bg-[#4f535e] dark:hover:text-white dark:hover:shadow-[0_0_0_2px_rgba(143,150,168,0.22)] dark:active:bg-[#454955] dark:disabled:hover:border-transparent dark:disabled:hover:bg-[#5c606b] dark:disabled:hover:text-[#cfd3dc] dark:disabled:hover:shadow-none"
           aria-label={`Open source ${label}`}
         >
           <span className="min-w-0 truncate">{label}</span>
