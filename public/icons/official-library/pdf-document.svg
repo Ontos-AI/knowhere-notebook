@@ -1,0 +1,9 @@
+<svg width="65" height="74" viewBox="0 0 65 74" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <g transform="translate(7 0)">
+    <path clip-rule="evenodd" d="M1 65H49.8274V15.4H35.4531V1H1V65Z" fill="#FAFAFA" fill-rule="evenodd"/>
+    <path d="M49.8274 15.4L35.4531 1V15.4H49.8274Z" fill="#A1A1AA"/>
+    <path d="M50.3271 65.5H0.5V0.5H35.6602L35.8066 0.646484L50.1816 15.0469L50.3271 15.1934V65.5Z" stroke="#A1A1AA"/>
+  </g>
+  <rect x="20" y="43" width="40" height="20" fill="#FB2C36"/>
+  <text x="40" y="57" text-anchor="middle" fill="#FEF2F2" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" font-size="12" font-weight="500">.pdf</text>
+</svg>

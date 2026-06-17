@@ -9,7 +9,9 @@ import {
   generateAgenticOutputManifest,
   parseChatRequestBody,
 } from "."
+import type { HardenMediaAssetUrlsInput } from "./media-asset-hardening"
 import type { Source } from "@/infrastructure/db/schema"
+import type { ChatArtifactView } from "@/domains/chat/types"
 
 const loggerMock = vi.hoisted(() => ({
   info: vi.fn(),
@@ -286,8 +288,11 @@ describe("answerQuestionWithRetrieval", () => {
   });
 
   it("passes retrieved image asset URLs to the answer prompt and citations", async () => {
+    const upstreamAssetUrl =
+      "https://knowhere-storage.example/results/job_1/images/image-9-Night%20Rocket%20Launch.jpg?AWSAccessKeyId=test";
     const result = makeRetrievalResult({
       chunkType: "image",
+      assetUrl: upstreamAssetUrl,
       source: {
         documentId: "doc_spacex",
         sourceFileName: "document-generated.pdf",
@@ -311,9 +316,7 @@ describe("answerQuestionWithRetrieval", () => {
         targetContent: "image",
         purpose: "Find visual rocket launch chunks.",
       });
-      return makeHarnessRunResult(
-        "Use this launch photo. https://blob.example/images/image-9-Night%20Rocket%20Launch.jpg",
-      );
+      return makeHarnessRunResult(`Use this launch photo. ${upstreamAssetUrl}`);
     });
     const loadSourceAssetUrls = vi.fn().mockResolvedValue({
       "images/image-9-Night Rocket Launch.jpg":
@@ -350,6 +353,7 @@ describe("answerQuestionWithRetrieval", () => {
       dataType: 3,
     });
     expect(answer.answer).toBe("Use this launch photo.");
+    expect(answer.answer).not.toContain("knowhere-storage.example");
     expect(answer.citations).toEqual([
       {
         ...result,
@@ -361,6 +365,173 @@ describe("answerQuestionWithRetrieval", () => {
         },
       },
     ]);
+  });
+
+  it("hardens citation and artifact asset URLs before returning the answer", async () => {
+    const rawAssetUrl =
+      "https://knowhere-storage.example/results/job_1/images/id-front.jpg?AWSAccessKeyId=test";
+    const hardenedAssetUrl =
+      "https://blob.example/workspaces/workspace_1/chat-assets/source-source_identity/id-front.jpg";
+    const retrieval = {
+      query: vi.fn().mockResolvedValue({
+        results: [
+          makeRetrievalResult({
+            chunkType: "image",
+            assetUrl: rawAssetUrl,
+            source: {
+              documentId: "doc_identity",
+              sourceFileName: "document-generated.pdf",
+              sectionPath: "images/id-front.jpg",
+            },
+          }),
+        ],
+        evidenceText: "Identity image evidence.",
+        referencedChunks: [],
+        namespace: "notebook-workspace",
+        query: "identity front image",
+        routerUsed: "workflow_single_step",
+        answerText: null,
+      }),
+    };
+    const generateAnswer = vi.fn(async ({ searchSources }) => {
+      await searchSources({
+        query: "identity front image",
+        targetContent: "image",
+      });
+      return {
+        manifest: {
+          text: `Use this image. ${rawAssetUrl}`,
+          citations: [],
+          artifacts: [
+            {
+              type: "image",
+              ref: "asset:r1:result:1",
+              display: true,
+              reason: "Requested identity image",
+            },
+          ],
+          unresolved: [],
+        },
+        trace: {
+          ...makeHarnessRunResult("").trace,
+          finalized: true,
+          ledger: {
+            retrievalCount: 1,
+            evidenceText: ["Identity image evidence."],
+            stopReasons: [],
+            failureReasons: [],
+            decisionTraces: [],
+            chunks: [
+              {
+                ref: "r1:result:1",
+                kind: "result",
+                content: "",
+                contentPreview: "",
+                chunkType: "image",
+                score: 0.9,
+                assetUrl: rawAssetUrl,
+                assetRef: "asset:r1:result:1",
+                source: {
+                  documentId: "doc_identity",
+                  sourceFileName: "document-generated.pdf",
+                  sectionPath: "images/id-front.jpg",
+                },
+              },
+            ],
+            assets: [
+              {
+                ref: "asset:r1:result:1",
+                chunkRef: "r1:result:1",
+                type: "image",
+                assetUrl: rawAssetUrl,
+                label: "document-generated.pdf / id front / image",
+                source: {
+                  documentId: "doc_identity",
+                  sourceFileName: "document-generated.pdf",
+                  sectionPath: "images/id-front.jpg",
+                },
+              },
+            ],
+          },
+        },
+      } satisfies HarnessRunResult;
+    });
+    const hardenMediaAssetUrls = vi.fn(
+      async ({
+        results,
+        artifacts,
+      }: HardenMediaAssetUrlsInput): Promise<{
+        results: RetrievalResult[]
+        artifacts?: ChatArtifactView[]
+      }> => ({
+        results: results.map((result): RetrievalResult => ({
+          ...result,
+          assetUrl:
+            result.assetUrl === rawAssetUrl ? hardenedAssetUrl : result.assetUrl,
+        })),
+        artifacts: artifacts?.map((artifact): ChatArtifactView => ({
+          ...artifact,
+          assetUrl:
+            artifact.assetUrl === rawAssetUrl
+              ? hardenedAssetUrl
+              : artifact.assetUrl,
+          citation: artifact.citation
+            ? {
+                ...artifact.citation,
+                assetUrl:
+                  artifact.citation.assetUrl === rawAssetUrl
+                    ? hardenedAssetUrl
+                    : artifact.citation.assetUrl,
+              }
+            : undefined,
+        })),
+      }),
+    );
+
+    const answer = await Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "Show me the identity image.",
+        namespace: "notebook-workspace",
+        sources: [
+          makeSource({
+            id: "source_identity",
+            title: "identity.pdf",
+            knowhereDocumentId: "doc_identity",
+          }),
+        ],
+        excludedSourceIds: [],
+        retrieval,
+        generateAnswer,
+        hardenMediaAssetUrls,
+        messages: [],
+      }),
+    );
+
+    expect(hardenMediaAssetUrls).toHaveBeenCalledWith({
+      results: [
+        expect.objectContaining({
+          assetUrl: rawAssetUrl,
+          source: expect.objectContaining({
+            sourceFileName: "identity.pdf",
+          }),
+        }),
+      ],
+      artifacts: [
+        expect.objectContaining({
+          assetUrl: rawAssetUrl,
+          citation: expect.objectContaining({ assetUrl: rawAssetUrl }),
+        }),
+      ],
+    });
+    expect(answer.answer).toBe("Use this image.");
+    expect(answer.answer).not.toContain("knowhere-storage.example");
+    expect(answer.citations.map((citation) => citation.assetUrl)).toEqual([
+      hardenedAssetUrl,
+    ]);
+    expect(answer.artifacts?.map((artifact) => artifact.assetUrl)).toEqual([
+      hardenedAssetUrl,
+    ]);
+    expect(answer.artifacts?.[0]?.citation?.assetUrl).toBe(hardenedAssetUrl);
   });
 
   it("returns only harness-selected artifacts when retrieval has extra media candidates", async () => {

@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactElement } from "react";
-import { FileText, Trash2 } from "lucide-react";
+import { FileText, Plus, Trash2 } from "lucide-react";
 
 import { Checkbox } from "@/components/ui/checkbox";
 import { Spinner } from "@/components/ui/spinner";
@@ -9,8 +9,10 @@ import type { SourceView } from "@/domains/sources/types";
 
 export type SourceRowProps = {
   readonly isArchiving: boolean;
+  readonly isAdding?: boolean;
   readonly isNarrow?: boolean;
   readonly isSelected: boolean;
+  readonly onAddClick?: (sourceId: string) => void;
   readonly onArchiveClick?: (sourceId: string) => void;
   readonly onSelect: () => void;
   readonly onToggleIncluded?: (sourceId: string, included: boolean) => void;
@@ -20,7 +22,9 @@ export type SourceRowProps = {
 export function SourceRow({
   source,
   isSelected,
+  isAdding = false,
   isNarrow = false,
+  onAddClick,
   onSelect,
   onToggleIncluded,
   onArchiveClick,
@@ -29,6 +33,7 @@ export function SourceRow({
   const isReady = source.status === "ready";
   const isBusy = source.status === "uploading" || source.status === "parsing";
   const isFailed = source.status === "failed";
+  const isLibrarySource = source.officialLibrary !== undefined;
 
   const iconBg = fileIconTint(source.title);
 
@@ -49,7 +54,7 @@ export function SourceRow({
       >
         <Checkbox
           checked={!source.excludedFromQuery}
-          disabled={!isReady || !onToggleIncluded}
+          disabled={!isReady || !onToggleIncluded || isAdding}
           onCheckedChange={(checked) =>
             onToggleIncluded?.(source.id, checked === true)
           }
@@ -88,7 +93,9 @@ export function SourceRow({
             }`}
           >
             {isReady
-              ? `Processed · ${source.chunkCount ?? 0} chunks`
+              ? `${isLibrarySource ? "Official Library" : "Processed"} · ${
+                  source.chunkCount ?? 0
+                } chunks`
               : source.status === "parsing"
                 ? "Preparing"
                 : source.status === "uploading"
@@ -97,6 +104,26 @@ export function SourceRow({
           </p>
         </div>
       </button>
+      {isLibrarySource && onAddClick && (
+        <button
+          type="button"
+          disabled={isAdding || !source.demoSourceId}
+          onClick={(event) => {
+            event.stopPropagation();
+            if (isAdding || !source.demoSourceId) return;
+            onAddClick(source.demoSourceId);
+          }}
+          className="inline-flex shrink-0 items-center gap-1 justify-self-end rounded-md border border-border/70 px-2 py-1 text-[11px] font-semibold text-foreground hover:bg-muted disabled:cursor-wait disabled:opacity-70"
+          aria-label={`Add ${source.title} to sources`}
+        >
+          {isAdding ? (
+            <Spinner className="size-3.5" />
+          ) : (
+            <Plus className="size-3.5" />
+          )}
+          {isNarrow ? null : "Add"}
+        </button>
+      )}
       {onArchiveClick && (
         <button
           type="button"

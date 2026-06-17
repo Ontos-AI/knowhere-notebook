@@ -3,7 +3,11 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   cacheComponents: true,
   reactCompiler: true,
-  serverExternalPackages: ["pg", "@neondatabase/serverless", "postgres"],
+  serverExternalPackages: [
+    "pg",
+    "@neondatabase/serverless",
+    "postgres",
+  ],
   allowedDevOrigins: [
     "127.0.0.1",
     "notebook.local.knowhereto.ai",

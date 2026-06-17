@@ -1,3 +1,4 @@
+import type { ChatDiagramSpec } from "@/domains/chat/diagram"
 import type {
   ChatMessageView,
   ChatThreadView,
@@ -9,6 +10,7 @@ import { workspaceRouteClient } from "./route-client"
 const workspaceClientKeys = {
   sources: "/api/sources",
   chatThreads: "/api/chat/threads",
+  chatDiagram: "/api/chat/diagram",
   chat: "/api/chat",
   materializeDemoSources: "/api/demo-sources/materialize",
   archiveSource: "archive-source",
@@ -63,6 +65,15 @@ type ChatMessageResponse = {
   message?: string
 }
 
+type ChatDiagramRequest = {
+  answer: string
+}
+
+type ChatDiagramResponse = {
+  diagram?: ChatDiagramSpec
+  message?: string
+}
+
 type ArchiveResponse = {
   id?: string
   archived?: boolean
@@ -76,6 +87,7 @@ export const workspaceClient = {
   fetchChatThreads,
   fetchChatThread,
   createChatThread,
+  createChatDiagram,
   sendChatMessage,
   materializeDemoSources,
   archiveSource,
@@ -140,6 +152,15 @@ function createChatThread(): Promise<ChatThreadResponse> {
   return workspaceRouteClient.postJson<ChatThreadResponse>(
     workspaceClientKeys.chatThreads,
     {},
+  )
+}
+
+function createChatDiagram(
+  input: ChatDiagramRequest,
+): Promise<ChatDiagramResponse> {
+  return workspaceRouteClient.postJson<ChatDiagramResponse>(
+    workspaceClientKeys.chatDiagram,
+    input,
   )
 }
 

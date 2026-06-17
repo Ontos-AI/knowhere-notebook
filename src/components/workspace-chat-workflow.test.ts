@@ -141,6 +141,46 @@ describe("useWorkspaceChatWorkflow", () => {
     )
     expect(result.current.chat.isSending).toBe(false)
   })
+
+  it("blocks chat until Official Library demo sources are explicitly added", async () => {
+    const librarySource = makeSource({
+      id: "demo-spacex-s1",
+      kind: "demo",
+      demoSourceId: "demo-spacex-s1",
+      officialLibrary: {
+        librarySourceId: "financial-spacex-s1",
+        categoryId: "financial-reports",
+        sourceUrl: "https://example.com/spacex-s1.pdf",
+      },
+    })
+    mocks.fetchChatThreads.mockResolvedValue([])
+    mocks.sendChatMessage.mockResolvedValue({
+      threadId: "thread_1",
+      messages: [
+        {
+          id: "message_assistant",
+          role: "assistant",
+          content: "Answer",
+        },
+      ],
+    })
+
+    const { result } = renderWorkspaceChatWorkflow({
+      initialChatThreads: [],
+      initialChatMessages: [],
+      sources: [librarySource],
+    })
+
+    await act(async () => {
+      await result.current.handleChatSend("Summarize it")
+    })
+
+    expect(mocks.materializeDemoSources).not.toHaveBeenCalled()
+    expect(mocks.sendChatMessage).not.toHaveBeenCalled()
+    expect(result.current.chat.error).toBe(
+      "Add a ready source before asking questions.",
+    )
+  })
 })
 
 function renderWorkspaceChatWorkflow(input: {

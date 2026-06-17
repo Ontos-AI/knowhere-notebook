@@ -29,6 +29,15 @@ function toSourceView(source: DemoSource): SourceView {
       sizeBytes: source.originalFile.sizeBytes,
       canDownload: source.originalFile.canDownload,
     },
+    ...(source.officialLibrary
+      ? {
+          officialLibrary: {
+            librarySourceId: source.officialLibrary.librarySourceId,
+            categoryId: source.officialLibrary.categoryId,
+            sourceUrl: source.officialLibrary.sourceUrl,
+          },
+        }
+      : {}),
     chunkCount: source.chunkCount,
   }
 }

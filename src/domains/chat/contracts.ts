@@ -9,6 +9,7 @@ import type {
   ChatArtifactView,
   ChatCitationView,
 } from "@/domains/chat/types"
+import type { HardenMediaAssetUrls } from "./media-asset-hardening"
 import type { LoadSourceAssetUrls } from "./media-assets"
 
 export type RetrievalClient = {
@@ -66,6 +67,7 @@ export type AnswerQuestionInput = {
   retrieval: RetrievalClient
   generateAnswer: GenerateAnswer
   loadSourceAssetUrls?: LoadSourceAssetUrls
+  hardenMediaAssetUrls?: HardenMediaAssetUrls
   messages: readonly ChatHistoryMessage[]
 }
 

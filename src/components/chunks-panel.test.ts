@@ -15,6 +15,9 @@ import { ChunksPanel } from "./chunks-panel";
 import { sourceOriginalPreviewRequest } from "./source-original-preview-request";
 
 const C = ChunksPanel as React.FC<Record<string, unknown>>;
+const virtualizerScrollResetDelayMs = 150;
+
+let shouldFlushVirtualizerTimers: boolean = false;
 
 vi.mock("react-pdf", () => ({
   pdfjs: {
@@ -28,6 +31,7 @@ vi.mock("react-pdf", () => ({
 
 describe("ChunksPanel", () => {
   beforeEach(() => {
+    shouldFlushVirtualizerTimers = false;
     globalThis.ResizeObserver = class ResizeObserver {
       observe() {}
       unobserve() {}
@@ -35,7 +39,11 @@ describe("ChunksPanel", () => {
     };
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    if (shouldFlushVirtualizerTimers) {
+      await flushVirtualizerTimers();
+    }
+
     cleanup();
     sourceOriginalPreviewRequest.clearCacheForTests();
     vi.unstubAllGlobals();
@@ -1427,6 +1435,8 @@ function createFileDropEvent(file: File): Event {
 function mockVirtualViewportWithChunkHeights(
   heightsByChunkId: Readonly<Record<string, number>>,
 ): void {
+  shouldFlushVirtualizerTimers = true;
+
   vi.spyOn(window.HTMLElement.prototype, "offsetHeight", "get")
     .mockImplementation(function getOffsetHeight(this: HTMLElement): number {
       if (this.hasAttribute("data-radix-scroll-area-viewport")) return 720;
@@ -1437,4 +1447,12 @@ function mockVirtualViewportWithChunkHeights(
     });
   vi.spyOn(window.HTMLElement.prototype, "offsetWidth", "get")
     .mockImplementation((): number => 720);
+}
+
+async function flushVirtualizerTimers(): Promise<void> {
+  await act(async () => {
+    await new Promise<void>((resolve) => {
+      window.setTimeout(resolve, virtualizerScrollResetDelayMs + 25);
+    });
+  });
 }
