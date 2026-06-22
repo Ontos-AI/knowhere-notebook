@@ -1,13 +1,14 @@
 "use client";
 
 import {
+  useId,
+  useLayoutEffect,
   useRef,
   useState,
   type ChangeEvent,
   type KeyboardEvent,
   type MouseEvent,
   type ReactElement,
-  type UIEvent,
 } from "react";
 import { BarChart3, FileText, Plus, Send } from "lucide-react";
 
@@ -22,9 +23,9 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { chatPromptTemplates } from "@/domains/chat/prompt-templates";
-const chatComposerId = "chat-composer";
-const placeholderPattern = /(\[[^\]\r\n]{1,80}\])/gu;
-const placeholderSegmentPattern = /^\[[^\]\r\n]{1,80}\]$/u;
+const chatComposerName = "chat-composer";
+const chatComposerTextAreaMinHeight = 128;
+const chatComposerTextAreaMaxHeight = 192;
 const placeholderRangePattern = /\[[^\]\r\n]{1,80}\]/gu;
 
 type TextRange = {
@@ -52,16 +53,21 @@ export function ChatComposer({
   onSend,
 }: ChatComposerProps): ReactElement {
   const [input, setInput] = useState("");
-  const [hasActiveTextSelection, setHasActiveTextSelection] = useState(false);
-  const [textareaScrollTop, setTextareaScrollTop] = useState(0);
+  const composerInputId = useId();
+  const pendingTemplatePromptRef = useRef<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const trimmedInput = input.trim();
   const canSend = !isDisabled && !isSending && trimmedInput.length > 0;
-  const shouldShowHighlightLayer = input.length > 0 && !hasActiveTextSelection;
+
+  useLayoutEffect(() => {
+    const textarea = textareaRef.current;
+    if (textarea === null) return;
+
+    resizeComposerTextArea(textarea);
+  }, [input]);
 
   function handleInputChange(event: ChangeEvent<HTMLTextAreaElement>): void {
     setInput(event.target.value);
-    setHasActiveTextSelection(false);
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>): void {
@@ -75,37 +81,43 @@ export function ChatComposer({
     if (!canSend) return;
     onSend?.(trimmedInput);
     setInput("");
-    setTextareaScrollTop(0);
   }
 
   function handleTemplateSelect(prompt: string): void {
+    pendingTemplatePromptRef.current = prompt;
     setInput(prompt);
-    setTextareaScrollTop(0);
+  }
+
+  function handleCreateMenuCloseAutoFocus(event: Event): void {
+    const prompt = pendingTemplatePromptRef.current;
+    if (prompt === null) return;
+
+    event.preventDefault();
     requestAnimationFrame(() => {
-      const textarea = textareaRef.current;
-      if (!textarea) return;
-
-      textarea.focus();
-      const placeholderRange = getFirstPlaceholderRange(prompt);
-      if (!placeholderRange) {
-        textarea.setSelectionRange(prompt.length, prompt.length);
-        setHasActiveTextSelection(false);
-        return;
-      }
-
-      textarea.setSelectionRange(placeholderRange.start, placeholderRange.end);
-      setHasActiveTextSelection(true);
+      focusSelectedTemplatePlaceholder(prompt);
     });
   }
 
-  function handleTextareaScroll(event: UIEvent<HTMLTextAreaElement>): void {
-    setTextareaScrollTop(event.currentTarget.scrollTop);
+  function focusSelectedTemplatePlaceholder(prompt: string): void {
+    pendingTemplatePromptRef.current = null;
+
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    textarea.focus({ preventScroll: true });
+    const placeholderRange = getFirstPlaceholderRange(prompt);
+    if (!placeholderRange) {
+      textarea.setSelectionRange(prompt.length, prompt.length);
+      return;
+    }
+
+    textarea.setSelectionRange(placeholderRange.start, placeholderRange.end);
+    textarea.scrollTop = 0;
   }
 
   function handleTextareaClick(event: MouseEvent<HTMLTextAreaElement>): void {
     const textarea = event.currentTarget;
     if (textarea.selectionStart !== textarea.selectionEnd) {
-      setHasActiveTextSelection(true);
       return;
     }
 
@@ -114,19 +126,10 @@ export function ChatComposer({
       textarea.selectionStart,
     );
     if (!placeholderRange) {
-      setHasActiveTextSelection(false);
       return;
     }
 
     textarea.setSelectionRange(placeholderRange.start, placeholderRange.end);
-    setHasActiveTextSelection(true);
-  }
-
-  function refreshTextareaSelectionState(): void {
-    const textarea = textareaRef.current;
-    setHasActiveTextSelection(
-      Boolean(textarea && textarea.selectionStart !== textarea.selectionEnd),
-    );
   }
 
   return (
@@ -146,25 +149,13 @@ export function ChatComposer({
       ) : (
         <>
           <div className="relative overflow-hidden bg-background">
-            {shouldShowHighlightLayer && (
-              <pre
-                aria-hidden="true"
-                data-testid="chat-composer-highlight-layer"
-                className="pointer-events-none absolute inset-0 h-[128px] min-w-0 whitespace-pre-wrap break-words border border-transparent px-4 py-3 font-sans text-sm font-normal leading-5 text-foreground sm:px-5 sm:py-4"
-              >
-                <span
-                  style={{ transform: `translateY(-${textareaScrollTop}px)` }}
-                  className="block"
-                >
-                  {renderHighlightedInput(input)}
-                </span>
-              </pre>
-            )}
             <Textarea
               ref={textareaRef}
-              id={chatComposerId}
-              name={chatComposerId}
-              className="relative h-[128px] w-full min-w-0 resize-none border-0 bg-transparent px-4 py-3 text-sm font-normal leading-5 text-foreground shadow-none placeholder:text-muted-foreground focus-visible:ring-0 sm:px-5 sm:py-4"
+              id={composerInputId}
+              name={chatComposerName}
+              aria-label="Chat message"
+              rows={5}
+              className="relative max-h-[192px] min-h-[128px] w-full min-w-0 resize-none overflow-y-hidden border-0 bg-transparent px-4 py-3 text-sm font-normal leading-5 text-foreground shadow-none placeholder:text-muted-foreground focus-visible:ring-0 sm:px-5 sm:py-4"
               placeholder={
                 isDisabled
                   ? "Add a ready source to start asking questions."
@@ -173,19 +164,16 @@ export function ChatComposer({
               value={input}
               onChange={handleInputChange}
               disabled={isDisabled}
-              onBlur={() => setHasActiveTextSelection(false)}
               onClick={handleTextareaClick}
               onKeyDown={handleKeyDown}
-              onKeyUp={refreshTextareaSelectionState}
-              onScroll={handleTextareaScroll}
-              onSelect={refreshTextareaSelectionState}
             />
           </div>
-          <div className="flex items-center justify-between gap-3 px-4 pb-4 sm:px-5">
+          <div className="flex flex-wrap items-center justify-between gap-3 px-4 pb-4 sm:px-5">
             <CreateMenu
               canCreateDiagram={canCreateDiagram}
               isCreatingDiagram={isCreatingDiagram}
               isDisabled={isDisabled || isSending}
+              onCloseAutoFocus={handleCreateMenuCloseAutoFocus}
               onCreateDiagram={onCreateDiagram}
               onTemplateSelect={handleTemplateSelect}
             />
@@ -212,16 +200,40 @@ export function ChatComposer({
   );
 }
 
+function resizeComposerTextArea(textarea: HTMLTextAreaElement): number {
+  textarea.style.height = "auto";
+
+  const hasInput = textarea.value.length > 0;
+  const measuredHeight = hasInput
+    ? textarea.scrollHeight
+    : chatComposerTextAreaMinHeight;
+  const nextHeight = clamp(
+    measuredHeight,
+    chatComposerTextAreaMinHeight,
+    chatComposerTextAreaMaxHeight,
+  );
+
+  textarea.style.height = `${nextHeight}px`;
+  textarea.style.overflowY =
+    hasInput && measuredHeight > chatComposerTextAreaMaxHeight
+      ? "auto"
+      : "hidden";
+
+  return nextHeight;
+}
+
 function CreateMenu({
   canCreateDiagram,
   isCreatingDiagram,
   isDisabled,
+  onCloseAutoFocus,
   onCreateDiagram,
   onTemplateSelect,
 }: {
   readonly canCreateDiagram: boolean;
   readonly isCreatingDiagram: boolean;
   readonly isDisabled: boolean;
+  readonly onCloseAutoFocus: (event: Event) => void;
   readonly onCreateDiagram?: () => void;
   readonly onTemplateSelect: (prompt: string) => void;
 }): ReactElement {
@@ -239,7 +251,12 @@ function CreateMenu({
           Create
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" side="top" className="w-72">
+      <DropdownMenuContent
+        align="start"
+        side="top"
+        className="w-72"
+        onCloseAutoFocus={onCloseAutoFocus}
+      >
         {chatPromptTemplates.map((template) => (
           <DropdownMenuItem
             key={template.id}
@@ -271,25 +288,6 @@ function CreateMenu({
   );
 }
 
-function renderHighlightedInput(value: string): readonly ReactElement[] {
-  return value
-    .split(placeholderPattern)
-    .map((segment, index): ReactElement => {
-      const key = `${index}-${segment.slice(0, 12)}`;
-      if (placeholderSegmentPattern.test(segment)) {
-        return (
-          <span
-            key={key}
-            className="rounded-sm bg-primary/10 text-primary"
-          >
-          {segment}
-        </span>
-      );
-    }
-      return <span key={key}>{segment}</span>;
-    });
-}
-
 function getFirstPlaceholderRange(value: string): TextRange | null {
   const [firstMatch] = value.matchAll(placeholderRangePattern);
   if (!firstMatch) return null;
@@ -309,4 +307,8 @@ function getPlaceholderRangeAtPosition(
     }
   }
   return null;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
 }
