@@ -1,6 +1,8 @@
 "use client";
 
 import {
+  useId,
+  useLayoutEffect,
   useRef,
   useState,
   type ChangeEvent,
@@ -22,7 +24,9 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { chatPromptTemplates } from "@/domains/chat/prompt-templates";
-const chatComposerId = "chat-composer";
+const chatComposerName = "chat-composer";
+const chatComposerTextAreaMinHeight = 128;
+const chatComposerTextAreaMaxHeight = 192;
 const placeholderPattern = /(\[[^\]\r\n]{1,80}\])/gu;
 const placeholderSegmentPattern = /^\[[^\]\r\n]{1,80}\]$/u;
 const placeholderRangePattern = /\[[^\]\r\n]{1,80}\]/gu;
@@ -54,10 +58,22 @@ export function ChatComposer({
   const [input, setInput] = useState("");
   const [hasActiveTextSelection, setHasActiveTextSelection] = useState(false);
   const [textareaScrollTop, setTextareaScrollTop] = useState(0);
+  const [textareaHeight, setTextareaHeight] = useState(
+    chatComposerTextAreaMinHeight,
+  );
+  const composerInputId = useId();
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const trimmedInput = input.trim();
   const canSend = !isDisabled && !isSending && trimmedInput.length > 0;
   const shouldShowHighlightLayer = input.length > 0 && !hasActiveTextSelection;
+
+  useLayoutEffect(() => {
+    const textarea = textareaRef.current;
+    if (textarea === null) return;
+
+    const nextHeight = resizeComposerTextArea(textarea);
+    setTextareaHeight(nextHeight);
+  }, [input]);
 
   function handleInputChange(event: ChangeEvent<HTMLTextAreaElement>): void {
     setInput(event.target.value);
@@ -150,7 +166,8 @@ export function ChatComposer({
               <pre
                 aria-hidden="true"
                 data-testid="chat-composer-highlight-layer"
-                className="pointer-events-none absolute inset-0 h-[128px] min-w-0 whitespace-pre-wrap break-words border border-transparent px-4 py-3 font-sans text-sm font-normal leading-5 text-foreground sm:px-5 sm:py-4"
+                style={{ height: textareaHeight }}
+                className="pointer-events-none absolute inset-0 max-h-[192px] min-h-[128px] min-w-0 whitespace-pre-wrap break-words border border-transparent px-4 py-3 font-sans text-sm font-normal leading-5 text-transparent sm:px-5 sm:py-4"
               >
                 <span
                   style={{ transform: `translateY(-${textareaScrollTop}px)` }}
@@ -162,9 +179,11 @@ export function ChatComposer({
             )}
             <Textarea
               ref={textareaRef}
-              id={chatComposerId}
-              name={chatComposerId}
-              className="relative h-[128px] w-full min-w-0 resize-none border-0 bg-transparent px-4 py-3 text-sm font-normal leading-5 text-foreground shadow-none placeholder:text-muted-foreground focus-visible:ring-0 sm:px-5 sm:py-4"
+              id={composerInputId}
+              name={chatComposerName}
+              aria-label="Chat message"
+              rows={5}
+              className="relative max-h-[192px] min-h-[128px] w-full min-w-0 resize-none overflow-y-hidden border-0 bg-transparent px-4 py-3 text-sm font-normal leading-5 text-foreground shadow-none placeholder:text-muted-foreground focus-visible:ring-0 sm:px-5 sm:py-4"
               placeholder={
                 isDisabled
                   ? "Add a ready source to start asking questions."
@@ -181,7 +200,7 @@ export function ChatComposer({
               onSelect={refreshTextareaSelectionState}
             />
           </div>
-          <div className="flex items-center justify-between gap-3 px-4 pb-4 sm:px-5">
+          <div className="flex flex-wrap items-center justify-between gap-3 px-4 pb-4 sm:px-5">
             <CreateMenu
               canCreateDiagram={canCreateDiagram}
               isCreatingDiagram={isCreatingDiagram}
@@ -210,6 +229,28 @@ export function ChatComposer({
       )}
     </div>
   );
+}
+
+function resizeComposerTextArea(textarea: HTMLTextAreaElement): number {
+  textarea.style.height = "auto";
+
+  const hasInput = textarea.value.length > 0;
+  const measuredHeight = hasInput
+    ? textarea.scrollHeight
+    : chatComposerTextAreaMinHeight;
+  const nextHeight = clamp(
+    measuredHeight,
+    chatComposerTextAreaMinHeight,
+    chatComposerTextAreaMaxHeight,
+  );
+
+  textarea.style.height = `${nextHeight}px`;
+  textarea.style.overflowY =
+    hasInput && measuredHeight > chatComposerTextAreaMaxHeight
+      ? "auto"
+      : "hidden";
+
+  return nextHeight;
 }
 
 function CreateMenu({
@@ -280,7 +321,7 @@ function renderHighlightedInput(value: string): readonly ReactElement[] {
         return (
           <span
             key={key}
-            className="rounded-sm bg-primary/10 text-primary"
+            className="rounded-sm bg-primary/10 text-transparent"
           >
           {segment}
         </span>
@@ -309,4 +350,8 @@ function getPlaceholderRangeAtPosition(
     }
   }
   return null;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
 }
