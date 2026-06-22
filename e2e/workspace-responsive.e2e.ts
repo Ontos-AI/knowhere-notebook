@@ -105,6 +105,34 @@ for (const viewport of composerRegressionViewports) {
 
     expect(inputBounds.y + inputBounds.height).toBeLessThanOrEqual(sendBounds.y)
   })
+
+  test(`keeps the first prompt placeholder selected after menu close on ${viewport.name}`, async ({
+    context,
+    page,
+  }) => {
+    await openAuthenticatedNotebook(context, page, viewport)
+
+    const input = page.getByRole("textbox", { name: "Chat message" })
+    await page.getByRole("button", { name: "Create" }).click()
+    await page
+      .getByRole("menuitem", { name: "Earnings Call Transcript Analysis" })
+      .click()
+
+    await expect(input).toBeFocused()
+    await expect
+      .poll(async () => getSelectedComposerText(input))
+      .toBe("[Company Name]")
+
+    await page.waitForTimeout(400)
+
+    await expect(input).toBeFocused()
+    expect(await getSelectedComposerText(input)).toBe("[Company Name]")
+    expect(
+      await input.evaluate((element) => {
+        return element.scrollTop
+      }),
+    ).toBe(0)
+  })
 }
 
 async function openAuthenticatedNotebook(
@@ -135,4 +163,14 @@ async function getRequiredBounds(
   }
 
   return bounds
+}
+
+async function getSelectedComposerText(locator: Locator): Promise<string> {
+  return locator.evaluate((element) => {
+    if (!(element instanceof HTMLTextAreaElement)) {
+      throw new Error("Expected chat composer input to be a textarea.")
+    }
+
+    return element.value.slice(element.selectionStart, element.selectionEnd)
+  })
 }

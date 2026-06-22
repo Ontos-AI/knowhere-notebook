@@ -95,14 +95,13 @@ describe("ChatComposer", () => {
 
     render(React.createElement(ChatComposer));
 
+    const input = getComposerTextArea();
+    input.scrollTop = 92;
     await user.click(screen.getByRole("button", { name: "Create" }));
     await user.click(
       screen.getByRole("menuitem", { name: /IPO Prospectus Risk Mining/ }),
     );
 
-    const input = screen.getByPlaceholderText(
-      "Ask a question about your documents…",
-    ) as HTMLTextAreaElement;
     const placeholderStart = input.value.indexOf("[Company Name]");
     const placeholderEnd = placeholderStart + "[Company Name]".length;
 
@@ -111,6 +110,8 @@ describe("ChatComposer", () => {
       expect(input.selectionStart).toBe(placeholderStart);
       expect(input.selectionEnd).toBe(placeholderEnd);
     });
+    expect(document.activeElement).toBe(input);
+    expect(input.scrollTop).toBe(0);
     expect(input.className).toContain("text-foreground");
     expect(input.className).not.toContain("text-transparent");
     expect(screen.queryByTestId("chat-composer-highlight-layer")).toBeNull();
@@ -127,7 +128,7 @@ describe("ChatComposer", () => {
     expect(input.className).not.toContain("text-transparent");
   });
 
-  it("highlights placeholders when text is not selected", async () => {
+  it("uses native textarea selection without rendering a mirror highlight layer", async () => {
     const user = userEvent.setup();
 
     render(React.createElement(ChatComposer));
@@ -142,20 +143,14 @@ describe("ChatComposer", () => {
     ) as HTMLTextAreaElement;
     await waitFor(() => expect(input.value).toContain("[Company Name]"));
 
+    expect(screen.queryByTestId("chat-composer-highlight-layer")).toBeNull();
+
     input.setSelectionRange(input.value.length, input.value.length);
     fireEvent.select(input);
 
     expect(input.className).toContain("text-foreground");
     expect(input.className).not.toContain("text-transparent");
-    expect(
-      screen.getByTestId("chat-composer-highlight-layer").className,
-    ).toContain("text-transparent");
-    expect(screen.getByText("[Company Name]").className).toContain(
-      "bg-primary/10",
-    );
-    expect(screen.getByText("[Company Name]").className).not.toContain(
-      "text-primary",
-    );
+    expect(screen.queryByTestId("chat-composer-highlight-layer")).toBeNull();
   });
 
   it("selects a placeholder with one click when the caret lands inside it", async () => {
