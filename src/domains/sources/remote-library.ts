@@ -10,34 +10,28 @@ import {
 
 type RemoteDocument = {
   readonly documentId: string
-  readonly jobId?: string | null
   readonly namespace: string
   readonly status: string
-  readonly sourceType?: string | null
   readonly sourceFileName?: string | null
   readonly documentMetadata?: Record<string, unknown>
 }
 
 type RemoteDocumentCandidate = RemoteDocument | {
   readonly documentId?: string | null
-  readonly jobId?: string | null
   readonly namespace?: string | null
   readonly status?: string | null
-  readonly sourceType?: string | null
   readonly sourceFileName?: string | null
   readonly documentMetadata?: Record<string, unknown>
 }
 
 type RemoteDocumentListResponse = {
   readonly documents: readonly RemoteDocumentCandidate[]
-  readonly activeJobs?: readonly RemoteDocumentCandidate[]
 }
 
 type RemoteDocumentClient = {
   readonly documents?: {
     readonly list?: (params?: {
       readonly namespace?: string
-      readonly includeActiveJobs?: boolean
     }) => Promise<RemoteDocumentListResponse>
   }
 }
@@ -57,14 +51,10 @@ type RemoteDocumentRaw = {
   readonly documentId?: unknown
   readonly namespace?: unknown
   readonly status?: unknown
-  readonly source_type?: unknown
-  readonly sourceType?: unknown
   readonly source_file_name?: unknown
   readonly sourceFileName?: unknown
   readonly document_metadata?: unknown
   readonly documentMetadata?: unknown
-  readonly job_id?: unknown
-  readonly jobId?: unknown
 }
 
 export type RemoteLibraryProjection = {
@@ -85,13 +75,7 @@ export function listRemoteLibrarySourceViews(
         .map((source) => source.knowhereDocumentId)
         .filter((documentId): documentId is string => Boolean(documentId)),
     )
-    const localJobIds = new Set(
-      input.localSources
-        .map((source) => source.knowhereJobId)
-        .filter((jobId): jobId is string => Boolean(jobId)),
-    )
     const seenDocumentIds = new Set(localDocumentIds)
-    const seenJobIds = new Set(localJobIds)
     const sourceViews: SourceView[] = []
     const sources: Source[] = []
 
@@ -100,29 +84,22 @@ export function listRemoteLibrarySourceViews(
       const response = yield* Effect.tryPromise(() =>
         input.client.documents?.list?.({
           namespace,
-          includeActiveJobs: true,
         }) ??
         Promise.resolve({ documents: [] }),
       ).pipe(
         Effect.catchAll(() =>
           Effect.succeed({
             documents: [],
-            activeJobs: [],
           } satisfies RemoteDocumentListResponse),
         ),
       )
 
-      for (const rawDocument of [
-        ...(response.documents ?? []),
-        ...(response.activeJobs ?? []),
-      ]) {
+      for (const rawDocument of response.documents ?? []) {
         const document = normalizeRemoteDocument(rawDocument)
         if (!document || document.status === "archived") continue
         if (seenDocumentIds.has(document.documentId)) continue
-        if (document.jobId && seenJobIds.has(document.jobId)) continue
 
         seenDocumentIds.add(document.documentId)
-        if (document.jobId) seenJobIds.add(document.jobId)
         sourceViews.push(toRemoteSourceView(document))
         sources.push(toRemoteSource(document))
       }
@@ -138,14 +115,12 @@ function normalizeRemoteDocument(
   const raw = value as RemoteDocumentRaw
   const documentId = getString(raw.documentId ?? raw.document_id)
   if (!documentId) return null
-  const jobId = getString(raw.jobId ?? raw.job_id)
 
   const namespace =
     getString(raw.namespace) ?? sharedLibraryNamespace
   const sourceFileName = getString(
     raw.sourceFileName ?? raw.source_file_name,
   )
-  const sourceType = getString(raw.sourceType ?? raw.source_type)
   const status = getString(raw.status) ?? "ready"
   const documentMetadata = getRecord(
     raw.documentMetadata ?? raw.document_metadata,
@@ -153,10 +128,8 @@ function normalizeRemoteDocument(
 
   return {
     documentId,
-    jobId,
     namespace,
     status,
-    sourceType,
     sourceFileName,
     documentMetadata,
   }
@@ -205,7 +178,7 @@ export function toRemoteSource(document: RemoteDocument): RemoteLibrarySource {
     sizeBytes: getRemoteDocumentSizeBytes(document),
     status: getRemoteSourceStatus(document),
     failureReason: null,
-    knowhereJobId: document.jobId ?? null,
+    knowhereJobId: null,
     knowhereDocumentId: document.documentId,
     stagedBlobPathname: null,
     stagedBlobUrl: null,

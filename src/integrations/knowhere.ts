@@ -1,98 +1,16 @@
 import Knowhere from "@ontos-ai/knowhere-sdk"
 import { logger } from "@/lib/logger"
 
-export type KnowhereActiveDocumentJob = {
-  readonly jobId: string
-  readonly documentId?: string | null
-  readonly namespace: string
-  readonly status: string
-  readonly sourceType?: string | null
-  readonly sourceFileName?: string | null
-  readonly documentMetadata?: Record<string, unknown>
-  readonly createdAt?: Date | string | null
-  readonly updatedAt?: Date | string | null
-}
-
-export type KnowhereDocumentListParams = {
-  readonly namespace?: string
-  readonly includeActiveJobs?: boolean
-}
-
-export type KnowhereDocumentListResponse = Awaited<
-  ReturnType<Knowhere["documents"]["list"]>
-> & {
-  readonly activeJobs?: readonly KnowhereActiveDocumentJob[]
-}
-
-export type NotebookKnowhereClient = Knowhere & {
-  readonly documents: Omit<Knowhere["documents"], "list"> & {
-    list(
-      params?: KnowhereDocumentListParams,
-    ): Promise<KnowhereDocumentListResponse>
-  }
-}
-
-type SdkHttpClient = {
-  readonly get: (
-    path: string,
-    config?: {
-      readonly params?: Readonly<Record<string, unknown>>
-    },
-  ) => Promise<KnowhereDocumentListResponse>
-}
-
 /**
  * Create a Knowhere client with the given API key.
  * Use for per-request clients created from Dashboard-issued JWTs.
  */
-export function makeKnowhereClient(apiKey: string): NotebookKnowhereClient {
+export function makeKnowhereClient(apiKey: string): Knowhere {
   const client = new Knowhere({ apiKey, baseURL: process.env.KNOWHERE_BASE_URL })
-  return wrapKnowhereClient(addNotebookDocumentListSupport(client))
+  return wrapKnowhereClient(client)
 }
 
-function addNotebookDocumentListSupport(client: Knowhere): NotebookKnowhereClient {
-  const documents = client.documents as NotebookKnowhereClient["documents"]
-  const originalList = documents.list.bind(documents)
-
-  documents.list = async (
-    params?: KnowhereDocumentListParams,
-  ): Promise<KnowhereDocumentListResponse> => {
-    if (params?.includeActiveJobs !== true) {
-      return originalList(params)
-    }
-
-    const httpClient = getSdkHttpClient(client)
-    if (!httpClient) return originalList(params)
-
-    return httpClient.get("/v1/documents", {
-      params: toDocumentListQueryParams(params),
-    })
-  }
-
-  return client as NotebookKnowhereClient
-}
-
-function getSdkHttpClient(client: Knowhere): SdkHttpClient | null {
-  const candidate = (client as unknown as { readonly httpClient?: unknown })
-    .httpClient
-  if (!candidate || typeof candidate !== "object") return null
-
-  const get = (candidate as { readonly get?: unknown }).get
-  if (typeof get !== "function") return null
-
-  return candidate as SdkHttpClient
-}
-
-function toDocumentListQueryParams(
-  params: KnowhereDocumentListParams,
-): Readonly<Record<string, unknown>> {
-  return {
-    ...(params.namespace ? { namespace: params.namespace } : {}),
-    include_active_jobs: true,
-  }
-}
-
-function wrapKnowhereClient(client: NotebookKnowhereClient): NotebookKnowhereClient {
+function wrapKnowhereClient(client: Knowhere): Knowhere {
   return new Proxy(client, {
     get(target, prop, receiver) {
       const value = Reflect.get(target, prop, receiver)
@@ -104,7 +22,7 @@ function wrapKnowhereClient(client: NotebookKnowhereClient): NotebookKnowhereCli
       }
       return value
     },
-  }) as NotebookKnowhereClient
+  }) as Knowhere
 }
 
 function createLoggingNamespace(

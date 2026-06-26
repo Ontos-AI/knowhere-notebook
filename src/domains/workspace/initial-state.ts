@@ -93,22 +93,11 @@ type WorkspaceShellInitialStateClient =
     readonly documents: {
       readonly list: (params?: {
         readonly namespace?: string
-        readonly includeActiveJobs?: boolean
       }) => Promise<{
         readonly documents: readonly {
           readonly documentId: string
           readonly namespace: string
           readonly status: string
-          readonly sourceType?: string | null
-          readonly sourceFileName?: string | null
-          readonly documentMetadata?: Record<string, unknown>
-        }[]
-        readonly activeJobs?: readonly {
-          readonly jobId?: string | null
-          readonly documentId?: string | null
-          readonly namespace: string
-          readonly status: string
-          readonly sourceType?: string | null
           readonly sourceFileName?: string | null
           readonly documentMetadata?: Record<string, unknown>
         }[]

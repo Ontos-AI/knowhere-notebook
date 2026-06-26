@@ -2,29 +2,24 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const constructorSpy = vi.fn();
 const postSpy = vi.fn();
-const getSpy = vi.fn();
 const listSpy = vi.fn();
 
 vi.mock("@ontos-ai/knowhere-sdk", () => ({
   default: class FakeKnowhere {
     readonly jobs: FakeJobs;
     readonly documents: FakeDocuments;
-    readonly httpClient: FakeHttpClient;
 
     constructor(options: unknown) {
       constructorSpy(options);
-      this.httpClient = {
-        get: getSpy,
+      this.jobs = new FakeJobs({
         post: postSpy,
-      };
-      this.jobs = new FakeJobs(this.httpClient);
+      });
       this.documents = new FakeDocuments();
     }
   },
 }));
 
 type FakeHttpClient = {
-  get(path: string, config?: unknown): Promise<unknown>;
   post(path: string, input: unknown): Promise<unknown>;
 };
 
@@ -49,7 +44,6 @@ describe("makeKnowhereClient", () => {
     vi.resetModules();
     constructorSpy.mockReset();
     postSpy.mockReset();
-    getSpy.mockReset();
     listSpy.mockReset();
     restoreEnv("KNOWHERE_BASE_URL", originalBaseURL);
   });
@@ -93,38 +87,6 @@ describe("makeKnowhereClient", () => {
       fileName: "example.pdf",
       namespace: "workspace_123",
     });
-  });
-
-  it("passes active document listing through the SDK HTTP client until the public SDK type catches up", async () => {
-    getSpy.mockResolvedValue({
-      namespace: "default",
-      documents: [],
-      activeJobs: [
-        {
-          jobId: "job_1",
-          documentId: "doc_1",
-          namespace: "default",
-          status: "running",
-        },
-      ],
-    });
-
-    const { makeKnowhereClient } = await import("./knowhere");
-
-    const client = makeKnowhereClient("sk_test");
-    const result = await client.documents.list({
-      namespace: "default",
-      includeActiveJobs: true,
-    });
-
-    expect(result.activeJobs).toHaveLength(1);
-    expect(getSpy).toHaveBeenCalledWith("/v1/documents", {
-      params: {
-        namespace: "default",
-        include_active_jobs: true,
-      },
-    });
-    expect(listSpy).not.toHaveBeenCalled();
   });
 });
 

@@ -131,25 +131,6 @@ describe("source route service", () => {
             sourceFileName: "local-duplicate.pdf",
           },
         ],
-        activeJobs: [
-          {
-            jobId: "job_remote",
-            documentId: "doc_parsing",
-            namespace: "default",
-            status: "running",
-            sourceFileName: "parsing.pdf",
-            documentMetadata: {
-              mimeType: "application/pdf",
-            },
-          },
-          {
-            jobId: "job_1",
-            documentId: "doc_local_parsing_duplicate",
-            namespace: "default",
-            status: "running",
-            sourceFileName: "local-parsing-duplicate.pdf",
-          },
-        ],
       })
       .mockResolvedValueOnce({
         documents: [
@@ -193,7 +174,7 @@ describe("source route service", () => {
       })),
       getSourceViewOptionsBySourceId: vi.fn(() => Effect.succeed(new Map())),
       makeKnowhereClient: vi.fn(() => knowhereClient),
-      listSourcesForWorkspace: vi.fn(async () => [source, localReadySource]),
+      listSourcesForWorkspace: vi.fn(async () => [localReadySource]),
       sourceService: { listHiddenDemoSourceIds: vi.fn(async () => []) },
     });
 
@@ -201,17 +182,11 @@ describe("source route service", () => {
 
     expect(listDocuments).toHaveBeenNthCalledWith(1, {
       namespace: "default",
-      includeActiveJobs: true,
     });
     expect(listDocuments).toHaveBeenNthCalledWith(2, {
       namespace: workspace.namespace,
-      includeActiveJobs: true,
     });
     expect(result.body.sources).toEqual([
-      expect.objectContaining({
-        id: "source_1",
-        documentId: undefined,
-      }),
       expect.objectContaining({
         id: "source_ready",
         documentId: "doc_local",
@@ -224,15 +199,6 @@ describe("source route service", () => {
         mimeType: "application/pdf",
         status: "ready",
         documentId: "doc_default",
-      },
-      {
-        id: "knowhere-doc:default:doc_parsing",
-        kind: "workspace",
-        namespace: "default",
-        title: "parsing.pdf",
-        mimeType: "application/pdf",
-        status: "parsing",
-        documentId: "doc_parsing",
       },
       {
         id: "knowhere-doc:notebook-workspace_1:doc_legacy",
