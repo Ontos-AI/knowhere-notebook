@@ -123,50 +123,62 @@ export const answerQuestionWithRetrieval = (
     ): Promise<AgenticRetrievalResponse> => {
       const startedAt = Date.now()
       const retrievalPlan = toAgenticRetrievalPlan(queryInput)
-      const retrievalQueryParams = buildRetrievalQueryParams({
-        input: queryInput,
-        fallbackQuestion: question,
-        namespace: input.namespace,
-        sources: input.sources,
-        excludedSourceIds: input.excludedSourceIds,
-      })
-      logger.info("chat-agent: searchSources start", {
-        query: retrievalQueryParams.query,
-        topK: retrievalQueryParams.topK,
-        dataType: retrievalQueryParams.dataType ?? null,
-        signalPathCount: retrievalQueryParams.signalPaths?.length ?? 0,
-        filterMode: retrievalQueryParams.filterMode ?? null,
-        threshold: retrievalQueryParams.threshold ?? null,
-        targetContent: retrievalPlan.targetContent,
-        purpose: retrievalPlan.purpose,
-      })
+      const namespaces = getRetrievalNamespaces(input)
+      const queryResponses: RetrievalQueryResponse[] = []
+      const queryFailures: unknown[] = []
 
-      try {
-        const response = await input.retrieval.query(retrievalQueryParams)
-        retrievalResponses.push(response)
-        logger.info("chat-agent: searchSources ok", {
-          query: response.query,
-          durationMs: Date.now() - startedAt,
-          resultCount: response.results.length,
-          referencedChunkCount: response.referencedChunks.length,
-          stopReason: response.stopReason ?? null,
-          failureReason: response.failureReason ?? null,
-          targetContent: retrievalPlan.targetContent,
+      for (const namespace of namespaces) {
+        const retrievalQueryParams = buildRetrievalQueryParams({
+          input: queryInput,
+          fallbackQuestion: question,
+          namespace,
+          sources: input.sources,
+          excludedSourceIds: input.excludedSourceIds,
         })
-        logger.info("chat-agent: knowhere query response", {
-          durationMs: Date.now() - startedAt,
-          response: formatKnowhereQueryResponseForLog(response),
-        })
-        return { ...response, retrievalPlan }
-      } catch (error) {
-        logger.error("chat-agent: searchSources failed", {
+        logger.info("chat-agent: searchSources start", {
+          namespace,
           query: retrievalQueryParams.query,
-          durationMs: Date.now() - startedAt,
-          error: error instanceof Error ? error.message : String(error),
+          topK: retrievalQueryParams.topK,
+          dataType: retrievalQueryParams.dataType ?? null,
+          signalPathCount: retrievalQueryParams.signalPaths?.length ?? 0,
+          filterMode: retrievalQueryParams.filterMode ?? null,
+          threshold: retrievalQueryParams.threshold ?? null,
           targetContent: retrievalPlan.targetContent,
+          purpose: retrievalPlan.purpose,
         })
-        throw error
+
+        try {
+          const response = await input.retrieval.query(retrievalQueryParams)
+          retrievalResponses.push(response)
+          queryResponses.push(response)
+          logger.info("chat-agent: searchSources ok", {
+            namespace,
+            query: response.query,
+            durationMs: Date.now() - startedAt,
+            resultCount: response.results.length,
+            referencedChunkCount: response.referencedChunks.length,
+            stopReason: response.stopReason ?? null,
+            failureReason: response.failureReason ?? null,
+            targetContent: retrievalPlan.targetContent,
+          })
+          logger.info("chat-agent: knowhere query response", {
+            durationMs: Date.now() - startedAt,
+            response: formatKnowhereQueryResponseForLog(response),
+          })
+        } catch (error) {
+          queryFailures.push(error)
+          logger.error("chat-agent: searchSources failed", {
+            namespace,
+            query: retrievalQueryParams.query,
+            durationMs: Date.now() - startedAt,
+            error: formatUnknownError(error),
+            targetContent: retrievalPlan.targetContent,
+          })
+        }
       }
+
+      if (queryResponses.length === 0) throw queryFailures[0]
+      return mergeRetrievalResponses(queryResponses, retrievalPlan)
     }
 
     const generatedAnswer = yield* Effect.tryPromise(() =>
@@ -576,6 +588,56 @@ function redactRawUrls(value: string): string {
 function formatUnknownError(error: unknown): string {
   if (error instanceof Error) return error.message
   return String(error)
+}
+
+function getRetrievalNamespaces(input: AnswerQuestionInput): readonly string[] {
+  const candidates =
+    input.namespaces && input.namespaces.length > 0
+      ? input.namespaces
+      : [input.namespace]
+  const namespaces: string[] = []
+
+  for (const namespace of candidates) {
+    if (namespaces.includes(namespace)) continue
+    namespaces.push(namespace)
+  }
+
+  return namespaces
+}
+
+function mergeRetrievalResponses(
+  responses: readonly RetrievalQueryResponse[],
+  retrievalPlan: AgenticRetrievalPlan,
+): AgenticRetrievalResponse {
+  const [first, ...rest] = responses
+  if (!first) {
+    throw new Error("No retrieval responses to merge.")
+  }
+
+  const results = responses.flatMap((response) => response.results)
+  const referencedChunks = responses.flatMap(
+    (response) => response.referencedChunks,
+  )
+  const evidenceTexts = responses
+    .map((response) => response.evidenceText)
+    .filter((value): value is string => Boolean(value))
+  const answerTexts = responses
+    .map((response) => response.answerText)
+    .filter((value): value is string => Boolean(value))
+
+  return {
+    ...first,
+    namespace: responses.map((response) => response.namespace).join(","),
+    routerUsed: [first, ...rest]
+      .map((response) => response.routerUsed)
+      .filter(Boolean)
+      .join(","),
+    answerText: answerTexts.length > 0 ? answerTexts.join("\n\n") : null,
+    evidenceText: evidenceTexts.length > 0 ? evidenceTexts.join("\n\n") : null,
+    results,
+    referencedChunks,
+    retrievalPlan,
+  }
 }
 
 function buildRetrievalQueryParams(input: {

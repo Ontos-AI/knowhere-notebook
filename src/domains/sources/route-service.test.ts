@@ -103,6 +103,149 @@ describe("source route service", () => {
     expect(listHiddenDemoSourceIds).toHaveBeenCalledWith(workspace.id);
   });
 
+  it("lists shared default and legacy namespace documents as compatible remote sources", async () => {
+    const localReadySource: Source = {
+      ...source,
+      id: "source_ready",
+      status: "ready",
+      knowhereJobId: null,
+      knowhereDocumentId: "doc_local",
+    };
+    const listDocuments = vi
+      .fn()
+      .mockResolvedValueOnce({
+        documents: [
+          {
+            documentId: "doc_default",
+            namespace: "default",
+            status: "active",
+            sourceFileName: "cli.pdf",
+            documentMetadata: {
+              mimeType: "application/pdf",
+            },
+          },
+          {
+            documentId: "doc_local",
+            namespace: "default",
+            status: "active",
+            sourceFileName: "local-duplicate.pdf",
+          },
+        ],
+        activeJobs: [
+          {
+            jobId: "job_remote",
+            documentId: "doc_parsing",
+            namespace: "default",
+            status: "running",
+            sourceFileName: "parsing.pdf",
+            documentMetadata: {
+              mimeType: "application/pdf",
+            },
+          },
+          {
+            jobId: "job_1",
+            documentId: "doc_local_parsing_duplicate",
+            namespace: "default",
+            status: "running",
+            sourceFileName: "local-parsing-duplicate.pdf",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        documents: [
+          {
+            documentId: "doc_legacy",
+            namespace: workspace.namespace,
+            status: "active",
+            sourceFileName: "legacy.pdf",
+          },
+        ],
+      });
+    const knowhereClient = {
+      documents: {
+        archive: vi.fn(async () => undefined),
+        list: listDocuments,
+        listChunks: vi.fn(async () => ({
+          chunks: [],
+          pagination: {
+            page: 1,
+            pageSize: 1,
+            total: 0,
+            totalPages: 0,
+          },
+        })),
+      },
+      jobs: {
+        create: vi.fn(),
+        upload: vi.fn(),
+      },
+    };
+    const listing = createRouteListing({
+      demoApi: {
+        fetchCatalog: vi.fn(async () => emptyDemoCatalog),
+      },
+      ensureApiKeyForWorkspace: vi.fn(async () => "jwt_123"),
+      ensureWorkspace: vi.fn(async () => workspace),
+      getCurrentUser: vi.fn(async () => ({
+        id: "user_1",
+        email: null,
+        name: null,
+      })),
+      getSourceViewOptionsBySourceId: vi.fn(() => Effect.succeed(new Map())),
+      makeKnowhereClient: vi.fn(() => knowhereClient),
+      listSourcesForWorkspace: vi.fn(async () => [source, localReadySource]),
+      sourceService: { listHiddenDemoSourceIds: vi.fn(async () => []) },
+    });
+
+    const result = await listing.listSources({ cookieHeader: "session=abc" });
+
+    expect(listDocuments).toHaveBeenNthCalledWith(1, {
+      namespace: "default",
+      includeActiveJobs: true,
+    });
+    expect(listDocuments).toHaveBeenNthCalledWith(2, {
+      namespace: workspace.namespace,
+      includeActiveJobs: true,
+    });
+    expect(result.body.sources).toEqual([
+      expect.objectContaining({
+        id: "source_1",
+        documentId: undefined,
+      }),
+      expect.objectContaining({
+        id: "source_ready",
+        documentId: "doc_local",
+      }),
+      {
+        id: "knowhere-doc:default:doc_default",
+        kind: "workspace",
+        namespace: "default",
+        title: "cli.pdf",
+        mimeType: "application/pdf",
+        status: "ready",
+        documentId: "doc_default",
+      },
+      {
+        id: "knowhere-doc:default:doc_parsing",
+        kind: "workspace",
+        namespace: "default",
+        title: "parsing.pdf",
+        mimeType: "application/pdf",
+        status: "parsing",
+        documentId: "doc_parsing",
+      },
+      {
+        id: "knowhere-doc:notebook-workspace_1:doc_legacy",
+        kind: "workspace",
+        namespace: workspace.namespace,
+        title: "legacy.pdf",
+        mimeType: "application/octet-stream",
+        status: "ready",
+        documentId: "doc_legacy",
+      },
+    ]);
+  });
+
   it("lists authenticated workspace sources when the demo catalog is unavailable", async () => {
     const legacyFakeSource: Source = {
       ...source,

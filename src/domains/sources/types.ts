@@ -35,6 +35,7 @@ export type SourceView = {
   readonly id: string
   readonly kind?: SourceKind
   readonly demoSourceId?: string
+  readonly namespace?: string
   readonly title: string
   /** Browser-provided content type for preview routing. */
   readonly mimeType: string

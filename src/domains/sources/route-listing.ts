@@ -11,6 +11,7 @@ import { logger } from "@/lib/logger"
 import { knowhereDemoApi } from "@/integrations/knowhere-demo"
 import { toSourceView } from "./view"
 import { startBackgroundReconciliation } from "./background-reconcile"
+import { listRemoteLibrarySourceViews } from "./remote-library"
 import type {
   JsonRouteResult,
   ListSourcesBody,
@@ -90,6 +91,11 @@ const listSourcesEffect = (
       deps.ensureApiKeyForWorkspace(workspace.id, input.cookieHeader),
     )
     const client = deps.makeKnowhereClient(apiKey)
+    const remoteLibrary = yield* listRemoteLibrarySourceViews({
+      workspace,
+      client,
+      localSources: demoSourceResolution.workspaceSources,
+    })
     const parsingSources = sources.filter(
       (source) => source.status === "parsing" && source.knowhereJobId,
     )
@@ -136,6 +142,7 @@ const listSourcesEffect = (
               sourceOptions.get(source.id),
           ),
         ),
+        ...remoteLibrary.sourceViews,
       ],
     })
   })

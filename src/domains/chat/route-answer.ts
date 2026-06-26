@@ -12,6 +12,7 @@ import {
 } from "@/domains/chat/service"
 import { chatTurnPersistence } from "@/domains/chat/chat-turn-persistence"
 import { reconcileSourcesForWorkspace } from "@/domains/sources/reconcile"
+import { listRemoteLibrarySourceViews } from "@/domains/sources/remote-library"
 import { sourceService } from "@/domains/sources/service"
 import { notebookRequestContext } from "@/domains/workspace/request-context"
 import { isAuthError } from "@/integrations/dashboard/api-key-service"
@@ -59,6 +60,12 @@ const answerChatEffect = (input: AnswerChatInput) =>
     const sources = yield* Effect.tryPromise(() =>
       reconcileSourcesForWorkspace(workspace, client),
     )
+    const remoteLibrary = yield* listRemoteLibrarySourceViews({
+      workspace,
+      client,
+      localSources: sources,
+    })
+    const compatibleSources = [...sources, ...remoteLibrary.sources]
     const loadSourceAssetUrls = (source: (typeof sources)[number]) =>
       sourceService.getParseAssetUrls(workspace.id, source.id)
 
@@ -66,7 +73,7 @@ const answerChatEffect = (input: AnswerChatInput) =>
       yield* Effect.tryPromise(() =>
         handleChatTurn({
           workspace,
-          sources,
+          sources: compatibleSources,
           question: body.value.question,
           threadId: body.value.threadId,
           excludedSourceIds: body.value.excludedSourceIds,
@@ -76,7 +83,7 @@ const answerChatEffect = (input: AnswerChatInput) =>
           hardenMediaAssetUrls: ({ results, artifacts }) =>
             hardenChatMediaAssetUrls({
               workspaceId: workspace.id,
-              sources,
+              sources: compatibleSources,
               results,
               artifacts,
               loadSourceAssetUrls,

@@ -2,6 +2,10 @@ import type { Job } from "@ontos-ai/knowhere-sdk"
 
 import type { Source } from "@/infrastructure/db/schema"
 
+export type UploadJob = Job & {
+  readonly documentId?: string
+}
+
 export type UploadSourceRepository = {
   createUploadingSource(
     workspaceId: string,
@@ -19,6 +23,7 @@ export type UploadSourceRepository = {
     workspaceId: string,
     sourceId: string,
     jobId: string,
+    documentId?: string,
   ): Promise<Source>
   markSourceFailed(
     workspaceId: string,
@@ -35,14 +40,16 @@ export type UploadKnowhereClient = {
             sourceType: "file"
             fileName: string
             namespace: string
+            documentMetadata?: Readonly<Record<string, unknown>>
           }
         | {
             sourceType: "url"
             sourceUrl: string
             fileName: string
             namespace: string
+            documentMetadata?: Readonly<Record<string, unknown>>
           },
-    ): Promise<Job>
+    ): Promise<UploadJob>
     upload(job: string | Job, input: { file: string }): Promise<void>
   }
 }

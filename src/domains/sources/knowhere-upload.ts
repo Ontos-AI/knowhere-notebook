@@ -10,6 +10,7 @@ import {
 import type { UploadSourceDependencies } from "./source-upload-contracts"
 import { validateUploadFile } from "./validation"
 import { TempFile, tempFileLayer } from "@/lib/temp-files"
+import { getUploadNamespace } from "./namespace"
 
 /**
  * Upload a browser file to Knowhere for parsing.
@@ -45,7 +46,12 @@ export const uploadSourceToKnowhereEffect = (
           deps.knowhere.jobs.create({
             sourceType: "file",
             fileName: validation.title,
-            namespace: workspace.namespace,
+            namespace: getUploadNamespace(),
+            documentMetadata: createNotebookDocumentMetadata({
+              title: validation.title,
+              mimeType: validation.mimeType,
+              sizeBytes: file.size,
+            }),
           }),
         )
         yield* Effect.tryPromise(() =>
@@ -57,6 +63,7 @@ export const uploadSourceToKnowhereEffect = (
             workspace.id,
             source.id,
             job.jobId,
+            job.documentId,
           ),
         )
       }),
@@ -105,7 +112,12 @@ export const uploadSourceBlobToKnowhereEffect = (
           sourceType: "url",
           sourceUrl: input.url,
           fileName: validation.title,
-          namespace: workspace.namespace,
+          namespace: getUploadNamespace(),
+          documentMetadata: createNotebookDocumentMetadata({
+            title: validation.title,
+            mimeType: validation.mimeType,
+            sizeBytes: input.sizeBytes,
+          }),
         }),
       )
 
@@ -114,6 +126,7 @@ export const uploadSourceBlobToKnowhereEffect = (
           workspace.id,
           source.id,
           job.jobId,
+          job.documentId,
         ),
       )
     }).pipe(
@@ -149,4 +162,18 @@ export async function uploadSourceBlobToKnowhere(
   return Effect.runPromise(
     uploadSourceBlobToKnowhereEffect(workspace, input, deps),
   )
+}
+
+function createNotebookDocumentMetadata(input: {
+  readonly title: string
+  readonly mimeType: string
+  readonly sizeBytes: number
+}): Readonly<Record<string, unknown>> {
+  return {
+    createdByClient: "notebook",
+    sourceFileName: input.title,
+    title: input.title,
+    mimeType: input.mimeType,
+    sizeBytes: input.sizeBytes,
+  }
 }

@@ -109,6 +109,41 @@ describe("PATCH /api/sources/[sourceId]", () => {
     );
   });
 
+  it("archives remote default namespace source projections without local soft delete", async () => {
+    mocks.requireUser.mockResolvedValue({ id: "user_1" });
+    mocks.ensureWorkspace.mockResolvedValue({ id: "workspace_1" });
+    mocks.ensureApiKeyForWorkspace.mockResolvedValue("jwt_123");
+    mocks.makeKnowhereClient.mockReturnValue({
+      documents: { archive: mocks.archive },
+    });
+    mocks.archive.mockResolvedValue(undefined);
+
+    const response = await PATCH(
+      new NextRequest(
+        "http://localhost:3001/api/sources/knowhere-doc:default:doc_remote",
+        {
+          method: "PATCH",
+          body: JSON.stringify({ archived: true }),
+        },
+      ),
+      {
+        params: Promise.resolve({
+          sourceId: "knowhere-doc:default:doc_remote",
+        }),
+      },
+    );
+
+    await expect(response.json()).resolves.toEqual({
+      id: "knowhere-doc:default:doc_remote",
+      archived: true,
+    });
+    expect(response.status).toBe(200);
+    expect(mocks.archive).toHaveBeenCalledWith("doc_remote");
+    expect(mocks.findSourceInWorkspace).not.toHaveBeenCalled();
+    expect(mocks.softDeleteSource).not.toHaveBeenCalled();
+    expect(mocks.deleteBlob).not.toHaveBeenCalled();
+  });
+
   it("does not fail an already-soft-deleted source when original Blob cleanup fails", async () => {
     mocks.requireUser.mockResolvedValue({ id: "user_1" });
     mocks.ensureWorkspace.mockResolvedValue({ id: "workspace_1" });

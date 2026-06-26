@@ -501,4 +501,82 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
       includeAssetUrls: true,
     })
   })
+
+  it("loads chunks for remote default namespace source projections", async () => {
+    const knowhereClient = {
+      documents: {
+        listChunks: vi.fn(async () => ({
+          chunks: [
+            {
+              id: "dchk_remote",
+              chunkId: "parser_remote",
+              chunkType: "text",
+              content: "Remote chunk",
+              sectionPath: "Summary",
+              sourceChunkPath: "Default_Root/remote.pdf/Summary",
+              filePath: null,
+              metadata: {},
+              sortOrder: 0,
+            },
+          ],
+          pagination: {
+            page: 1,
+            pageSize: 1,
+            total: 1,
+            totalPages: 1,
+          },
+        })),
+      },
+    }
+    mocks.getCurrentUser.mockResolvedValue({
+      id: "user_1",
+      email: null,
+      name: null,
+    })
+    mocks.ensureWorkspace.mockResolvedValue({
+      id: "workspace_1",
+      userId: "user_1",
+      namespace: "notebook-workspace_1",
+      createdAt: new Date("2026-05-10T00:00:00.000Z"),
+    })
+    mocks.ensureApiKeyForWorkspace.mockResolvedValue("jwt_123")
+    mocks.makeKnowhereClient.mockReturnValue(knowhereClient)
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost:3001/api/sources/knowhere-doc:default:doc_remote/chunks?page=1&pageSize=1",
+      ),
+      {
+        params: Promise.resolve({
+          sourceId: "knowhere-doc:default:doc_remote",
+        }),
+      },
+    )
+
+    await expect(response.json()).resolves.toMatchObject({
+      chunks: [
+        {
+          chunkId: "dchk_remote",
+          parserChunkId: "parser_remote",
+          documentId: "doc_remote",
+        },
+      ],
+      pagination: {
+        page: 1,
+        pageSize: 1,
+        total: 1,
+      },
+    })
+    expect(response.status).toBe(200)
+    expect(mocks.findSourceInWorkspace).not.toHaveBeenCalled()
+    expect(mocks.fetchDemoChunkPage).not.toHaveBeenCalled()
+    expect(knowhereClient.documents.listChunks).toHaveBeenCalledWith(
+      "doc_remote",
+      {
+        page: 1,
+        pageSize: 1,
+        includeAssetUrls: true,
+      },
+    )
+  })
 })

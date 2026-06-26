@@ -13,6 +13,7 @@ import {
 import { chatThreadService } from "@/domains/chat/thread-service"
 import { toChatMessageView, toChatThreadView } from "@/domains/chat/view"
 import { sourceViewOptionsBySourceId as getSourceViewOptionsBySourceId } from "@/domains/sources/counts"
+import { listRemoteLibrarySourceViews } from "@/domains/sources/remote-library"
 import { sourceService } from "@/domains/sources/service"
 import { startBackgroundReconciliation } from "@/domains/sources/background-reconcile"
 import { sourceWorkflowRuntime } from "@/domains/sources/workflow-runtime"
@@ -88,7 +89,32 @@ async function getDemoChunksForSource(
 }
 
 type WorkspaceShellInitialStateClient =
-  Parameters<typeof getSourceViewOptionsBySourceId>[1]
+  Parameters<typeof getSourceViewOptionsBySourceId>[1] & {
+    readonly documents: {
+      readonly list: (params?: {
+        readonly namespace?: string
+        readonly includeActiveJobs?: boolean
+      }) => Promise<{
+        readonly documents: readonly {
+          readonly documentId: string
+          readonly namespace: string
+          readonly status: string
+          readonly sourceType?: string | null
+          readonly sourceFileName?: string | null
+          readonly documentMetadata?: Record<string, unknown>
+        }[]
+        readonly activeJobs?: readonly {
+          readonly jobId?: string | null
+          readonly documentId?: string | null
+          readonly namespace: string
+          readonly status: string
+          readonly sourceType?: string | null
+          readonly sourceFileName?: string | null
+          readonly documentMetadata?: Record<string, unknown>
+        }[]
+      }>
+    }
+  }
 
 type WorkspaceShellInitialStateDependencies = {
   readonly fetchDemoCatalog: () => Promise<DemoCatalog>
@@ -294,6 +320,17 @@ export const loadWorkspaceShellInitialStateEffect = (
       },
       () => deps.getClientForWorkspace(workspace),
     )
+    const remoteLibrary = yield* effectOperation.addContext(
+      {
+        context: workspaceInitialStateContext,
+        operation: "listRemoteLibrarySourceViews",
+      },
+      listRemoteLibrarySourceViews({
+        workspace,
+        client,
+        localSources: demoSourceResolution.workspaceSources,
+      }),
+    )
     for (const source of sources) {
       if (source.status === "parsing" && source.knowhereJobId) {
         yield* Effect.fork(
@@ -338,6 +375,7 @@ export const loadWorkspaceShellInitialStateEffect = (
               sourceOptions.get(source.id),
           ),
         ),
+        ...remoteLibrary.sourceViews,
       ],
       officialLibrarySources: toOfficialLibrarySourceViews(demoCatalog),
       chatThreads: chatThreads.map(toChatThreadView),
