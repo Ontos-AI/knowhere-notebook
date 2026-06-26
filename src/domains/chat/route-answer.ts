@@ -12,7 +12,7 @@ import {
 } from "@/domains/chat/service"
 import { chatTurnPersistence } from "@/domains/chat/chat-turn-persistence"
 import { reconcileSourcesForWorkspace } from "@/domains/sources/reconcile"
-import { listRemoteLibrarySourceViews } from "@/domains/sources/remote-library"
+import { localizeRemoteLibrarySources } from "@/domains/sources/remote-library"
 import { sourceService } from "@/domains/sources/service"
 import { notebookRequestContext } from "@/domains/workspace/request-context"
 import { isAuthError } from "@/integrations/dashboard/api-key-service"
@@ -60,12 +60,13 @@ const answerChatEffect = (input: AnswerChatInput) =>
     const sources = yield* Effect.tryPromise(() =>
       reconcileSourcesForWorkspace(workspace, client),
     )
-    const remoteLibrary = yield* listRemoteLibrarySourceViews({
+    const compatibleSources = yield* localizeRemoteLibrarySources({
       workspace,
       client,
       localSources: sources,
+      localizeDocument: (document) =>
+        sourceService.localizeRemoteDocument(workspace.id, document),
     })
-    const compatibleSources = [...sources, ...remoteLibrary.sources]
     const loadSourceAssetUrls = (source: (typeof sources)[number]) =>
       sourceService.getParseAssetUrls(workspace.id, source.id)
 

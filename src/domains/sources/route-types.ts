@@ -6,7 +6,7 @@ import type {
   loadChunksForSource,
 } from "@/domains/chunks"
 import type { ParsedChunkView } from "@/domains/chunks/types"
-import type { SourceView } from "@/domains/sources/types"
+import type { SourceStatus, SourceView } from "@/domains/sources/types"
 import type { AuthUser } from "@/infrastructure/auth"
 import type { Source, Workspace } from "@/infrastructure/db/schema"
 import type {
@@ -147,6 +147,16 @@ type SourceWorkflowService = {
     demoSourceId: string,
   ) => Promise<void>
   readonly listHiddenDemoSourceIds: (workspaceId: string) => Promise<string[]>
+  readonly localizeRemoteDocument: (
+    workspaceId: string,
+    input: {
+      readonly documentId: string
+      readonly title: string
+      readonly mimeType: string
+      readonly sizeBytes: number
+      readonly status: SourceStatus
+    },
+  ) => Promise<Source>
   readonly upsertMaterializedDemoSource: (
     workspaceId: string,
     input: {

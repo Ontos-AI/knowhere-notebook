@@ -34,6 +34,8 @@ const source: Source = {
   deletedAt: null,
 };
 
+const localizeNoRemoteDocuments = vi.fn(async () => source);
+
 describe("source route service", () => {
   it("reconciles authenticated sources through the listing route workflow", async () => {
     const knowhereClient = {
@@ -74,7 +76,10 @@ describe("source route service", () => {
       getSourceViewOptionsBySourceId,
       makeKnowhereClient: vi.fn(() => knowhereClient),
       listSourcesForWorkspace,
-      sourceService: { listHiddenDemoSourceIds },
+      sourceService: {
+        listHiddenDemoSourceIds,
+        localizeRemoteDocument: localizeNoRemoteDocuments,
+      },
     });
 
     const result = await listing.listSources({ cookieHeader: "session=abc" });
@@ -103,7 +108,7 @@ describe("source route service", () => {
     expect(listHiddenDemoSourceIds).toHaveBeenCalledWith(workspace.id);
   });
 
-  it("lists shared default and legacy namespace documents as compatible remote sources", async () => {
+  it("localizes shared default and legacy namespace documents into workspace sources", async () => {
     const localReadySource: Source = {
       ...source,
       id: "source_ready",
@@ -161,6 +166,37 @@ describe("source route service", () => {
         upload: vi.fn(),
       },
     };
+    const localizedDefaultSource: Source = {
+      ...source,
+      id: "00000000-0000-0000-0000-000000000101",
+      title: "cli.pdf",
+      mimeType: "application/pdf",
+      status: "ready",
+      knowhereJobId: null,
+      knowhereDocumentId: "doc_default",
+    };
+    const refreshedLocalSource: Source = {
+      ...localReadySource,
+      title: "local-duplicate.pdf",
+      mimeType: "application/octet-stream",
+      status: "ready",
+      knowhereJobId: null,
+      knowhereDocumentId: "doc_local",
+    };
+    const localizedLegacySource: Source = {
+      ...source,
+      id: "00000000-0000-0000-0000-000000000102",
+      title: "legacy.pdf",
+      mimeType: "application/octet-stream",
+      status: "ready",
+      knowhereJobId: null,
+      knowhereDocumentId: "doc_legacy",
+    };
+    const localizeRemoteDocument = vi
+      .fn()
+      .mockResolvedValueOnce(localizedDefaultSource)
+      .mockResolvedValueOnce(refreshedLocalSource)
+      .mockResolvedValueOnce(localizedLegacySource);
     const listing = createRouteListing({
       demoApi: {
         fetchCatalog: vi.fn(async () => emptyDemoCatalog),
@@ -175,7 +211,10 @@ describe("source route service", () => {
       getSourceViewOptionsBySourceId: vi.fn(() => Effect.succeed(new Map())),
       makeKnowhereClient: vi.fn(() => knowhereClient),
       listSourcesForWorkspace: vi.fn(async () => [localReadySource]),
-      sourceService: { listHiddenDemoSourceIds: vi.fn(async () => []) },
+      sourceService: {
+        listHiddenDemoSourceIds: vi.fn(async () => []),
+        localizeRemoteDocument,
+      },
     });
 
     const result = await listing.listSources({ cookieHeader: "session=abc" });
@@ -186,29 +225,73 @@ describe("source route service", () => {
     expect(listDocuments).toHaveBeenNthCalledWith(2, {
       namespace: workspace.namespace,
     });
+    expect(localizeRemoteDocument).toHaveBeenNthCalledWith(
+      1,
+      workspace.id,
+      {
+        documentId: "doc_default",
+        namespace: "default",
+        status: "ready",
+        title: "cli.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 0,
+        sourceFileName: "cli.pdf",
+        documentMetadata: {
+          mimeType: "application/pdf",
+        },
+      },
+    );
+    expect(localizeRemoteDocument).toHaveBeenNthCalledWith(
+      2,
+      workspace.id,
+      {
+        documentId: "doc_local",
+        namespace: "default",
+        status: "ready",
+        title: "local-duplicate.pdf",
+        mimeType: "application/octet-stream",
+        sizeBytes: 0,
+        sourceFileName: "local-duplicate.pdf",
+        documentMetadata: {},
+      },
+    );
+    expect(localizeRemoteDocument).toHaveBeenNthCalledWith(
+      3,
+      workspace.id,
+      {
+        documentId: "doc_legacy",
+        namespace: workspace.namespace,
+        status: "ready",
+        title: "legacy.pdf",
+        mimeType: "application/octet-stream",
+        sizeBytes: 0,
+        sourceFileName: "legacy.pdf",
+        documentMetadata: {},
+      },
+    );
     expect(result.body.sources).toEqual([
       expect.objectContaining({
         id: "source_ready",
         documentId: "doc_local",
+        title: "local-duplicate.pdf",
+        status: "ready",
       }),
-      {
-        id: "knowhere-doc:default:doc_default",
+      expect.objectContaining({
+        id: "00000000-0000-0000-0000-000000000101",
         kind: "workspace",
-        namespace: "default",
         title: "cli.pdf",
         mimeType: "application/pdf",
         status: "ready",
         documentId: "doc_default",
-      },
-      {
-        id: "knowhere-doc:notebook-workspace_1:doc_legacy",
+      }),
+      expect.objectContaining({
+        id: "00000000-0000-0000-0000-000000000102",
         kind: "workspace",
-        namespace: workspace.namespace,
         title: "legacy.pdf",
         mimeType: "application/octet-stream",
         status: "ready",
         documentId: "doc_legacy",
-      },
+      }),
     ]);
   });
 
@@ -258,7 +341,10 @@ describe("source route service", () => {
       getSourceViewOptionsBySourceId,
       makeKnowhereClient: vi.fn(() => knowhereClient),
       listSourcesForWorkspace: vi.fn(async () => [legacyFakeSource, source]),
-      sourceService: { listHiddenDemoSourceIds: vi.fn(async () => []) },
+      sourceService: {
+        listHiddenDemoSourceIds: vi.fn(async () => []),
+        localizeRemoteDocument: localizeNoRemoteDocuments,
+      },
     });
 
     const result = await listing.listSources({ cookieHeader: "session=abc" });
@@ -327,7 +413,10 @@ describe("source route service", () => {
       getSourceViewOptionsBySourceId,
       makeKnowhereClient: vi.fn(() => knowhereClient),
       listSourcesForWorkspace: vi.fn(async () => [legacyFakeSource]),
-      sourceService: { listHiddenDemoSourceIds: vi.fn(async () => []) },
+      sourceService: {
+        listHiddenDemoSourceIds: vi.fn(async () => []),
+        localizeRemoteDocument: localizeNoRemoteDocuments,
+      },
     });
 
     const result = await listing.listSources({ cookieHeader: "session=abc" });
@@ -404,7 +493,10 @@ describe("source route service", () => {
       getSourceViewOptionsBySourceId,
       makeKnowhereClient: vi.fn(() => knowhereClient),
       listSourcesForWorkspace: vi.fn(async () => [nonReadyLegacySource]),
-      sourceService: { listHiddenDemoSourceIds: vi.fn(async () => []) },
+      sourceService: {
+        listHiddenDemoSourceIds: vi.fn(async () => []),
+        localizeRemoteDocument: localizeNoRemoteDocuments,
+      },
     });
 
     const result = await listing.listSources({ cookieHeader: "session=abc" });
@@ -471,7 +563,10 @@ describe("source route service", () => {
       getSourceViewOptionsBySourceId,
       makeKnowhereClient: vi.fn(() => knowhereClient),
       listSourcesForWorkspace: vi.fn(async () => [materializedSource]),
-      sourceService: { listHiddenDemoSourceIds: vi.fn(async () => []) },
+      sourceService: {
+        listHiddenDemoSourceIds: vi.fn(async () => []),
+        localizeRemoteDocument: localizeNoRemoteDocuments,
+      },
     });
 
     const result = await listing.listSources({ cookieHeader: "session=abc" });

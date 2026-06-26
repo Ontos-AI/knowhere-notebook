@@ -8,6 +8,7 @@ type SourceRepository = {
   readonly findInWorkspaceEffect: typeof sourceRowRepository.findInWorkspaceEffect
   readonly listForWorkspaceEffect: typeof sourceRowRepository.listForWorkspaceEffect
   readonly createUploadingEffect: typeof sourceRowRepository.createUploadingEffect
+  readonly localizeRemoteDocumentEffect: typeof sourceRowRepository.localizeRemoteDocumentEffect
   readonly listHiddenDemoSourceIdsEffect: typeof demoSourceRepository.listHiddenDemoSourceIdsEffect
   readonly hideDemoSourceEffect: typeof demoSourceRepository.hideDemoSourceEffect
   readonly upsertMaterializedDemoSourceEffect: typeof demoSourceRepository.upsertMaterializedDemoSourceEffect
@@ -24,6 +25,8 @@ export const sourceRepository: SourceRepository = {
   findInWorkspaceEffect: sourceRowRepository.findInWorkspaceEffect,
   listForWorkspaceEffect: sourceRowRepository.listForWorkspaceEffect,
   createUploadingEffect: sourceRowRepository.createUploadingEffect,
+  localizeRemoteDocumentEffect:
+    sourceRowRepository.localizeRemoteDocumentEffect,
   listHiddenDemoSourceIdsEffect: demoSourceRepository.listHiddenDemoSourceIdsEffect,
   hideDemoSourceEffect: demoSourceRepository.hideDemoSourceEffect,
   upsertMaterializedDemoSourceEffect:

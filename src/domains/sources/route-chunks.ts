@@ -5,8 +5,6 @@ import type { DemoChunkPage } from "@/integrations/knowhere-demo"
 import { logger } from "@/lib/logger"
 import { routeResult } from "@/lib/route-result"
 import { getClientForWorkspace } from "./route-dependencies"
-import { parseRemoteSourceId } from "./namespace"
-import { createRemoteSource } from "./remote-library"
 import { sourceRowRepository } from "./source-row-repository"
 import type {
   JsonRouteResult,
@@ -49,35 +47,6 @@ const loadSourceChunksEffect = (
   deps: RouteChunksDependencies,
 ) =>
   Effect.gen(function* () {
-    const remoteHandle = parseRemoteSourceId(input.sourceId)
-    if (remoteHandle) {
-      const user = yield* Effect.tryPromise(() => deps.getCurrentUser())
-      if (!user) return sourceNotFound()
-
-      const workspace = yield* Effect.tryPromise(() =>
-        deps.ensureWorkspace(user.id),
-      )
-      const client = yield* Effect.tryPromise(() =>
-        getClientForWorkspace(workspace.id, input.cookieHeader, deps),
-      )
-      const source = createRemoteSource({
-        documentId: remoteHandle.documentId,
-        namespace: remoteHandle.namespace,
-      })
-
-      if (input.shouldLoadAll) {
-        const chunks = yield* deps.loadChunksForSource(source, client)
-        return routeResult.ok({ chunks })
-      }
-
-      const chunkPage = yield* deps.loadChunkPageForSource(
-        source,
-        client,
-        input.pageParams,
-      )
-      return routeResult.ok(chunkPage)
-    }
-
     if (!sourceRowRepository.isWorkspaceSourceId(input.sourceId)) {
       const demoResult = yield* loadDemoChunkPageEffect(input, deps)
       return demoResult ?? sourceNotFound()

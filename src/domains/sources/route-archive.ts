@@ -1,7 +1,6 @@
 import { Effect } from "effect"
 
 import { routeResult } from "@/lib/route-result"
-import { parseRemoteSourceId } from "./namespace"
 import { getClientForWorkspace } from "./route-dependencies"
 import type {
   ArchiveSourceBody,
@@ -47,16 +46,6 @@ const archiveSourceEffect = (
     const workspace = yield* Effect.tryPromise(() =>
       deps.ensureWorkspace(user.id),
     )
-    const remoteHandle = parseRemoteSourceId(input.sourceId)
-    if (remoteHandle) {
-      const client = yield* Effect.tryPromise(() =>
-        getClientForWorkspace(workspace.id, input.cookieHeader, deps),
-      )
-      yield* Effect.tryPromise(() =>
-        client.documents.archive(remoteHandle.documentId),
-      )
-      return routeResult.ok({ id: input.sourceId, archived: true as const })
-    }
 
     const source = yield* Effect.tryPromise(() =>
       deps.sourceService.findInWorkspace(workspace.id, input.sourceId),

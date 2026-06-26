@@ -502,32 +502,7 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
     })
   })
 
-  it("loads chunks for remote default namespace source projections", async () => {
-    const knowhereClient = {
-      documents: {
-        listChunks: vi.fn(async () => ({
-          chunks: [
-            {
-              id: "dchk_remote",
-              chunkId: "parser_remote",
-              chunkType: "text",
-              content: "Remote chunk",
-              sectionPath: "Summary",
-              sourceChunkPath: "Default_Root/remote.pdf/Summary",
-              filePath: null,
-              metadata: {},
-              sortOrder: 0,
-            },
-          ],
-          pagination: {
-            page: 1,
-            pageSize: 1,
-            total: 1,
-            totalPages: 1,
-          },
-        })),
-      },
-    }
+  it("does not load chunks from unlocalized remote source ids", async () => {
     mocks.getCurrentUser.mockResolvedValue({
       id: "user_1",
       email: null,
@@ -539,8 +514,7 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
       namespace: "notebook-workspace_1",
       createdAt: new Date("2026-05-10T00:00:00.000Z"),
     })
-    mocks.ensureApiKeyForWorkspace.mockResolvedValue("jwt_123")
-    mocks.makeKnowhereClient.mockReturnValue(knowhereClient)
+    mocks.fetchDemoChunkPage.mockRejectedValue(new Error("not a demo"))
 
     const response = await GET(
       new NextRequest(
@@ -553,30 +527,12 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
       },
     )
 
-    await expect(response.json()).resolves.toMatchObject({
-      chunks: [
-        {
-          chunkId: "dchk_remote",
-          parserChunkId: "parser_remote",
-          documentId: "doc_remote",
-        },
-      ],
-      pagination: {
-        page: 1,
-        pageSize: 1,
-        total: 1,
-      },
+    await expect(response.json()).resolves.toEqual({
+      message: "Source not found.",
     })
-    expect(response.status).toBe(200)
+    expect(response.status).toBe(404)
     expect(mocks.findSourceInWorkspace).not.toHaveBeenCalled()
-    expect(mocks.fetchDemoChunkPage).not.toHaveBeenCalled()
-    expect(knowhereClient.documents.listChunks).toHaveBeenCalledWith(
-      "doc_remote",
-      {
-        page: 1,
-        pageSize: 1,
-        includeAssetUrls: true,
-      },
-    )
+    expect(mocks.ensureApiKeyForWorkspace).not.toHaveBeenCalled()
+    expect(mocks.makeKnowhereClient).not.toHaveBeenCalled()
   })
 })

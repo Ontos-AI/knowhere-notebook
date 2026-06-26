@@ -443,6 +443,17 @@ function createDependencies(
     listHiddenDemoSourceIds: vi.fn(async () => []),
     listMessages: vi.fn(async () => []),
     listSourcesForWorkspace: vi.fn(async () => []),
+    localizeRemoteDocument: vi.fn(async (workspaceId, input) =>
+      makeSource(workspaceId, {
+        id: `source_${input.documentId}`,
+        title: input.title,
+        mimeType: input.mimeType,
+        sizeBytes: input.sizeBytes,
+        status: input.status,
+        knowhereJobId: null,
+        knowhereDocumentId: input.documentId,
+      }),
+    ),
     sourceViewOptionsBySourceId: vi.fn(() => Effect.succeed(new Map())),
     ...overrides,
   }

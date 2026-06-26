@@ -9,6 +9,10 @@ type CreateUploadingSourceInput = Parameters<
   typeof sourceRepository.createUploadingEffect
 >[1]
 
+type LocalizeRemoteDocumentInput = Parameters<
+  typeof sourceRepository.localizeRemoteDocumentEffect
+>[1]
+
 type SaveSourceParseResultInput = Parameters<
   typeof sourceRepository.saveParseResultEffect
 >[2]
@@ -53,6 +57,10 @@ type SourceWorkflowRuntime = UploadRepositoryRuntime & {
     sourceId: string,
   ) => Promise<Readonly<Record<string, string>>>
   readonly listForWorkspace: (workspaceId: string) => Promise<Source[]>
+  readonly localizeRemoteDocument: (
+    workspaceId: string,
+    input: LocalizeRemoteDocumentInput,
+  ) => Promise<Source>
   readonly listHiddenDemoSourceIds: (workspaceId: string) => Promise<string[]>
   readonly hideDemoSource: (
     workspaceId: string,
@@ -90,6 +98,12 @@ const listForWorkspace: SourceWorkflowRuntime["listForWorkspace"] = (
   workspaceId: string,
 ) =>
   databaseRuntime.runPromise(sourceRepository.listForWorkspaceEffect(workspaceId))
+
+const localizeRemoteDocument: SourceWorkflowRuntime["localizeRemoteDocument"] =
+  (workspaceId: string, input: LocalizeRemoteDocumentInput) =>
+    databaseRuntime.runPromise(
+      sourceRepository.localizeRemoteDocumentEffect(workspaceId, input),
+    )
 
 const listHiddenDemoSourceIds: SourceWorkflowRuntime["listHiddenDemoSourceIds"] =
   (workspaceId: string) =>
@@ -227,6 +241,7 @@ export const sourceWorkflowRuntime: SourceWorkflowRuntime = {
   hideDemoSource,
   listForWorkspace,
   listHiddenDemoSourceIds,
+  localizeRemoteDocument,
   markFailed,
   markParsing,
   markReady,

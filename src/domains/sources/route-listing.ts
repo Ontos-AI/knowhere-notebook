@@ -11,7 +11,7 @@ import { logger } from "@/lib/logger"
 import { knowhereDemoApi } from "@/integrations/knowhere-demo"
 import { toSourceView } from "./view"
 import { startBackgroundReconciliation } from "./background-reconcile"
-import { listRemoteLibrarySourceViews } from "./remote-library"
+import { localizeRemoteLibrarySources } from "./remote-library"
 import type {
   JsonRouteResult,
   ListSourcesBody,
@@ -34,7 +34,7 @@ type RouteListingDependencies = Pick<
   >
   readonly sourceService: Pick<
     SourceRouteServiceDependencies["sourceService"],
-    "listHiddenDemoSourceIds"
+    "listHiddenDemoSourceIds" | "localizeRemoteDocument"
   >
 }
 
@@ -78,24 +78,21 @@ const listSourcesEffect = (
       deps.listSourcesForWorkspace(workspace.id),
     )
     const demoSourceResolution = resolveWorkspaceDemoSources(sources, catalog)
-    const sourcesNeedingKnowhereChunkCount =
-      getWorkspaceSourcesNeedingKnowhereChunkCount(
-        demoSourceResolution.workspaceSources,
-      )
-    const materializedDemoSourceOptions =
-      getMaterializedDemoSourceViewOptionsBySourceId(
-        demoSourceResolution.workspaceSources,
-        catalog,
-      )
     const apiKey = yield* Effect.tryPromise(() =>
       deps.ensureApiKeyForWorkspace(workspace.id, input.cookieHeader),
     )
     const client = deps.makeKnowhereClient(apiKey)
-    const remoteLibrary = yield* listRemoteLibrarySourceViews({
+    const workspaceSources = yield* localizeRemoteLibrarySources({
       workspace,
       client,
       localSources: demoSourceResolution.workspaceSources,
+      localizeDocument: (document) =>
+        deps.sourceService.localizeRemoteDocument(workspace.id, document),
     })
+    const sourcesNeedingKnowhereChunkCount =
+      getWorkspaceSourcesNeedingKnowhereChunkCount(workspaceSources)
+    const materializedDemoSourceOptions =
+      getMaterializedDemoSourceViewOptionsBySourceId(workspaceSources, catalog)
     const parsingSources = sources.filter(
       (source) => source.status === "parsing" && source.knowhereJobId,
     )
@@ -135,14 +132,13 @@ const listSourcesEffect = (
     return routeResult.ok({
       sources: [
         ...visibleDemoSources,
-        ...demoSourceResolution.workspaceSources.map((source) =>
+        ...workspaceSources.map((source) =>
           toSourceView(
             source,
             materializedDemoSourceOptions.get(source.id) ??
               sourceOptions.get(source.id),
           ),
         ),
-        ...remoteLibrary.sourceViews,
       ],
     })
   })

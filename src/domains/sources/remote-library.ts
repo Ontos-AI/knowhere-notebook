@@ -1,17 +1,16 @@
 import { Effect } from "effect"
 
 import type { Source } from "@/infrastructure/db/schema"
-import type { SourceView } from "./types"
-import {
-  createRemoteSourceId,
-  getCompatibleNamespaces,
-  sharedLibraryNamespace,
-} from "./namespace"
+import type { SourceStatus } from "./types"
+import { getCompatibleNamespaces, sharedLibraryNamespace } from "./namespace"
 
 type RemoteDocument = {
   readonly documentId: string
   readonly namespace: string
-  readonly status: string
+  readonly status: SourceStatus
+  readonly title: string
+  readonly mimeType: string
+  readonly sizeBytes: number
   readonly sourceFileName?: string | null
   readonly documentMetadata?: Record<string, unknown>
 }
@@ -46,6 +45,12 @@ type RemoteLibraryProjectionInput = {
   readonly localSources: readonly Source[]
 }
 
+type RemoteLibraryLocalizationInput = RemoteLibraryProjectionInput & {
+  readonly localizeDocument: (
+    document: RemoteDocument,
+  ) => Promise<Source>
+}
+
 type RemoteDocumentRaw = {
   readonly document_id?: unknown
   readonly documentId?: unknown
@@ -57,27 +62,14 @@ type RemoteDocumentRaw = {
   readonly documentMetadata?: unknown
 }
 
-export type RemoteLibraryProjection = {
-  readonly sourceViews: readonly SourceView[]
-  readonly sources: readonly Source[]
-}
+export type RemoteLibraryDocument = RemoteDocument
 
-export type RemoteLibrarySource = Source & {
-  readonly namespace: string
-}
-
-export function listRemoteLibrarySourceViews(
+export function listRemoteLibraryDocuments(
   input: RemoteLibraryProjectionInput,
-): Effect.Effect<RemoteLibraryProjection, never> {
+): Effect.Effect<readonly RemoteLibraryDocument[], never> {
   return Effect.gen(function* () {
-    const localDocumentIds = new Set(
-      input.localSources
-        .map((source) => source.knowhereDocumentId)
-        .filter((documentId): documentId is string => Boolean(documentId)),
-    )
-    const seenDocumentIds = new Set(localDocumentIds)
-    const sourceViews: SourceView[] = []
-    const sources: Source[] = []
+    const seenDocumentIds = new Set<string>()
+    const documents: RemoteLibraryDocument[] = []
 
     for (const namespace of getCompatibleNamespaces(input.workspace)) {
       if (!input.client.documents?.list) continue
@@ -96,16 +88,40 @@ export function listRemoteLibrarySourceViews(
 
       for (const rawDocument of response.documents ?? []) {
         const document = normalizeRemoteDocument(rawDocument)
-        if (!document || document.status === "archived") continue
+        if (!document) continue
         if (seenDocumentIds.has(document.documentId)) continue
 
         seenDocumentIds.add(document.documentId)
-        sourceViews.push(toRemoteSourceView(document))
-        sources.push(toRemoteSource(document))
+        documents.push(document)
       }
     }
 
-    return { sourceViews, sources }
+    return documents
+  })
+}
+
+export function localizeRemoteLibrarySources(
+  input: RemoteLibraryLocalizationInput,
+): Effect.Effect<readonly Source[], never> {
+  return Effect.gen(function* () {
+    const remoteDocuments = yield* listRemoteLibraryDocuments(input)
+    if (remoteDocuments.length === 0) return input.localSources
+
+    const localizedSources = yield* Effect.all(
+      remoteDocuments.map((document) =>
+        Effect.tryPromise(() => input.localizeDocument(document)).pipe(
+          Effect.catchAll(() => Effect.succeed(null)),
+        ),
+      ),
+      { concurrency: 4 },
+    )
+
+    return mergeLocalizedSources({
+      localSources: input.localSources,
+      localizedSources: localizedSources.filter(
+        (source): source is Source => source !== null,
+      ),
+    })
   })
 }
 
@@ -122,6 +138,8 @@ function normalizeRemoteDocument(
     raw.sourceFileName ?? raw.source_file_name,
   )
   const status = getString(raw.status) ?? "ready"
+  if (status === "archived") return null
+
   const documentMetadata = getRecord(
     raw.documentMetadata ?? raw.document_metadata,
   )
@@ -129,72 +147,22 @@ function normalizeRemoteDocument(
   return {
     documentId,
     namespace,
-    status,
+    status: getRemoteSourceStatus(status),
+    title: getRemoteDocumentTitle({
+      documentId,
+      sourceFileName,
+      documentMetadata,
+    }),
+    mimeType: getRemoteDocumentMimeType({ documentMetadata }),
+    sizeBytes: getRemoteDocumentSizeBytes({ documentMetadata }),
     sourceFileName,
     documentMetadata,
   }
 }
 
-function toRemoteSourceView(document: RemoteDocument): SourceView {
-  return {
-    id: createRemoteSourceId({
-      namespace: document.namespace,
-      documentId: document.documentId,
-    }),
-    kind: "workspace",
-    namespace: document.namespace,
-    title: getRemoteDocumentTitle(document),
-    mimeType: getRemoteDocumentMimeType(document),
-    status: getRemoteSourceStatus(document),
-    documentId: document.documentId,
-  }
-}
-
-export function createRemoteSource(input: {
-  readonly documentId: string
-  readonly namespace: string
-  readonly title?: string | null
-  readonly mimeType?: string | null
-}): RemoteLibrarySource {
-  return toRemoteSource({
-    documentId: input.documentId,
-    namespace: input.namespace,
-    status: "active",
-    sourceFileName: input.title,
-    documentMetadata: input.mimeType ? { mimeType: input.mimeType } : {},
-  })
-}
-
-export function toRemoteSource(document: RemoteDocument): RemoteLibrarySource {
-  const now = new Date(0)
-  return {
-    id: createRemoteSourceId({
-      namespace: document.namespace,
-      documentId: document.documentId,
-    }),
-    workspaceId: "remote",
-    title: getRemoteDocumentTitle(document),
-    mimeType: getRemoteDocumentMimeType(document),
-    sizeBytes: getRemoteDocumentSizeBytes(document),
-    status: getRemoteSourceStatus(document),
-    failureReason: null,
-    knowhereJobId: null,
-    knowhereDocumentId: document.documentId,
-    stagedBlobPathname: null,
-    stagedBlobUrl: null,
-    originalBlobPathname: null,
-    originalBlobUrl: null,
-    demoKey: null,
-    createdAt: now,
-    updatedAt: now,
-    deletedAt: null,
-    namespace: document.namespace,
-  } as RemoteLibrarySource
-}
-
-function getRemoteSourceStatus(document: RemoteDocument): SourceView["status"] {
-  if (isActiveDocumentStatus(document.status)) return "ready"
-  if (document.status === "failed") return "failed"
+function getRemoteSourceStatus(status: string): SourceStatus {
+  if (isActiveDocumentStatus(status)) return "ready"
+  if (status === "failed") return "failed"
   return "parsing"
 }
 
@@ -202,7 +170,10 @@ function isActiveDocumentStatus(status: string): boolean {
   return status === "active" || status === "ready" || status === "done"
 }
 
-function getRemoteDocumentTitle(document: RemoteDocument): string {
+function getRemoteDocumentTitle(document: Pick<
+  RemoteDocument,
+  "documentId" | "documentMetadata" | "sourceFileName"
+>): string {
   return (
     getString(document.documentMetadata?.["source_file_name"]) ??
     getString(document.documentMetadata?.["title"]) ??
@@ -211,7 +182,10 @@ function getRemoteDocumentTitle(document: RemoteDocument): string {
   )
 }
 
-function getRemoteDocumentMimeType(document: RemoteDocument): string {
+function getRemoteDocumentMimeType(document: Pick<
+  RemoteDocument,
+  "documentMetadata"
+>): string {
   return (
     getString(document.documentMetadata?.["mime_type"]) ??
     getString(document.documentMetadata?.["mimeType"]) ??
@@ -219,11 +193,49 @@ function getRemoteDocumentMimeType(document: RemoteDocument): string {
   )
 }
 
-function getRemoteDocumentSizeBytes(document: RemoteDocument): number {
+function getRemoteDocumentSizeBytes(document: Pick<
+  RemoteDocument,
+  "documentMetadata"
+>): number {
   const value =
     getNumber(document.documentMetadata?.["size_bytes"]) ??
     getNumber(document.documentMetadata?.["sizeBytes"])
   return value ?? 0
+}
+
+function mergeLocalizedSources(input: {
+  readonly localSources: readonly Source[]
+  readonly localizedSources: readonly Source[]
+}): readonly Source[] {
+  const localizedSourceByDocumentId = new Map(
+    input.localizedSources.flatMap((source): readonly [string, Source][] => {
+      const documentId = source.knowhereDocumentId
+      return documentId ? [[documentId, source]] : []
+    }),
+  )
+  const mergedDocumentIds = new Set<string>()
+  const mergedSources: Source[] = []
+
+  for (const source of input.localSources) {
+    const documentId = source.knowhereDocumentId
+    if (documentId) {
+      const localizedSource = localizedSourceByDocumentId.get(documentId)
+      mergedSources.push(localizedSource ?? source)
+      mergedDocumentIds.add(documentId)
+      continue
+    }
+
+    mergedSources.push(source)
+  }
+
+  for (const source of input.localizedSources) {
+    const documentId = source.knowhereDocumentId
+    if (documentId && mergedDocumentIds.has(documentId)) continue
+    if (documentId) mergedDocumentIds.add(documentId)
+    mergedSources.push(source)
+  }
+
+  return mergedSources
 }
 
 function getString(value: unknown): string | undefined {

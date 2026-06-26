@@ -13,7 +13,7 @@ import {
 import { chatThreadService } from "@/domains/chat/thread-service"
 import { toChatMessageView, toChatThreadView } from "@/domains/chat/view"
 import { sourceViewOptionsBySourceId as getSourceViewOptionsBySourceId } from "@/domains/sources/counts"
-import { listRemoteLibrarySourceViews } from "@/domains/sources/remote-library"
+import { localizeRemoteLibrarySources } from "@/domains/sources/remote-library"
 import { sourceService } from "@/domains/sources/service"
 import { startBackgroundReconciliation } from "@/domains/sources/background-reconcile"
 import { sourceWorkflowRuntime } from "@/domains/sources/workflow-runtime"
@@ -136,6 +136,10 @@ type WorkspaceShellInitialStateDependencies = {
   readonly listSourcesForWorkspace: (
     workspaceId: string,
   ) => Promise<readonly Source[]>
+  readonly localizeRemoteDocument: (
+    workspaceId: string,
+    input: Parameters<typeof sourceService.localizeRemoteDocument>[1],
+  ) => Promise<Source>
   readonly sourceViewOptionsBySourceId: (
     sources: readonly Source[],
     client: WorkspaceShellInitialStateClient,
@@ -152,6 +156,7 @@ const defaultDependencies: WorkspaceShellInitialStateDependencies = {
   listHiddenDemoSourceIds: sourceService.listHiddenDemoSourceIds,
   listMessages: chatThreadService.listMessages,
   listSourcesForWorkspace: sourceWorkflowRuntime.listForWorkspace,
+  localizeRemoteDocument: sourceService.localizeRemoteDocument,
   sourceViewOptionsBySourceId: getSourceViewOptionsBySourceId,
 }
 
@@ -293,15 +298,6 @@ export const loadWorkspaceShellInitialStateEffect = (
     const chatMessages = activeChatMessages
       ? activeChatMessages.map((message) => toChatMessageView(message))
       : []
-    const sourcesNeedingKnowhereChunkCount =
-      getWorkspaceSourcesNeedingKnowhereChunkCount(
-        demoSourceResolution.workspaceSources,
-      )
-    const materializedDemoSourceOptions =
-      getMaterializedDemoSourceViewOptionsBySourceId(
-        demoSourceResolution.workspaceSources,
-        demoCatalog,
-      )
     const { client, apiKey } = yield* effectOperation.tryPromise(
       {
         context: workspaceInitialStateContext,
@@ -309,17 +305,26 @@ export const loadWorkspaceShellInitialStateEffect = (
       },
       () => deps.getClientForWorkspace(workspace),
     )
-    const remoteLibrary = yield* effectOperation.addContext(
+    const workspaceSources = yield* effectOperation.addContext(
       {
         context: workspaceInitialStateContext,
-        operation: "listRemoteLibrarySourceViews",
+        operation: "localizeRemoteLibrarySources",
       },
-      listRemoteLibrarySourceViews({
+      localizeRemoteLibrarySources({
         workspace,
         client,
         localSources: demoSourceResolution.workspaceSources,
+        localizeDocument: (document) =>
+          deps.localizeRemoteDocument(workspace.id, document),
       }),
     )
+    const sourcesNeedingKnowhereChunkCount =
+      getWorkspaceSourcesNeedingKnowhereChunkCount(workspaceSources)
+    const materializedDemoSourceOptions =
+      getMaterializedDemoSourceViewOptionsBySourceId(
+        workspaceSources,
+        demoCatalog,
+      )
     for (const source of sources) {
       if (source.status === "parsing" && source.knowhereJobId) {
         yield* Effect.fork(
@@ -357,14 +362,13 @@ export const loadWorkspaceShellInitialStateEffect = (
       dashboardUrl: resolveDashboardUrl(),
       sources: [
         ...demoSources,
-        ...demoSourceResolution.workspaceSources.map((source) =>
+        ...workspaceSources.map((source) =>
           toSourceView(
             source,
             materializedDemoSourceOptions.get(source.id) ??
               sourceOptions.get(source.id),
           ),
         ),
-        ...remoteLibrary.sourceViews,
       ],
       officialLibrarySources: toOfficialLibrarySourceViews(demoCatalog),
       chatThreads: chatThreads.map(toChatThreadView),

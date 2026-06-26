@@ -116,6 +116,9 @@ export const sources = pgTable(
       .where(sql`deleted_at IS NULL`),
     index("sources_workspace_status_idx").on(t.workspaceId, t.status),
     uniqueIndex("sources_workspace_demo_key_idx").on(t.workspaceId, t.demoKey),
+    uniqueIndex("sources_workspace_document_idx")
+      .on(t.workspaceId, t.knowhereDocumentId)
+      .where(sql`knowhere_document_id IS NOT NULL AND deleted_at IS NULL`),
   ],
 );
 
