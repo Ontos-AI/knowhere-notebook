@@ -60,10 +60,7 @@ export const uploadSourceToKnowhereEffect = (
         yield* Effect.tryPromise(() =>
           deps.knowhere.jobs.upload(job, { file: path }),
         )
-        const documentId = yield* tryGetPlannedDocumentIdEffect(
-          job.jobId,
-          deps,
-        )
+        const documentId = yield* tryGetPlannedDocumentIdEffect(job, deps)
 
         return yield* markSourceParsingEffect({
           workspace,
@@ -126,7 +123,7 @@ export const uploadSourceBlobToKnowhereEffect = (
           }),
         }),
       )
-      const documentId = yield* tryGetPlannedDocumentIdEffect(job.jobId, deps)
+      const documentId = yield* tryGetPlannedDocumentIdEffect(job, deps)
 
       return yield* markSourceParsingEffect({
         workspace,
@@ -171,13 +168,21 @@ export async function uploadSourceBlobToKnowhere(
 }
 
 const tryGetPlannedDocumentIdEffect = (
-  jobId: string,
+  job: UploadJobResult,
   deps: UploadSourceDependencies,
-) =>
-  Effect.gen(function* () {
-    const job = yield* Effect.tryPromise(() => deps.knowhere.jobs.get(jobId))
-    return getDocumentId(job)
+) => {
+  const plannedDocumentId = getDocumentId(job)
+  if (plannedDocumentId !== null) {
+    return Effect.succeed(plannedDocumentId)
+  }
+
+  return Effect.gen(function* () {
+    const currentJob = yield* Effect.tryPromise(() =>
+      deps.knowhere.jobs.get(job.jobId),
+    )
+    return getDocumentId(currentJob)
   }).pipe(Effect.catchAll(() => Effect.succeed(null)))
+}
 
 const markSourceParsingEffect = (input: {
   readonly workspace: Workspace

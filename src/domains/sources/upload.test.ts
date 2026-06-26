@@ -220,6 +220,49 @@ describe("uploadSourceToKnowhere", () => {
     });
   });
 
+  it("uses the planned document id from the SDK job creation response", async () => {
+    const uploadingSource = makeSource();
+    const parsingSource = makeSource({
+      status: "parsing",
+      knowhereJobId: "job_123",
+      knowhereDocumentId: "doc_planned",
+    });
+    const deps = {
+      repository: {
+        createUploadingSource: vi.fn().mockResolvedValue(uploadingSource),
+        markSourceParsing: vi.fn().mockResolvedValue(parsingSource),
+        markSourceFailed: vi.fn(),
+      },
+      knowhere: {
+        jobs: {
+          create: vi.fn().mockResolvedValue({
+            jobId: "job_123",
+            status: "waiting-file",
+            sourceType: "file",
+            documentId: "doc_planned",
+            createdAt: new Date("2026-05-06T00:00:00Z"),
+          }),
+          get: vi.fn(),
+          upload: vi.fn().mockResolvedValue(undefined),
+        },
+      },
+    };
+
+    await uploadSourceToKnowhere(
+      workspace,
+      new File(["hello"], "notes.pdf", { type: "application/pdf" }),
+      deps,
+    );
+
+    expect(deps.knowhere.jobs.get).not.toHaveBeenCalled();
+    expect(deps.repository.markSourceParsing).toHaveBeenCalledWith(
+      workspace.id,
+      uploadingSource.id,
+      "job_123",
+      "doc_planned",
+    );
+  });
+
   it("creates a URL parse job from a client-uploaded public Blob", async () => {
     const uploadingSource = makeSource({ title: "large.pdf", sizeBytes: 5 });
     const parsingSource = makeSource({
