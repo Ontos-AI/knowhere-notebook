@@ -8,9 +8,9 @@ type RemoteDocument = {
   readonly documentId: string
   readonly namespace: string
   readonly status: SourceStatus
-  readonly title: string
-  readonly mimeType: string
-  readonly sizeBytes: number
+  readonly title?: string
+  readonly mimeType?: string
+  readonly sizeBytes?: number
   readonly sourceFileName?: string | null
   readonly documentMetadata?: Record<string, unknown>
 }
@@ -144,17 +144,21 @@ function normalizeRemoteDocument(
     raw.documentMetadata ?? raw.document_metadata,
   )
 
+  const title = getRemoteDocumentTitle({
+    documentId,
+    sourceFileName,
+    documentMetadata,
+  })
+  const mimeType = getRemoteDocumentMimeType({ documentMetadata })
+  const sizeBytes = getRemoteDocumentSizeBytes({ documentMetadata })
+
   return {
     documentId,
     namespace,
     status: getRemoteSourceStatus(status),
-    title: getRemoteDocumentTitle({
-      documentId,
-      sourceFileName,
-      documentMetadata,
-    }),
-    mimeType: getRemoteDocumentMimeType({ documentMetadata }),
-    sizeBytes: getRemoteDocumentSizeBytes({ documentMetadata }),
+    ...(title ? { title } : {}),
+    ...(mimeType ? { mimeType } : {}),
+    ...(sizeBytes !== undefined ? { sizeBytes } : {}),
     sourceFileName,
     documentMetadata,
   }
@@ -173,34 +177,33 @@ function isActiveDocumentStatus(status: string): boolean {
 function getRemoteDocumentTitle(document: Pick<
   RemoteDocument,
   "documentId" | "documentMetadata" | "sourceFileName"
->): string {
+>): string | undefined {
   return (
     getString(document.documentMetadata?.["source_file_name"]) ??
     getString(document.documentMetadata?.["title"]) ??
     document.sourceFileName ??
-    document.documentId
+    undefined
   )
 }
 
 function getRemoteDocumentMimeType(document: Pick<
   RemoteDocument,
   "documentMetadata"
->): string {
+>): string | undefined {
   return (
     getString(document.documentMetadata?.["mime_type"]) ??
-    getString(document.documentMetadata?.["mimeType"]) ??
-    "application/octet-stream"
+    getString(document.documentMetadata?.["mimeType"])
   )
 }
 
 function getRemoteDocumentSizeBytes(document: Pick<
   RemoteDocument,
   "documentMetadata"
->): number {
+>): number | undefined {
   const value =
     getNumber(document.documentMetadata?.["size_bytes"]) ??
     getNumber(document.documentMetadata?.["sizeBytes"])
-  return value ?? 0
+  return value
 }
 
 function mergeLocalizedSources(input: {

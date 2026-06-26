@@ -36,6 +36,9 @@ type RouteListingDependencies = Pick<
     SourceRouteServiceDependencies["sourceService"],
     "listHiddenDemoSourceIds" | "localizeRemoteDocument"
   >
+  readonly reconcileSourcesForWorkspace: SourceRouteServiceDependencies[
+    "reconcileSourcesForWorkspace"
+  ]
 }
 
 type RouteListing = {
@@ -74,14 +77,20 @@ const listSourcesEffect = (
     const workspace = yield* Effect.tryPromise(() =>
       deps.ensureWorkspace(user.id),
     )
-    const sources = yield* Effect.tryPromise(() =>
+    const listedSources = yield* Effect.tryPromise(() =>
       deps.listSourcesForWorkspace(workspace.id),
     )
-    const demoSourceResolution = resolveWorkspaceDemoSources(sources, catalog)
     const apiKey = yield* Effect.tryPromise(() =>
       deps.ensureApiKeyForWorkspace(workspace.id, input.cookieHeader),
     )
     const client = deps.makeKnowhereClient(apiKey)
+    const sources = yield* Effect.tryPromise(() => {
+      if (!hasParsingSources(listedSources)) {
+        return Promise.resolve(listedSources)
+      }
+      return deps.reconcileSourcesForWorkspace(workspace, client)
+    })
+    const demoSourceResolution = resolveWorkspaceDemoSources(sources, catalog)
     const workspaceSources = yield* localizeRemoteLibrarySources({
       workspace,
       client,
@@ -144,3 +153,14 @@ const listSourcesEffect = (
   })
 
 export { createRouteListing }
+
+function hasParsingSources(
+  sources: readonly {
+    readonly status: string
+    readonly knowhereJobId: string | null
+  }[],
+): boolean {
+  return sources.some(
+    (source) => source.status === "parsing" && source.knowhereJobId,
+  )
+}

@@ -178,6 +178,12 @@ export const answerQuestionWithRetrieval = (
       }
 
       if (queryResponses.length === 0) throw queryFailures[0]
+      if (
+        queryFailures.length > 0 &&
+        !queryResponses.some(hasRetrievalEvidence)
+      ) {
+        throw queryFailures[0]
+      }
       return mergeRetrievalResponses(queryResponses, retrievalPlan)
     }
 
@@ -609,11 +615,12 @@ function mergeRetrievalResponses(
   responses: readonly RetrievalQueryResponse[],
   retrievalPlan: AgenticRetrievalPlan,
 ): AgenticRetrievalResponse {
-  const [first, ...rest] = responses
+  const [first] = responses
   if (!first) {
     throw new Error("No retrieval responses to merge.")
   }
 
+  const statusResponses = getRetrievalStatusResponses(responses)
   const results = responses.flatMap((response) => response.results)
   const referencedChunks = responses.flatMap(
     (response) => response.referencedChunks,
@@ -628,16 +635,51 @@ function mergeRetrievalResponses(
   return {
     ...first,
     namespace: responses.map((response) => response.namespace).join(","),
-    routerUsed: [first, ...rest]
-      .map((response) => response.routerUsed)
-      .filter(Boolean)
-      .join(","),
+    routerUsed: joinResponseText(responses.map((response) => response.routerUsed)) ?? "",
     answerText: answerTexts.length > 0 ? answerTexts.join("\n\n") : null,
     evidenceText: evidenceTexts.length > 0 ? evidenceTexts.join("\n\n") : null,
+    stopReason: joinResponseText(
+      statusResponses.map((response) => response.stopReason),
+    ),
+    failureReason: joinResponseText(
+      statusResponses.map((response) => response.failureReason),
+    ),
+    decisionTrace: statusResponses.flatMap(
+      (response) => response.decisionTrace ?? [],
+    ),
     results,
     referencedChunks,
     retrievalPlan,
   }
+}
+
+function getRetrievalStatusResponses(
+  responses: readonly RetrievalQueryResponse[],
+): readonly RetrievalQueryResponse[] {
+  const responsesWithEvidence = responses.filter(hasRetrievalEvidence)
+  return responsesWithEvidence.length > 0 ? responsesWithEvidence : responses
+}
+
+function hasRetrievalEvidence(response: RetrievalQueryResponse): boolean {
+  return (
+    response.results.length > 0 ||
+    response.referencedChunks.length > 0 ||
+    Boolean(response.evidenceText?.trim()) ||
+    Boolean(response.answerText?.trim())
+  )
+}
+
+function joinResponseText(
+  values: readonly (string | null | undefined)[],
+): string | null {
+  const uniqueValues: string[] = []
+  for (const value of values) {
+    const normalized = value?.trim()
+    if (!normalized || uniqueValues.includes(normalized)) continue
+    uniqueValues.push(normalized)
+  }
+
+  return uniqueValues.length > 0 ? uniqueValues.join(",") : null
 }
 
 function buildRetrievalQueryParams(input: {

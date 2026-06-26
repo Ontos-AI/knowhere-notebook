@@ -53,6 +53,7 @@ describe("source route service", () => {
       },
       jobs: {
         create: vi.fn(),
+        get: vi.fn(),
         upload: vi.fn(),
       },
     };
@@ -61,6 +62,7 @@ describe("source route service", () => {
       Effect.succeed(new Map([[source.id, { chunkCount: 8 }]])),
     );
     const listSourcesForWorkspace = vi.fn(async () => [source]);
+    const reconcileSourcesForWorkspace = vi.fn(async () => [source]);
     const listHiddenDemoSourceIds = vi.fn(async () => []);
     const listing = createRouteListing({
       demoApi: {
@@ -76,6 +78,7 @@ describe("source route service", () => {
       getSourceViewOptionsBySourceId,
       makeKnowhereClient: vi.fn(() => knowhereClient),
       listSourcesForWorkspace,
+      reconcileSourcesForWorkspace,
       sourceService: {
         listHiddenDemoSourceIds,
         localizeRemoteDocument: localizeNoRemoteDocuments,
@@ -105,6 +108,10 @@ describe("source route service", () => {
       "session=abc",
     );
     expect(listSourcesForWorkspace).toHaveBeenCalledWith(workspace.id);
+    expect(reconcileSourcesForWorkspace).toHaveBeenCalledWith(
+      workspace,
+      knowhereClient,
+    );
     expect(listHiddenDemoSourceIds).toHaveBeenCalledWith(workspace.id);
   });
 
@@ -163,6 +170,7 @@ describe("source route service", () => {
       },
       jobs: {
         create: vi.fn(),
+        get: vi.fn(),
         upload: vi.fn(),
       },
     };
@@ -211,6 +219,7 @@ describe("source route service", () => {
       getSourceViewOptionsBySourceId: vi.fn(() => Effect.succeed(new Map())),
       makeKnowhereClient: vi.fn(() => knowhereClient),
       listSourcesForWorkspace: vi.fn(async () => [localReadySource]),
+      reconcileSourcesForWorkspace: vi.fn(async () => [localReadySource]),
       sourceService: {
         listHiddenDemoSourceIds: vi.fn(async () => []),
         localizeRemoteDocument,
@@ -234,7 +243,6 @@ describe("source route service", () => {
         status: "ready",
         title: "cli.pdf",
         mimeType: "application/pdf",
-        sizeBytes: 0,
         sourceFileName: "cli.pdf",
         documentMetadata: {
           mimeType: "application/pdf",
@@ -249,8 +257,6 @@ describe("source route service", () => {
         namespace: "default",
         status: "ready",
         title: "local-duplicate.pdf",
-        mimeType: "application/octet-stream",
-        sizeBytes: 0,
         sourceFileName: "local-duplicate.pdf",
         documentMetadata: {},
       },
@@ -263,8 +269,6 @@ describe("source route service", () => {
         namespace: workspace.namespace,
         status: "ready",
         title: "legacy.pdf",
-        mimeType: "application/octet-stream",
-        sizeBytes: 0,
         sourceFileName: "legacy.pdf",
         documentMetadata: {},
       },
@@ -295,6 +299,93 @@ describe("source route service", () => {
     ]);
   });
 
+  it("reconciles parsing sources before localizing matching Knowhere documents", async () => {
+    const reconciledSource: Source = {
+      ...source,
+      id: "source_1",
+      title: "uploaded.pdf",
+      status: "ready",
+      knowhereJobId: null,
+      knowhereDocumentId: "doc_uploaded",
+    };
+    const listDocuments = vi
+      .fn()
+      .mockResolvedValueOnce({
+        documents: [
+          {
+            documentId: "doc_uploaded",
+            namespace: "default",
+            status: "active",
+            sourceFileName: "uploaded.pdf",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ documents: [] });
+    const knowhereClient = {
+      documents: {
+        archive: vi.fn(async () => undefined),
+        list: listDocuments,
+        listChunks: vi.fn(async () => ({
+          chunks: [],
+          pagination: {
+            page: 1,
+            pageSize: 1,
+            total: 0,
+            totalPages: 0,
+          },
+        })),
+      },
+      jobs: {
+        create: vi.fn(),
+        get: vi.fn(),
+        upload: vi.fn(),
+      },
+    };
+    const reconcileSourcesForWorkspace = vi.fn(async () => [reconciledSource]);
+    const localizeRemoteDocument = vi.fn(async () => reconciledSource);
+    const listing = createRouteListing({
+      demoApi: {
+        fetchCatalog: vi.fn(async () => emptyDemoCatalog),
+      },
+      ensureApiKeyForWorkspace: vi.fn(async () => "jwt_123"),
+      ensureWorkspace: vi.fn(async () => workspace),
+      getCurrentUser: vi.fn(async () => ({
+        id: "user_1",
+        email: null,
+        name: null,
+      })),
+      getSourceViewOptionsBySourceId: vi.fn(() => Effect.succeed(new Map())),
+      makeKnowhereClient: vi.fn(() => knowhereClient),
+      listSourcesForWorkspace: vi.fn(async () => [source]),
+      reconcileSourcesForWorkspace,
+      sourceService: {
+        listHiddenDemoSourceIds: vi.fn(async () => []),
+        localizeRemoteDocument,
+      },
+    });
+
+    const result = await listing.listSources({ cookieHeader: "session=abc" });
+
+    expect(reconcileSourcesForWorkspace).toHaveBeenCalledWith(
+      workspace,
+      knowhereClient,
+    );
+    expect(localizeRemoteDocument).toHaveBeenCalledWith(
+      workspace.id,
+      expect.objectContaining({
+        documentId: "doc_uploaded",
+      }),
+    );
+    expect(result.body.sources).toEqual([
+      expect.objectContaining({
+        id: "source_1",
+        documentId: "doc_uploaded",
+        title: "uploaded.pdf",
+        status: "ready",
+      }),
+    ]);
+  });
+
   it("lists authenticated workspace sources when the demo catalog is unavailable", async () => {
     const legacyFakeSource: Source = {
       ...source,
@@ -319,6 +410,7 @@ describe("source route service", () => {
       },
       jobs: {
         create: vi.fn(),
+        get: vi.fn(),
         upload: vi.fn(),
       },
     };
@@ -341,6 +433,10 @@ describe("source route service", () => {
       getSourceViewOptionsBySourceId,
       makeKnowhereClient: vi.fn(() => knowhereClient),
       listSourcesForWorkspace: vi.fn(async () => [legacyFakeSource, source]),
+      reconcileSourcesForWorkspace: vi.fn(async () => [
+        legacyFakeSource,
+        source,
+      ]),
       sourceService: {
         listHiddenDemoSourceIds: vi.fn(async () => []),
         localizeRemoteDocument: localizeNoRemoteDocuments,
@@ -395,6 +491,7 @@ describe("source route service", () => {
       },
       jobs: {
         create: vi.fn(),
+        get: vi.fn(),
         upload: vi.fn(),
       },
     };
@@ -413,6 +510,7 @@ describe("source route service", () => {
       getSourceViewOptionsBySourceId,
       makeKnowhereClient: vi.fn(() => knowhereClient),
       listSourcesForWorkspace: vi.fn(async () => [legacyFakeSource]),
+      reconcileSourcesForWorkspace: vi.fn(async () => [legacyFakeSource]),
       sourceService: {
         listHiddenDemoSourceIds: vi.fn(async () => []),
         localizeRemoteDocument: localizeNoRemoteDocuments,
@@ -475,6 +573,7 @@ describe("source route service", () => {
       },
       jobs: {
         create: vi.fn(),
+        get: vi.fn(),
         upload: vi.fn(),
       },
     };
@@ -493,6 +592,7 @@ describe("source route service", () => {
       getSourceViewOptionsBySourceId,
       makeKnowhereClient: vi.fn(() => knowhereClient),
       listSourcesForWorkspace: vi.fn(async () => [nonReadyLegacySource]),
+      reconcileSourcesForWorkspace: vi.fn(async () => [nonReadyLegacySource]),
       sourceService: {
         listHiddenDemoSourceIds: vi.fn(async () => []),
         localizeRemoteDocument: localizeNoRemoteDocuments,
@@ -545,6 +645,7 @@ describe("source route service", () => {
       },
       jobs: {
         create: vi.fn(),
+        get: vi.fn(),
         upload: vi.fn(),
       },
     };
@@ -563,6 +664,7 @@ describe("source route service", () => {
       getSourceViewOptionsBySourceId,
       makeKnowhereClient: vi.fn(() => knowhereClient),
       listSourcesForWorkspace: vi.fn(async () => [materializedSource]),
+      reconcileSourcesForWorkspace: vi.fn(async () => [materializedSource]),
       sourceService: {
         listHiddenDemoSourceIds: vi.fn(async () => []),
         localizeRemoteDocument: localizeNoRemoteDocuments,
@@ -641,6 +743,7 @@ describe("source route service", () => {
     const knowhereClient = {
       jobs: {
         create: vi.fn(async () => knowhereJob),
+        get: vi.fn(),
         upload: vi.fn(async () => undefined),
       },
       documents: {

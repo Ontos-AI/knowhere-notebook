@@ -7,7 +7,10 @@ import {
   type SourceBlobUploadInput,
   validateSourceBlobUploadInput,
 } from "./blob-upload"
-import type { UploadSourceDependencies } from "./source-upload-contracts"
+import type {
+  UploadJobResult,
+  UploadSourceDependencies,
+} from "./source-upload-contracts"
 import { validateUploadFile } from "./validation"
 import { TempFile, tempFileLayer } from "@/lib/temp-files"
 import { getUploadNamespace } from "./namespace"
@@ -57,15 +60,18 @@ export const uploadSourceToKnowhereEffect = (
         yield* Effect.tryPromise(() =>
           deps.knowhere.jobs.upload(job, { file: path }),
         )
-
-        return yield* Effect.promise(() =>
-          deps.repository.markSourceParsing(
-            workspace.id,
-            source.id,
-            job.jobId,
-            job.documentId,
-          ),
+        const documentId = yield* tryGetPlannedDocumentIdEffect(
+          job.jobId,
+          deps,
         )
+
+        return yield* markSourceParsingEffect({
+          workspace,
+          source,
+          jobId: job.jobId,
+          documentId,
+          deps,
+        })
       }),
     ).pipe(
       Effect.provide(tempFileLayer),
@@ -120,15 +126,15 @@ export const uploadSourceBlobToKnowhereEffect = (
           }),
         }),
       )
+      const documentId = yield* tryGetPlannedDocumentIdEffect(job.jobId, deps)
 
-      return yield* Effect.promise(() =>
-        deps.repository.markSourceParsing(
-          workspace.id,
-          source.id,
-          job.jobId,
-          job.documentId,
-        ),
-      )
+      return yield* markSourceParsingEffect({
+        workspace,
+        source,
+        jobId: job.jobId,
+        documentId,
+        deps,
+      })
     }).pipe(
       Effect.catchAll(() =>
         Effect.gen(function* () {
@@ -164,6 +170,37 @@ export async function uploadSourceBlobToKnowhere(
   )
 }
 
+const tryGetPlannedDocumentIdEffect = (
+  jobId: string,
+  deps: UploadSourceDependencies,
+) =>
+  Effect.gen(function* () {
+    const job = yield* Effect.tryPromise(() => deps.knowhere.jobs.get(jobId))
+    return getDocumentId(job)
+  }).pipe(Effect.catchAll(() => Effect.succeed(null)))
+
+const markSourceParsingEffect = (input: {
+  readonly workspace: Workspace
+  readonly source: Source
+  readonly jobId: string
+  readonly documentId: string | null
+  readonly deps: UploadSourceDependencies
+}) =>
+  Effect.promise(() =>
+    input.documentId
+      ? input.deps.repository.markSourceParsing(
+          input.workspace.id,
+          input.source.id,
+          input.jobId,
+          input.documentId,
+        )
+      : input.deps.repository.markSourceParsing(
+          input.workspace.id,
+          input.source.id,
+          input.jobId,
+        ),
+  )
+
 function createNotebookDocumentMetadata(input: {
   readonly title: string
   readonly mimeType: string
@@ -176,4 +213,10 @@ function createNotebookDocumentMetadata(input: {
     mimeType: input.mimeType,
     sizeBytes: input.sizeBytes,
   }
+}
+
+function getDocumentId(job: UploadJobResult): string | null {
+  return typeof job.documentId === "string" && job.documentId.length > 0
+    ? job.documentId
+    : null
 }

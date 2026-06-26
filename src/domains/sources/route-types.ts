@@ -151,9 +151,9 @@ type SourceWorkflowService = {
     workspaceId: string,
     input: {
       readonly documentId: string
-      readonly title: string
-      readonly mimeType: string
-      readonly sizeBytes: number
+      readonly title?: string
+      readonly mimeType?: string
+      readonly sizeBytes?: number
       readonly status: SourceStatus
     },
   ) => Promise<Source>

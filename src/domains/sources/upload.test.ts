@@ -48,6 +48,7 @@ describe("uploadSourceToKnowhere", () => {
       knowhere: {
         jobs: {
           create: vi.fn(),
+          get: vi.fn(),
           upload: vi.fn(),
         },
       },
@@ -82,10 +83,12 @@ describe("uploadSourceToKnowhere", () => {
         jobs: {
           create: vi.fn().mockResolvedValue({
             jobId: "job_123",
-            documentId: "doc_123",
             status: "waiting-file",
             sourceType: "file",
             createdAt: new Date("2026-05-06T00:00:00Z"),
+          }),
+          get: vi.fn().mockResolvedValue({
+            documentId: "doc_123",
           }),
           upload: vi.fn().mockResolvedValue(undefined),
         },
@@ -116,6 +119,7 @@ describe("uploadSourceToKnowhere", () => {
       },
     });
     expect(deps.knowhere.jobs.upload).toHaveBeenCalled();
+    expect(deps.knowhere.jobs.get).toHaveBeenCalledWith("job_123");
     expect(deps.repository.markSourceParsing).toHaveBeenCalledWith(
       workspace.id,
       uploadingSource.id,
@@ -149,6 +153,7 @@ describe("uploadSourceToKnowhere", () => {
             sourceType: "file",
             createdAt: new Date("2026-05-06T00:00:00Z"),
           }),
+          get: vi.fn(),
           upload: vi.fn().mockRejectedValue(new Error("network")),
         },
       },
@@ -167,6 +172,52 @@ describe("uploadSourceToKnowhere", () => {
       uploadingSource.id,
       "Knowhere upload failed.",
     );
+    expect(deps.knowhere.jobs.get).not.toHaveBeenCalled();
+  });
+
+  it("keeps a queued file upload parsing when Knowhere has not published a document id yet", async () => {
+    const uploadingSource = makeSource();
+    const parsingSource = makeSource({
+      status: "parsing",
+      knowhereJobId: "job_123",
+      knowhereDocumentId: null,
+    });
+    const deps = {
+      repository: {
+        createUploadingSource: vi.fn().mockResolvedValue(uploadingSource),
+        markSourceParsing: vi.fn().mockResolvedValue(parsingSource),
+        markSourceFailed: vi.fn(),
+      },
+      knowhere: {
+        jobs: {
+          create: vi.fn().mockResolvedValue({
+            jobId: "job_123",
+            status: "waiting-file",
+            sourceType: "file",
+            createdAt: new Date("2026-05-06T00:00:00Z"),
+          }),
+          get: vi.fn().mockResolvedValue({
+            status: "running",
+          }),
+          upload: vi.fn().mockResolvedValue(undefined),
+        },
+      },
+    };
+    const file = new File(["hello"], "notes.pdf", { type: "application/pdf" });
+
+    const result = await uploadSourceToKnowhere(workspace, file, deps);
+
+    expect(deps.repository.markSourceParsing).toHaveBeenCalledWith(
+      workspace.id,
+      uploadingSource.id,
+      "job_123",
+    );
+    expect(deps.repository.markSourceFailed).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      id: "source_1",
+      status: "parsing",
+      knowhereDocumentId: null,
+    });
   });
 
   it("creates a URL parse job from a client-uploaded public Blob", async () => {
@@ -188,10 +239,12 @@ describe("uploadSourceToKnowhere", () => {
         jobs: {
           create: vi.fn().mockResolvedValue({
             jobId: "job_123",
-            documentId: "doc_123",
             status: "pending",
             sourceType: "url",
             createdAt: new Date("2026-05-06T00:00:00Z"),
+          }),
+          get: vi.fn().mockResolvedValue({
+            documentId: "doc_123",
           }),
           upload: vi.fn().mockResolvedValue(undefined),
         },
@@ -234,6 +287,7 @@ describe("uploadSourceToKnowhere", () => {
       },
     });
     expect(deps.knowhere.jobs.upload).not.toHaveBeenCalled();
+    expect(deps.knowhere.jobs.get).toHaveBeenCalledWith("job_123");
     expect(deps.repository.markSourceParsing).toHaveBeenCalledWith(
       workspace.id,
       uploadingSource.id,
@@ -244,6 +298,62 @@ describe("uploadSourceToKnowhere", () => {
       id: "source_1",
       title: "large.pdf",
       status: "parsing",
+    });
+  });
+
+  it("keeps a URL parse job parsing when Knowhere has not published a document id yet", async () => {
+    const uploadingSource = makeSource({ title: "large.pdf", sizeBytes: 5 });
+    const parsingSource = makeSource({
+      title: "large.pdf",
+      status: "parsing",
+      knowhereJobId: "job_123",
+      knowhereDocumentId: null,
+      sizeBytes: 5,
+    });
+    const deps = {
+      repository: {
+        createUploadingSource: vi.fn().mockResolvedValue(uploadingSource),
+        markSourceParsing: vi.fn().mockResolvedValue(parsingSource),
+        markSourceFailed: vi.fn(),
+      },
+      knowhere: {
+        jobs: {
+          create: vi.fn().mockResolvedValue({
+            jobId: "job_123",
+            status: "pending",
+            sourceType: "url",
+            createdAt: new Date("2026-05-06T00:00:00Z"),
+          }),
+          get: vi.fn().mockResolvedValue({
+            status: "running",
+          }),
+          upload: vi.fn(),
+        },
+      },
+    };
+
+    const result = await uploadSourceBlobToKnowhere(
+      workspace,
+      {
+        pathname: "source-uploads/upload_1/document.pdf",
+        url: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
+        fileName: "large.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 5,
+      },
+      deps,
+    );
+
+    expect(deps.repository.markSourceParsing).toHaveBeenCalledWith(
+      workspace.id,
+      uploadingSource.id,
+      "job_123",
+    );
+    expect(deps.repository.markSourceFailed).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      id: "source_1",
+      status: "parsing",
+      knowhereDocumentId: null,
     });
   });
 
@@ -266,6 +376,7 @@ describe("uploadSourceToKnowhere", () => {
       knowhere: {
         jobs: {
           create: vi.fn().mockRejectedValue(new Error("network")),
+          get: vi.fn(),
           upload: vi.fn(),
         },
       },

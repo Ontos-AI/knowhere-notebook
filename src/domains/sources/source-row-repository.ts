@@ -37,9 +37,9 @@ type SourceUpdate = Partial<
 
 type LocalizeRemoteDocumentInput = {
   readonly documentId: string
-  readonly title: string
-  readonly mimeType: string
-  readonly sizeBytes: number
+  readonly title?: string
+  readonly mimeType?: string
+  readonly sizeBytes?: number
   readonly status: SourceStatus
 }
 
@@ -327,9 +327,9 @@ async function localizeRemoteDocumentWithDb(
   const hasActiveLocalParsingJob = sql`${sources.status} = 'parsing' AND ${sources.knowhereJobId} IS NOT NULL`
   const values = {
     workspaceId,
-    title: input.title,
-    mimeType: input.mimeType,
-    sizeBytes: input.sizeBytes,
+    title: input.title ?? input.documentId,
+    mimeType: input.mimeType ?? "application/octet-stream",
+    sizeBytes: input.sizeBytes ?? 0,
     status: input.status,
     failureReason:
       input.status === "failed" ? "Knowhere document failed." : null,
@@ -349,9 +349,18 @@ async function localizeRemoteDocumentWithDb(
       target: [sources.workspaceId, sources.knowhereDocumentId],
       targetWhere: sql`knowhere_document_id IS NOT NULL AND deleted_at IS NULL`,
       set: {
-        title: values.title,
-        mimeType: values.mimeType,
-        sizeBytes: values.sizeBytes,
+        title:
+          input.title === undefined
+            ? sql`${sources.title}`
+            : values.title,
+        mimeType:
+          input.mimeType === undefined
+            ? sql`${sources.mimeType}`
+            : values.mimeType,
+        sizeBytes:
+          input.sizeBytes === undefined
+            ? sql`${sources.sizeBytes}`
+            : values.sizeBytes,
         status: sql`CASE WHEN ${hasActiveLocalParsingJob} THEN ${sources.status} ELSE ${values.status} END`,
         failureReason: sql`CASE WHEN ${hasActiveLocalParsingJob} THEN ${sources.failureReason} ELSE ${values.failureReason} END`,
         knowhereJobId: sql`CASE WHEN ${hasActiveLocalParsingJob} THEN ${sources.knowhereJobId} ELSE ${values.knowhereJobId} END`,

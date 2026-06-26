@@ -45,7 +45,11 @@ describe("sourceRowRepository", () => {
   })
 
   it("preserves active parsing job state when localizing an existing document", async () => {
-    const conflictSet = await captureLocalizeConflictSet()
+    const conflictSet = await captureLocalizeConflictSet({
+      title: "remote.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 12,
+    })
 
     expect(getSqlText(conflictSet.status)).toContain("CASE WHEN")
     expect(getSqlText(conflictSet.status)).toContain("knowhere_job_id")
@@ -54,6 +58,14 @@ describe("sourceRowRepository", () => {
       "knowhere_job_id",
     )
     expect(getSqlText(conflictSet.failureReason)).toContain("CASE WHEN")
+  })
+
+  it("preserves local metadata when remote document metadata is missing", async () => {
+    const conflictSet = await captureLocalizeConflictSet({})
+
+    expect(getSqlText(conflictSet.title)).toBe("title")
+    expect(getSqlText(conflictSet.mimeType)).toBe("mime_type")
+    expect(getSqlText(conflictSet.sizeBytes)).toBe("size_bytes")
   })
 })
 
@@ -65,7 +77,11 @@ function makeThrowingDb(): Db {
   } as unknown as Db
 }
 
-async function captureLocalizeConflictSet(): Promise<Record<string, unknown>> {
+async function captureLocalizeConflictSet(input: {
+  readonly title?: string
+  readonly mimeType?: string
+  readonly sizeBytes?: number
+}): Promise<Record<string, unknown>> {
   let conflictSet: Record<string, unknown> | null = null
   const returningSource = {
     id: "source_1",
@@ -101,10 +117,8 @@ async function captureLocalizeConflictSet(): Promise<Record<string, unknown>> {
 
   await sourceRowRepository.localizeRemoteDocumentWithDb(db, "workspace_1", {
     documentId: "doc_1",
-    title: "remote.pdf",
-    mimeType: "application/pdf",
-    sizeBytes: 12,
     status: "ready",
+    ...input,
   })
 
   if (!conflictSet) {

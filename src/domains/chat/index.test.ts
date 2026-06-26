@@ -92,6 +92,137 @@ describe("answerQuestionWithRetrieval", () => {
     });
   });
 
+  it("does not carry no-evidence metadata from default into a successful legacy namespace result", async () => {
+    const legacyResult = makeRetrievalResult({
+      source: {
+        documentId: "doc_legacy",
+        sourceFileName: "legacy.pdf",
+        sectionPath: "Overview",
+      },
+    });
+    const retrieval = {
+      query: vi
+        .fn()
+        .mockResolvedValueOnce({
+          results: [],
+          evidenceText: null,
+          referencedChunks: [],
+          namespace: "default",
+          query: "legacy document answer",
+          routerUsed: "workflow_single_step",
+          answerText: null,
+          stopReason: "not_found",
+          failureReason: "No relevant evidence found.",
+        })
+        .mockResolvedValueOnce({
+          results: [legacyResult],
+          evidenceText: "Legacy namespace evidence",
+          referencedChunks: [],
+          namespace: "notebook-legacy",
+          query: "legacy document answer",
+          routerUsed: "workflow_single_step",
+          answerText: null,
+          stopReason: "answer_done",
+          failureReason: null,
+        }),
+    };
+    const generateAnswer = vi.fn(async ({ searchSources }) => {
+      const response = await searchSources({ query: "legacy document answer" });
+      expect(response).toMatchObject({
+        namespace: "default,notebook-legacy",
+        stopReason: "answer_done",
+        failureReason: null,
+        results: [legacyResult],
+        evidenceText: "Legacy namespace evidence",
+      });
+      return makeHarnessRunResult("The legacy answer is grounded.");
+    });
+
+    const answer = await Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "What does the legacy document say?",
+        namespace: "notebook-legacy",
+        namespaces: ["default", "notebook-legacy"],
+        sources: [
+          makeSource({
+            title: "legacy.pdf",
+            knowhereDocumentId: "doc_legacy",
+          }),
+        ],
+        excludedSourceIds: [],
+        retrieval,
+        generateAnswer,
+        messages: [],
+      }),
+    );
+
+    expect(retrieval.query).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ namespace: "default" }),
+    );
+    expect(retrieval.query).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ namespace: "notebook-legacy" }),
+    );
+    expect(answer).toEqual({
+      answer: "The legacy answer is grounded.",
+      citations: [legacyResult],
+      artifacts: [],
+    });
+  });
+
+  it("does not hide a failed namespace query behind an empty namespace result", async () => {
+    const retrievalError = new Error("Legacy namespace query failed.");
+    const retrieval = {
+      query: vi
+        .fn()
+        .mockResolvedValueOnce({
+          results: [],
+          evidenceText: null,
+          referencedChunks: [],
+          namespace: "default",
+          query: "legacy document answer",
+          routerUsed: "workflow_single_step",
+          answerText: null,
+          stopReason: "not_found",
+          failureReason: "No relevant evidence found.",
+        })
+        .mockRejectedValueOnce(retrievalError),
+    };
+    const generateAnswer = vi.fn(async ({ searchSources }) => {
+      await searchSources({ query: "legacy document answer" });
+      return makeHarnessRunResult("This should not be used.");
+    });
+
+    await expect(
+      Effect.runPromise(
+        answerQuestionWithRetrieval({
+          question: "What does the legacy document say?",
+          namespace: "notebook-legacy",
+          namespaces: ["default", "notebook-legacy"],
+          sources: [
+            makeSource({
+              title: "legacy.pdf",
+              knowhereDocumentId: "doc_legacy",
+            }),
+          ],
+          excludedSourceIds: [],
+          retrieval,
+          generateAnswer,
+          messages: [],
+        }),
+      ),
+    ).rejects.toThrow();
+    expect(retrieval.query).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ namespace: "default" }),
+    );
+    expect(retrieval.query).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ namespace: "notebook-legacy" }),
+    );
+  });
+
   it("logs bounded Knowhere query response chunks", async () => {
     const result = makeRetrievalResult({
       chunkType: "image",

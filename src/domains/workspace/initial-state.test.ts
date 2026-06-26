@@ -366,6 +366,7 @@ describe("loadWorkspaceShellInitialState", () => {
     const state = await loadWorkspaceShellInitialState(deps)
 
     expect(listSourcesForWorkspace).toHaveBeenCalledWith(workspace.id)
+    expect(deps.reconcileSourcesForWorkspace).not.toHaveBeenCalled()
     expect(state.sources).toEqual([
       expect.objectContaining({
         id: "demo-tsla-q4-2025",
@@ -378,6 +379,95 @@ describe("loadWorkspaceShellInitialState", () => {
         mimeType: "application/pdf",
         status: "ready",
         documentId: "document_1",
+      },
+    ])
+  })
+
+  it("reconciles parsing sources before localizing matching Knowhere documents", async () => {
+    const workspace = makeWorkspace()
+    const parsingSource = makeSource(workspace.id, {
+      status: "parsing",
+      knowhereJobId: "job_123",
+      knowhereDocumentId: null,
+    })
+    const reconciledSource = makeSource(workspace.id, {
+      id: parsingSource.id,
+      title: "uploaded.pdf",
+      status: "ready",
+      knowhereJobId: null,
+      knowhereDocumentId: "doc_uploaded",
+    })
+    const client = {
+      documents: {
+        list: vi
+          .fn()
+          .mockResolvedValueOnce({
+            documents: [
+              {
+                documentId: "doc_uploaded",
+                namespace: "default",
+                status: "active",
+                sourceFileName: "uploaded.pdf",
+              },
+            ],
+          })
+          .mockResolvedValueOnce({ documents: [] }),
+        listChunks: vi.fn(async () => ({
+          chunks: [],
+          pagination: {
+            page: 1,
+            pageSize: 1,
+            total: 0,
+            totalPages: 0,
+          },
+        })),
+      },
+      jobs: {
+        get: vi.fn(),
+        load: vi.fn(),
+      },
+    } as unknown as InitialStateClient
+    const reconcileSourcesForWorkspace = vi.fn(async () => [reconciledSource])
+    const localizeRemoteDocument = vi.fn(async () => reconciledSource)
+    const deps = createDependencies({
+      getClientForWorkspace: vi.fn(async () => ({ client, apiKey: "sk_test" })),
+      getOptionalAuthenticated: vi.fn(async () => ({
+        user: {
+          id: "user_1",
+          email: "ada@example.com",
+          name: "Ada",
+        },
+        workspace,
+      })),
+      listSourcesForWorkspace: vi.fn(async () => [parsingSource]),
+      reconcileSourcesForWorkspace,
+      localizeRemoteDocument,
+    })
+
+    const state = await loadWorkspaceShellInitialState(deps)
+
+    expect(reconcileSourcesForWorkspace).toHaveBeenCalledWith(
+      workspace,
+      client,
+    )
+    expect(localizeRemoteDocument).toHaveBeenCalledWith(
+      workspace.id,
+      expect.objectContaining({
+        documentId: "doc_uploaded",
+      }),
+    )
+    expect(state.sources).toEqual([
+      expect.objectContaining({
+        id: "demo-tsla-q4-2025",
+        kind: "demo",
+      }),
+      {
+        id: parsingSource.id,
+        kind: "workspace",
+        title: "uploaded.pdf",
+        mimeType: "application/pdf",
+        status: "ready",
+        documentId: "doc_uploaded",
       },
     ])
   })
@@ -443,6 +533,7 @@ function createDependencies(
     listHiddenDemoSourceIds: vi.fn(async () => []),
     listMessages: vi.fn(async () => []),
     listSourcesForWorkspace: vi.fn(async () => []),
+    reconcileSourcesForWorkspace: vi.fn(async () => []),
     localizeRemoteDocument: vi.fn(async (workspaceId, input) =>
       makeSource(workspaceId, {
         id: `source_${input.documentId}`,

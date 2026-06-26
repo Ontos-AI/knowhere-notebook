@@ -14,6 +14,7 @@ import { chatThreadService } from "@/domains/chat/thread-service"
 import { toChatMessageView, toChatThreadView } from "@/domains/chat/view"
 import { sourceViewOptionsBySourceId as getSourceViewOptionsBySourceId } from "@/domains/sources/counts"
 import { localizeRemoteLibrarySources } from "@/domains/sources/remote-library"
+import { reconcileSourcesForWorkspace as reconcileDefaultSourcesForWorkspace } from "@/domains/sources/reconcile"
 import { sourceService } from "@/domains/sources/service"
 import { startBackgroundReconciliation } from "@/domains/sources/background-reconcile"
 import { sourceWorkflowRuntime } from "@/domains/sources/workflow-runtime"
@@ -89,7 +90,8 @@ async function getDemoChunksForSource(
 }
 
 type WorkspaceShellInitialStateClient =
-  Parameters<typeof getSourceViewOptionsBySourceId>[1] & {
+  Parameters<typeof getSourceViewOptionsBySourceId>[1] &
+  Parameters<typeof reconcileDefaultSourcesForWorkspace>[1] & {
     readonly documents: {
       readonly list: (params?: {
         readonly namespace?: string
@@ -136,6 +138,10 @@ type WorkspaceShellInitialStateDependencies = {
   readonly listSourcesForWorkspace: (
     workspaceId: string,
   ) => Promise<readonly Source[]>
+  readonly reconcileSourcesForWorkspace: (
+    workspace: Workspace,
+    client: WorkspaceShellInitialStateClient,
+  ) => Promise<readonly Source[]>
   readonly localizeRemoteDocument: (
     workspaceId: string,
     input: Parameters<typeof sourceService.localizeRemoteDocument>[1],
@@ -156,6 +162,7 @@ const defaultDependencies: WorkspaceShellInitialStateDependencies = {
   listHiddenDemoSourceIds: sourceService.listHiddenDemoSourceIds,
   listMessages: chatThreadService.listMessages,
   listSourcesForWorkspace: sourceWorkflowRuntime.listForWorkspace,
+  reconcileSourcesForWorkspace: reconcileDefaultSourcesForWorkspace,
   localizeRemoteDocument: sourceService.localizeRemoteDocument,
   sourceViewOptionsBySourceId: getSourceViewOptionsBySourceId,
 }
@@ -234,16 +241,12 @@ export const loadWorkspaceShellInitialStateEffect = (
       },
       () => knowhereDemoApi.fetchOptionalCatalog(deps.fetchDemoCatalog),
     )
-    const sources = yield* effectOperation.tryPromise(
+    const listedSources = yield* effectOperation.tryPromise(
       {
         context: workspaceInitialStateContext,
         operation: "listSourcesForWorkspace",
       },
       () => deps.listSourcesForWorkspace(workspace.id),
-    )
-    const demoSourceResolution = resolveWorkspaceDemoSources(
-      sources,
-      demoCatalog,
     )
     const hiddenDemoSourceIds = new Set(
       yield* effectOperation.tryPromise(
@@ -254,15 +257,6 @@ export const loadWorkspaceShellInitialStateEffect = (
         () => deps.listHiddenDemoSourceIds(workspace.id),
       ),
     )
-    const visibleDemoCatalogSources = demoCatalog.sources
-      .filter(
-        (source) =>
-          !demoSourceResolution.materializedDemoSourceIds.has(
-            source.demoSourceId,
-          ),
-      )
-      .filter((source) => !hiddenDemoSourceIds.has(source.demoSourceId))
-    const demoSources = visibleDemoCatalogSources.map(demoView.toSourceView)
     const listedChatThreads = yield* effectOperation.tryPromise(
       {
         context: workspaceInitialStateContext,
@@ -305,6 +299,29 @@ export const loadWorkspaceShellInitialStateEffect = (
       },
       () => deps.getClientForWorkspace(workspace),
     )
+    const sources = yield* effectOperation.tryPromise(
+      {
+        context: workspaceInitialStateContext,
+        operation: "reconcileSourcesForWorkspace",
+      },
+      () =>
+        hasParsingSources(listedSources)
+          ? deps.reconcileSourcesForWorkspace(workspace, client)
+          : Promise.resolve(listedSources),
+    )
+    const demoSourceResolution = resolveWorkspaceDemoSources(
+      sources,
+      demoCatalog,
+    )
+    const visibleDemoCatalogSources = demoCatalog.sources
+      .filter(
+        (source) =>
+          !demoSourceResolution.materializedDemoSourceIds.has(
+            source.demoSourceId,
+          ),
+      )
+      .filter((source) => !hiddenDemoSourceIds.has(source.demoSourceId))
+    const demoSources = visibleDemoCatalogSources.map(demoView.toSourceView)
     const workspaceSources = yield* effectOperation.addContext(
       {
         context: workspaceInitialStateContext,
@@ -393,6 +410,17 @@ export async function loadWorkspaceShellInitialState(
 
 function resolveDashboardUrl(): string | undefined {
   return process.env.DASHBOARD_ORIGIN
+}
+
+function hasParsingSources(
+  sources: readonly {
+    readonly status: string
+    readonly knowhereJobId: string | null
+  }[],
+): boolean {
+  return sources.some(
+    (source) => source.status === "parsing" && source.knowhereJobId,
+  )
 }
 
 function toOfficialLibrarySourceViews(
