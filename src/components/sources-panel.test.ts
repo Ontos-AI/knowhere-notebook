@@ -260,6 +260,47 @@ describe("SourcesPanel", () => {
       .toBeTruthy();
   });
 
+  it("paginates large source lists", async () => {
+    const sources = Array.from({ length: 27 }, (_, index) =>
+      makeReadySource(index + 1),
+    );
+
+    render(React.createElement(C, { sources }));
+
+    expect(screen.getByText("source-01.pdf")).toBeTruthy();
+    expect(screen.getByText("source-25.pdf")).toBeTruthy();
+    expect(screen.queryByText("source-26.pdf")).toBeNull();
+    expect(screen.getByText("1-25 of 27")).toBeTruthy();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Next sources page" }),
+    );
+
+    expect(screen.queryByText("source-01.pdf")).toBeNull();
+    expect(screen.getByText("source-26.pdf")).toBeTruthy();
+    expect(screen.getByText("source-27.pdf")).toBeTruthy();
+    expect(screen.getByText("26-27 of 27")).toBeTruthy();
+  });
+
+  it("moves pagination to the selected source page", async () => {
+    const sources = Array.from({ length: 27 }, (_, index) =>
+      makeReadySource(index + 1),
+    );
+
+    render(
+      React.createElement(C, {
+        sources,
+        selectedSourceId: "source_26",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("source-26.pdf")).toBeTruthy();
+    });
+    expect(screen.queryByText("source-01.pdf")).toBeNull();
+    expect(screen.getByText("26-27 of 27")).toBeTruthy();
+  });
+
   it("hides source actions that are not wired", () => {
     render(
       React.createElement(C, {
@@ -516,6 +557,25 @@ function expectPrimaryCompactButton(button: HTMLElement): void {
   expect(button.className).toContain("border-b-[4px]");
   expect(button.className).toContain("font-mono-readable");
   expect(button.className).not.toContain("bg-background");
+}
+
+function makeReadySource(index: number): {
+  readonly chunkCount: number;
+  readonly documentId: string;
+  readonly id: string;
+  readonly mimeType: string;
+  readonly status: "ready";
+  readonly title: string;
+} {
+  const suffix = String(index).padStart(2, "0");
+  return {
+    chunkCount: index,
+    documentId: `doc_${index}`,
+    id: `source_${index}`,
+    mimeType: "application/pdf",
+    status: "ready",
+    title: `source-${suffix}.pdf`,
+  };
 }
 
 function makeUploadedBlob(): {

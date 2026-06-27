@@ -75,6 +75,59 @@ describe("SourceRow", () => {
       .toBeTruthy();
   });
 
+  it("links ready sources to the document chunk tree route", () => {
+    const onSelect = vi.fn();
+
+    render(
+      React.createElement(SourceRow, {
+        chunkTreeHref: "/inspect/doc_123/chunks",
+        isArchiving: false,
+        isSelected: false,
+        onSelect,
+        source: {
+          id: "source_1",
+          mimeType: "application/pdf",
+          title: "lecture.pdf",
+          status: "ready",
+          chunkCount: 3,
+        },
+      }),
+    );
+
+    const chunkTreeLink = screen.getByRole("link", {
+      name: "Open lecture.pdf chunk tree link",
+    });
+
+    expect((chunkTreeLink as HTMLAnchorElement).getAttribute("href")).toBe(
+      "/inspect/doc_123/chunks",
+    );
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("does not link non-ready sources to the document chunk tree route", () => {
+    render(
+      React.createElement(SourceRow, {
+        chunkTreeHref: "/inspect/doc_123/chunks",
+        isArchiving: false,
+        isSelected: false,
+        onSelect: vi.fn(),
+        source: {
+          id: "source_1",
+          mimeType: "application/pdf",
+          title: "lecture.pdf",
+          status: "parsing",
+          chunkCount: 0,
+        },
+      }),
+    );
+
+    expect(
+      screen.queryByRole("link", {
+        name: "Open lecture.pdf chunk tree link",
+      }),
+    ).toBeNull();
+  });
+
   it("keeps the title truncating while the delete action stays in a trailing column", () => {
     const { container } = render(
       React.createElement(SourceRow, {

@@ -58,6 +58,31 @@ describe("workspaceSourceState", () => {
     );
   });
 
+  it("selects a preferred document source when opening a chunk-tree link", () => {
+    const sources: readonly SourceView[] = [
+      {
+        id: "source_first",
+        title: "first.pdf",
+        status: "ready",
+        mimeType: "application/pdf",
+        documentId: "doc_first",
+        excludedFromQuery: false,
+      },
+      {
+        id: "source_target",
+        title: "target.pdf",
+        status: "ready",
+        mimeType: "application/pdf",
+        documentId: "doc_target",
+        excludedFromQuery: false,
+      },
+    ];
+
+    expect(
+      workspaceSourceState.getInitialSelectedSourceId(sources, "doc_target"),
+    ).toBe("source_target");
+  });
+
   it("applies source query exclusions without mutating the source list", () => {
     const sources: readonly SourceView[] = [
       {
