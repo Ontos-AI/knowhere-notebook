@@ -6,7 +6,7 @@ import type {
   loadChunksForSource,
 } from "@/domains/chunks"
 import type { ParsedChunkView } from "@/domains/chunks/types"
-import type { SourceView } from "@/domains/sources/types"
+import type { SourceStatus, SourceView } from "@/domains/sources/types"
 import type { AuthUser } from "@/infrastructure/auth"
 import type { Source, Workspace } from "@/infrastructure/db/schema"
 import type {
@@ -21,6 +21,17 @@ import type { UploadKnowhereClient } from "./upload"
 type SourceRouteKnowhereClient = UploadKnowhereClient &
   ChunkKnowhereClient & {
     readonly documents: ChunkKnowhereClient["documents"] & {
+      list?(params?: {
+        readonly namespace?: string
+      }): Promise<{
+        readonly documents: readonly {
+          readonly documentId: string
+          readonly namespace: string
+          readonly status: string
+          readonly sourceFileName?: string | null
+          readonly documentMetadata?: Record<string, unknown>
+        }[]
+      }>
       archive(documentId: string): Promise<unknown>
     }
   }
@@ -136,6 +147,16 @@ type SourceWorkflowService = {
     demoSourceId: string,
   ) => Promise<void>
   readonly listHiddenDemoSourceIds: (workspaceId: string) => Promise<string[]>
+  readonly localizeRemoteDocument: (
+    workspaceId: string,
+    input: {
+      readonly documentId: string
+      readonly title?: string
+      readonly mimeType?: string
+      readonly sizeBytes?: number
+      readonly status: SourceStatus
+    },
+  ) => Promise<Source>
   readonly upsertMaterializedDemoSource: (
     workspaceId: string,
     input: {

@@ -109,6 +109,40 @@ describe("PATCH /api/sources/[sourceId]", () => {
     );
   });
 
+  it("rejects archive requests for unlocalized remote source ids", async () => {
+    mocks.requireUser.mockResolvedValue({ id: "user_1" });
+    mocks.ensureWorkspace.mockResolvedValue({ id: "workspace_1" });
+    mocks.findSourceInWorkspace.mockResolvedValue(null);
+    mocks.fetchDemoCatalog.mockResolvedValue({ sources: [] });
+
+    const response = await PATCH(
+      new NextRequest(
+        "http://localhost:3001/api/sources/knowhere-doc:default:doc_remote",
+        {
+          method: "PATCH",
+          body: JSON.stringify({ archived: true }),
+        },
+      ),
+      {
+        params: Promise.resolve({
+          sourceId: "knowhere-doc:default:doc_remote",
+        }),
+      },
+    );
+
+    await expect(response.json()).resolves.toEqual({
+      message: "Source not found.",
+    });
+    expect(response.status).toBe(404);
+    expect(mocks.findSourceInWorkspace).toHaveBeenCalledWith(
+      "workspace_1",
+      "knowhere-doc:default:doc_remote",
+    );
+    expect(mocks.archive).not.toHaveBeenCalled();
+    expect(mocks.softDeleteSource).not.toHaveBeenCalled();
+    expect(mocks.deleteBlob).not.toHaveBeenCalled();
+  });
+
   it("does not fail an already-soft-deleted source when original Blob cleanup fails", async () => {
     mocks.requireUser.mockResolvedValue({ id: "user_1" });
     mocks.ensureWorkspace.mockResolvedValue({ id: "workspace_1" });

@@ -2,16 +2,19 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const constructorSpy = vi.fn();
 const postSpy = vi.fn();
+const listSpy = vi.fn();
 
 vi.mock("@ontos-ai/knowhere-sdk", () => ({
   default: class FakeKnowhere {
     readonly jobs: FakeJobs;
+    readonly documents: FakeDocuments;
 
     constructor(options: unknown) {
       constructorSpy(options);
       this.jobs = new FakeJobs({
         post: postSpy,
       });
+      this.documents = new FakeDocuments();
     }
   },
 }));
@@ -28,6 +31,12 @@ class FakeJobs {
   }
 }
 
+class FakeDocuments {
+  async list(input: unknown): Promise<unknown> {
+    return listSpy(input);
+  }
+}
+
 describe("makeKnowhereClient", () => {
   const originalBaseURL = process.env.KNOWHERE_BASE_URL;
 
@@ -35,6 +44,7 @@ describe("makeKnowhereClient", () => {
     vi.resetModules();
     constructorSpy.mockReset();
     postSpy.mockReset();
+    listSpy.mockReset();
     restoreEnv("KNOWHERE_BASE_URL", originalBaseURL);
   });
 

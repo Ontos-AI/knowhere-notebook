@@ -62,6 +62,7 @@ export type GenerateAnswer = (input: {
 export type AnswerQuestionInput = {
   question: string
   namespace: string
+  namespaces?: readonly string[]
   sources: readonly Source[]
   excludedSourceIds: readonly string[]
   retrieval: RetrievalClient

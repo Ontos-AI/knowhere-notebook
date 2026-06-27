@@ -9,6 +9,7 @@ import {
 } from "."
 import { toChatMessageView } from "./view"
 import type { ChatMessage, ChatThread, Source, Workspace } from "@/infrastructure/db/schema"
+import { getCompatibleNamespaces } from "@/domains/sources/namespace"
 import type {
   ChatArtifactView,
   ChatCitationView,
@@ -120,6 +121,7 @@ export const handleChatTurnEffect = (input: ChatTurnInput) =>
     const answer = yield* answerQuestionWithRetrieval({
       question: input.question,
       namespace: input.workspace.namespace,
+      namespaces: getCompatibleNamespaces(input.workspace),
       sources: readySources,
       excludedSourceIds: input.excludedSourceIds,
       retrieval: input.retrieval,

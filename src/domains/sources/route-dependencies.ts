@@ -48,6 +48,7 @@ const defaultDependencies: SourceRouteServiceDependencies = {
     getParseAssetUrls: defaultSourceService.getParseAssetUrls,
     hideDemoSource: defaultSourceService.hideDemoSource,
     listHiddenDemoSourceIds: defaultSourceService.listHiddenDemoSourceIds,
+    localizeRemoteDocument: defaultSourceService.localizeRemoteDocument,
     softDelete: defaultSourceService.softDelete,
     upsertMaterializedDemoSource:
       defaultSourceService.upsertMaterializedDemoSource,

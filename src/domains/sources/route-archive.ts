@@ -46,6 +46,7 @@ const archiveSourceEffect = (
     const workspace = yield* Effect.tryPromise(() =>
       deps.ensureWorkspace(user.id),
     )
+
     const source = yield* Effect.tryPromise(() =>
       deps.sourceService.findInWorkspace(workspace.id, input.sourceId),
     )

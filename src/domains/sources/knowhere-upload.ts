@@ -7,9 +7,13 @@ import {
   type SourceBlobUploadInput,
   validateSourceBlobUploadInput,
 } from "./blob-upload"
-import type { UploadSourceDependencies } from "./source-upload-contracts"
+import type {
+  UploadJobResult,
+  UploadSourceDependencies,
+} from "./source-upload-contracts"
 import { validateUploadFile } from "./validation"
 import { TempFile, tempFileLayer } from "@/lib/temp-files"
+import { getUploadNamespace } from "./namespace"
 
 /**
  * Upload a browser file to Knowhere for parsing.
@@ -45,20 +49,26 @@ export const uploadSourceToKnowhereEffect = (
           deps.knowhere.jobs.create({
             sourceType: "file",
             fileName: validation.title,
-            namespace: workspace.namespace,
+            namespace: getUploadNamespace(),
+            documentMetadata: createNotebookDocumentMetadata({
+              title: validation.title,
+              mimeType: validation.mimeType,
+              sizeBytes: file.size,
+            }),
           }),
         )
         yield* Effect.tryPromise(() =>
           deps.knowhere.jobs.upload(job, { file: path }),
         )
+        const documentId = yield* tryGetPlannedDocumentIdEffect(job, deps)
 
-        return yield* Effect.promise(() =>
-          deps.repository.markSourceParsing(
-            workspace.id,
-            source.id,
-            job.jobId,
-          ),
-        )
+        return yield* markSourceParsingEffect({
+          workspace,
+          source,
+          jobId: job.jobId,
+          documentId,
+          deps,
+        })
       }),
     ).pipe(
       Effect.provide(tempFileLayer),
@@ -105,17 +115,23 @@ export const uploadSourceBlobToKnowhereEffect = (
           sourceType: "url",
           sourceUrl: input.url,
           fileName: validation.title,
-          namespace: workspace.namespace,
+          namespace: getUploadNamespace(),
+          documentMetadata: createNotebookDocumentMetadata({
+            title: validation.title,
+            mimeType: validation.mimeType,
+            sizeBytes: input.sizeBytes,
+          }),
         }),
       )
+      const documentId = yield* tryGetPlannedDocumentIdEffect(job, deps)
 
-      return yield* Effect.promise(() =>
-        deps.repository.markSourceParsing(
-          workspace.id,
-          source.id,
-          job.jobId,
-        ),
-      )
+      return yield* markSourceParsingEffect({
+        workspace,
+        source,
+        jobId: job.jobId,
+        documentId,
+        deps,
+      })
     }).pipe(
       Effect.catchAll(() =>
         Effect.gen(function* () {
@@ -149,4 +165,63 @@ export async function uploadSourceBlobToKnowhere(
   return Effect.runPromise(
     uploadSourceBlobToKnowhereEffect(workspace, input, deps),
   )
+}
+
+const tryGetPlannedDocumentIdEffect = (
+  job: UploadJobResult,
+  deps: UploadSourceDependencies,
+) => {
+  const plannedDocumentId = getDocumentId(job)
+  if (plannedDocumentId !== null) {
+    return Effect.succeed(plannedDocumentId)
+  }
+
+  return Effect.gen(function* () {
+    const currentJob = yield* Effect.tryPromise(() =>
+      deps.knowhere.jobs.get(job.jobId),
+    )
+    return getDocumentId(currentJob)
+  }).pipe(Effect.catchAll(() => Effect.succeed(null)))
+}
+
+const markSourceParsingEffect = (input: {
+  readonly workspace: Workspace
+  readonly source: Source
+  readonly jobId: string
+  readonly documentId: string | null
+  readonly deps: UploadSourceDependencies
+}) =>
+  Effect.promise(() =>
+    input.documentId
+      ? input.deps.repository.markSourceParsing(
+          input.workspace.id,
+          input.source.id,
+          input.jobId,
+          input.documentId,
+        )
+      : input.deps.repository.markSourceParsing(
+          input.workspace.id,
+          input.source.id,
+          input.jobId,
+        ),
+  )
+
+function createNotebookDocumentMetadata(input: {
+  readonly title: string
+  readonly mimeType: string
+  readonly sizeBytes: number
+}): Readonly<Record<string, unknown>> {
+  return {
+    createdByClient: "notebook",
+    sourceFileName: input.title,
+    title: input.title,
+    mimeType: input.mimeType,
+    sizeBytes: input.sizeBytes,
+  }
+}
+
+function getDocumentId(job: UploadJobResult): string | null {
+  return typeof job.documentId === "string" && job.documentId.length > 0
+    ? job.documentId
+    : null
 }
