@@ -1,13 +1,15 @@
 "use client";
 
 import type { ReactElement } from "react";
-import { FileText, Plus, Trash2 } from "lucide-react";
+import Link from "next/link";
+import { FileText, ListTree, Plus, Trash2 } from "lucide-react";
 
 import { Checkbox } from "@/components/ui/checkbox";
 import { Spinner } from "@/components/ui/spinner";
 import type { SourceView } from "@/domains/sources/types";
 
 export type SourceRowProps = {
+  readonly chunkTreeHref?: string;
   readonly isArchiving: boolean;
   readonly isAdding?: boolean;
   readonly isNarrow?: boolean;
@@ -28,6 +30,7 @@ export function SourceRow({
   onSelect,
   onToggleIncluded,
   onArchiveClick,
+  chunkTreeHref,
   isArchiving,
 }: SourceRowProps): ReactElement {
   const isReady = source.status === "ready";
@@ -104,45 +107,57 @@ export function SourceRow({
           </p>
         </div>
       </button>
-      {isLibrarySource && onAddClick && (
-        <button
-          type="button"
-          disabled={isAdding || !source.demoSourceId}
-          onClick={(event) => {
-            event.stopPropagation();
-            if (isAdding || !source.demoSourceId) return;
-            onAddClick(source.demoSourceId);
-          }}
-          className="inline-flex shrink-0 items-center gap-1 justify-self-end rounded-md border border-border/70 px-2 py-1 text-[11px] font-semibold text-foreground hover:bg-muted disabled:cursor-wait disabled:opacity-70"
-          aria-label={`Add ${source.title} to sources`}
-        >
-          {isAdding ? (
-            <Spinner className="size-3.5" />
-          ) : (
-            <Plus className="size-3.5" />
-          )}
-          {isNarrow ? null : "Add"}
-        </button>
-      )}
-      {onArchiveClick && (
-        <button
-          type="button"
-          disabled={isArchiving}
-          onClick={(event) => {
-            event.stopPropagation();
-            if (isArchiving) return;
-            onArchiveClick(source.id);
-          }}
-          className="shrink-0 justify-self-end rounded-lg p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:cursor-wait disabled:opacity-70"
-          aria-label={`Delete ${source.title}`}
-        >
-          {isArchiving ? (
-            <Spinner className="size-3.5" />
-          ) : (
-            <Trash2 className="size-3.5" />
-          )}
-        </button>
-      )}
+      <div className="flex shrink-0 items-center justify-self-end">
+        {chunkTreeHref && isReady ? (
+          <Link
+            href={chunkTreeHref}
+            className="shrink-0 rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+            aria-label={`Open ${source.title} chunk tree link`}
+            title="Open chunk tree"
+          >
+            <ListTree className="size-3.5" />
+          </Link>
+        ) : null}
+        {isLibrarySource && onAddClick && (
+          <button
+            type="button"
+            disabled={isAdding || !source.demoSourceId}
+            onClick={(event) => {
+              event.stopPropagation();
+              if (isAdding || !source.demoSourceId) return;
+              onAddClick(source.demoSourceId);
+            }}
+            className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border/70 px-2 py-1 text-[11px] font-semibold text-foreground hover:bg-muted disabled:cursor-wait disabled:opacity-70"
+            aria-label={`Add ${source.title} to sources`}
+          >
+            {isAdding ? (
+              <Spinner className="size-3.5" />
+            ) : (
+              <Plus className="size-3.5" />
+            )}
+            {isNarrow ? null : "Add"}
+          </button>
+        )}
+        {onArchiveClick && (
+          <button
+            type="button"
+            disabled={isArchiving}
+            onClick={(event) => {
+              event.stopPropagation();
+              if (isArchiving) return;
+              onArchiveClick(source.id);
+            }}
+            className="shrink-0 rounded-lg p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:cursor-wait disabled:opacity-70"
+            aria-label={`Delete ${source.title}`}
+          >
+            {isArchiving ? (
+              <Spinner className="size-3.5" />
+            ) : (
+              <Trash2 className="size-3.5" />
+            )}
+          </button>
+        )}
+      </div>
     </div>
   );
 }

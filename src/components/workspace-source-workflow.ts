@@ -10,6 +10,7 @@ import { workspaceClientCache } from "@/domains/workspace/client-cache"
 import type { SourceView } from "@/domains/sources/types"
 
 type WorkspaceSourceWorkflowInput = {
+  readonly initialSelectedDocumentId?: string | null
   readonly initialSources?: readonly SourceView[]
   readonly isGuest?: boolean
 }
@@ -38,12 +39,14 @@ const archiveSourceSWRKey = workspaceClient.keys.archiveSource
 const materializeDemoSourceSWRKey = workspaceClient.keys.materializeDemoSources
 
 export function useWorkspaceSourceWorkflow({
+  initialSelectedDocumentId = null,
   initialSources = [],
   isGuest = false,
 }: WorkspaceSourceWorkflowInput): WorkspaceSourceWorkflow {
   const initialSourceRows = useMemo(() => [...initialSources], [initialSources])
   const initialSelectedSourceId = workspaceSourceState.getInitialSelectedSourceId(
     initialSourceRows,
+    initialSelectedDocumentId,
   )
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(
     initialSelectedSourceId,
