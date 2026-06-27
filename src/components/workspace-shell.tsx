@@ -54,6 +54,7 @@ export type WorkspaceShellProps = {
   chatThreads?: ChatThreadView[]
   activeChatThreadId?: string | null
   chatMessages?: ChatMessageView[]
+  chunkViewDocumentId?: string | null
   dashboardUrl?: string
   initialPrefetchedChunksBySourceId?: Record<string, ParsedChunkView[]>
   isGuest?: boolean
@@ -83,6 +84,7 @@ function WorkspaceShellContent({
   chatThreads: initialChatThreads,
   activeChatThreadId,
   chatMessages: initialChatMessages,
+  chunkViewDocumentId,
   dashboardUrl,
   workspace,
   initialPrefetchedChunksBySourceId,
@@ -95,6 +97,7 @@ function WorkspaceShellContent({
   const pathname = usePathname()
   const [contentView, setContentView] = useState<ContentView>("chunks")
   const sourceWorkflow = useWorkspaceSourceWorkflow({
+    initialSelectedDocumentId: chunkViewDocumentId ?? null,
     initialSources: initialSources ?? [],
     isGuest,
   })

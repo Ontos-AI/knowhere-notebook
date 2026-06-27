@@ -20,6 +20,7 @@ type WorkspaceSourceStateModule = {
   ) => string | null
   readonly getInitialSelectedSourceId: (
     sources: readonly SourceView[],
+    preferredDocumentId?: string | null,
   ) => string | null
   readonly getResolvedSelectedSourceId: (
     sources: readonly SourceView[],
@@ -45,7 +46,18 @@ type WorkspaceSourceStateModule = {
   ) => Record<string, T>
 }
 
-function getInitialSelectedSourceId(sources: readonly SourceView[]): string | null {
+function getInitialSelectedSourceId(
+  sources: readonly SourceView[],
+  preferredDocumentId: string | null = null,
+): string | null {
+  if (preferredDocumentId) {
+    const preferredSource = sources.find(
+      (source) =>
+        source.documentId === preferredDocumentId && isReadySource(source),
+    )
+    if (preferredSource) return preferredSource.id
+  }
+
   return getFirstReadySourceId(sources)
 }
 

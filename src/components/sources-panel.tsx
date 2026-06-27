@@ -2,9 +2,10 @@
 
 import {
   type ReactElement,
+  useMemo,
   useState,
 } from "react";
-import { BookOpen, Plus, Database } from "lucide-react";
+import { BookOpen, ChevronLeft, ChevronRight, Database, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -47,6 +48,13 @@ export type SourcesPanelProps = {
   onLoginClick?: () => void;
 };
 
+const sourceListPageSize = 25;
+
+type SourcePageState = {
+  readonly page: number;
+  readonly selectedSourceId: string | null;
+};
+
 export function SourcesPanel({
   isNarrow = false,
   isLibraryOpen = false,
@@ -64,6 +72,10 @@ export function SourcesPanel({
   onLoginClick,
 }: Partial<SourcesPanelProps> = {}): ReactElement {
   const [confirmSourceId, setConfirmSourceId] = useState<string | null>(null);
+  const [sourcePageState, setSourcePageState] = useState<SourcePageState>({
+    page: 1,
+    selectedSourceId: null,
+  });
   const {
     archivingSourceIdSet,
     confirmSource,
@@ -75,6 +87,19 @@ export function SourcesPanel({
   });
   const workspaceSources = sources.filter(
     (source) => source.officialLibrary === undefined,
+  );
+  const selectedSourcePage = getSelectedSourcePage(
+    workspaceSources,
+    selectedSourceId,
+  );
+  const requestedSourcePage =
+    selectedSourceId !== sourcePageState.selectedSourceId &&
+    selectedSourcePage !== null
+      ? selectedSourcePage
+      : sourcePageState.page;
+  const sourcePagination = useMemo(
+    () => getSourcePagination(workspaceSources, requestedSourcePage),
+    [requestedSourcePage, workspaceSources],
   );
   const hasLibrarySources =
     officialLibrarySources.length > 0 ||
@@ -199,10 +224,11 @@ export function SourcesPanel({
             <EmptySourcesState />
           ) : (
             <div className="flex flex-col gap-1.5">
-              {workspaceSources.map((source) => (
+              {sourcePagination.sources.map((source) => (
                 <SourceRow
                   key={source.id}
                   source={source}
+                  chunkTreeHref={getChunkTreeHref(source)}
                   isSelected={source.id === selectedSourceId}
                   onSelect={() =>
                     onSelectSource?.(
@@ -223,6 +249,31 @@ export function SourcesPanel({
           )}
         </div>
       </ScrollArea>
+      {workspaceSources.length > sourceListPageSize ? (
+        <SourcePaginationControls
+          end={sourcePagination.end}
+          isNarrow={isNarrow}
+          page={sourcePagination.page}
+          total={sourcePagination.total}
+          totalPages={sourcePagination.totalPages}
+          onNext={() =>
+            setSourcePageState({
+              page: Math.min(
+                sourcePagination.page + 1,
+                sourcePagination.totalPages,
+              ),
+              selectedSourceId,
+            })
+          }
+          onPrevious={() =>
+            setSourcePageState({
+              page: Math.max(sourcePagination.page - 1, 1),
+              selectedSourceId,
+            })
+          }
+          start={sourcePagination.start}
+        />
+      ) : null}
     </aside>
   );
 }
@@ -239,6 +290,111 @@ function EmptySourcesState(): ReactElement {
       <p className="mt-1 max-w-[180px] text-[11px] text-muted-foreground">
         Upload a document to read its parsed chunks and ask questions.
       </p>
+    </div>
+  );
+}
+
+type SourcePagination = {
+  readonly end: number;
+  readonly page: number;
+  readonly sources: readonly SourceView[];
+  readonly start: number;
+  readonly total: number;
+  readonly totalPages: number;
+};
+
+function getSourcePagination(
+  sources: readonly SourceView[],
+  requestedPage: number,
+): SourcePagination {
+  const total = sources.length;
+  const totalPages = getTotalSourcePages(total);
+  const page = Math.min(Math.max(requestedPage, 1), totalPages);
+  const startIndex = (page - 1) * sourceListPageSize;
+  const endIndex = Math.min(startIndex + sourceListPageSize, total);
+
+  return {
+    end: endIndex,
+    page,
+    sources: sources.slice(startIndex, endIndex),
+    start: total === 0 ? 0 : startIndex + 1,
+    total,
+    totalPages,
+  };
+}
+
+function getTotalSourcePages(sourceCount: number): number {
+  return Math.max(1, Math.ceil(sourceCount / sourceListPageSize));
+}
+
+function getSourcePageForIndex(sourceIndex: number): number {
+  return Math.floor(sourceIndex / sourceListPageSize) + 1;
+}
+
+function getSelectedSourcePage(
+  sources: readonly SourceView[],
+  selectedSourceId: string | null,
+): number | null {
+  if (!selectedSourceId) return null;
+
+  const selectedIndex = sources.findIndex(
+    (source) => source.id === selectedSourceId,
+  );
+  return selectedIndex >= 0 ? getSourcePageForIndex(selectedIndex) : null;
+}
+
+function getChunkTreeHref(source: SourceView): string | undefined {
+  return source.documentId
+    ? `/inspect/${encodeURIComponent(source.documentId)}/chunks`
+    : undefined;
+}
+
+function SourcePaginationControls({
+  end,
+  isNarrow,
+  onNext,
+  onPrevious,
+  page,
+  start,
+  total,
+  totalPages,
+}: {
+  readonly end: number;
+  readonly isNarrow: boolean;
+  readonly onNext: () => void;
+  readonly onPrevious: () => void;
+  readonly page: number;
+  readonly start: number;
+  readonly total: number;
+  readonly totalPages: number;
+}): ReactElement {
+  return (
+    <div className="flex shrink-0 items-center justify-between gap-2 border-t border-border/70 px-3 py-2 text-[11px] font-semibold text-muted-foreground">
+      <span className="min-w-0 truncate" aria-live="polite">
+        {isNarrow ? `${page}/${totalPages}` : `${start}-${end} of ${total}`}
+      </span>
+      <div className="flex shrink-0 items-center gap-1">
+        <button
+          type="button"
+          aria-label="Previous sources page"
+          title="Previous sources page"
+          disabled={page <= 1}
+          onClick={onPrevious}
+          className="inline-flex size-7 items-center justify-center rounded-md border border-border/80 bg-background text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <ChevronLeft className="size-3.5" />
+        </button>
+        <button
+          type="button"
+          aria-label="Next sources page"
+          title="Next sources page"
+          disabled={page >= totalPages}
+          onClick={onNext}
+          className="inline-flex size-7 items-center justify-center rounded-md border border-border/80 bg-background text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <ChevronRight className="size-3.5" />
+        </button>
+      </div>
     </div>
   );
 }
