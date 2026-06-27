@@ -57,6 +57,13 @@ The Source Repository is a stable facade over smaller persistence modules. It
 composes Source row lifecycle, Demo Source persistence, and Source Parse Result
 artifact metadata without exposing those internal modules to route services.
 
+## Source Library Localization
+
+Source Library Localization is the workflow that turns Knowhere-owned library
+documents into Notebook Source rows for a Workspace. Listing and chat should
+localize missing Knowhere documents before chunks, archive, selection, or
+retrieval flows act on them.
+
 ## Source Upload
 
 A Source Upload is the workflow that turns either a browser `File` or a

@@ -501,4 +501,38 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
       includeAssetUrls: true,
     })
   })
+
+  it("does not load chunks from unlocalized remote source ids", async () => {
+    mocks.getCurrentUser.mockResolvedValue({
+      id: "user_1",
+      email: null,
+      name: null,
+    })
+    mocks.ensureWorkspace.mockResolvedValue({
+      id: "workspace_1",
+      userId: "user_1",
+      namespace: "notebook-workspace_1",
+      createdAt: new Date("2026-05-10T00:00:00.000Z"),
+    })
+    mocks.fetchDemoChunkPage.mockRejectedValue(new Error("not a demo"))
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost:3001/api/sources/knowhere-doc:default:doc_remote/chunks?page=1&pageSize=1",
+      ),
+      {
+        params: Promise.resolve({
+          sourceId: "knowhere-doc:default:doc_remote",
+        }),
+      },
+    )
+
+    await expect(response.json()).resolves.toEqual({
+      message: "Source not found.",
+    })
+    expect(response.status).toBe(404)
+    expect(mocks.findSourceInWorkspace).not.toHaveBeenCalled()
+    expect(mocks.ensureApiKeyForWorkspace).not.toHaveBeenCalled()
+    expect(mocks.makeKnowhereClient).not.toHaveBeenCalled()
+  })
 })

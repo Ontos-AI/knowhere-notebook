@@ -1,6 +1,16 @@
-import type { Job } from "@ontos-ai/knowhere-sdk"
+import type Knowhere from "@ontos-ai/knowhere-sdk"
 
 import type { Source } from "@/infrastructure/db/schema"
+
+type KnowhereJobCreateInput = Parameters<Knowhere["jobs"]["create"]>[0] & {
+  readonly documentMetadata?: Readonly<Record<string, unknown>>
+}
+
+export type UploadJobResult = Awaited<
+  ReturnType<Knowhere["jobs"]["create"]>
+> & {
+  readonly documentId?: string | null
+}
 
 export type UploadSourceRepository = {
   createUploadingSource(
@@ -19,6 +29,7 @@ export type UploadSourceRepository = {
     workspaceId: string,
     sourceId: string,
     jobId: string,
+    documentId?: string,
   ): Promise<Source>
   markSourceFailed(
     workspaceId: string,
@@ -29,21 +40,12 @@ export type UploadSourceRepository = {
 
 export type UploadKnowhereClient = {
   jobs: {
-    create(
-      input:
-        | {
-            sourceType: "file"
-            fileName: string
-            namespace: string
-          }
-        | {
-            sourceType: "url"
-            sourceUrl: string
-            fileName: string
-            namespace: string
-          },
-    ): Promise<Job>
-    upload(job: string | Job, input: { file: string }): Promise<void>
+    create(input: KnowhereJobCreateInput): Promise<UploadJobResult>
+    get(jobId: string): Promise<UploadJobResult>
+    upload(
+      job: Parameters<Knowhere["jobs"]["upload"]>[0],
+      input: { file: string },
+    ): Promise<void>
   }
 }
 

@@ -6,6 +6,7 @@ import { Effect } from "effect"
 import { DbClient, type Db } from "@/infrastructure/db"
 import { sources, type Source } from "@/infrastructure/db/schema"
 import { logger } from "@/lib/logger"
+import type { SourceStatus } from "./types"
 
 type CreateUploadingSourceInput = {
   readonly title: string
@@ -34,6 +35,14 @@ type SourceUpdate = Partial<
   >
 >
 
+type LocalizeRemoteDocumentInput = {
+  readonly documentId: string
+  readonly title?: string
+  readonly mimeType?: string
+  readonly sizeBytes?: number
+  readonly status: SourceStatus
+}
+
 type SourceRowRepository = {
   readonly findInWorkspaceEffect: (
     workspaceId: string,
@@ -46,10 +55,15 @@ type SourceRowRepository = {
     workspaceId: string,
     input: CreateUploadingSourceInput,
   ) => Effect.Effect<Source, never, DbClient>
+  readonly localizeRemoteDocumentEffect: (
+    workspaceId: string,
+    input: LocalizeRemoteDocumentInput,
+  ) => Effect.Effect<Source, never, DbClient>
   readonly markParsingEffect: (
     workspaceId: string,
     sourceId: string,
     jobId: string,
+    documentId?: string,
   ) => Effect.Effect<Source | null, never, DbClient>
   readonly markReadyEffect: (
     workspaceId: string,
@@ -83,6 +97,11 @@ type SourceRowRepository = {
     values: SourceUpdate,
     requiredStatus?: string,
   ) => Promise<Source | null>
+  readonly localizeRemoteDocumentWithDb: (
+    db: Db,
+    workspaceId: string,
+    input: LocalizeRemoteDocumentInput,
+  ) => Promise<Source>
   readonly requireSource: (source: Source | null, message: string) => Source
 }
 
@@ -145,14 +164,25 @@ const createUploadingEffect: SourceRowRepository["createUploadingEffect"] = (
     return source
   })
 
+const localizeRemoteDocumentEffect: SourceRowRepository["localizeRemoteDocumentEffect"] =
+  (workspaceId: string, input: LocalizeRemoteDocumentInput) =>
+    Effect.gen(function* () {
+      const db = yield* DbClient
+      return yield* Effect.promise(() =>
+        localizeRemoteDocumentWithDb(db, workspaceId, input),
+      )
+    })
+
 const markParsingEffect: SourceRowRepository["markParsingEffect"] = (
   workspaceId: string,
   sourceId: string,
   jobId: string,
+  documentId?: string,
 ) =>
   updateInWorkspaceEffect(workspaceId, sourceId, {
     status: "parsing",
     knowhereJobId: jobId,
+    knowhereDocumentId: documentId,
     failureReason: null,
   })
 
@@ -289,6 +319,63 @@ async function updateInWorkspaceWithDb(
   return source ?? null
 }
 
+async function localizeRemoteDocumentWithDb(
+  db: Db,
+  workspaceId: string,
+  input: LocalizeRemoteDocumentInput,
+): Promise<Source> {
+  const hasActiveLocalParsingJob = sql`${sources.status} = 'parsing' AND ${sources.knowhereJobId} IS NOT NULL`
+  const values = {
+    workspaceId,
+    title: input.title ?? input.documentId,
+    mimeType: input.mimeType ?? "application/octet-stream",
+    sizeBytes: input.sizeBytes ?? 0,
+    status: input.status,
+    failureReason:
+      input.status === "failed" ? "Knowhere document failed." : null,
+    knowhereJobId: null,
+    knowhereDocumentId: input.documentId,
+    stagedBlobPathname: null,
+    stagedBlobUrl: null,
+    originalBlobPathname: null,
+    originalBlobUrl: null,
+    demoKey: null,
+  }
+
+  const [source] = await db
+    .insert(sources)
+    .values(values)
+    .onConflictDoUpdate({
+      target: [sources.workspaceId, sources.knowhereDocumentId],
+      targetWhere: sql`knowhere_document_id IS NOT NULL AND deleted_at IS NULL`,
+      set: {
+        title:
+          input.title === undefined
+            ? sql`${sources.title}`
+            : values.title,
+        mimeType:
+          input.mimeType === undefined
+            ? sql`${sources.mimeType}`
+            : values.mimeType,
+        sizeBytes:
+          input.sizeBytes === undefined
+            ? sql`${sources.sizeBytes}`
+            : values.sizeBytes,
+        status: sql`CASE WHEN ${hasActiveLocalParsingJob} THEN ${sources.status} ELSE ${values.status} END`,
+        failureReason: sql`CASE WHEN ${hasActiveLocalParsingJob} THEN ${sources.failureReason} ELSE ${values.failureReason} END`,
+        knowhereJobId: sql`CASE WHEN ${hasActiveLocalParsingJob} THEN ${sources.knowhereJobId} ELSE ${values.knowhereJobId} END`,
+        updatedAt: sql`now()`,
+      },
+    })
+    .returning()
+
+  if (!source) {
+    throw new Error("localizeRemoteDocument: upsert did not return a row.")
+  }
+
+  return source
+}
+
 const WORKSPACE_SOURCE_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu
 
@@ -305,6 +392,7 @@ export const sourceRowRepository: SourceRowRepository = {
   findInWorkspaceEffect,
   listForWorkspaceEffect,
   createUploadingEffect,
+  localizeRemoteDocumentEffect,
   markParsingEffect,
   markReadyEffect,
   markFailedEffect,
@@ -313,5 +401,6 @@ export const sourceRowRepository: SourceRowRepository = {
   isWorkspaceSourceId,
   findInWorkspaceWithDb,
   updateInWorkspaceWithDb,
+  localizeRemoteDocumentWithDb,
   requireSource,
 }

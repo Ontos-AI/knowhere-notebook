@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "sources_workspace_document_idx" ON "sources" USING btree ("workspace_id","knowhere_document_id") WHERE knowhere_document_id IS NOT NULL AND deleted_at IS NULL;
