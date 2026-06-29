@@ -37,7 +37,7 @@ const source: Source = {
 const localizeNoRemoteDocuments = vi.fn(async () => source);
 
 describe("source route service", () => {
-  it("reconciles authenticated sources through the listing route workflow", async () => {
+  it("lists authenticated sources and triggers background reconciliation", async () => {
     const knowhereClient = {
       documents: {
         archive: vi.fn(async () => undefined),
@@ -63,6 +63,7 @@ describe("source route service", () => {
     );
     const listSourcesForWorkspace = vi.fn(async () => [source]);
     const reconcileSourcesForWorkspace = vi.fn(async () => [source]);
+    const startBackgroundReconciliation = vi.fn(async () => undefined);
     const listHiddenDemoSourceIds = vi.fn(async () => []);
     const listing = createRouteListing({
       demoApi: {
@@ -79,6 +80,7 @@ describe("source route service", () => {
       makeKnowhereClient: vi.fn(() => knowhereClient),
       listSourcesForWorkspace,
       reconcileSourcesForWorkspace,
+      startBackgroundReconciliation,
       sourceService: {
         listHiddenDemoSourceIds,
         localizeRemoteDocument: localizeNoRemoteDocuments,
@@ -108,9 +110,11 @@ describe("source route service", () => {
       "session=abc",
     );
     expect(listSourcesForWorkspace).toHaveBeenCalledWith(workspace.id);
-    expect(reconcileSourcesForWorkspace).toHaveBeenCalledWith(
-      workspace,
-      knowhereClient,
+    expect(reconcileSourcesForWorkspace).not.toHaveBeenCalled();
+    expect(startBackgroundReconciliation).toHaveBeenCalledWith(
+      workspace.id,
+      source.id,
+      "jwt_123",
     );
     expect(listHiddenDemoSourceIds).toHaveBeenCalledWith(workspace.id);
   });
@@ -299,14 +303,16 @@ describe("source route service", () => {
     ]);
   });
 
-  it("reconciles parsing sources before localizing matching Knowhere documents", async () => {
-    const reconciledSource: Source = {
+  it("keeps matching Notebook uploads parsing until artifacts are ready", async () => {
+    const parsingSource: Source = {
       ...source,
       id: "source_1",
       title: "uploaded.pdf",
-      status: "ready",
-      knowhereJobId: null,
-      knowhereDocumentId: "doc_uploaded",
+      mimeType: "application/pdf",
+      sizeBytes: 100,
+      status: "parsing",
+      knowhereJobId: "job_1",
+      knowhereDocumentId: null,
     };
     const listDocuments = vi
       .fn()
@@ -317,6 +323,12 @@ describe("source route service", () => {
             namespace: "default",
             status: "active",
             sourceFileName: "uploaded.pdf",
+            documentMetadata: {
+              createdByClient: "notebook",
+              title: "uploaded.pdf",
+              mimeType: "application/pdf",
+              sizeBytes: 100,
+            },
           },
         ],
       })
@@ -341,8 +353,9 @@ describe("source route service", () => {
         upload: vi.fn(),
       },
     };
-    const reconcileSourcesForWorkspace = vi.fn(async () => [reconciledSource]);
-    const localizeRemoteDocument = vi.fn(async () => reconciledSource);
+    const reconcileSourcesForWorkspace = vi.fn(async () => [parsingSource]);
+    const localizeRemoteDocument = vi.fn(async () => parsingSource);
+    const startBackgroundReconciliation = vi.fn(async () => undefined);
     const listing = createRouteListing({
       demoApi: {
         fetchCatalog: vi.fn(async () => emptyDemoCatalog),
@@ -356,8 +369,9 @@ describe("source route service", () => {
       })),
       getSourceViewOptionsBySourceId: vi.fn(() => Effect.succeed(new Map())),
       makeKnowhereClient: vi.fn(() => knowhereClient),
-      listSourcesForWorkspace: vi.fn(async () => [source]),
+      listSourcesForWorkspace: vi.fn(async () => [parsingSource]),
       reconcileSourcesForWorkspace,
+      startBackgroundReconciliation,
       sourceService: {
         listHiddenDemoSourceIds: vi.fn(async () => []),
         localizeRemoteDocument,
@@ -366,22 +380,19 @@ describe("source route service", () => {
 
     const result = await listing.listSources({ cookieHeader: "session=abc" });
 
-    expect(reconcileSourcesForWorkspace).toHaveBeenCalledWith(
-      workspace,
-      knowhereClient,
-    );
-    expect(localizeRemoteDocument).toHaveBeenCalledWith(
+    expect(reconcileSourcesForWorkspace).not.toHaveBeenCalled();
+    expect(startBackgroundReconciliation).toHaveBeenCalledWith(
       workspace.id,
-      expect.objectContaining({
-        documentId: "doc_uploaded",
-      }),
+      "source_1",
+      "jwt_123",
     );
+    expect(localizeRemoteDocument).not.toHaveBeenCalled();
     expect(result.body.sources).toEqual([
       expect.objectContaining({
         id: "source_1",
-        documentId: "doc_uploaded",
         title: "uploaded.pdf",
-        status: "ready",
+        status: "parsing",
+        documentId: undefined,
       }),
     ]);
   });

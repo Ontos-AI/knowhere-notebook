@@ -56,6 +56,13 @@ type SourceWorkflowRuntime = UploadRepositoryRuntime & {
     workspaceId: string,
     sourceId: string,
   ) => Promise<Readonly<Record<string, string>>>
+  readonly getParseResultProgress: (
+    workspaceId: string,
+    sourceId: string,
+  ) => Promise<{
+    readonly resultBlobUrl: string
+    readonly assetUrlsByFilePath: Readonly<Record<string, string>>
+  } | null>
   readonly listForWorkspace: (workspaceId: string) => Promise<Source[]>
   readonly localizeRemoteDocument: (
     workspaceId: string,
@@ -72,6 +79,11 @@ type SourceWorkflowRuntime = UploadRepositoryRuntime & {
     documentId: string,
   ) => Promise<Source | null>
   readonly saveParseResult: (
+    workspaceId: string,
+    sourceId: string,
+    input: SaveSourceParseResultInput,
+  ) => Promise<SourceParseResult | null>
+  readonly mergeParseAssetUrls: (
     workspaceId: string,
     sourceId: string,
     input: SaveSourceParseResultInput,
@@ -192,6 +204,21 @@ const saveParseResult: SourceWorkflowRuntime["saveParseResult"] = (
     sourceRepository.saveParseResultEffect(workspaceId, sourceId, input),
   )
 
+const mergeParseAssetUrls: SourceWorkflowRuntime["mergeParseAssetUrls"] = (
+  workspaceId: string,
+  sourceId: string,
+  input: SaveSourceParseResultInput,
+) =>
+  databaseRuntime.runPromise(
+    sourceRepository.mergeParseAssetUrlsEffect(workspaceId, sourceId, input),
+  )
+
+const getParseResultProgress: SourceWorkflowRuntime["getParseResultProgress"] =
+  (workspaceId: string, sourceId: string) =>
+    databaseRuntime.runPromise(
+      sourceRepository.getParseResultProgressEffect(workspaceId, sourceId),
+    )
+
 const getParseAssetUrls: SourceWorkflowRuntime["getParseAssetUrls"] = (
   workspaceId: string,
   sourceId: string,
@@ -238,6 +265,7 @@ export const sourceWorkflowRuntime: SourceWorkflowRuntime = {
   createUploading,
   findInWorkspace,
   getParseAssetUrls,
+  getParseResultProgress,
   hideDemoSource,
   listForWorkspace,
   listHiddenDemoSourceIds,
@@ -245,6 +273,7 @@ export const sourceWorkflowRuntime: SourceWorkflowRuntime = {
   markFailed,
   markParsing,
   markReady,
+  mergeParseAssetUrls,
   saveParseResult,
   softDelete,
   upsertMaterializedDemoSource,

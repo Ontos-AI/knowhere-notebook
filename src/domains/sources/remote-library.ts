@@ -104,7 +104,10 @@ export function localizeRemoteLibrarySources(
   input: RemoteLibraryLocalizationInput,
 ): Effect.Effect<readonly Source[], never> {
   return Effect.gen(function* () {
-    const remoteDocuments = yield* listRemoteLibraryDocuments(input)
+    const remoteDocuments = (yield* listRemoteLibraryDocuments(input)).filter(
+      (document) =>
+        !matchesActiveNotebookParsingSource(document, input.localSources),
+    )
     if (remoteDocuments.length === 0) return input.localSources
 
     const localizedSources = yield* Effect.all(
@@ -168,6 +171,26 @@ function getRemoteSourceStatus(status: string): SourceStatus {
   if (isActiveDocumentStatus(status)) return "ready"
   if (status === "failed") return "failed"
   return "parsing"
+}
+
+function matchesActiveNotebookParsingSource(
+  document: RemoteDocument,
+  localSources: readonly Source[],
+): boolean {
+  if (document.documentMetadata?.createdByClient !== "notebook") return false
+  if (!document.title || !document.mimeType || document.sizeBytes === undefined) {
+    return false
+  }
+
+  return localSources.some(
+    (source) =>
+      source.status === "parsing" &&
+      Boolean(source.knowhereJobId) &&
+      !source.knowhereDocumentId &&
+      source.title === document.title &&
+      source.mimeType === document.mimeType &&
+      source.sizeBytes === document.sizeBytes,
+  )
 }
 
 function isActiveDocumentStatus(status: string): boolean {
