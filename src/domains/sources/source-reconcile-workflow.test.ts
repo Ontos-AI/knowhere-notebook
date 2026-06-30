@@ -138,7 +138,7 @@ describe("pollSourceReconciliation", () => {
     )
   })
 
-  it("marks done jobs without a result URL failed", async () => {
+  it("accepts done jobs without a result URL when a document id is published", async () => {
     const repository = createRepository()
     const jobWithoutResultUrl = makeDoneJob()
     delete jobWithoutResultUrl.resultUrl
@@ -155,18 +155,17 @@ describe("pollSourceReconciliation", () => {
       repository,
     })
 
-    expect(result).toEqual({ kind: "resolved", status: "failed" })
-    expect(repository.markFailed).toHaveBeenCalledWith(
-      workspace.id,
-      "source_1",
-      "Parsing finished but Knowhere did not publish a result ZIP.",
-      "parsing",
-    )
+    expect(result).toEqual({
+      kind: "ready-to-prepare",
+      jobId: "job_1",
+      documentId: "doc_1",
+    })
+    expect(repository.markFailed).not.toHaveBeenCalled()
   })
 })
 
 describe("markSourceReadyAfterReconciliation", () => {
-  it("marks ready after artifact preparation and cleans staged uploads", async () => {
+  it("marks ready after Knowhere publishes a document id and cleans staged uploads", async () => {
     const source = makeSource({
       stagedBlobPathname: "source-uploads/upload_1/document.pdf",
     })

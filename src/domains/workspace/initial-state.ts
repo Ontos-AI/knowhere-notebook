@@ -13,7 +13,7 @@ import {
 import { chatThreadService } from "@/domains/chat/thread-service"
 import { toChatMessageView, toChatThreadView } from "@/domains/chat/view"
 import { sourceViewOptionsBySourceId as getSourceViewOptionsBySourceId } from "@/domains/sources/counts"
-import { localizeRemoteLibrarySources } from "@/domains/sources/remote-library"
+import { listRemoteLibrarySourceViews } from "@/domains/sources/remote-library"
 import { reconcileSourcesForWorkspace as reconcileDefaultSourcesForWorkspace } from "@/domains/sources/reconcile"
 import { sourceService } from "@/domains/sources/service"
 import {
@@ -146,10 +146,6 @@ type WorkspaceShellInitialStateDependencies = {
     client: WorkspaceShellInitialStateClient,
   ) => Promise<readonly Source[]>
   readonly startBackgroundReconciliation?: typeof defaultStartBackgroundReconciliation
-  readonly localizeRemoteDocument: (
-    workspaceId: string,
-    input: Parameters<typeof sourceService.localizeRemoteDocument>[1],
-  ) => Promise<Source>
   readonly sourceViewOptionsBySourceId: (
     sources: readonly Source[],
     client: WorkspaceShellInitialStateClient,
@@ -168,7 +164,6 @@ const defaultDependencies: WorkspaceShellInitialStateDependencies = {
   listSourcesForWorkspace: sourceWorkflowRuntime.listForWorkspace,
   reconcileSourcesForWorkspace: reconcileDefaultSourcesForWorkspace,
   startBackgroundReconciliation: defaultStartBackgroundReconciliation,
-  localizeRemoteDocument: sourceService.localizeRemoteDocument,
   sourceViewOptionsBySourceId: getSourceViewOptionsBySourceId,
 }
 
@@ -324,17 +319,16 @@ export const loadWorkspaceShellInitialStateEffect = (
       )
       .filter((source) => !hiddenDemoSourceIds.has(source.demoSourceId))
     const demoSources = visibleDemoCatalogSources.map(demoView.toSourceView)
-    const workspaceSources = yield* effectOperation.addContext(
+    const workspaceSources = demoSourceResolution.workspaceSources
+    const remoteSourceViews = yield* effectOperation.addContext(
       {
         context: workspaceInitialStateContext,
-        operation: "localizeRemoteLibrarySources",
+        operation: "listRemoteLibrarySourceViews",
       },
-      localizeRemoteLibrarySources({
+      listRemoteLibrarySourceViews({
         workspace,
         client,
         localSources: demoSourceResolution.workspaceSources,
-        localizeDocument: (document) =>
-          deps.localizeRemoteDocument(workspace.id, document),
       }),
     )
     const sourcesNeedingKnowhereChunkCount =
@@ -385,6 +379,7 @@ export const loadWorkspaceShellInitialStateEffect = (
               sourceOptions.get(source.id),
           ),
         ),
+        ...remoteSourceViews,
       ],
       officialLibrarySources: toOfficialLibrarySourceViews(demoCatalog),
       chatThreads: chatThreads.map(toChatThreadView),

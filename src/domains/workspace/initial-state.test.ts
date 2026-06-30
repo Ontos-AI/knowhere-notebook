@@ -430,7 +430,6 @@ describe("loadWorkspaceShellInitialState", () => {
       },
     } as unknown as InitialStateClient
     const reconcileSourcesForWorkspace = vi.fn(async () => [parsingSource])
-    const localizeRemoteDocument = vi.fn(async () => parsingSource)
     const startBackgroundReconciliation = vi.fn(async () => undefined)
     const deps = createDependencies({
       getClientForWorkspace: vi.fn(async () => ({ client, apiKey: "sk_test" })),
@@ -444,7 +443,6 @@ describe("loadWorkspaceShellInitialState", () => {
       })),
       listSourcesForWorkspace: vi.fn(async () => [parsingSource]),
       reconcileSourcesForWorkspace,
-      localizeRemoteDocument,
       startBackgroundReconciliation,
     })
 
@@ -456,7 +454,6 @@ describe("loadWorkspaceShellInitialState", () => {
       parsingSource.id,
       "sk_test",
     )
-    expect(localizeRemoteDocument).not.toHaveBeenCalled()
     expect(state.sources).toEqual([
       expect.objectContaining({
         id: "demo-tsla-q4-2025",
@@ -535,17 +532,6 @@ function createDependencies(
     listMessages: vi.fn(async () => []),
     listSourcesForWorkspace: vi.fn(async () => []),
     reconcileSourcesForWorkspace: vi.fn(async () => []),
-    localizeRemoteDocument: vi.fn(async (workspaceId, input) =>
-      makeSource(workspaceId, {
-        id: `source_${input.documentId}`,
-        title: input.title,
-        mimeType: input.mimeType,
-        sizeBytes: input.sizeBytes,
-        status: input.status,
-        knowhereJobId: null,
-        knowhereDocumentId: input.documentId,
-      }),
-    ),
     sourceViewOptionsBySourceId: vi.fn(() => Effect.succeed(new Map())),
     ...overrides,
   }

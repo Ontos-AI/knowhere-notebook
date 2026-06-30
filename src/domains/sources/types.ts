@@ -8,7 +8,7 @@ export type SourceOriginalFileView = {
   readonly pdfPreviewMode?: "browser"
 }
 
-export type SourceKind = "workspace" | "demo"
+export type SourceKind = "workspace" | "demo" | "remote"
 
 export type SourceOfficialLibraryView = {
   readonly librarySourceId: string

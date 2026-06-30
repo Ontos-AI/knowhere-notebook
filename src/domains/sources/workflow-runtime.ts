@@ -79,6 +79,11 @@ type SourceWorkflowRuntime = UploadRepositoryRuntime & {
     sourceId: string,
     documentId: string,
   ) => Promise<Source | null>
+  readonly updateRevisionKey: (
+    workspaceId: string,
+    sourceId: string,
+    revisionKey: string,
+  ) => Promise<Source | null>
   readonly saveParseResult: (
     workspaceId: string,
     sourceId: string,
@@ -164,6 +169,19 @@ const markReady: SourceWorkflowRuntime["markReady"] = (
 ) =>
   databaseRuntime.runPromise(
     sourceRepository.markReadyEffect(workspaceId, sourceId, documentId),
+  )
+
+const updateRevisionKey: SourceWorkflowRuntime["updateRevisionKey"] = (
+  workspaceId: string,
+  sourceId: string,
+  revisionKey: string,
+) =>
+  databaseRuntime.runPromise(
+    sourceRepository.updateRevisionKeyEffect(
+      workspaceId,
+      sourceId,
+      revisionKey,
+    ),
   )
 
 const markFailed: SourceWorkflowRuntime["markFailed"] = (
@@ -276,6 +294,7 @@ export const sourceWorkflowRuntime: SourceWorkflowRuntime = {
   markFailed,
   markParsing,
   markReady,
+  updateRevisionKey,
   mergeParseAssetUrls,
   saveParseResult,
   softDelete,

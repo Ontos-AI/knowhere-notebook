@@ -13,7 +13,7 @@ import { toSourceView } from "./view"
 import {
   startBackgroundReconciliation as defaultStartBackgroundReconciliation,
 } from "./background-reconcile"
-import { localizeRemoteLibrarySources } from "./remote-library"
+import { listRemoteLibrarySourceViews } from "./remote-library"
 import type { Source } from "@/infrastructure/db/schema"
 import type {
   JsonRouteResult,
@@ -90,12 +90,11 @@ const listSourcesEffect = (
     const client = deps.makeKnowhereClient(apiKey)
     const sources = listedSources
     const demoSourceResolution = resolveWorkspaceDemoSources(sources, catalog)
-    const workspaceSources = yield* localizeRemoteLibrarySources({
+    const workspaceSources = demoSourceResolution.workspaceSources
+    const remoteSourceViews = yield* listRemoteLibrarySourceViews({
       workspace,
       client,
       localSources: demoSourceResolution.workspaceSources,
-      localizeDocument: (document) =>
-        deps.sourceService.localizeRemoteDocument(workspace.id, document),
     })
     const sourcesNeedingKnowhereChunkCount =
       getWorkspaceSourcesNeedingKnowhereChunkCount(workspaceSources)
@@ -140,6 +139,7 @@ const listSourcesEffect = (
               sourceOptions.get(source.id),
           ),
         ),
+        ...remoteSourceViews,
       ],
     })
   })

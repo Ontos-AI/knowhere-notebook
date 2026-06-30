@@ -14,6 +14,7 @@ type SourceRepository = {
   readonly upsertMaterializedDemoSourceEffect: typeof demoSourceRepository.upsertMaterializedDemoSourceEffect
   readonly markParsingEffect: typeof sourceRowRepository.markParsingEffect
   readonly markReadyEffect: typeof sourceRowRepository.markReadyEffect
+  readonly updateRevisionKeyEffect: typeof sourceRowRepository.updateRevisionKeyEffect
   readonly markFailedEffect: typeof sourceRowRepository.markFailedEffect
   readonly clearStagedBlobEffect: typeof sourceRowRepository.clearStagedBlobEffect
   readonly softDeleteEffect: typeof sourceRowRepository.softDeleteEffect
@@ -35,6 +36,7 @@ export const sourceRepository: SourceRepository = {
     demoSourceRepository.upsertMaterializedDemoSourceEffect,
   markParsingEffect: sourceRowRepository.markParsingEffect,
   markReadyEffect: sourceRowRepository.markReadyEffect,
+  updateRevisionKeyEffect: sourceRowRepository.updateRevisionKeyEffect,
   markFailedEffect: sourceRowRepository.markFailedEffect,
   clearStagedBlobEffect: sourceRowRepository.clearStagedBlobEffect,
   softDeleteEffect: sourceRowRepository.softDeleteEffect,

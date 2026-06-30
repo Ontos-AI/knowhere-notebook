@@ -3,14 +3,6 @@ import "server-only"
 import { Client, type WorkflowContext } from "@upstash/workflow"
 
 import {
-  completeResultZipMultipartUpload,
-  createResultZipMultipartUploadPlan,
-  getResultZipPartRange,
-  prepareParsedResultAssetBatch,
-  uploadResultZipPart,
-  type MultipartUploadPart,
-} from "@/domains/sources/parsed-result-assets"
-import {
   markSourceReadyAfterReconciliation,
   pollSourceReconciliation,
 } from "@/domains/sources/source-reconcile-workflow"
@@ -26,13 +18,13 @@ type ReconcilePayload = {
   readonly segmentIndex?: number
 }
 
-type ReconcilePhase = "poll-and-mirror" | "asset-batches"
+type ReconcilePhase = "poll-and-ready" | "poll-and-mirror" | "asset-batches"
 
 type NormalizedReconcilePayload = {
   readonly workspaceId: string
   readonly sourceId: string
   readonly apiKey: string
-  readonly phase: ReconcilePhase
+  readonly phase: "poll-and-ready"
   readonly segmentIndex: number
 }
 
@@ -48,7 +40,6 @@ type ContinuationTriggerInput = {
 }
 
 const maxPollAttempts = 25
-const maxAssetBatchesPerWorkflowRun = 20
 const initialDelaySeconds = 3
 const maxDelaySeconds = 30
 
@@ -82,7 +73,7 @@ async function runPollAndMirrorWorkflow(input: {
         jobId: poll.jobId,
         documentId: poll.documentId,
       }
-      logger.info("workflow: source parse completed; preparing artifacts", {
+      logger.info("workflow: source parse completed; readying source", {
         sourceId,
         jobId: poll.jobId,
         attempts: attempt + 1,
@@ -113,7 +104,7 @@ async function runPollAndMirrorWorkflow(input: {
           workspaceId,
           sourceId,
           apiKey,
-          phase: "poll-and-mirror",
+          phase: "poll-and-ready",
           segmentIndex: nextSegmentIndex,
         },
         workflowRunId: getPollWorkflowRunId(sourceId, nextSegmentIndex),
@@ -127,310 +118,17 @@ async function runPollAndMirrorWorkflow(input: {
     return
   }
 
-  const existingProgress = await context.run(
-    "parse-result-check-existing",
-    async () =>
-      sourceWorkflowRuntime.getParseResultProgress(workspaceId, sourceId),
-  )
-  if (existingProgress) {
-    const resumeAssetSegmentIndex = await context.run(
-      "create-asset-resume-segment",
-      async () => Date.now(),
-    )
-    const savedAssetCount: number = Object.keys(
-      existingProgress.assetUrlsByFilePath,
-    ).length
-
-    await context.run("source-save-document-id-for-existing-zip", async () => {
-      const saved = await sourceWorkflowRuntime.markParsing(
-        workspaceId,
-        sourceId,
-        jobToPrepare.jobId,
-        jobToPrepare.documentId,
-        "parsing",
-      )
-      if (!saved) throw new Error("Source disappeared before saving document id.")
-    })
-    logger.info("workflow: result ZIP already mirrored; resuming asset batches", {
-      sourceId,
-      jobId: jobToPrepare.jobId,
-      savedAssetCount,
-      segmentIndex: resumeAssetSegmentIndex,
-    })
-
-    await context.run(
-      `trigger-asset-continuation-${resumeAssetSegmentIndex}`,
-      async () =>
-        triggerContinuation({
-          url: context.url,
-          payload: {
-            workspaceId,
-            sourceId,
-            apiKey,
-            phase: "asset-batches",
-            segmentIndex: resumeAssetSegmentIndex,
-          },
-          workflowRunId: getAssetWorkflowRunId(
-            sourceId,
-            resumeAssetSegmentIndex,
-          ),
-        }),
-    )
-    logger.info("workflow: parsed asset continuation triggered", {
-      sourceId,
-      jobId: jobToPrepare.jobId,
-      segmentIndex: resumeAssetSegmentIndex,
-    })
-    return
-  }
-
-  const uploadPlan = await context.run("mirror-zip-start", async () =>
-    createResultZipMultipartUploadPlan({
-      workspaceId,
-      sourceId,
-      jobId: jobToPrepare.jobId,
-      client,
-    }),
-  )
-  logger.info("workflow: result ZIP multipart upload planned", {
-    sourceId,
-    jobId: jobToPrepare.jobId,
-    sizeBytes: uploadPlan.sizeBytes,
-    partCount: uploadPlan.partCount,
-  })
-  const parts: MultipartUploadPart[] = []
-
-  for (let partNumber = 1; partNumber <= uploadPlan.partCount; partNumber++) {
-    const range = getResultZipPartRange(
-      partNumber,
-      uploadPlan.partSizeBytes,
-      uploadPlan.sizeBytes,
-    )
-    const part = await context.run(`mirror-zip-part-${partNumber}`, async () =>
-      uploadResultZipPart({
-        pathname: uploadPlan.pathname,
-        key: uploadPlan.key,
-        uploadId: uploadPlan.uploadId,
-        partNumber,
-        jobId: jobToPrepare.jobId,
-        client,
-        ...range,
-      }),
-    )
-    parts.push(part)
-    logger.info("workflow: result ZIP part mirrored", {
-      sourceId,
-      jobId: jobToPrepare.jobId,
-      partNumber,
-      partCount: uploadPlan.partCount,
-      startByte: range.startByte,
-      endByte: range.endByte,
-    })
-  }
-
-  const resultBlobUrl = await context.run("mirror-zip-complete", async () => {
-    const result = await completeResultZipMultipartUpload({
-      pathname: uploadPlan.pathname,
-      key: uploadPlan.key,
-      uploadId: uploadPlan.uploadId,
-      parts,
-    })
-    return result.url
-  })
-  logger.info("workflow: result ZIP multipart upload completed", {
-    sourceId,
-    jobId: jobToPrepare.jobId,
-    partCount: parts.length,
-  })
-
-  await context.run("parse-result-save-zip", async () => {
-    const saved = await sourceWorkflowRuntime.mergeParseAssetUrls(
-      workspaceId,
-      sourceId,
-      {
-        resultBlobUrl,
-        assetUrlsByFilePath: {},
-      },
-    )
-    if (!saved) throw new Error("Source disappeared before saving result ZIP.")
-  })
-  logger.info("workflow: result ZIP parse-result row saved", {
-    sourceId,
-    jobId: jobToPrepare.jobId,
-  })
-
-  await context.run("source-save-document-id", async () => {
-    const saved = await sourceWorkflowRuntime.markParsing(
-      workspaceId,
-      sourceId,
-      jobToPrepare.jobId,
-      jobToPrepare.documentId,
-      "parsing",
-    )
-    if (!saved) throw new Error("Source disappeared before saving document id.")
-  })
-  logger.info("workflow: source document id saved for asset continuation", {
-    sourceId,
-    jobId: jobToPrepare.jobId,
-  })
-
-  await context.run("trigger-asset-continuation-0", async () =>
-    triggerContinuation({
-      url: context.url,
-      payload: {
-        workspaceId,
-        sourceId,
-        apiKey,
-        phase: "asset-batches",
-        segmentIndex: 0,
-      },
-      workflowRunId: getAssetWorkflowRunId(sourceId, 0),
-    }),
-  )
-  logger.info("workflow: parsed asset continuation triggered", {
-    sourceId,
-    jobId: jobToPrepare.jobId,
-    segmentIndex: 0,
-  })
-}
-
-async function runAssetBatchWorkflow(input: {
-  readonly context: ReconcileWorkflowContext
-  readonly payload: NormalizedReconcilePayload
-}): Promise<void> {
-  const { context, payload } = input
-  const { workspaceId, sourceId, apiKey, segmentIndex } = payload
-  const client = makeKnowhereClient(apiKey)
-  const source = await context.run("load-source", async () =>
-    sourceWorkflowRuntime.findInWorkspace(workspaceId, sourceId),
-  )
-  if (!source) {
-    logger.info("workflow: asset continuation resolved missing source", {
-      sourceId,
-      segmentIndex,
-    })
-    return
-  }
-  if (source.status !== "parsing") {
-    logger.info("workflow: asset continuation resolved non-parsing source", {
-      sourceId,
-      segmentIndex,
-      status: source.status,
-    })
-    return
-  }
-
-  const jobId = source.knowhereJobId
-  const documentId = source.knowhereDocumentId
-  if (!jobId || !documentId) {
-    await context.run("asset-continuation-failed-missing-job", async () =>
-      sourceWorkflowRuntime.markFailed(
-        workspaceId,
-        sourceId,
-        "Source artifact preparation is missing Knowhere job metadata.",
-        "parsing",
-      ),
-    )
-    logger.error("workflow: asset continuation missing Knowhere metadata", {
-      sourceId,
-      segmentIndex,
-      hasJobId: Boolean(jobId),
-      hasDocumentId: Boolean(documentId),
-    })
-    return
-  }
-
-  const progress = await context.run("load-parse-progress", async () =>
-    sourceWorkflowRuntime.getParseResultProgress(workspaceId, sourceId),
-  )
-  if (!progress) {
-    await context.run("asset-continuation-failed-missing-progress", async () =>
-      sourceWorkflowRuntime.markFailed(
-        workspaceId,
-        sourceId,
-        "Source artifact preparation is missing the mirrored parse result ZIP.",
-        "parsing",
-      ),
-    )
-    logger.error("workflow: asset continuation missing parse-result progress", {
-      sourceId,
-      segmentIndex,
-      jobId,
-    })
-    return
-  }
-
-  let batchIndex = 0
-  let lastBatch: {
-    readonly uploadedCount: number
-    readonly remainingCount: number
-    readonly hasMore: boolean
-  } | null = null
-  while (batchIndex < maxAssetBatchesPerWorkflowRun) {
-    const batch = await context.run(
-      `parse-assets-batch-${segmentIndex}-${batchIndex}`,
-      async () =>
-        prepareParsedResultAssetBatch({
-          workspaceId,
-          sourceId,
-          jobId,
-          documentId,
-          resultBlobUrl: progress.resultBlobUrl,
-          client,
-          repository: sourceWorkflowRuntime,
-        }),
-    )
-    lastBatch = batch
-    logger.info("workflow: parsed asset batch prepared", {
-      sourceId,
-      jobId,
-      segmentIndex,
-      batchIndex,
-      uploadedCount: batch.uploadedCount,
-      remainingCount: batch.remainingCount,
-      hasMore: batch.hasMore,
-    })
-    if (!batch.hasMore) break
-    batchIndex += 1
-  }
-
-  if (lastBatch?.hasMore) {
-    const nextSegmentIndex = segmentIndex + 1
-    await context.run(`trigger-asset-continuation-${nextSegmentIndex}`, async () =>
-      triggerContinuation({
-        url: context.url,
-        payload: {
-          workspaceId,
-          sourceId,
-          apiKey,
-          phase: "asset-batches",
-          segmentIndex: nextSegmentIndex,
-        },
-        workflowRunId: getAssetWorkflowRunId(sourceId, nextSegmentIndex),
-      }),
-    )
-    logger.info("workflow: parsed asset continuation triggered", {
-      sourceId,
-      jobId,
-      segmentIndex: nextSegmentIndex,
-      remainingCount: lastBatch.remainingCount,
-    })
-    return
-  }
-
   const ready = await context.run("source-ready", async () =>
     markSourceReadyAfterReconciliation({
       workspaceId,
       sourceId,
-      documentId,
+      documentId: jobToPrepare.documentId,
     }),
   )
-  logger.info("workflow: source artifact preparation finished", {
+  logger.info("workflow: source parse reconciliation finished", {
     sourceId,
-    jobId,
+    jobId: jobToPrepare.jobId,
     status: ready.status,
-    segmentIndex,
-    assetBatches: batchIndex + 1,
   })
 }
 
@@ -441,7 +139,7 @@ function normalizeReconcilePayload(
     workspaceId: payload.workspaceId,
     sourceId: payload.sourceId,
     apiKey: payload.apiKey,
-    phase: payload.phase ?? "poll-and-mirror",
+    phase: "poll-and-ready",
     segmentIndex:
       typeof payload.segmentIndex === "number" &&
       Number.isInteger(payload.segmentIndex) &&
@@ -465,10 +163,6 @@ async function triggerReconcileContinuation(
     workflowRunId: input.workflowRunId,
     retries: 3,
   })
-}
-
-function getAssetWorkflowRunId(sourceId: string, segmentIndex: number): string {
-  return `${sourceId}-assets-${segmentIndex}`
 }
 
 function getPollWorkflowRunId(sourceId: string, segmentIndex: number): string {
@@ -515,11 +209,9 @@ function getSafeFailureReason(value: string): string {
 }
 
 export const sourceReconcileRouteWorkflow = {
-  getAssetWorkflowRunId,
   getPollWorkflowRunId,
   markSourceFailedAfterWorkflowFailure,
   normalizeReconcilePayload,
-  runAssetBatchWorkflow,
   runPollAndMirrorWorkflow,
   setContinuationTriggerForTesting,
 }

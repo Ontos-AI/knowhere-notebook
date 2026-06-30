@@ -119,7 +119,7 @@ describe("source route service", () => {
     expect(listHiddenDemoSourceIds).toHaveBeenCalledWith(workspace.id);
   });
 
-  it("localizes shared default and legacy namespace documents into workspace sources", async () => {
+  it("lists shared default and legacy namespace documents as lightweight remote sources", async () => {
     const localReadySource: Source = {
       ...source,
       id: "source_ready",
@@ -140,6 +140,16 @@ describe("source route service", () => {
               mimeType: "application/pdf",
             },
           },
+        ],
+        pagination: {
+          page: 1,
+          page_size: 200,
+          total: 2,
+          total_pages: 2,
+        },
+      })
+      .mockResolvedValueOnce({
+        documents: [
           {
             documentId: "doc_local",
             namespace: "default",
@@ -147,6 +157,12 @@ describe("source route service", () => {
             sourceFileName: "local-duplicate.pdf",
           },
         ],
+        pagination: {
+          page: 2,
+          pageSize: 200,
+          total: 2,
+          totalPages: 2,
+        },
       })
       .mockResolvedValueOnce({
         documents: [
@@ -157,6 +173,12 @@ describe("source route service", () => {
             sourceFileName: "legacy.pdf",
           },
         ],
+        pagination: {
+          page: 1,
+          pageSize: 200,
+          total: 1,
+          totalPages: 1,
+        },
       });
     const knowhereClient = {
       documents: {
@@ -178,37 +200,7 @@ describe("source route service", () => {
         upload: vi.fn(),
       },
     };
-    const localizedDefaultSource: Source = {
-      ...source,
-      id: "00000000-0000-0000-0000-000000000101",
-      title: "cli.pdf",
-      mimeType: "application/pdf",
-      status: "ready",
-      knowhereJobId: null,
-      knowhereDocumentId: "doc_default",
-    };
-    const refreshedLocalSource: Source = {
-      ...localReadySource,
-      title: "local-duplicate.pdf",
-      mimeType: "application/octet-stream",
-      status: "ready",
-      knowhereJobId: null,
-      knowhereDocumentId: "doc_local",
-    };
-    const localizedLegacySource: Source = {
-      ...source,
-      id: "00000000-0000-0000-0000-000000000102",
-      title: "legacy.pdf",
-      mimeType: "application/octet-stream",
-      status: "ready",
-      knowhereJobId: null,
-      knowhereDocumentId: "doc_legacy",
-    };
-    const localizeRemoteDocument = vi
-      .fn()
-      .mockResolvedValueOnce(localizedDefaultSource)
-      .mockResolvedValueOnce(refreshedLocalSource)
-      .mockResolvedValueOnce(localizedLegacySource);
+    const localizeRemoteDocument = vi.fn();
     const listing = createRouteListing({
       demoApi: {
         fetchCatalog: vi.fn(async () => emptyDemoCatalog),
@@ -234,72 +226,47 @@ describe("source route service", () => {
 
     expect(listDocuments).toHaveBeenNthCalledWith(1, {
       namespace: "default",
+      page: 1,
+      pageSize: 200,
     });
     expect(listDocuments).toHaveBeenNthCalledWith(2, {
-      namespace: workspace.namespace,
+      namespace: "default",
+      page: 2,
+      pageSize: 200,
     });
-    expect(localizeRemoteDocument).toHaveBeenNthCalledWith(
-      1,
-      workspace.id,
-      {
-        documentId: "doc_default",
-        namespace: "default",
-        status: "ready",
-        title: "cli.pdf",
-        mimeType: "application/pdf",
-        sourceFileName: "cli.pdf",
-        documentMetadata: {
-          mimeType: "application/pdf",
-        },
-      },
-    );
-    expect(localizeRemoteDocument).toHaveBeenNthCalledWith(
-      2,
-      workspace.id,
-      {
-        documentId: "doc_local",
-        namespace: "default",
-        status: "ready",
-        title: "local-duplicate.pdf",
-        sourceFileName: "local-duplicate.pdf",
-        documentMetadata: {},
-      },
-    );
-    expect(localizeRemoteDocument).toHaveBeenNthCalledWith(
-      3,
-      workspace.id,
-      {
-        documentId: "doc_legacy",
-        namespace: workspace.namespace,
-        status: "ready",
-        title: "legacy.pdf",
-        sourceFileName: "legacy.pdf",
-        documentMetadata: {},
-      },
-    );
+    expect(listDocuments).toHaveBeenNthCalledWith(3, {
+      namespace: workspace.namespace,
+      page: 1,
+      pageSize: 200,
+    });
+    expect(localizeRemoteDocument).not.toHaveBeenCalled();
     expect(result.body.sources).toEqual([
       expect.objectContaining({
         id: "source_ready",
         documentId: "doc_local",
-        title: "local-duplicate.pdf",
+        title: "notes.pdf",
         status: "ready",
       }),
-      expect.objectContaining({
-        id: "00000000-0000-0000-0000-000000000101",
-        kind: "workspace",
+      {
+        id: "knowhere-doc:default:doc_default",
+        kind: "remote",
+        namespace: "default",
         title: "cli.pdf",
         mimeType: "application/pdf",
         status: "ready",
         documentId: "doc_default",
-      }),
-      expect.objectContaining({
-        id: "00000000-0000-0000-0000-000000000102",
-        kind: "workspace",
+        excludedFromQuery: true,
+      },
+      {
+        id: "knowhere-doc:notebook-workspace_1:doc_legacy",
+        kind: "remote",
+        namespace: workspace.namespace,
         title: "legacy.pdf",
         mimeType: "application/octet-stream",
         status: "ready",
         documentId: "doc_legacy",
-      }),
+        excludedFromQuery: true,
+      },
     ]);
   });
 

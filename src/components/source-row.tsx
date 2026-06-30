@@ -37,6 +37,7 @@ export function SourceRow({
   const isBusy = source.status === "uploading" || source.status === "parsing";
   const isFailed = source.status === "failed";
   const isLibrarySource = source.officialLibrary !== undefined;
+  const isRemoteSource = source.kind === "remote";
 
   const iconBg = fileIconTint(source.title);
 
@@ -57,7 +58,7 @@ export function SourceRow({
       >
         <Checkbox
           checked={!source.excludedFromQuery}
-          disabled={!isReady || !onToggleIncluded || isAdding}
+          disabled={!isReady || !onToggleIncluded || isAdding || isRemoteSource}
           onCheckedChange={(checked) =>
             onToggleIncluded?.(source.id, checked === true)
           }
@@ -96,9 +97,7 @@ export function SourceRow({
             }`}
           >
             {isReady
-              ? `${isLibrarySource ? "Official Library" : "Processed"} · ${
-                  source.chunkCount ?? 0
-                } chunks`
+              ? `${getReadySourceLabel(source)} · ${source.chunkCount ?? 0} chunks`
               : source.status === "parsing"
                 ? "Preparing"
                 : source.status === "uploading"
@@ -160,6 +159,12 @@ export function SourceRow({
       </div>
     </div>
   );
+}
+
+function getReadySourceLabel(source: SourceView): string {
+  if (source.officialLibrary !== undefined) return "Official Library";
+  if (source.kind === "remote") return "Remote";
+  return "Processed";
 }
 
 function fileIconTint(title: string): { bg: string; fg: string } {

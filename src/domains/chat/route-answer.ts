@@ -12,7 +12,6 @@ import {
 } from "@/domains/chat/service"
 import { chatTurnPersistence } from "@/domains/chat/chat-turn-persistence"
 import { startBackgroundReconciliation } from "@/domains/sources/background-reconcile"
-import { localizeRemoteLibrarySources } from "@/domains/sources/remote-library"
 import { sourceService } from "@/domains/sources/service"
 import { sourceWorkflowRuntime } from "@/domains/sources/workflow-runtime"
 import { notebookRequestContext } from "@/domains/workspace/request-context"
@@ -69,13 +68,6 @@ const answerChatEffect = (input: AnswerChatInput) =>
         apiKey,
       }),
     )
-    const compatibleSources = yield* localizeRemoteLibrarySources({
-      workspace,
-      client,
-      localSources: sources,
-      localizeDocument: (document) =>
-        sourceService.localizeRemoteDocument(workspace.id, document),
-    })
     const loadSourceAssetUrls = (source: (typeof sources)[number]) =>
       sourceService.getParseAssetUrls(workspace.id, source.id)
 
@@ -83,7 +75,7 @@ const answerChatEffect = (input: AnswerChatInput) =>
       yield* Effect.tryPromise(() =>
         handleChatTurn({
           workspace,
-          sources: compatibleSources,
+          sources,
           question: body.value.question,
           threadId: body.value.threadId,
           excludedSourceIds: body.value.excludedSourceIds,
@@ -93,7 +85,7 @@ const answerChatEffect = (input: AnswerChatInput) =>
           hardenMediaAssetUrls: ({ results, artifacts }) =>
             hardenChatMediaAssetUrls({
               workspaceId: workspace.id,
-              sources: compatibleSources,
+              sources,
               results,
               artifacts,
               loadSourceAssetUrls,

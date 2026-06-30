@@ -11,14 +11,6 @@ export const { POST } = serve<ReconcilePayload>(
     const payload = sourceReconcileRouteWorkflow.normalizeReconcilePayload(
       context.requestPayload,
     )
-    if (payload.phase === "asset-batches") {
-      await sourceReconcileRouteWorkflow.runAssetBatchWorkflow({
-        context,
-        payload,
-      })
-      return
-    }
-
     await sourceReconcileRouteWorkflow.runPollAndMirrorWorkflow({
       context,
       payload,

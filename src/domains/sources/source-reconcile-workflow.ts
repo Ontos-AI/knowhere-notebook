@@ -131,17 +131,6 @@ export async function pollSourceReconciliation({
     return { kind: "resolved", status: "failed" }
   }
 
-  if (!job.resultUrl) {
-    await failSourceAndCleanup({
-      workspaceId,
-      source,
-      reason: "Parsing finished but Knowhere did not publish a result ZIP.",
-      repository,
-      blobStore,
-    })
-    return { kind: "resolved", status: "failed" }
-  }
-
   return {
     kind: "ready-to-prepare",
     jobId,
