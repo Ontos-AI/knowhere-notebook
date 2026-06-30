@@ -2,9 +2,11 @@ import type {
   ChunkKnowhereClient,
   ChunkPage,
   ChunkPageParams,
+} from "@/domains/chunks"
+import type {
   loadChunkPageForSource,
   loadChunksForSource,
-} from "@/domains/chunks"
+} from "@/domains/chunks/server"
 import type { ParsedChunkView } from "@/domains/chunks/types"
 import type { SourceStatus, SourceView } from "@/domains/sources/types"
 import type { AuthUser } from "@/infrastructure/auth"
@@ -23,14 +25,32 @@ type SourceRouteKnowhereClient = UploadKnowhereClient &
     readonly documents: ChunkKnowhereClient["documents"] & {
       list?(params?: {
         readonly namespace?: string
+        readonly page?: number
+        readonly pageSize?: number
       }): Promise<{
         readonly documents: readonly {
           readonly documentId: string
           readonly namespace: string
           readonly status: string
+          readonly currentJobResultId?: string | null
           readonly sourceFileName?: string | null
           readonly documentMetadata?: Record<string, unknown>
         }[]
+        readonly pagination?: {
+          readonly page?: number
+          readonly pageSize?: number
+          readonly total?: number
+          readonly totalPages?: number
+          readonly page_size?: number
+          readonly total_pages?: number
+        }
+      }>
+      get?(documentId: string): Promise<{
+        readonly documentId: string
+        readonly namespace: string
+        readonly status: string
+        readonly currentJobResultId?: string | null
+        readonly sourceFileName?: string | null
       }>
       archive(documentId: string): Promise<unknown>
     }
@@ -151,12 +171,19 @@ type SourceWorkflowService = {
     workspaceId: string,
     input: {
       readonly documentId: string
+      readonly namespace?: string
       readonly title?: string
       readonly mimeType?: string
       readonly sizeBytes?: number
       readonly status: SourceStatus
+      readonly revisionKey?: string | null
     },
   ) => Promise<Source>
+  readonly updateSourceRevisionKey: (
+    workspaceId: string,
+    sourceId: string,
+    revisionKey: string,
+  ) => Promise<Source | null>
   readonly upsertMaterializedDemoSource: (
     workspaceId: string,
     input: {

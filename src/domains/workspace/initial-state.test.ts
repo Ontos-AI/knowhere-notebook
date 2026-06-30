@@ -383,19 +383,15 @@ describe("loadWorkspaceShellInitialState", () => {
     ])
   })
 
-  it("reconciles parsing sources before localizing matching Knowhere documents", async () => {
+  it("keeps matching Notebook uploads parsing while background reconciliation prepares artifacts", async () => {
     const workspace = makeWorkspace()
     const parsingSource = makeSource(workspace.id, {
+      title: "uploaded.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 100,
       status: "parsing",
       knowhereJobId: "job_123",
       knowhereDocumentId: null,
-    })
-    const reconciledSource = makeSource(workspace.id, {
-      id: parsingSource.id,
-      title: "uploaded.pdf",
-      status: "ready",
-      knowhereJobId: null,
-      knowhereDocumentId: "doc_uploaded",
     })
     const client = {
       documents: {
@@ -408,6 +404,12 @@ describe("loadWorkspaceShellInitialState", () => {
                 namespace: "default",
                 status: "active",
                 sourceFileName: "uploaded.pdf",
+                documentMetadata: {
+                  createdByClient: "notebook",
+                  title: "uploaded.pdf",
+                  mimeType: "application/pdf",
+                  sizeBytes: 100,
+                },
               },
             ],
           })
@@ -427,8 +429,8 @@ describe("loadWorkspaceShellInitialState", () => {
         load: vi.fn(),
       },
     } as unknown as InitialStateClient
-    const reconcileSourcesForWorkspace = vi.fn(async () => [reconciledSource])
-    const localizeRemoteDocument = vi.fn(async () => reconciledSource)
+    const reconcileSourcesForWorkspace = vi.fn(async () => [parsingSource])
+    const startBackgroundReconciliation = vi.fn(async () => undefined)
     const deps = createDependencies({
       getClientForWorkspace: vi.fn(async () => ({ client, apiKey: "sk_test" })),
       getOptionalAuthenticated: vi.fn(async () => ({
@@ -441,20 +443,16 @@ describe("loadWorkspaceShellInitialState", () => {
       })),
       listSourcesForWorkspace: vi.fn(async () => [parsingSource]),
       reconcileSourcesForWorkspace,
-      localizeRemoteDocument,
+      startBackgroundReconciliation,
     })
 
     const state = await loadWorkspaceShellInitialState(deps)
 
-    expect(reconcileSourcesForWorkspace).toHaveBeenCalledWith(
-      workspace,
-      client,
-    )
-    expect(localizeRemoteDocument).toHaveBeenCalledWith(
+    expect(reconcileSourcesForWorkspace).not.toHaveBeenCalled()
+    expect(startBackgroundReconciliation).toHaveBeenCalledWith(
       workspace.id,
-      expect.objectContaining({
-        documentId: "doc_uploaded",
-      }),
+      parsingSource.id,
+      "sk_test",
     )
     expect(state.sources).toEqual([
       expect.objectContaining({
@@ -466,8 +464,8 @@ describe("loadWorkspaceShellInitialState", () => {
         kind: "workspace",
         title: "uploaded.pdf",
         mimeType: "application/pdf",
-        status: "ready",
-        documentId: "doc_uploaded",
+        status: "parsing",
+        documentId: undefined,
       },
     ])
   })
@@ -534,17 +532,6 @@ function createDependencies(
     listMessages: vi.fn(async () => []),
     listSourcesForWorkspace: vi.fn(async () => []),
     reconcileSourcesForWorkspace: vi.fn(async () => []),
-    localizeRemoteDocument: vi.fn(async (workspaceId, input) =>
-      makeSource(workspaceId, {
-        id: `source_${input.documentId}`,
-        title: input.title,
-        mimeType: input.mimeType,
-        sizeBytes: input.sizeBytes,
-        status: input.status,
-        knowhereJobId: null,
-        knowhereDocumentId: input.documentId,
-      }),
-    ),
     sourceViewOptionsBySourceId: vi.fn(() => Effect.succeed(new Map())),
     ...overrides,
   }

@@ -1,6 +1,7 @@
 import { Effect } from "effect"
 
 import type { Source } from "@/infrastructure/db/schema"
+import type { SourceView } from "./types"
 import type { SourceStatus } from "./types"
 import { getCompatibleNamespaces, sharedLibraryNamespace } from "./namespace"
 
@@ -8,6 +9,7 @@ type RemoteDocument = {
   readonly documentId: string
   readonly namespace: string
   readonly status: SourceStatus
+  readonly revisionKey?: string
   readonly title?: string
   readonly mimeType?: string
   readonly sizeBytes?: number
@@ -19,19 +21,38 @@ type RemoteDocumentCandidate = RemoteDocument | {
   readonly documentId?: string | null
   readonly namespace?: string | null
   readonly status?: string | null
+  readonly currentJobResultId?: string | null
+  readonly jobResultId?: string | null
+  readonly jobId?: string | null
   readonly sourceFileName?: string | null
   readonly documentMetadata?: Record<string, unknown>
 }
 
 type RemoteDocumentListResponse = {
   readonly documents: readonly RemoteDocumentCandidate[]
+  readonly pagination?: RemoteDocumentListPagination
+}
+
+type RemoteDocumentListPagination = {
+  readonly page?: number
+  readonly pageSize?: number
+  readonly total?: number
+  readonly totalPages?: number
+  readonly page_size?: number
+  readonly total_pages?: number
+}
+
+type RemoteDocumentListParams = {
+  readonly namespace?: string
+  readonly page?: number
+  readonly pageSize?: number
 }
 
 type RemoteDocumentClient = {
   readonly documents?: {
-    readonly list?: (params?: {
-      readonly namespace?: string
-    }) => Promise<RemoteDocumentListResponse>
+    readonly list?: (
+      params?: RemoteDocumentListParams,
+    ) => Promise<RemoteDocumentListResponse>
   }
 }
 
@@ -56,6 +77,12 @@ type RemoteDocumentRaw = {
   readonly documentId?: unknown
   readonly namespace?: unknown
   readonly status?: unknown
+  readonly current_job_result_id?: unknown
+  readonly currentJobResultId?: unknown
+  readonly job_result_id?: unknown
+  readonly jobResultId?: unknown
+  readonly job_id?: unknown
+  readonly jobId?: unknown
   readonly source_file_name?: unknown
   readonly sourceFileName?: unknown
   readonly document_metadata?: unknown
@@ -63,6 +90,12 @@ type RemoteDocumentRaw = {
 }
 
 export type RemoteLibraryDocument = RemoteDocument
+
+const remoteSourceIdPrefix = "knowhere-doc"
+const remoteDocumentPageSize = 200
+const emptyRemoteDocumentListResponse: RemoteDocumentListResponse = {
+  documents: [],
+}
 
 export function listRemoteLibraryDocuments(
   input: RemoteLibraryProjectionInput,
@@ -73,30 +106,92 @@ export function listRemoteLibraryDocuments(
 
     for (const namespace of getCompatibleNamespaces(input.workspace)) {
       if (!input.client.documents?.list) continue
-      const response = yield* Effect.tryPromise(() =>
-        input.client.documents?.list?.({
-          namespace,
-        }) ??
-        Promise.resolve({ documents: [] }),
-      ).pipe(
-        Effect.catchAll(() =>
-          Effect.succeed({
-            documents: [],
-          } satisfies RemoteDocumentListResponse),
-        ),
-      )
+      let page = 1
+      let totalPages = 1
 
-      for (const rawDocument of response.documents ?? []) {
-        const document = normalizeRemoteDocument(rawDocument)
-        if (!document) continue
-        if (seenDocumentIds.has(document.documentId)) continue
+      do {
+        const response = yield* Effect.tryPromise(() =>
+          input.client.documents?.list?.({
+            namespace,
+            page,
+            pageSize: remoteDocumentPageSize,
+          }) ??
+          Promise.resolve(emptyRemoteDocumentListResponse),
+        ).pipe(
+          Effect.catchAll(() =>
+            Effect.succeed(emptyRemoteDocumentListResponse),
+          ),
+        )
 
-        seenDocumentIds.add(document.documentId)
-        documents.push(document)
-      }
+        for (const rawDocument of response.documents ?? []) {
+          const document = normalizeRemoteDocument(rawDocument)
+          if (!document) continue
+          if (seenDocumentIds.has(document.documentId)) continue
+
+          seenDocumentIds.add(document.documentId)
+          documents.push(document)
+        }
+
+        totalPages = getRemoteDocumentTotalPages(response.pagination)
+        page += 1
+      } while (page <= totalPages)
     }
 
     return documents
+  })
+}
+
+export function listRemoteLibrarySourceViews(
+  input: RemoteLibraryProjectionInput,
+): Effect.Effect<readonly SourceView[], never> {
+  return Effect.gen(function* () {
+    const localDocumentIds = new Set(
+      input.localSources.flatMap((source): string[] =>
+        source.knowhereDocumentId ? [source.knowhereDocumentId] : [],
+      ),
+    )
+    const remoteDocuments = (yield* listRemoteLibraryDocuments(input)).filter(
+      (document) =>
+        !localDocumentIds.has(document.documentId) &&
+        !matchesActiveNotebookParsingSource(document, input.localSources),
+    )
+
+    return remoteDocuments.map(toRemoteSourceView)
+  })
+}
+
+export function decodeRemoteSourceId(sourceId: string): {
+  readonly namespace: string
+  readonly documentId: string
+} | null {
+  const parts = sourceId.split(":")
+  if (parts.length !== 3 || parts[0] !== remoteSourceIdPrefix) return null
+
+  const namespace = decodeRemoteSourceIdSegment(parts[1] ?? "")
+  const documentId = decodeRemoteSourceIdSegment(parts[2] ?? "")
+  if (!namespace || !documentId) return null
+
+  return { namespace, documentId }
+}
+
+export function findRemoteLibraryDocumentBySourceId(input: {
+  readonly sourceId: string
+  readonly workspace: RemoteLibraryWorkspace
+  readonly client: RemoteDocumentClient
+  readonly localSources: readonly Source[]
+}): Effect.Effect<RemoteLibraryDocument | null, never> {
+  return Effect.gen(function* () {
+    const decoded = decodeRemoteSourceId(input.sourceId)
+    if (!decoded) return null
+
+    const documents = yield* listRemoteLibraryDocuments(input)
+    return (
+      documents.find(
+        (document) =>
+          document.documentId === decoded.documentId &&
+          document.namespace === decoded.namespace,
+      ) ?? null
+    )
   })
 }
 
@@ -104,7 +199,10 @@ export function localizeRemoteLibrarySources(
   input: RemoteLibraryLocalizationInput,
 ): Effect.Effect<readonly Source[], never> {
   return Effect.gen(function* () {
-    const remoteDocuments = yield* listRemoteLibraryDocuments(input)
+    const remoteDocuments = (yield* listRemoteLibraryDocuments(input)).filter(
+      (document) =>
+        !matchesActiveNotebookParsingSource(document, input.localSources),
+    )
     if (remoteDocuments.length === 0) return input.localSources
 
     const localizedSources = yield* Effect.all(
@@ -140,6 +238,14 @@ function normalizeRemoteDocument(
   const status = getString(raw.status) ?? "ready"
   if (status === "archived") return null
 
+  const revisionKey = getString(
+    raw.jobId ??
+      raw.job_id ??
+      raw.currentJobResultId ??
+      raw.current_job_result_id ??
+      raw.jobResultId ??
+      raw.job_result_id,
+  )
   const documentMetadata = getRecord(
     raw.documentMetadata ?? raw.document_metadata,
   )
@@ -156,6 +262,7 @@ function normalizeRemoteDocument(
     documentId,
     namespace,
     status: getRemoteSourceStatus(status),
+    ...(revisionKey ? { revisionKey } : {}),
     ...(title ? { title } : {}),
     ...(mimeType ? { mimeType } : {}),
     ...(sizeBytes !== undefined ? { sizeBytes } : {}),
@@ -164,10 +271,66 @@ function normalizeRemoteDocument(
   }
 }
 
+function toRemoteSourceView(document: RemoteDocument): SourceView {
+  return {
+    id: encodeRemoteSourceId(document),
+    kind: "remote",
+    namespace: document.namespace,
+    title: document.title ?? document.documentId,
+    mimeType: document.mimeType ?? "application/octet-stream",
+    status: document.status,
+    documentId: document.documentId,
+    excludedFromQuery: true,
+  }
+}
+
+function encodeRemoteSourceId(
+  document: Pick<RemoteDocument, "documentId" | "namespace">,
+): string {
+  return [
+    remoteSourceIdPrefix,
+    encodeRemoteSourceIdSegment(document.namespace),
+    encodeRemoteSourceIdSegment(document.documentId),
+  ].join(":")
+}
+
+function encodeRemoteSourceIdSegment(value: string): string {
+  return encodeURIComponent(value)
+}
+
+function decodeRemoteSourceIdSegment(value: string): string | null {
+  try {
+    const decoded = decodeURIComponent(value)
+    return decoded.length > 0 ? decoded : null
+  } catch {
+    return null
+  }
+}
+
 function getRemoteSourceStatus(status: string): SourceStatus {
   if (isActiveDocumentStatus(status)) return "ready"
   if (status === "failed") return "failed"
   return "parsing"
+}
+
+function matchesActiveNotebookParsingSource(
+  document: RemoteDocument,
+  localSources: readonly Source[],
+): boolean {
+  if (document.documentMetadata?.createdByClient !== "notebook") return false
+  if (!document.title || !document.mimeType || document.sizeBytes === undefined) {
+    return false
+  }
+
+  return localSources.some(
+    (source) =>
+      source.status === "parsing" &&
+      Boolean(source.knowhereJobId) &&
+      !source.knowhereDocumentId &&
+      source.title === document.title &&
+      source.mimeType === document.mimeType &&
+      source.sizeBytes === document.sizeBytes,
+  )
 }
 
 function isActiveDocumentStatus(status: string): boolean {
@@ -247,6 +410,17 @@ function getString(value: unknown): string | undefined {
 
 function getNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined
+}
+
+function getRemoteDocumentTotalPages(
+  pagination: RemoteDocumentListPagination | undefined,
+): number {
+  const totalPages =
+    getNumber(pagination?.totalPages) ??
+    getNumber(pagination?.total_pages)
+  return totalPages !== undefined && totalPages > 0
+    ? Math.floor(totalPages)
+    : 1
 }
 
 function getRecord(value: unknown): Record<string, unknown> {

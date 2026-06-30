@@ -11,10 +11,11 @@ import {
   type ChatTurnValue,
 } from "@/domains/chat/service"
 import { chatTurnPersistence } from "@/domains/chat/chat-turn-persistence"
-import { reconcileSourcesForWorkspace } from "@/domains/sources/reconcile"
-import { localizeRemoteLibrarySources } from "@/domains/sources/remote-library"
+import { startBackgroundReconciliation } from "@/domains/sources/background-reconcile"
 import { sourceService } from "@/domains/sources/service"
+import { sourceWorkflowRuntime } from "@/domains/sources/workflow-runtime"
 import { notebookRequestContext } from "@/domains/workspace/request-context"
+import type { Source } from "@/infrastructure/db/schema"
 import { isAuthError } from "@/integrations/dashboard/api-key-service"
 import { summarizeUnknownError } from "@/lib/format-log-value"
 import { logger } from "@/lib/logger"
@@ -54,19 +55,19 @@ const answerChatEffect = (input: AnswerChatInput) =>
       return routeResult.error(body.status, body.message)
     }
 
-    const { workspace, client } = yield* Effect.tryPromise(() =>
+    const { workspace, client, apiKey } = yield* Effect.tryPromise(() =>
       notebookRequestContext.getAuthenticatedWithClient(),
     )
     const sources = yield* Effect.tryPromise(() =>
-      reconcileSourcesForWorkspace(workspace, client),
+      sourceWorkflowRuntime.listForWorkspace(workspace.id),
     )
-    const compatibleSources = yield* localizeRemoteLibrarySources({
-      workspace,
-      client,
-      localSources: sources,
-      localizeDocument: (document) =>
-        sourceService.localizeRemoteDocument(workspace.id, document),
-    })
+    yield* Effect.sync(() =>
+      triggerBackgroundReconciliationForParsingSources({
+        workspaceId: workspace.id,
+        sources,
+        apiKey,
+      }),
+    )
     const loadSourceAssetUrls = (source: (typeof sources)[number]) =>
       sourceService.getParseAssetUrls(workspace.id, source.id)
 
@@ -74,7 +75,7 @@ const answerChatEffect = (input: AnswerChatInput) =>
       yield* Effect.tryPromise(() =>
         handleChatTurn({
           workspace,
-          sources: compatibleSources,
+          sources,
           question: body.value.question,
           threadId: body.value.threadId,
           excludedSourceIds: body.value.excludedSourceIds,
@@ -84,7 +85,7 @@ const answerChatEffect = (input: AnswerChatInput) =>
           hardenMediaAssetUrls: ({ results, artifacts }) =>
             hardenChatMediaAssetUrls({
               workspaceId: workspace.id,
-              sources: compatibleSources,
+              sources,
               results,
               artifacts,
               loadSourceAssetUrls,
@@ -141,6 +142,37 @@ async function answerChat(
 
 export const chatAnswerRouteService: ChatAnswerRouteService = {
   answerChat,
+}
+
+function triggerBackgroundReconciliationForParsingSources(input: {
+  readonly workspaceId: string
+  readonly sources: readonly Source[]
+  readonly apiKey: string
+}): void {
+  const parsingSources = input.sources.filter(
+    (source) => source.status === "parsing" && source.knowhereJobId,
+  )
+  if (parsingSources.length === 0) return
+
+  logger.info("chat: re-triggering reconciliation for parsing sources", {
+    workspaceId: input.workspaceId,
+    count: parsingSources.length,
+    sourceIds: parsingSources.map((source) => source.id),
+  })
+
+  for (const source of parsingSources) {
+    void startBackgroundReconciliation(
+      input.workspaceId,
+      source.id,
+      input.apiKey,
+    ).catch((error: unknown) => {
+      logger.warn("chat: background reconciliation trigger failed", {
+        workspaceId: input.workspaceId,
+        sourceId: source.id,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    })
+  }
 }
 
 function toChatRouteFailure(detail: string): ChatRouteFailure {

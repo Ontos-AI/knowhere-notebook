@@ -250,7 +250,8 @@ export function useWorkspaceChatWorkflow({
   async function handleChatSend(text: string): Promise<void> {
     const sendStart = Date.now()
     const selectedSourcesCount = sources.filter(
-      (source) => source.status === "ready" && !source.excludedFromQuery,
+      (source) =>
+        isQueryableReadySource(source) && !source.excludedFromQuery,
     ).length
     const demoSourceIds = getMaterializableDemoSourceIds(sources)
     if (demoSourceIds.length > 0) {
@@ -396,10 +397,14 @@ function getMaterializableDemoSourceIds(
 }
 
 function hasQueryableReadySource(sources: readonly SourceView[]): boolean {
-  return sources.some(
-    (source) =>
-      source.status === "ready" &&
-      !isUnmaterializedOfficialLibrarySource(source),
+  return sources.some(isQueryableReadySource)
+}
+
+function isQueryableReadySource(source: SourceView): boolean {
+  return (
+    source.status === "ready" &&
+    !isUnmaterializedOfficialLibrarySource(source) &&
+    source.kind !== "remote"
   )
 }
 

@@ -5,17 +5,8 @@ import type { JobResult } from "@ontos-ai/knowhere-sdk"
 
 import type { Source } from "@/infrastructure/db/schema"
 import { logger } from "@/lib/logger"
-import type {
-  StoreParsedResultAssetsInput,
-  StoredParsedResultAssets,
-} from "./parsed-result-assets"
 
 type SourceLifecycleRepository = {
-  saveSourceParseResult(
-    workspaceId: string,
-    sourceId: string,
-    input: StoredParsedResultAssets,
-  ): Promise<unknown>
   markSourceReady(
     workspaceId: string,
     sourceId: string,
@@ -30,12 +21,6 @@ type SourceLifecycleRepository = {
   clearSourceStagedBlob(workspaceId: string, sourceId: string): Promise<unknown>
 }
 
-type SourceLifecycleParsedResultStore = {
-  storeParsedResultAssets(
-    input: Omit<StoreParsedResultAssetsInput, "blobStore">,
-  ): Promise<StoredParsedResultAssets>
-}
-
 type SourceLifecycleBlobStore = {
   deleteStagedSourceBlob(pathname: string): Promise<void>
 }
@@ -44,9 +29,7 @@ type ApplyKnowhereJobToSourceInput = {
   workspaceId: string
   source: Source
   job: JobResult
-  client: StoreParsedResultAssetsInput["client"]
   repository: SourceLifecycleRepository
-  parsedResultStore: SourceLifecycleParsedResultStore
   blobStore: SourceLifecycleBlobStore
 }
 
@@ -61,13 +44,11 @@ export const applyKnowhereJobToSourceEffect = Effect.fn(
     workspaceId,
     source,
     job,
-    client,
     repository,
-    parsedResultStore,
     blobStore,
   }: ApplyKnowhereJobToSourceInput) {
-    // Best-effort early exit: skip expensive asset uploads when the source has
-    // already been resolved. The atomic guard (Layer 3) is in the DB UPDATE below.
+    // Best-effort early exit: skip duplicate status transitions when the source
+    // has already been resolved. The atomic guard is in the DB UPDATE below.
     if (source.status !== "parsing") return
 
     if (job.isDone || job.status === "done") {
@@ -77,17 +58,6 @@ export const applyKnowhereJobToSourceEffect = Effect.fn(
           jobId: source.knowhereJobId ?? "",
           documentId: job.documentId,
         })
-        const stored = yield* Effect.tryPromise(() =>
-          parsedResultStore.storeParsedResultAssets({
-            workspaceId,
-            sourceId: source.id,
-            job,
-            client,
-          }),
-        )
-        yield* Effect.tryPromise(() =>
-          repository.saveSourceParseResult(workspaceId, source.id, stored),
-        )
         yield* Effect.tryPromise(() =>
           repository.markSourceReady(workspaceId, source.id, job.documentId!),
         )
@@ -154,9 +124,7 @@ export async function applyKnowhereJobToSource({
   workspaceId,
   source,
   job,
-  client,
   repository,
-  parsedResultStore,
   blobStore,
 }: ApplyKnowhereJobToSourceInput): Promise<void> {
   return Effect.runPromise(
@@ -164,9 +132,7 @@ export async function applyKnowhereJobToSource({
       workspaceId,
       source,
       job,
-      client,
       repository,
-      parsedResultStore,
       blobStore,
     }),
   )

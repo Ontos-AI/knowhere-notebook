@@ -221,11 +221,15 @@ export function useWorkspaceSourceWorkflow({
 function isQueryableReadySource(source: SourceView): boolean {
   if (source.status !== "ready") return false
 
-  return !isUnmaterializedOfficialLibrarySource(source)
+  return !isUnmaterializedOfficialLibrarySource(source) && !isRemoteSource(source)
 }
 
 function isUnmaterializedOfficialLibrarySource(source: SourceView): boolean {
   return source.kind === "demo" && source.officialLibrary !== undefined
+}
+
+function isRemoteSource(source: SourceView): boolean {
+  return source.kind === "remote"
 }
 
 function archiveSourceMutation(

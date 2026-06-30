@@ -25,6 +25,11 @@ type SourceService = {
     workspaceId: string,
     input: Parameters<typeof sourceWorkflowRuntime.localizeRemoteDocument>[1],
   ) => Promise<Source>
+  readonly updateSourceRevisionKey: (
+    workspaceId: string,
+    sourceId: string,
+    revisionKey: string,
+  ) => Promise<Source | null>
   readonly listHiddenDemoSourceIds: (workspaceId: string) => Promise<string[]>
   readonly hideDemoSource: (
     workspaceId: string,
@@ -84,6 +89,7 @@ export const sourceService: SourceService = {
   listHiddenDemoSourceIds: sourceWorkflowRuntime.listHiddenDemoSourceIds,
   listForWorkspace: sourceWorkflowRuntime.listForWorkspace,
   localizeRemoteDocument: sourceWorkflowRuntime.localizeRemoteDocument,
+  updateSourceRevisionKey: sourceWorkflowRuntime.updateRevisionKey,
   softDelete: sourceWorkflowRuntime.softDelete,
   upsertMaterializedDemoSource:
     sourceWorkflowRuntime.upsertMaterializedDemoSource,
