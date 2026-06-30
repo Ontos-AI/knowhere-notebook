@@ -127,6 +127,63 @@ async function runPollAndMirrorWorkflow(input: {
     return
   }
 
+  const existingProgress = await context.run(
+    "parse-result-check-existing",
+    async () =>
+      sourceWorkflowRuntime.getParseResultProgress(workspaceId, sourceId),
+  )
+  if (existingProgress) {
+    const resumeAssetSegmentIndex = await context.run(
+      "create-asset-resume-segment",
+      async () => Date.now(),
+    )
+    const savedAssetCount: number = Object.keys(
+      existingProgress.assetUrlsByFilePath,
+    ).length
+
+    await context.run("source-save-document-id-for-existing-zip", async () => {
+      const saved = await sourceWorkflowRuntime.markParsing(
+        workspaceId,
+        sourceId,
+        jobToPrepare.jobId,
+        jobToPrepare.documentId,
+        "parsing",
+      )
+      if (!saved) throw new Error("Source disappeared before saving document id.")
+    })
+    logger.info("workflow: result ZIP already mirrored; resuming asset batches", {
+      sourceId,
+      jobId: jobToPrepare.jobId,
+      savedAssetCount,
+      segmentIndex: resumeAssetSegmentIndex,
+    })
+
+    await context.run(
+      `trigger-asset-continuation-${resumeAssetSegmentIndex}`,
+      async () =>
+        triggerContinuation({
+          url: context.url,
+          payload: {
+            workspaceId,
+            sourceId,
+            apiKey,
+            phase: "asset-batches",
+            segmentIndex: resumeAssetSegmentIndex,
+          },
+          workflowRunId: getAssetWorkflowRunId(
+            sourceId,
+            resumeAssetSegmentIndex,
+          ),
+        }),
+    )
+    logger.info("workflow: parsed asset continuation triggered", {
+      sourceId,
+      jobId: jobToPrepare.jobId,
+      segmentIndex: resumeAssetSegmentIndex,
+    })
+    return
+  }
+
   const uploadPlan = await context.run("mirror-zip-start", async () =>
     createResultZipMultipartUploadPlan({
       workspaceId,
@@ -317,6 +374,7 @@ async function runAssetBatchWorkflow(input: {
           workspaceId,
           sourceId,
           jobId,
+          documentId,
           resultBlobUrl: progress.resultBlobUrl,
           client,
           repository: sourceWorkflowRuntime,

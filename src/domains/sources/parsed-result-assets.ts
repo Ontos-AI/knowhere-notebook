@@ -114,10 +114,17 @@ export type PrepareParsedResultAssetBatchInput = {
   readonly workspaceId: string
   readonly sourceId: string
   readonly jobId: string
+  readonly documentId?: string
   readonly resultBlobUrl: string
   readonly client: {
     readonly jobs: {
       load(jobId: string): Promise<unknown>
+    }
+    readonly documents?: {
+      listChunks(
+        documentId: string,
+        params: ParsedAssetChunkListParams,
+      ): Promise<ParsedAssetChunkListResponse>
     }
   }
   readonly repository: ParsedResultAssetProgressRepository
@@ -183,6 +190,38 @@ type ParsedAssetUpload = {
   readonly contentType: string
 }
 
+type ParsedAssetChunkType = "image" | "table"
+
+type ParsedAssetChunkListParams = {
+  readonly page: number
+  readonly pageSize: number
+  readonly chunkType: ParsedAssetChunkType
+  readonly includeAssetUrls?: boolean
+}
+
+type ParsedAssetChunkListResponse = {
+  readonly chunks: readonly ParsedAssetChunkIndexItem[]
+  readonly pagination?: {
+    readonly totalPages?: number
+  }
+}
+
+type ParsedAssetChunkIndexItem = {
+  readonly filePath?: string | null
+  readonly sourceChunkPath?: string | null
+  readonly metadata: Readonly<Record<string, unknown>>
+}
+
+type ParsedAssetIndexCompletion =
+  | {
+      readonly kind: "complete"
+      readonly assetCount: number
+    }
+  | {
+      readonly kind: "missing"
+      readonly missingCount: number
+    }
+
 export type StoreParsedResultAssetsInput = {
   workspaceId: string
   sourceId: string
@@ -199,6 +238,7 @@ const parsedResultDirectoryName = "parsed-result"
 const resultZipPartSizeBytes = 8 * 1024 * 1024
 const parsedAssetBatchLimit = 10
 const parsedAssetBatchMaxDurationMs = 45_000
+const parsedAssetChunkPageSize = 200
 const resultZipMetadataTimeoutMs = 15_000
 const resultZipRangeFetchTimeoutMs = 30_000
 const resultZipBlobOperationTimeoutMs = 30_000
@@ -274,6 +314,7 @@ export const prepareParsedResultAssetBatchEffect = Effect.fn(
     workspaceId,
     sourceId,
     jobId,
+    documentId,
     resultBlobUrl,
     client,
     repository,
@@ -286,6 +327,44 @@ export const prepareParsedResultAssetBatchEffect = Effect.fn(
       repository.getParseResultProgress(workspaceId, sourceId),
     )
     const existingAssetUrls = progress?.assetUrlsByFilePath ?? {}
+    const indexedCompletion = yield* Effect.tryPromise(() =>
+      getIndexedAssetCompletion({
+        documentId,
+        existingAssetUrls,
+        client,
+      }),
+    ).pipe(
+      Effect.catchAll((error) =>
+        Effect.sync(() => {
+          logger.warn(
+            "parsed-result-assets: asset index check failed; falling back to result ZIP load",
+            {
+              workspaceId,
+              sourceId,
+              jobId,
+              documentId,
+              error: error instanceof Error ? error.message : String(error),
+            },
+          )
+          return null
+        }),
+      ),
+    )
+    if (indexedCompletion?.kind === "complete") {
+      logger.info("parsed-result-assets: asset index already complete", {
+        workspaceId,
+        sourceId,
+        jobId,
+        documentId,
+        assetCount: indexedCompletion.assetCount,
+      })
+      return {
+        uploadedCount: 0,
+        remainingCount: 0,
+        hasMore: false,
+      }
+    }
+
     const parseResult = (yield* Effect.tryPromise(() =>
       client.jobs.load(jobId),
     )) as ParsedResultWithAssets
@@ -565,6 +644,76 @@ function getUploadableParsedAssets(
   return assets
 }
 
+async function getIndexedAssetCompletion(input: {
+  readonly documentId?: string
+  readonly existingAssetUrls: Readonly<Record<string, string>>
+  readonly client: PrepareParsedResultAssetBatchInput["client"]
+}): Promise<ParsedAssetIndexCompletion | null> {
+  if (!input.documentId || !input.client.documents) return null
+
+  const indexedAssetPaths = await listIndexedAssetPaths(
+    input.client.documents,
+    input.documentId,
+  )
+  const missingCount = indexedAssetPaths.filter(
+    (filePath) => input.existingAssetUrls[filePath] === undefined,
+  ).length
+  if (missingCount > 0) return { kind: "missing", missingCount }
+
+  return {
+    kind: "complete",
+    assetCount: indexedAssetPaths.length,
+  }
+}
+
+async function listIndexedAssetPaths(
+  documents: NonNullable<PrepareParsedResultAssetBatchInput["client"]["documents"]>,
+  documentId: string,
+): Promise<readonly string[]> {
+  const [imagePaths, tablePaths] = await Promise.all([
+    listIndexedAssetPathsByType(documents, documentId, "image"),
+    listIndexedAssetPathsByType(documents, documentId, "table"),
+  ])
+
+  return [...new Set([...imagePaths, ...tablePaths])]
+}
+
+async function listIndexedAssetPathsByType(
+  documents: NonNullable<PrepareParsedResultAssetBatchInput["client"]["documents"]>,
+  documentId: string,
+  chunkType: ParsedAssetChunkType,
+): Promise<readonly string[]> {
+  const paths: string[] = []
+  let page = 1
+  let totalPages = 1
+
+  do {
+    const response = await documents.listChunks(documentId, {
+      page,
+      pageSize: parsedAssetChunkPageSize,
+      chunkType,
+      includeAssetUrls: false,
+    })
+
+    for (const chunk of response.chunks) {
+      const filePath = normalizeParsedAssetPath(
+        getFirstString([
+          chunk.filePath,
+          chunk.metadata["filePath"],
+          chunk.metadata["file_path"],
+          chunk.sourceChunkPath,
+        ]),
+      )
+      if (filePath) paths.push(filePath)
+    }
+
+    totalPages = getSafeTotalPages(response.pagination?.totalPages)
+    page += 1
+  } while (page <= totalPages)
+
+  return paths
+}
+
 function normalizeParsedAssetPath(value: string | undefined): string | null {
   if (!value) return null
   const normalized = value.replaceAll("\\", "/").replace(/^\.\/+/, "")
@@ -584,6 +733,16 @@ function normalizeParsedAssetPath(value: string | undefined): string | null {
   const [directory] = parts
   if (directory !== "images" && directory !== "tables") return null
   return parts.join("/")
+}
+
+function getFirstString(values: readonly unknown[]): string | undefined {
+  return values.find((value): value is string => typeof value === "string")
+}
+
+function getSafeTotalPages(value: number | undefined): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.floor(value)
+    : 1
 }
 
 function getContentTypeForPath(filePath: string): string {

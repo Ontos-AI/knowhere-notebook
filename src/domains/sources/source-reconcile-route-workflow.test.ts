@@ -164,6 +164,140 @@ describe("sourceReconcileRouteWorkflow", () => {
     ])
   })
 
+  it("resumes asset continuation without remirroring an already saved ZIP", async () => {
+    vi.setSystemTime(new Date("2026-06-30T03:20:00.000Z"))
+    const context = createWorkflowContext()
+    const continuations: ContinuationTriggerInput[] = []
+    const restore =
+      sourceReconcileRouteWorkflow.setContinuationTriggerForTesting(
+        async (input) => {
+          continuations.push(input)
+        },
+      )
+    mocks.makeKnowhereClient.mockReturnValue({ jobs: {} })
+    mocks.pollSourceReconciliation.mockResolvedValue({
+      kind: "ready-to-prepare",
+      jobId: "job_1",
+      documentId: "doc_1",
+    })
+    mocks.getParseResultProgress.mockResolvedValue({
+      resultBlobUrl: "https://blob.example/result.zip",
+      assetUrlsByFilePath: {
+        "images/image-1.png": "https://blob.example/images/image-1.png",
+      },
+    })
+    mocks.markParsing.mockResolvedValue(makeSource())
+
+    try {
+      await sourceReconcileRouteWorkflow.runPollAndMirrorWorkflow({
+        context,
+        payload: sourceReconcileRouteWorkflow.normalizeReconcilePayload({
+          workspaceId: "workspace_1",
+          sourceId: "source_1",
+          apiKey: "jwt_1",
+        }),
+      })
+    } finally {
+      restore()
+      vi.useRealTimers()
+    }
+
+    const resumeSegmentIndex = new Date("2026-06-30T03:20:00.000Z").getTime()
+    expect(mocks.createResultZipMultipartUploadPlan).not.toHaveBeenCalled()
+    expect(mocks.uploadResultZipPart).not.toHaveBeenCalled()
+    expect(mocks.completeResultZipMultipartUpload).not.toHaveBeenCalled()
+    expect(mocks.mergeParseAssetUrls).not.toHaveBeenCalled()
+    expect(mocks.markParsing).toHaveBeenCalledWith(
+      "workspace_1",
+      "source_1",
+      "job_1",
+      "doc_1",
+      "parsing",
+    )
+    expect(continuations).toEqual([
+      {
+        url: "https://notebook.example/api/sources/reconcile",
+        payload: {
+          workspaceId: "workspace_1",
+          sourceId: "source_1",
+          apiKey: "jwt_1",
+          phase: "asset-batches",
+          segmentIndex: resumeSegmentIndex,
+        },
+        workflowRunId: sourceReconcileRouteWorkflow.getAssetWorkflowRunId(
+          "source_1",
+          resumeSegmentIndex,
+        ),
+      },
+    ])
+  })
+
+  it("reuses the asset resume segment during workflow replay", async () => {
+    vi.setSystemTime(new Date("2026-06-30T03:20:00.000Z"))
+    const stepResults = new Map<string, unknown>()
+    const context = createWorkflowContext(stepResults)
+    const continuations: ContinuationTriggerInput[] = []
+    const restore =
+      sourceReconcileRouteWorkflow.setContinuationTriggerForTesting(
+        async (input) => {
+          continuations.push(input)
+        },
+      )
+    mocks.makeKnowhereClient.mockReturnValue({ jobs: {} })
+    mocks.pollSourceReconciliation.mockResolvedValue({
+      kind: "ready-to-prepare",
+      jobId: "job_1",
+      documentId: "doc_1",
+    })
+    mocks.getParseResultProgress.mockResolvedValue({
+      resultBlobUrl: "https://blob.example/result.zip",
+      assetUrlsByFilePath: {
+        "images/image-1.png": "https://blob.example/images/image-1.png",
+      },
+    })
+    mocks.markParsing.mockResolvedValue(makeSource())
+
+    try {
+      await sourceReconcileRouteWorkflow.runPollAndMirrorWorkflow({
+        context,
+        payload: sourceReconcileRouteWorkflow.normalizeReconcilePayload({
+          workspaceId: "workspace_1",
+          sourceId: "source_1",
+          apiKey: "jwt_1",
+        }),
+      })
+      vi.setSystemTime(new Date("2026-06-30T03:20:14.000Z"))
+      await sourceReconcileRouteWorkflow.runPollAndMirrorWorkflow({
+        context: createWorkflowContext(stepResults),
+        payload: sourceReconcileRouteWorkflow.normalizeReconcilePayload({
+          workspaceId: "workspace_1",
+          sourceId: "source_1",
+          apiKey: "jwt_1",
+        }),
+      })
+    } finally {
+      restore()
+      vi.useRealTimers()
+    }
+
+    const resumeSegmentIndex = new Date("2026-06-30T03:20:00.000Z").getTime()
+    expect(continuations).toHaveLength(1)
+    expect(continuations[0]?.workflowRunId).toBe(
+      sourceReconcileRouteWorkflow.getAssetWorkflowRunId(
+        "source_1",
+        resumeSegmentIndex,
+      ),
+    )
+    expect([...stepResults.keys()]).toContain(
+      `trigger-asset-continuation-${resumeSegmentIndex}`,
+    )
+    expect([...stepResults.keys()]).not.toContain(
+      `trigger-asset-continuation-${new Date(
+        "2026-06-30T03:20:14.000Z",
+      ).getTime()}`,
+    )
+  })
+
   it("limits asset continuation work and triggers the next segment when assets remain", async () => {
     const context = createWorkflowContext()
     const continuations: ContinuationTriggerInput[] = []
@@ -321,13 +455,18 @@ type ContinuationTriggerInput = Parameters<
   ? Input
   : never
 
-function createWorkflowContext(): {
+function createWorkflowContext(stepResults = new Map<string, unknown>()): {
   readonly run: <T>(stepName: string, step: () => Promise<T> | T) => Promise<T>
   readonly sleep: (stepName: string, duration: number | string) => Promise<void>
   readonly url: string
 } {
   return {
-    run: async (_stepName, step) => step(),
+    run: async <T>(stepName: string, step: () => Promise<T> | T) => {
+      if (stepResults.has(stepName)) return stepResults.get(stepName) as T
+      const result = await step()
+      stepResults.set(stepName, result)
+      return result
+    },
     sleep: vi.fn(async () => undefined),
     url: "https://notebook.example/api/sources/reconcile",
   }

@@ -5,15 +5,14 @@ import { Client } from "@upstash/workflow"
 
 import { logger } from "@/lib/logger"
 
-// Re-trigger protection: Layers 1 & 2.
+// Re-trigger protection: bounded process guard plus bucketed workflow IDs.
 //
-// Layer 1 — Upstash idempotency via workflowRunId=sourceId ensures at most one
-// running workflow per source, even across process restarts or multiple instances.
-//
-// Layer 2 — In-memory Set avoids the network call entirely when the same process
-// already triggered a workflow for this source.
+// Continuation workflows use deterministic run IDs, but the initial trigger
+// must stay retryable after an old completed workflow run. The cooldown avoids
+// duplicate same-process trigger calls without permanently blocking a source.
 
-const triggeredSourceIds = new Set<string>()
+const triggerCooldownMs: number = 5 * 60_000
+const lastTriggeredAtBySourceId: Map<string, number> = new Map()
 
 function resolveBaseURL(): string {
   return process.env.NOTEBOOK_PUBLIC_URL ?? "http://localhost:3000"
@@ -29,8 +28,15 @@ const startBackgroundReconciliationEffect = (
   apiKey: string,
 ): Effect.Effect<void> =>
   Effect.gen(function* () {
-    if (triggeredSourceIds.has(sourceId)) return
-    triggeredSourceIds.add(sourceId)
+    const now = Date.now()
+    const lastTriggeredAt = lastTriggeredAtBySourceId.get(sourceId)
+    if (
+      lastTriggeredAt !== undefined &&
+      now - lastTriggeredAt < triggerCooldownMs
+    ) {
+      return
+    }
+    lastTriggeredAtBySourceId.set(sourceId, now)
 
     const token = process.env.QSTASH_TOKEN
     if (!token) {
@@ -38,7 +44,7 @@ const startBackgroundReconciliationEffect = (
         sourceId,
         workspaceId,
       })
-      triggeredSourceIds.delete(sourceId)
+      lastTriggeredAtBySourceId.delete(sourceId)
       return
     }
 
@@ -53,7 +59,7 @@ const startBackgroundReconciliationEffect = (
         return await new Client({ token }).trigger({
           url,
           body: { workspaceId, sourceId, apiKey },
-          workflowRunId: sourceId,
+          workflowRunId: `${sourceId}-${Math.floor(now / triggerCooldownMs)}`,
           retries: 3,
         })
       } catch (err) {
@@ -72,7 +78,7 @@ const startBackgroundReconciliationEffect = (
   }).pipe(
     Effect.catchAllCause((cause) =>
       Effect.sync(() => {
-        triggeredSourceIds.delete(sourceId)
+        lastTriggeredAtBySourceId.delete(sourceId)
         logger.error("background-reconcile: failed to trigger workflow", {
           sourceId,
           workspaceId,

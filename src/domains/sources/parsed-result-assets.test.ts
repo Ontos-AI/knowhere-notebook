@@ -415,6 +415,202 @@ describe("prepareParsedResultAssetBatch", () => {
       hasMore: false,
     })
   })
+
+  it("uses indexed document assets to complete without loading the result ZIP", async () => {
+    const client = {
+      jobs: {
+        load: vi.fn(),
+      },
+      documents: {
+        listChunks: vi.fn(async (_documentId: string, params: {
+          readonly chunkType: "image" | "table"
+        }) => ({
+          chunks:
+            params.chunkType === "image"
+              ? [
+                  {
+                    filePath: "images/image-1.jpg",
+                    sourceChunkPath: null,
+                    metadata: {},
+                  },
+                ]
+              : [
+                  {
+                    filePath: "tables/table-1.html",
+                    sourceChunkPath: null,
+                    metadata: {},
+                  },
+                ],
+          pagination: {
+            totalPages: 1,
+          },
+        })),
+      },
+    }
+    const repository = {
+      getParseResultProgress: vi.fn(async () => ({
+        resultBlobUrl: "https://blob.example/result.zip",
+        assetUrlsByFilePath: {
+          "images/image-1.jpg": "https://blob.example/images/image-1.jpg",
+          "tables/table-1.html": "https://blob.example/tables/table-1.html",
+        },
+      })),
+      mergeParseAssetUrls: vi.fn(async () => undefined),
+    }
+
+    const result = await prepareParsedResultAssetBatch({
+      workspaceId: "workspace_1",
+      sourceId: "source_1",
+      jobId: "job_1",
+      documentId: "doc_1",
+      resultBlobUrl: "https://blob.example/result.zip",
+      client,
+      repository,
+    })
+
+    expect(client.documents.listChunks).toHaveBeenCalledWith("doc_1", {
+      page: 1,
+      pageSize: 200,
+      chunkType: "image",
+      includeAssetUrls: false,
+    })
+    expect(client.documents.listChunks).toHaveBeenCalledWith("doc_1", {
+      page: 1,
+      pageSize: 200,
+      chunkType: "table",
+      includeAssetUrls: false,
+    })
+    expect(client.jobs.load).not.toHaveBeenCalled()
+    expect(repository.mergeParseAssetUrls).not.toHaveBeenCalled()
+    expect(result).toEqual({
+      uploadedCount: 0,
+      remainingCount: 0,
+      hasMore: false,
+    })
+  })
+
+  it("falls back to loading the result ZIP when indexed assets are missing", async () => {
+    const client = {
+      jobs: {
+        load: vi.fn(async () => ({
+          imageChunks: [
+            {
+              filePath: "images/image-2.png",
+              data: Buffer.from("new image"),
+            },
+          ],
+          tableChunks: [],
+        })),
+      },
+      documents: {
+        listChunks: vi.fn(async () => ({
+          chunks: [
+            {
+              filePath: "images/image-2.png",
+              sourceChunkPath: null,
+              metadata: {},
+            },
+          ],
+          pagination: {
+            totalPages: 1,
+          },
+        })),
+      },
+    }
+    const repository = {
+      getParseResultProgress: vi.fn(async () => ({
+        resultBlobUrl: "https://blob.example/result.zip",
+        assetUrlsByFilePath: {
+          "images/image-1.jpg": "https://blob.example/images/image-1.jpg",
+        },
+      })),
+      mergeParseAssetUrls: vi.fn(async () => undefined),
+    }
+    const blobStore = {
+      put: vi.fn(async (pathname: string) => ({
+        url: `https://blob.example/${pathname}`,
+      })),
+    }
+
+    const result = await prepareParsedResultAssetBatch({
+      workspaceId: "workspace_1",
+      sourceId: "source_1",
+      jobId: "job_1",
+      documentId: "doc_1",
+      resultBlobUrl: "https://blob.example/result.zip",
+      client,
+      repository,
+      blobStore,
+    })
+
+    expect(client.jobs.load).toHaveBeenCalledWith("job_1")
+    expect(blobStore.put).toHaveBeenCalledWith(
+      "workspaces/workspace_1/sources/source_1/parsed-result/images/image-2.png",
+      Buffer.from("new image"),
+      expect.objectContaining({ contentType: "image/png" }),
+    )
+    expect(result).toEqual({
+      uploadedCount: 1,
+      remainingCount: 0,
+      hasMore: false,
+    })
+  })
+
+  it("falls back to loading the result ZIP when the asset index check fails", async () => {
+    const client = {
+      jobs: {
+        load: vi.fn(async () => ({
+          imageChunks: [
+            {
+              filePath: "images/image-3.png",
+              data: Buffer.from("new image"),
+            },
+          ],
+          tableChunks: [],
+        })),
+      },
+      documents: {
+        listChunks: vi.fn(async () => {
+          throw new Error("index unavailable")
+        }),
+      },
+    }
+    const repository = {
+      getParseResultProgress: vi.fn(async () => ({
+        resultBlobUrl: "https://blob.example/result.zip",
+        assetUrlsByFilePath: {},
+      })),
+      mergeParseAssetUrls: vi.fn(async () => undefined),
+    }
+    const blobStore = {
+      put: vi.fn(async (pathname: string) => ({
+        url: `https://blob.example/${pathname}`,
+      })),
+    }
+
+    const result = await prepareParsedResultAssetBatch({
+      workspaceId: "workspace_1",
+      sourceId: "source_1",
+      jobId: "job_1",
+      documentId: "doc_1",
+      resultBlobUrl: "https://blob.example/result.zip",
+      client,
+      repository,
+      blobStore,
+    })
+
+    expect(client.jobs.load).toHaveBeenCalledWith("job_1")
+    expect(blobStore.put).toHaveBeenCalledWith(
+      "workspaces/workspace_1/sources/source_1/parsed-result/images/image-3.png",
+      Buffer.from("new image"),
+      expect.objectContaining({ contentType: "image/png" }),
+    )
+    expect(result).toEqual({
+      uploadedCount: 1,
+      remainingCount: 0,
+      hasMore: false,
+    })
+  })
 })
 
 function makeJobResult(): JobResult {
