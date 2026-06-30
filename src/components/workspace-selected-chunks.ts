@@ -38,7 +38,7 @@ export function useWorkspaceSelectedChunks({
     ? prefetchedChunksBySourceId[selectedSourceId]
     : undefined
   const selectedChunkSourceId =
-    selectedSource && selectedSource.status === "ready" && !prefetchedSelectedChunks
+    selectedSource && selectedSource.status === "ready"
       ? selectedSource.id
       : null
   const {
@@ -59,19 +59,22 @@ export function useWorkspaceSelectedChunks({
       keepPreviousData: false,
     },
   )
-  const resolvedPrefetchedChunks = useMemo(
-    () =>
-      prefetchedSelectedChunks
-        ? resolveChunkConnectionTargets(prefetchedSelectedChunks)
-        : undefined,
-    [prefetchedSelectedChunks],
-  )
   const pagedSelectedChunks = useMemo(
     () =>
       resolveChunkConnectionTargets(
         (selectedChunkPages ?? []).flatMap((page) => page.chunks ?? []),
       ),
     [selectedChunkPages],
+  )
+  const resolvedPrefetchedChunks = useMemo(
+    () =>
+      prefetchedSelectedChunks
+        ? mergeVisibleChunkAssetUrls(
+            resolveChunkConnectionTargets(prefetchedSelectedChunks),
+            pagedSelectedChunks,
+          )
+        : undefined,
+    [pagedSelectedChunks, prefetchedSelectedChunks],
   )
   const selectedChunks = selectedSourceId
     ? (resolvedPrefetchedChunks ?? pagedSelectedChunks)
@@ -113,4 +116,27 @@ function fetchChunksByKey([
   page,
 ]: SourceChunksKey): Promise<SourceChunksResponse> {
   return workspaceClient.fetchChunkPage(sourceId, page)
+}
+
+function mergeVisibleChunkAssetUrls(
+  chunks: readonly ParsedChunkView[],
+  visibleChunks: readonly ParsedChunkView[],
+): ParsedChunkView[] {
+  if (visibleChunks.length === 0) return [...chunks]
+
+  const visibleChunksById = new Map(
+    visibleChunks.map((chunk) => [chunk.chunkId, chunk]),
+  )
+
+  return chunks.map((chunk) => {
+    if (chunk.assetUrl) return chunk
+
+    const visibleChunk = visibleChunksById.get(chunk.chunkId)
+    if (!visibleChunk?.assetUrl) return chunk
+
+    return {
+      ...chunk,
+      assetUrl: visibleChunk.assetUrl,
+    }
+  })
 }

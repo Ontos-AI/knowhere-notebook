@@ -401,6 +401,7 @@ export function ChunksPanel({
                         hasOriginalFile ? handleChunkSelected : undefined
                       }
                       onReferenceClick={requestChunkFocus}
+                      selectedSourceFile={selectedSourceFile}
                     />
                   ))}
                 </div>
@@ -1129,6 +1130,7 @@ function VirtualChunkRow({
   measureElement,
   onChunkClick,
   onReferenceClick,
+  selectedSourceFile,
 }: {
   virtualItem: VirtualItem;
   chunk: ParsedChunkView | undefined;
@@ -1137,6 +1139,7 @@ function VirtualChunkRow({
   measureElement: (node: HTMLDivElement | null) => void;
   onChunkClick?: (chunk: ParsedChunkView) => void;
   onReferenceClick: (chunkId: string) => void;
+  selectedSourceFile: SourceOriginalFileView | null;
 }): ReactNode {
   if (!chunk) {
     return null;
@@ -1163,6 +1166,7 @@ function VirtualChunkRow({
         isOriginalPreviewAvailable={isOriginalPreviewAvailable}
         onChunkClick={onChunkClick}
         onReferenceClick={onReferenceClick}
+        sourceOriginalFile={selectedSourceFile}
       />
     </div>
   );

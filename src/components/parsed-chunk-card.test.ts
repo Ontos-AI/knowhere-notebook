@@ -182,4 +182,33 @@ describe("ParsedChunkCard", () => {
     expect(table.innerHTML).not.toContain("script");
     expect(table.innerHTML).not.toContain("onclick");
   });
+
+  it("renders the original image file when an image chunk has no asset URL", () => {
+    render(
+      React.createElement(ParsedChunkCard, {
+        chunk: {
+          chunkId: "image_1",
+          type: "image",
+          content: "Logo summary",
+          summary: "A black and white logo.",
+          sourceTitle: "logo.png",
+        },
+        isFocused: false,
+        onReferenceClick: vi.fn(),
+        sourceOriginalFile: {
+          url: "https://blob.example/source-uploads/logo.png",
+          mimeType: "image/png",
+        },
+      }),
+    );
+
+    const image = screen.getByRole("img", {
+      name: "A black and white logo.",
+    });
+
+    expect(image.getAttribute("src")).toBe(
+      "https://blob.example/source-uploads/logo.png",
+    );
+    expect(screen.queryByText("Image content is not available in this view.")).toBeNull();
+  });
 });
