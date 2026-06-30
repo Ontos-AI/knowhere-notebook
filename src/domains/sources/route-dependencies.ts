@@ -53,6 +53,7 @@ const defaultDependencies: SourceRouteServiceDependencies = {
     softDelete: defaultSourceService.softDelete,
     upsertMaterializedDemoSource:
       defaultSourceService.upsertMaterializedDemoSource,
+    retrySourceToKnowhere: defaultSourceService.retrySourceToKnowhere,
     uploadSourceBlobToKnowhere: defaultSourceService.uploadSourceBlobToKnowhere,
     uploadSourceToKnowhere: defaultSourceService.uploadSourceToKnowhere,
   },

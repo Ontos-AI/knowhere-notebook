@@ -213,6 +213,7 @@ function WorkspaceShellContent({
   return (
     <WorkspaceShellLayout
       archivingSourceIds={sourceWorkflow.archivingSourceIds}
+      retryingSourceIds={sourceWorkflow.retryingSourceIds}
       addingLibrarySourceIds={sourceWorkflow.addingLibrarySourceIds}
       archivingThreadIds={chatWorkflow.archivingThreadIds}
       chat={chatWorkflow.chat}
@@ -245,6 +246,7 @@ function WorkspaceShellContent({
       analyticsContext={analyticsContext}
       onArchiveChatThread={chatWorkflow.handleArchiveChatThread}
       onArchiveSource={sourceWorkflow.handleArchiveSource}
+      onRetrySource={sourceWorkflow.handleRetrySource}
       onChatSend={chatWorkflow.handleChatSend}
       onCitationClick={citationFocus.handleCitationClick}
       onCreateChatThread={chatWorkflow.handleCreateChatThread}

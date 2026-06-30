@@ -19,6 +19,7 @@ type WorkspaceSourceWorkflow = {
   readonly addingLibrarySourceIds: string[]
   readonly archivingSourceIds: string[]
   readonly handleArchiveSource: (sourceId: string) => Promise<void>
+  readonly handleRetrySource: (sourceId: string) => Promise<void>
   readonly handleOfficialLibrarySourceAdd: (demoSourceId: string) => Promise<boolean>
   readonly handleSelectedSourceChange: (sourceId: string | null) => void
   readonly handleSourcesMaterialized: (
@@ -28,6 +29,7 @@ type WorkspaceSourceWorkflow = {
   readonly handleSourceUploaded: (source: SourceView) => void
   readonly handleToggleIncluded: (sourceId: string, included: boolean) => void
   readonly readySourceCount: number
+  readonly retryingSourceIds: string[]
   readonly selectedSourceId: string | null
   readonly setSelectedSourceId: (sourceId: string | null) => void
   readonly sourceTitlesByDocumentId: Readonly<Record<string, string>>
@@ -36,6 +38,7 @@ type WorkspaceSourceWorkflow = {
 
 const sourcesSWRKey = workspaceClient.keys.sources
 const archiveSourceSWRKey = workspaceClient.keys.archiveSource
+const retrySourceSWRKey = workspaceClient.keys.retrySource
 const materializeDemoSourceSWRKey = workspaceClient.keys.materializeDemoSources
 
 export function useWorkspaceSourceWorkflow({
@@ -55,6 +58,7 @@ export function useWorkspaceSourceWorkflow({
     Record<string, boolean>
   >({})
   const [archivingSourceIds, setArchivingSourceIds] = useState<string[]>([])
+  const [retryingSourceIds, setRetryingSourceIds] = useState<string[]>([])
   const [addingLibrarySourceIds, setAddingLibrarySourceIds] = useState<string[]>(
     [],
   )
@@ -94,6 +98,10 @@ export function useWorkspaceSourceWorkflow({
   const { trigger: archiveSource } = useSWRMutation(
     archiveSourceSWRKey,
     archiveSourceMutation,
+  )
+  const { trigger: retrySource } = useSWRMutation(
+    retrySourceSWRKey,
+    retrySourceMutation,
   )
   const { trigger: materializeDemoSources } = useSWRMutation(
     materializeDemoSourceSWRKey,
@@ -181,6 +189,27 @@ export function useWorkspaceSourceWorkflow({
     }
   }
 
+  async function handleRetrySource(sourceId: string): Promise<void> {
+    setRetryingSourceIds((current) =>
+      workspaceSourceState.addPendingId(current, sourceId),
+    )
+    try {
+      const source = await retrySource(sourceId)
+      void mutateSources(
+        (current) =>
+          workspaceSourceState.upsertSource(current ?? sourceRows, source),
+        { revalidate: false },
+      )
+      void mutateSources()
+    } catch {
+      void mutateSources()
+    } finally {
+      setRetryingSourceIds((current) =>
+        workspaceSourceState.removePendingId(current, sourceId),
+      )
+    }
+  }
+
   async function handleOfficialLibrarySourceAdd(
     demoSourceId: string,
   ): Promise<boolean> {
@@ -205,12 +234,14 @@ export function useWorkspaceSourceWorkflow({
     addingLibrarySourceIds,
     archivingSourceIds,
     handleArchiveSource,
+    handleRetrySource,
     handleOfficialLibrarySourceAdd,
     handleSelectedSourceChange,
     handleSourcesMaterialized,
     handleSourceUploaded,
     handleToggleIncluded,
     readySourceCount,
+    retryingSourceIds,
     selectedSourceId: resolvedSelectedSourceId,
     setSelectedSourceId,
     sourceTitlesByDocumentId,
@@ -237,6 +268,13 @@ function archiveSourceMutation(
   { arg: sourceId }: { readonly arg: string },
 ): ReturnType<typeof workspaceClient.archiveSource> {
   return workspaceClient.archiveSource(sourceId)
+}
+
+function retrySourceMutation(
+  _key: string,
+  { arg: sourceId }: { readonly arg: string },
+): ReturnType<typeof workspaceClient.retrySource> {
+  return workspaceClient.retrySource(sourceId)
 }
 
 function materializeDemoSourcesMutation(

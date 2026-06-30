@@ -9,6 +9,7 @@ import {
   uploadSourceBlobToKnowhereEffect,
   uploadSourceToKnowhereEffect,
 } from "./upload"
+import { retrySourceToKnowhereEffect } from "./retry"
 import { sourceWorkflowRuntime } from "./workflow-runtime"
 
 type SourceService = {
@@ -55,6 +56,11 @@ type SourceService = {
     input: SourceBlobUploadInput,
     knowhere: UploadKnowhereClient,
   ) => Promise<Source>
+  readonly retrySourceToKnowhere: (
+    workspace: Workspace,
+    source: Source,
+    knowhere: UploadKnowhereClient,
+  ) => Promise<Source>
 }
 
 const uploadSourceToKnowhere: SourceService["uploadSourceToKnowhere"] = (
@@ -82,6 +88,21 @@ const uploadSourceBlobToKnowhere: SourceService["uploadSourceBlobToKnowhere"] =
       }),
     )
 
+const retrySourceToKnowhere: SourceService["retrySourceToKnowhere"] = (
+  workspace: Workspace,
+  source: Source,
+  knowhere: UploadKnowhereClient,
+) =>
+  Effect.runPromise(
+    retrySourceToKnowhereEffect(workspace, source, {
+      repository: {
+        markSourceFailed: sourceWorkflowRuntime.markFailed,
+        markSourceParsing: sourceWorkflowRuntime.markParsing,
+      },
+      knowhere,
+    }),
+  )
+
 export const sourceService: SourceService = {
   findInWorkspace: sourceWorkflowRuntime.findInWorkspace,
   getParseAssetUrls: sourceWorkflowRuntime.getParseAssetUrls,
@@ -95,4 +116,5 @@ export const sourceService: SourceService = {
     sourceWorkflowRuntime.upsertMaterializedDemoSource,
   uploadSourceToKnowhere,
   uploadSourceBlobToKnowhere,
+  retrySourceToKnowhere,
 }

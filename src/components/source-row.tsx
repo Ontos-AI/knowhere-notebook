@@ -2,7 +2,7 @@
 
 import type { ReactElement } from "react";
 import Link from "next/link";
-import { FileText, ListTree, Plus, Trash2 } from "lucide-react";
+import { FileText, ListTree, Plus, RotateCcw, Trash2 } from "lucide-react";
 
 import { Checkbox } from "@/components/ui/checkbox";
 import { Spinner } from "@/components/ui/spinner";
@@ -13,9 +13,11 @@ export type SourceRowProps = {
   readonly isArchiving: boolean;
   readonly isAdding?: boolean;
   readonly isNarrow?: boolean;
+  readonly isRetrying?: boolean;
   readonly isSelected: boolean;
   readonly onAddClick?: (sourceId: string) => void;
   readonly onArchiveClick?: (sourceId: string) => void;
+  readonly onRetryClick?: (sourceId: string) => void;
   readonly onSelect: () => void;
   readonly onToggleIncluded?: (sourceId: string, included: boolean) => void;
   readonly source: SourceView;
@@ -30,12 +32,15 @@ export function SourceRow({
   onSelect,
   onToggleIncluded,
   onArchiveClick,
+  onRetryClick,
   chunkTreeHref,
   isArchiving,
+  isRetrying = false,
 }: SourceRowProps): ReactElement {
   const isReady = source.status === "ready";
   const isBusy = source.status === "uploading" || source.status === "parsing";
   const isFailed = source.status === "failed";
+  const canRetry = isFailed && source.originalFile !== undefined;
   const isLibrarySource = source.officialLibrary !== undefined;
   const isRemoteSource = source.kind === "remote";
 
@@ -104,6 +109,11 @@ export function SourceRow({
                   ? "Uploading"
                   : "Failed"}
           </p>
+          {isFailed && source.failureMessage ? (
+            <p className="mt-0.5 truncate text-[11px] font-medium normal-case tracking-normal text-destructive/80">
+              {source.failureMessage}
+            </p>
+          ) : null}
         </div>
       </button>
       <div className="flex shrink-0 items-center justify-self-end">
@@ -137,6 +147,26 @@ export function SourceRow({
             {isNarrow ? null : "Add"}
           </button>
         )}
+        {canRetry && onRetryClick ? (
+          <button
+            type="button"
+            disabled={isRetrying || isArchiving}
+            onClick={(event) => {
+              event.stopPropagation();
+              if (isRetrying || isArchiving) return;
+              onRetryClick(source.id);
+            }}
+            className="shrink-0 rounded-lg p-1 text-muted-foreground hover:bg-primary/10 hover:text-primary disabled:cursor-wait disabled:opacity-70"
+            aria-label={`Retry ${source.title} processing`}
+            title="Retry processing"
+          >
+            {isRetrying ? (
+              <Spinner className="size-3.5" />
+            ) : (
+              <RotateCcw className="size-3.5" />
+            )}
+          </button>
+        ) : null}
         {onArchiveClick && (
           <button
             type="button"

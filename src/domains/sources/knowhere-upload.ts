@@ -14,6 +14,7 @@ import type {
 import { validateUploadFile } from "./validation"
 import { TempFile, tempFileLayer } from "@/lib/temp-files"
 import { getUploadNamespace } from "./namespace"
+import { sourceFailureMessage } from "./failure-message"
 
 /**
  * Upload a browser file to Knowhere for parsing.
@@ -74,7 +75,10 @@ export const uploadSourceToKnowhereEffect = (
       Effect.provide(tempFileLayer),
       Effect.catchAll((err) =>
         Effect.gen(function* () {
-          const message = "Knowhere upload failed."
+          const message = sourceFailureMessage.fromUnknown(
+            err,
+            "Knowhere upload failed.",
+          )
           yield* Effect.promise(() =>
             deps.repository.markSourceFailed(
               workspace.id,
@@ -133,9 +137,12 @@ export const uploadSourceBlobToKnowhereEffect = (
         deps,
       })
     }).pipe(
-      Effect.catchAll(() =>
+      Effect.catchAll((err) =>
         Effect.gen(function* () {
-          const message = "Knowhere upload failed."
+          const message = sourceFailureMessage.fromUnknown(
+            err,
+            "Knowhere upload failed.",
+          )
           const failedSource = yield* Effect.promise(() =>
             deps.repository.markSourceFailed(
               workspace.id,

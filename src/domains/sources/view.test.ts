@@ -53,7 +53,7 @@ describe("toSourceView", () => {
     });
   });
 
-  it("does not expose internal job ids or failure internals", () => {
+  it("does not expose internal job ids or non-failed failure internals", () => {
     expect(
       toSourceView(
         makeSource({
@@ -68,6 +68,28 @@ describe("toSourceView", () => {
       title: "notes.pdf",
       mimeType: "application/pdf",
       status: "parsing",
+      documentId: undefined,
+    });
+  });
+
+  it("exposes a brief failed message for failed source rows", () => {
+    expect(
+      toSourceView(
+        makeSource({
+          status: "failed",
+          knowhereDocumentId: null,
+          failureReason:
+            "Retry attempt 1 for POST /v1/jobs: Error [RateLimitError]: Too many concurrent requests (2/2 active). Please retry after 30 seconds.\n    at iM.handleError",
+        }),
+      ),
+    ).toEqual({
+      id: "source_1",
+      kind: "workspace",
+      title: "notes.pdf",
+      mimeType: "application/pdf",
+      status: "failed",
+      failureMessage:
+        "Too many concurrent requests (2/2 active). Please retry after 30 seconds.",
       documentId: undefined,
     });
   });

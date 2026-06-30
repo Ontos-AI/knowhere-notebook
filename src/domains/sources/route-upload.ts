@@ -84,9 +84,11 @@ const uploadSourceEffect = (
       ),
     )
 
-    yield* Effect.tryPromise(() =>
-      startBackgroundReconciliation(workspace.id, source.id, apiKey),
-    )
+    if (source.status === "parsing") {
+      yield* Effect.tryPromise(() =>
+        startBackgroundReconciliation(workspace.id, source.id, apiKey),
+      )
+    }
 
     return routeResult.ok({ source: toSourceView(source) }, 201)
   })
