@@ -64,6 +64,7 @@ type SourceRowRepository = {
     sourceId: string,
     jobId: string,
     documentId?: string,
+    requiredStatus?: string,
   ) => Effect.Effect<Source | null, never, DbClient>
   readonly markReadyEffect: (
     workspaceId: string,
@@ -178,13 +179,14 @@ const markParsingEffect: SourceRowRepository["markParsingEffect"] = (
   sourceId: string,
   jobId: string,
   documentId?: string,
+  requiredStatus?: string,
 ) =>
   updateInWorkspaceEffect(workspaceId, sourceId, {
     status: "parsing",
     knowhereJobId: jobId,
     knowhereDocumentId: documentId,
     failureReason: null,
-  })
+  }, requiredStatus)
 
 const markReadyEffect: SourceRowRepository["markReadyEffect"] = (
   workspaceId: string,

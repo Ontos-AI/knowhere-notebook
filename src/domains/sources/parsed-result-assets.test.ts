@@ -198,27 +198,35 @@ describe("result ZIP multipart mirroring", () => {
     })
     expect(fetchResult).toHaveBeenCalledWith(
       "https://knowhere.example/result.zip",
-      { method: "HEAD" },
+      expect.objectContaining({
+        method: "HEAD",
+        signal: expect.any(AbortSignal),
+      }),
     )
     expect(fetchResult).toHaveBeenCalledWith(
       "https://knowhere.example/result.zip",
-      { headers: { Range: `bytes=0-${partSizeBytes - 1}` } },
+      expect.objectContaining({
+        headers: { Range: `bytes=0-${partSizeBytes - 1}` },
+        signal: expect.any(AbortSignal),
+      }),
     )
     expect(fetchResult).toHaveBeenCalledWith(
       "https://knowhere.example/result.zip",
-      {
+      expect.objectContaining({
         headers: {
           Range: `bytes=${partSizeBytes}-${partSizeBytes * 2 - 1}`,
         },
-      },
+        signal: expect.any(AbortSignal),
+      }),
     )
     expect(fetchResult).toHaveBeenCalledWith(
       "https://knowhere.example/result.zip",
-      {
+      expect.objectContaining({
         headers: {
           Range: `bytes=${partSizeBytes * 2}-${partSizeBytes * 2 + 2}`,
         },
-      },
+        signal: expect.any(AbortSignal),
+      }),
     )
     expect(blobStore.uploadPart).toHaveBeenCalledTimes(3)
     expect(blobStore.completeMultipartUpload).toHaveBeenCalledWith(
@@ -234,6 +242,62 @@ describe("result ZIP multipart mirroring", () => {
       }),
     )
     expect(completed.url).toBe("https://blob.example/result.zip")
+  })
+
+  it("falls back to a one-byte range request when HEAD does not expose ZIP size", async () => {
+    const sizeBytes = 12_345
+    const fetchResult = vi.fn(async (_url: string | URL, init?: RequestInit) => {
+      if (init?.method === "HEAD") {
+        return new Response(null, { status: 405 })
+      }
+
+      return new Response(Buffer.from("x"), {
+        status: 206,
+        headers: {
+          "content-range": `bytes 0-0/${sizeBytes}`,
+        },
+      })
+    })
+    const client = {
+      jobs: {
+        get: vi.fn(async () => ({
+          resultUrl: "https://knowhere.example/result.zip",
+        })),
+      },
+    }
+    const blobStore = {
+      createMultipartUpload: vi.fn(async () => ({
+        key: "blob-key",
+        uploadId: "upload-1",
+      })),
+      uploadPart: vi.fn(),
+      completeMultipartUpload: vi.fn(),
+    }
+
+    const plan = await createResultZipMultipartUploadPlan({
+      workspaceId: "workspace_1",
+      sourceId: "source_1",
+      jobId: "job_1",
+      client,
+      blobStore,
+      fetchResult,
+    })
+
+    expect(fetchResult).toHaveBeenCalledWith(
+      "https://knowhere.example/result.zip",
+      expect.objectContaining({
+        method: "HEAD",
+        signal: expect.any(AbortSignal),
+      }),
+    )
+    expect(fetchResult).toHaveBeenCalledWith(
+      "https://knowhere.example/result.zip",
+      expect.objectContaining({
+        headers: { Range: "bytes=0-0" },
+        signal: expect.any(AbortSignal),
+      }),
+    )
+    expect(plan.sizeBytes).toBe(sizeBytes)
   })
 })
 

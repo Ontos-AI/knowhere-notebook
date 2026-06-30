@@ -10,6 +10,8 @@ import {
 import { Effect } from "effect"
 import type { JobResult } from "@ontos-ai/knowhere-sdk"
 
+import { logger } from "@/lib/logger"
+
 export type StoredParsedResultAssets = {
   resultBlobUrl: string
   assetUrlsByFilePath: Readonly<Record<string, string>>
@@ -197,6 +199,10 @@ const parsedResultDirectoryName = "parsed-result"
 const resultZipPartSizeBytes = 8 * 1024 * 1024
 const parsedAssetBatchLimit = 10
 const parsedAssetBatchMaxDurationMs = 45_000
+const resultZipMetadataTimeoutMs = 15_000
+const resultZipRangeFetchTimeoutMs = 30_000
+const resultZipBlobOperationTimeoutMs = 30_000
+const parsedAssetBlobOperationTimeoutMs = 30_000
 
 // ---------------------------------------------------------------------------
 // Effect core
@@ -296,10 +302,14 @@ export const prepareParsedResultAssetBatchEffect = Effect.fn(
       if (uploadedCount > 0 && Date.now() - startedAt >= maxDurationMs) break
 
       const blob = yield* Effect.tryPromise(() =>
-        blobStore.put(
-          `${blobPrefix}/${asset.filePath}`,
-          asset.body,
-          getBlobPutOptions(asset.contentType),
+        withTimeout(
+          `Parsed asset upload for ${asset.filePath}`,
+          parsedAssetBlobOperationTimeoutMs,
+          blobStore.put(
+            `${blobPrefix}/${asset.filePath}`,
+            asset.body,
+            getBlobPutOptions(asset.contentType),
+          ),
         ),
       )
       uploadedAssetUrls[asset.filePath] = blob.url
@@ -361,16 +371,18 @@ export async function createResultZipMultipartUploadPlan({
   fetchResult = fetch,
   partSizeBytes = resultZipPartSizeBytes,
 }: CreateResultZipMultipartUploadPlanInput): Promise<ResultZipMultipartUploadPlan> {
+  const startedAt = Date.now()
   const job = await client.jobs.get(jobId)
   const resultUrl = requireJobResultUrl(job, jobId)
   const sizeBytes = await getResultZipSize(resultUrl, fetchResult)
   const pathname = `${getParsedResultBlobPrefix(workspaceId, sourceId)}/result.zip`
-  const upload = await blobStore.createMultipartUpload(
-    pathname,
-    getResultZipBlobOptions(),
+  const upload = await withTimeout(
+    "Create result ZIP multipart upload",
+    resultZipBlobOperationTimeoutMs,
+    blobStore.createMultipartUpload(pathname, getResultZipBlobOptions()),
   )
 
-  return {
+  const uploadPlan: ResultZipMultipartUploadPlan = {
     pathname,
     key: upload.key,
     uploadId: upload.uploadId,
@@ -378,6 +390,15 @@ export async function createResultZipMultipartUploadPlan({
     partSizeBytes,
     partCount: Math.max(1, Math.ceil(sizeBytes / partSizeBytes)),
   }
+  logger.info("parsed-result-assets: result ZIP upload plan created", {
+    workspaceId,
+    sourceId,
+    jobId,
+    sizeBytes,
+    partCount: uploadPlan.partCount,
+    durationMs: Date.now() - startedAt,
+  })
+  return uploadPlan
 }
 
 export function getResultZipPartRange(
@@ -420,6 +441,7 @@ export async function uploadResultZipPart({
   blobStore = vercelMultipartBlobStore,
   fetchResult = fetch,
 }: UploadResultZipPartInput): Promise<MultipartUploadPart> {
+  const startedAt = Date.now()
   const job = await client.jobs.get(jobId)
   const resultUrl = requireJobResultUrl(job, jobId)
   const body = await fetchResultZipRange({
@@ -429,12 +451,25 @@ export async function uploadResultZipPart({
     fetchResult,
   })
 
-  return blobStore.uploadPart(pathname, body, {
-    ...getResultZipBlobOptions(),
-    key,
-    uploadId,
+  const part = await withTimeout(
+    `Upload result ZIP part ${partNumber}`,
+    resultZipBlobOperationTimeoutMs,
+    blobStore.uploadPart(pathname, body, {
+      ...getResultZipBlobOptions(),
+      key,
+      uploadId,
+      partNumber,
+    }),
+  )
+  logger.info("parsed-result-assets: result ZIP part uploaded", {
+    jobId,
     partNumber,
+    startByte,
+    endByte,
+    byteLength: body.byteLength,
+    durationMs: Date.now() - startedAt,
   })
+  return part
 }
 
 export async function completeResultZipMultipartUpload({
@@ -444,15 +479,25 @@ export async function completeResultZipMultipartUpload({
   parts,
   blobStore = vercelMultipartBlobStore,
 }: CompleteResultZipMultipartUploadInput): Promise<{ readonly url: string }> {
-  return blobStore.completeMultipartUpload(
-    pathname,
-    [...parts].sort((a, b) => a.partNumber - b.partNumber),
-    {
-      ...getResultZipBlobOptions(),
-      key,
-      uploadId,
-    },
+  const startedAt = Date.now()
+  const result = await withTimeout(
+    "Complete result ZIP multipart upload",
+    resultZipBlobOperationTimeoutMs,
+    blobStore.completeMultipartUpload(
+      pathname,
+      [...parts].sort((a, b) => a.partNumber - b.partNumber),
+      {
+        ...getResultZipBlobOptions(),
+        key,
+        uploadId,
+      },
+    ),
   )
+  logger.info("parsed-result-assets: result ZIP multipart upload completed", {
+    partCount: parts.length,
+    durationMs: Date.now() - startedAt,
+  })
+  return result
 }
 
 export async function prepareParsedResultAssetBatch(
@@ -555,7 +600,13 @@ async function getResultZipSize(
   resultUrl: string,
   fetchResult: ResultZipFetch,
 ): Promise<number> {
-  const headResponse = await fetchResult(resultUrl, { method: "HEAD" })
+  const headResponse = await fetchWithTimeout({
+    description: "Knowhere result ZIP HEAD request",
+    input: resultUrl,
+    init: { method: "HEAD" },
+    timeoutMs: resultZipMetadataTimeoutMs,
+    fetchResult,
+  })
   if (headResponse.ok) {
     const contentLength = getPositiveIntegerHeader(
       headResponse.headers,
@@ -564,10 +615,16 @@ async function getResultZipSize(
     if (contentLength !== null) return contentLength
   }
 
-  const rangeResponse = await fetchResult(resultUrl, {
-    headers: {
-      Range: "bytes=0-0",
+  const rangeResponse = await fetchWithTimeout({
+    description: "Knowhere result ZIP size range request",
+    input: resultUrl,
+    init: {
+      headers: {
+        Range: "bytes=0-0",
+      },
     },
+    timeoutMs: resultZipMetadataTimeoutMs,
+    fetchResult,
   })
   await rangeResponse.body?.cancel()
 
@@ -593,10 +650,16 @@ async function fetchResultZipRange(input: {
   readonly fetchResult: ResultZipFetch
 }): Promise<Buffer> {
   const expectedByteLength = input.endByte - input.startByte + 1
-  const response = await input.fetchResult(input.resultUrl, {
-    headers: {
-      Range: `bytes=${input.startByte}-${input.endByte}`,
+  const response = await fetchWithTimeout({
+    description: "Knowhere result ZIP range fetch",
+    input: input.resultUrl,
+    init: {
+      headers: {
+        Range: `bytes=${input.startByte}-${input.endByte}`,
+      },
     },
+    timeoutMs: resultZipRangeFetchTimeoutMs,
+    fetchResult: input.fetchResult,
   })
 
   if (!response.ok) {
@@ -615,6 +678,58 @@ async function fetchResultZipRange(input: {
     )
   }
   return body
+}
+
+async function fetchWithTimeout(input: {
+  readonly description: string
+  readonly input: string | URL
+  readonly init?: RequestInit
+  readonly timeoutMs: number
+  readonly fetchResult: ResultZipFetch
+}): Promise<Response> {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => {
+    controller.abort(new Error(`${input.description} timed out.`))
+  }, input.timeoutMs)
+
+  try {
+    return await input.fetchResult(input.input, {
+      ...input.init,
+      signal: controller.signal,
+    })
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error(
+        `${input.description} timed out after ${input.timeoutMs}ms.`,
+      )
+    }
+    throw error
+  } finally {
+    clearTimeout(timeoutId)
+  }
+}
+
+function withTimeout<T>(
+  description: string,
+  timeoutMs: number,
+  promise: Promise<T>,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      reject(new Error(`${description} timed out after ${timeoutMs}ms.`))
+    }, timeoutMs)
+
+    promise.then(
+      (value) => {
+        clearTimeout(timeoutId)
+        resolve(value)
+      },
+      (error: unknown) => {
+        clearTimeout(timeoutId)
+        reject(error)
+      },
+    )
+  })
 }
 
 function getPositiveIntegerHeader(

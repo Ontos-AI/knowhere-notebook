@@ -31,6 +31,7 @@ type UploadRepositoryRuntime = {
     sourceId: string,
     jobId: string,
     documentId?: string,
+    requiredStatus?: string,
   ) => Promise<Source | null>
   readonly markFailed: (
     workspaceId: string,
@@ -144,6 +145,7 @@ const markParsing: SourceWorkflowRuntime["markParsing"] = (
   sourceId: string,
   jobId: string,
   documentId?: string,
+  requiredStatus?: string,
 ) =>
   databaseRuntime.runPromise(
     sourceRepository.markParsingEffect(
@@ -151,6 +153,7 @@ const markParsing: SourceWorkflowRuntime["markParsing"] = (
       sourceId,
       jobId,
       documentId,
+      requiredStatus,
     ),
   )
 

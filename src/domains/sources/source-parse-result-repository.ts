@@ -41,6 +41,12 @@ type SourceParseResultRepository = {
   ) => Effect.Effect<Readonly<Record<string, string>>, never, DbClient>
 }
 
+export function buildAtomicAssetUrlsMergeSql(
+  assetUrlsByFilePath: Readonly<Record<string, string>>,
+) {
+  return sql`${sourceParseResults.assetUrls} || ${JSON.stringify(assetUrlsByFilePath)}::jsonb`
+}
+
 const saveParseResultEffect: SourceParseResultRepository["saveParseResultEffect"] =
   (workspaceId: string, sourceId: string, input: SaveSourceParseResultInput) =>
     Effect.gen(function* () {
@@ -81,34 +87,21 @@ const mergeParseAssetUrlsEffect: SourceParseResultRepository["mergeParseAssetUrl
       )
       if (!source) return null
 
-      const [current] = yield* Effect.promise(() =>
-        db
-          .select({
-            resultBlobUrl: sourceParseResults.resultBlobUrl,
-            assetUrls: sourceParseResults.assetUrls,
-          })
-          .from(sourceParseResults)
-          .where(eq(sourceParseResults.sourceId, sourceId))
-          .limit(1),
-      )
-      const assetUrlsByFilePath = {
-        ...(current?.assetUrls ?? {}),
-        ...input.assetUrlsByFilePath,
-      }
-
       const [result] = yield* Effect.promise(() =>
         db
           .insert(sourceParseResults)
           .values({
             sourceId,
             resultBlobUrl: input.resultBlobUrl,
-            assetUrls: assetUrlsByFilePath,
+            assetUrls: input.assetUrlsByFilePath,
           })
           .onConflictDoUpdate({
             target: sourceParseResults.sourceId,
             set: {
               resultBlobUrl: input.resultBlobUrl,
-              assetUrls: assetUrlsByFilePath,
+              assetUrls: buildAtomicAssetUrlsMergeSql(
+                input.assetUrlsByFilePath,
+              ),
               updatedAt: sql`now()`,
             },
           })
