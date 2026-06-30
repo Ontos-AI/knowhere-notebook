@@ -787,6 +787,131 @@ describe("source route service", () => {
     );
     expect(onUploadFinished).toHaveBeenCalledOnce();
   });
+
+  it("retries a failed source from its saved original Blob", async () => {
+    const failedSource: Source = {
+      ...source,
+      status: "failed",
+      failureReason: "Knowhere upload failed.",
+      originalBlobPathname: "source-uploads/upload_1/document.pdf",
+      originalBlobUrl:
+        "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
+    };
+    const parsingSource: Source = {
+      ...failedSource,
+      status: "parsing",
+      failureReason: null,
+      knowhereJobId: "job_retry",
+    };
+    const knowhereClient = {
+      jobs: {
+        create: vi.fn(),
+        get: vi.fn(),
+        upload: vi.fn(),
+      },
+      documents: {
+        archive: vi.fn(async () => undefined),
+        listChunks: vi.fn(async () => ({
+          chunks: [],
+          pagination: {
+            page: 1,
+            pageSize: 1,
+            total: 0,
+            totalPages: 0,
+          },
+        })),
+      },
+    };
+    const ensureApiKeyForWorkspace = vi.fn(async () => "jwt_123");
+    const retrySourceToKnowhere = vi.fn(async () => parsingSource);
+    const service = createSourceRouteService({
+      ensureApiKeyForWorkspace,
+      ensureWorkspace: vi.fn(async () => workspace),
+      makeKnowhereClient: vi.fn(() => knowhereClient),
+      requireUser: vi.fn(async () => ({
+        id: "user_1",
+        email: null,
+        name: null,
+      })),
+      sourceService: {
+        findInWorkspace: vi.fn(async () => failedSource),
+        retrySourceToKnowhere,
+      },
+    });
+
+    const result = await service.retrySource({
+      cookieHeader: "session=abc",
+      sourceId: "source_1",
+    });
+
+    expect(result).toEqual({
+      status: 200,
+      body: {
+        source: {
+          id: "source_1",
+          kind: "workspace",
+          title: "notes.pdf",
+          status: "parsing",
+          mimeType: "application/pdf",
+          documentId: undefined,
+          originalFile: {
+            url: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 5,
+          },
+        },
+      },
+    });
+    expect(ensureApiKeyForWorkspace).toHaveBeenCalledWith(
+      workspace.id,
+      "session=abc",
+    );
+    expect(retrySourceToKnowhere).toHaveBeenCalledWith(
+      workspace,
+      failedSource,
+      knowhereClient,
+    );
+  });
+
+  it("rejects retry when the failed source has no saved original Blob", async () => {
+    const failedSource: Source = {
+      ...source,
+      status: "failed",
+      failureReason: "Knowhere upload failed.",
+      originalBlobPathname: null,
+      originalBlobUrl: null,
+    };
+    const ensureApiKeyForWorkspace = vi.fn(async () => "jwt_123");
+    const retrySourceToKnowhere = vi.fn();
+    const service = createSourceRouteService({
+      ensureApiKeyForWorkspace,
+      ensureWorkspace: vi.fn(async () => workspace),
+      requireUser: vi.fn(async () => ({
+        id: "user_1",
+        email: null,
+        name: null,
+      })),
+      sourceService: {
+        findInWorkspace: vi.fn(async () => failedSource),
+        retrySourceToKnowhere,
+      },
+    });
+
+    const result = await service.retrySource({
+      cookieHeader: "session=abc",
+      sourceId: "source_1",
+    });
+
+    expect(result).toEqual({
+      status: 409,
+      body: {
+        message:
+          "This source cannot be retried because its original file is unavailable.",
+      },
+    });
+    expect(ensureApiKeyForWorkspace).not.toHaveBeenCalled();
+    expect(retrySourceToKnowhere).not.toHaveBeenCalled();
+  });
 });
 
 const emptyDemoCatalog: DemoCatalog = {

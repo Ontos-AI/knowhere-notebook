@@ -6,6 +6,7 @@ const { mockRouteClient } = vi.hoisted(() => ({
     postJsonWithStatus: vi.fn(),
     postJson: vi.fn(),
     patchJson: vi.fn(),
+    patchJsonWithStatus: vi.fn(),
     deleteJson: vi.fn(),
   },
 }))
@@ -73,5 +74,44 @@ describe("workspaceClient", () => {
         demoSourceIds: ["demo-tsla-q4-2025"],
       }),
     ).rejects.toThrow("Demo sources could not be prepared right now.")
+  })
+
+  it("retries a source with an encoded source id", async () => {
+    mockRouteClient.patchJsonWithStatus.mockResolvedValue({
+      status: 200,
+      body: {
+        source: {
+          id: "source one",
+          title: "notes.pdf",
+          mimeType: "application/pdf",
+          status: "parsing",
+        },
+      },
+    })
+
+    const source = await workspaceClient.retrySource("source one")
+
+    expect(mockRouteClient.patchJsonWithStatus).toHaveBeenCalledWith(
+      "/api/sources/source%20one",
+      { retry: true },
+    )
+    expect(source).toMatchObject({
+      id: "source one",
+      status: "parsing",
+    })
+  })
+
+  it("throws retry route errors", async () => {
+    mockRouteClient.patchJsonWithStatus.mockResolvedValue({
+      status: 409,
+      body: {
+        message:
+          "This source cannot be retried because its original file is unavailable.",
+      },
+    })
+
+    await expect(workspaceClient.retrySource("source_1")).rejects.toThrow(
+      "This source cannot be retried because its original file is unavailable.",
+    )
   })
 })

@@ -14,6 +14,10 @@ type WorkspaceRouteClientModule = {
     body: unknown,
   ) => Promise<JsonRouteResponse<T>>
   readonly patchJson: <T>(url: string, body: unknown) => Promise<T>
+  readonly patchJsonWithStatus: <T>(
+    url: string,
+    body: unknown,
+  ) => Promise<JsonRouteResponse<T>>
 }
 
 type JsonRouteResponse<T> = {
@@ -47,7 +51,14 @@ function postJsonWithStatus<T>(
 }
 
 async function patchJson<T>(url: string, body: unknown): Promise<T> {
-  return (await requestJson<T>({ method: "PATCH", url, body })).body
+  return (await patchJsonWithStatus<T>(url, body)).body
+}
+
+function patchJsonWithStatus<T>(
+  url: string,
+  body: unknown,
+): Promise<JsonRouteResponse<T>> {
+  return requestJson<T>({ method: "PATCH", url, body })
 }
 
 function requestJson<T>(
@@ -100,4 +111,5 @@ export const workspaceRouteClient: WorkspaceRouteClientModule = {
   postJson,
   postJsonWithStatus,
   patchJson,
+  patchJsonWithStatus,
 }

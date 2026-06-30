@@ -93,6 +93,14 @@ type ArchiveSourceBody =
       readonly message: string
     }
 
+type RetrySourceBody =
+  | {
+      readonly source: SourceView
+    }
+  | {
+      readonly message: string
+    }
+
 type SourceChunksBody =
   | {
       readonly chunks: readonly ParsedChunkView[]
@@ -117,6 +125,11 @@ type ArchiveSourceInput = {
   readonly sourceId: string
 }
 
+type RetrySourceInput = {
+  readonly cookieHeader: string
+  readonly sourceId: string
+}
+
 type LoadSourceChunksInput = {
   readonly cookieHeader: string
   readonly sourceId: string
@@ -134,6 +147,9 @@ type SourceRouteService = {
   readonly archiveSource: (
     input: ArchiveSourceInput,
   ) => Promise<JsonRouteResult<ArchiveSourceBody>>
+  readonly retrySource: (
+    input: RetrySourceInput,
+  ) => Promise<JsonRouteResult<RetrySourceBody>>
   readonly loadSourceChunks: (
     input: LoadSourceChunksInput,
   ) => Promise<JsonRouteResult<SourceChunksBody>>
@@ -148,6 +164,11 @@ type SourceWorkflowService = {
   readonly uploadSourceBlobToKnowhere: (
     workspace: Workspace,
     input: SourceBlobUploadInput,
+    knowhere: UploadKnowhereClient,
+  ) => Promise<Source>
+  readonly retrySourceToKnowhere: (
+    workspace: Workspace,
+    source: Source,
     knowhere: UploadKnowhereClient,
   ) => Promise<Source>
   readonly findInWorkspace: (
@@ -245,6 +266,8 @@ export type {
   ListSourcesBody,
   ListSourcesInput,
   LoadSourceChunksInput,
+  RetrySourceBody,
+  RetrySourceInput,
   SourceChunksBody,
   SourceRouteDemoApi,
   SourceRouteKnowhereClient,

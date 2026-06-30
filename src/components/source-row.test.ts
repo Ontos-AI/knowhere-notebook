@@ -75,6 +75,99 @@ describe("SourceRow", () => {
       .toBeTruthy();
   });
 
+  it("shows failed source retry with a brief error message", () => {
+    const onRetryClick = vi.fn();
+    const onSelect = vi.fn();
+
+    render(
+      React.createElement(SourceRow, {
+        isArchiving: false,
+        isSelected: false,
+        onRetryClick,
+        onSelect,
+        source: {
+          id: "source_1",
+          mimeType: "application/pdf",
+          title: "lecture.pdf",
+          status: "failed",
+          failureMessage:
+            "Too many concurrent requests (2/2 active). Please retry after 30 seconds.",
+          originalFile: {
+            url: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
+            mimeType: "application/pdf",
+          },
+        },
+      }),
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Retry lecture.pdf processing",
+      }),
+    );
+
+    expect(
+      screen.getByText(
+        "Too many concurrent requests (2/2 active). Please retry after 30 seconds.",
+      ),
+    ).toBeTruthy();
+    expect(onRetryClick).toHaveBeenCalledWith("source_1");
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("shows failed source retry loading locally", () => {
+    render(
+      React.createElement(SourceRow, {
+        isArchiving: false,
+        isRetrying: true,
+        isSelected: false,
+        onRetryClick: vi.fn(),
+        onSelect: vi.fn(),
+        source: {
+          id: "source_1",
+          mimeType: "application/pdf",
+          title: "lecture.pdf",
+          status: "failed",
+          originalFile: {
+            url: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
+            mimeType: "application/pdf",
+          },
+        },
+      }),
+    );
+
+    const retryButton = screen.getByRole("button", {
+      name: "Retry lecture.pdf processing",
+    });
+
+    expect((retryButton as HTMLButtonElement).disabled).toBe(true);
+    expect(within(retryButton).getByRole("status", { name: "Loading" }))
+      .toBeTruthy();
+  });
+
+  it("hides retry when a failed source has no saved original file", () => {
+    render(
+      React.createElement(SourceRow, {
+        isArchiving: false,
+        isSelected: false,
+        onRetryClick: vi.fn(),
+        onSelect: vi.fn(),
+        source: {
+          id: "source_1",
+          mimeType: "application/pdf",
+          title: "legacy.pdf",
+          status: "failed",
+        },
+      }),
+    );
+
+    expect(
+      screen.queryByRole("button", {
+        name: "Retry legacy.pdf processing",
+      }),
+    ).toBeNull();
+  });
+
   it("links ready sources to the document chunk tree route", () => {
     const onSelect = vi.fn();
 

@@ -39,9 +39,11 @@ export type SourcesPanelProps = {
   onSelectSource?: (sourceId: string | null) => void;
   onToggleIncluded?: (sourceId: string, included: boolean) => void;
   onArchiveSource?: (sourceId: string) => void;
+  onRetrySource?: (sourceId: string) => void;
   onLibraryOpen?: () => void;
   onOfficialLibrarySourceAdd?: (demoSourceId: string) => void;
   archivingSourceIds?: readonly string[];
+  retryingSourceIds?: readonly string[];
   analyticsContext?: AnalyticsContext;
   sourceCountSnapshot?: number;
   /** When provided, the Upload button redirects to login instead of opening the dialog. */
@@ -65,8 +67,10 @@ export function SourcesPanel({
   onSelectSource,
   onToggleIncluded,
   onArchiveSource,
+  onRetrySource,
   onLibraryOpen,
   archivingSourceIds = [],
+  retryingSourceIds = [],
   analyticsContext,
   sourceCountSnapshot = sources.length,
   onLoginClick,
@@ -85,6 +89,7 @@ export function SourcesPanel({
     confirmSourceId,
     sources,
   });
+  const retryingSourceIdSet = new Set(retryingSourceIds);
   const workspaceSources = sources.filter(
     (source) => source.officialLibrary === undefined,
   );
@@ -241,7 +246,9 @@ export function SourcesPanel({
                   onArchiveClick={
                     onArchiveSource ? setConfirmSourceId : undefined
                   }
+                  onRetryClick={onRetrySource}
                   isArchiving={archivingSourceIdSet.has(source.id)}
+                  isRetrying={retryingSourceIdSet.has(source.id)}
                   isNarrow={isNarrow}
                 />
               ))}

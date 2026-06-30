@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   archiveSource: vi.fn(),
   fetchSources: vi.fn(),
   materializeDemoSources: vi.fn(),
+  retrySource: vi.fn(),
 }))
 
 vi.mock("@/domains/workspace/client", () => ({
@@ -17,11 +18,13 @@ vi.mock("@/domains/workspace/client", () => ({
     keys: {
       archiveSource: "archive-source",
       materializeDemoSources: "/api/demo-sources/materialize",
+      retrySource: "retry-source",
       sources: "/api/sources",
     },
     archiveSource: mocks.archiveSource,
     fetchSources: mocks.fetchSources,
     materializeDemoSources: mocks.materializeDemoSources,
+    retrySource: mocks.retrySource,
   },
 }))
 
@@ -90,6 +93,54 @@ describe("useWorkspaceSourceWorkflow", () => {
       "source_1",
     ])
     expect(mocks.fetchSources).toHaveBeenCalled()
+  })
+
+  it("retries a failed Source and upserts the returned parsing row", async () => {
+    const failedSource = makeSource({
+      id: "source_1",
+      status: "failed",
+      failureMessage:
+        "Too many concurrent requests (2/2 active). Please retry after 30 seconds.",
+    })
+    const parsingSource = makeSource({
+      id: "source_1",
+      status: "parsing",
+      failureMessage: undefined,
+    })
+    let resolveRetry:
+      | ((source: SourceView) => void)
+      | undefined
+    const retryPromise = new Promise<SourceView>((resolve) => {
+      resolveRetry = resolve
+    })
+    mocks.fetchSources.mockResolvedValue([parsingSource])
+    mocks.retrySource.mockReturnValue(retryPromise)
+
+    const { result } = renderWorkspaceSourceWorkflow({
+      initialSources: [failedSource],
+      isGuest: false,
+    })
+
+    let retryAction: Promise<void> | undefined
+    act(() => {
+      retryAction = result.current.handleRetrySource("source_1")
+    })
+    await waitFor(() => {
+      expect(result.current.retryingSourceIds).toEqual(["source_1"])
+    })
+    await act(async () => {
+      resolveRetry?.(parsingSource)
+      await retryAction
+    })
+
+    expect(mocks.retrySource).toHaveBeenCalledWith("source_1")
+    await waitFor(() => {
+      expect(result.current.sources[0]).toMatchObject({
+        id: "source_1",
+        status: "parsing",
+      })
+    })
+    expect(result.current.retryingSourceIds).toEqual([])
   })
 
   it("refreshes immediately on mount when initial Sources are pending", async () => {

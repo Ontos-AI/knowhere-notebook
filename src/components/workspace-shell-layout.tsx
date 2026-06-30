@@ -58,6 +58,7 @@ type WorkspaceChatState = {
 export type WorkspaceShellLayoutProps = {
   readonly addingLibrarySourceIds: readonly string[]
   readonly archivingSourceIds: readonly string[]
+  readonly retryingSourceIds?: readonly string[]
   readonly archivingThreadIds: readonly string[]
   readonly chat: WorkspaceChatState
   readonly chatThreads: readonly ChatThreadView[]
@@ -89,6 +90,7 @@ export type WorkspaceShellLayoutProps = {
   readonly analyticsContext?: AnalyticsContext
   readonly onArchiveChatThread: (threadId: string) => void | Promise<void>
   readonly onArchiveSource: (sourceId: string) => void | Promise<void>
+  readonly onRetrySource?: (sourceId: string) => void | Promise<void>
   readonly onChatSend: (text: string) => void | Promise<void>
   readonly onCitationClick: (
     citation: ChatCitationView,
@@ -131,6 +133,7 @@ export function WorkspaceShellLayout(
 ): ReactElement {
   const { onDesktopLayoutElementChange } = props
   const addingLibrarySourceIds = props.addingLibrarySourceIds ?? []
+  const retryingSourceIds = props.retryingSourceIds ?? []
   const officialLibrarySources = props.officialLibrarySources ?? []
   const selectedSourcesCount = props.sources.filter(
     (source) => !source.excludedFromQuery && source.status === "ready",
@@ -212,11 +215,15 @@ export function WorkspaceShellLayout(
                 onArchiveSource={
                   props.isGuest ? undefined : props.onArchiveSource
                 }
+                onRetrySource={
+                  props.isGuest ? undefined : props.onRetrySource
+                }
                 onOfficialLibrarySourceAdd={
                   props.isGuest ? undefined : props.onOfficialLibrarySourceAdd
                 }
                 onLibraryOpen={props.onLibraryOpen}
                 archivingSourceIds={[...props.archivingSourceIds]}
+                retryingSourceIds={[...retryingSourceIds]}
                 addingLibrarySourceIds={[...addingLibrarySourceIds]}
                 onLoginClick={props.isGuest ? props.onLoginClick : undefined}
               />
@@ -362,6 +369,7 @@ export function WorkspaceShellLayout(
           }}
           onToggleIncluded={props.isGuest ? undefined : props.onToggleIncluded}
           onArchiveSource={props.isGuest ? undefined : props.onArchiveSource}
+          onRetrySource={props.isGuest ? undefined : props.onRetrySource}
           onOfficialLibrarySourceAdd={
             props.isGuest ? undefined : props.onOfficialLibrarySourceAdd
           }
@@ -370,6 +378,7 @@ export function WorkspaceShellLayout(
             props.onMobilePanelChange("content")
           }}
           archivingSourceIds={[...props.archivingSourceIds]}
+          retryingSourceIds={[...retryingSourceIds]}
           addingLibrarySourceIds={[...addingLibrarySourceIds]}
           onLoginClick={props.isGuest ? props.onLoginClick : undefined}
         />
