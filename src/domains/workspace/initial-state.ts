@@ -13,10 +13,12 @@ import {
 import { chatThreadService } from "@/domains/chat/thread-service"
 import { toChatMessageView, toChatThreadView } from "@/domains/chat/view"
 import { sourceViewOptionsBySourceId as getSourceViewOptionsBySourceId } from "@/domains/sources/counts"
-import { localizeRemoteLibrarySources } from "@/domains/sources/remote-library"
+import { listRemoteLibrarySourceViews } from "@/domains/sources/remote-library"
 import { reconcileSourcesForWorkspace as reconcileDefaultSourcesForWorkspace } from "@/domains/sources/reconcile"
 import { sourceService } from "@/domains/sources/service"
-import { startBackgroundReconciliation } from "@/domains/sources/background-reconcile"
+import {
+  startBackgroundReconciliation as defaultStartBackgroundReconciliation,
+} from "@/domains/sources/background-reconcile"
 import { sourceWorkflowRuntime } from "@/domains/sources/workflow-runtime"
 
 import type {
@@ -37,6 +39,7 @@ import {
   type OfficialLibrarySource,
 } from "@/integrations/knowhere-demo"
 import { effectOperation } from "@/lib/effect-operation"
+import { logger } from "@/lib/logger"
 import { notebookRequestContext } from "./request-context"
 
 type WorkspaceShellInitialState = {
@@ -142,10 +145,7 @@ type WorkspaceShellInitialStateDependencies = {
     workspace: Workspace,
     client: WorkspaceShellInitialStateClient,
   ) => Promise<readonly Source[]>
-  readonly localizeRemoteDocument: (
-    workspaceId: string,
-    input: Parameters<typeof sourceService.localizeRemoteDocument>[1],
-  ) => Promise<Source>
+  readonly startBackgroundReconciliation?: typeof defaultStartBackgroundReconciliation
   readonly sourceViewOptionsBySourceId: (
     sources: readonly Source[],
     client: WorkspaceShellInitialStateClient,
@@ -163,7 +163,7 @@ const defaultDependencies: WorkspaceShellInitialStateDependencies = {
   listMessages: chatThreadService.listMessages,
   listSourcesForWorkspace: sourceWorkflowRuntime.listForWorkspace,
   reconcileSourcesForWorkspace: reconcileDefaultSourcesForWorkspace,
-  localizeRemoteDocument: sourceService.localizeRemoteDocument,
+  startBackgroundReconciliation: defaultStartBackgroundReconciliation,
   sourceViewOptionsBySourceId: getSourceViewOptionsBySourceId,
 }
 
@@ -302,12 +302,9 @@ export const loadWorkspaceShellInitialStateEffect = (
     const sources = yield* effectOperation.tryPromise(
       {
         context: workspaceInitialStateContext,
-        operation: "reconcileSourcesForWorkspace",
+        operation: "useListedSourcesForWorkspace",
       },
-      () =>
-        hasParsingSources(listedSources)
-          ? deps.reconcileSourcesForWorkspace(workspace, client)
-          : Promise.resolve(listedSources),
+      () => Promise.resolve(listedSources),
     )
     const demoSourceResolution = resolveWorkspaceDemoSources(
       sources,
@@ -322,17 +319,16 @@ export const loadWorkspaceShellInitialStateEffect = (
       )
       .filter((source) => !hiddenDemoSourceIds.has(source.demoSourceId))
     const demoSources = visibleDemoCatalogSources.map(demoView.toSourceView)
-    const workspaceSources = yield* effectOperation.addContext(
+    const workspaceSources = demoSourceResolution.workspaceSources
+    const remoteSourceViews = yield* effectOperation.addContext(
       {
         context: workspaceInitialStateContext,
-        operation: "localizeRemoteLibrarySources",
+        operation: "listRemoteLibrarySourceViews",
       },
-      localizeRemoteLibrarySources({
+      listRemoteLibrarySourceViews({
         workspace,
         client,
         localSources: demoSourceResolution.workspaceSources,
-        localizeDocument: (document) =>
-          deps.localizeRemoteDocument(workspace.id, document),
       }),
     )
     const sourcesNeedingKnowhereChunkCount =
@@ -342,19 +338,16 @@ export const loadWorkspaceShellInitialStateEffect = (
         workspaceSources,
         demoCatalog,
       )
-    for (const source of sources) {
-      if (source.status === "parsing" && source.knowhereJobId) {
-        yield* Effect.fork(
-          effectOperation.tryPromise(
-            {
-              context: workspaceInitialStateContext,
-              operation: "startBackgroundReconciliation",
-            },
-            () => startBackgroundReconciliation(workspace.id, source.id, apiKey),
-          ),
-        )
-      }
-    }
+    yield* Effect.sync(() =>
+      triggerBackgroundReconciliationForParsingSources({
+        workspaceId: workspace.id,
+        sources,
+        apiKey,
+        startBackgroundReconciliation:
+          deps.startBackgroundReconciliation ??
+          defaultStartBackgroundReconciliation,
+      }),
+    )
     const sourceOptions = yield* effectOperation.addContext(
       {
         context: workspaceInitialStateContext,
@@ -386,6 +379,7 @@ export const loadWorkspaceShellInitialStateEffect = (
               sourceOptions.get(source.id),
           ),
         ),
+        ...remoteSourceViews,
       ],
       officialLibrarySources: toOfficialLibrarySourceViews(demoCatalog),
       chatThreads: chatThreads.map(toChatThreadView),
@@ -412,15 +406,34 @@ function resolveDashboardUrl(): string | undefined {
   return process.env.DASHBOARD_ORIGIN
 }
 
-function hasParsingSources(
-  sources: readonly {
-    readonly status: string
-    readonly knowhereJobId: string | null
-  }[],
-): boolean {
-  return sources.some(
+function triggerBackgroundReconciliationForParsingSources(input: {
+  readonly workspaceId: string
+  readonly sources: readonly Source[]
+  readonly apiKey: string
+  readonly startBackgroundReconciliation: typeof defaultStartBackgroundReconciliation
+}): void {
+  const parsingSources = input.sources.filter(
     (source) => source.status === "parsing" && source.knowhereJobId,
   )
+  if (parsingSources.length === 0) return
+
+  logger.info("initial-state: re-triggering reconciliation for parsing sources", {
+    workspaceId: input.workspaceId,
+    count: parsingSources.length,
+    sourceIds: parsingSources.map((source) => source.id),
+  })
+
+  for (const source of parsingSources) {
+    void input
+      .startBackgroundReconciliation(input.workspaceId, source.id, input.apiKey)
+      .catch((error: unknown) => {
+        logger.warn("initial-state: background reconciliation trigger failed", {
+          workspaceId: input.workspaceId,
+          sourceId: source.id,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      })
+  }
 }
 
 function toOfficialLibrarySourceViews(

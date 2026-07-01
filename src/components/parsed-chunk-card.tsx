@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { parsedChunkCardModel } from "@/components/parsed-chunk-card-model";
 import type { ParsedChunkView } from "@/domains/chunks/types";
+import type { SourceOriginalFileView } from "@/domains/sources/types";
 import { cn } from "@/lib/utils";
 
 const keywordPanelClassName =
@@ -25,12 +26,14 @@ export function ParsedChunkCard({
   isOriginalPreviewAvailable = false,
   onChunkClick,
   onReferenceClick,
+  sourceOriginalFile = null,
 }: {
   readonly chunk: ParsedChunkView;
   readonly isFocused: boolean;
   readonly isOriginalPreviewAvailable?: boolean;
   readonly onChunkClick?: (chunk: ParsedChunkView) => void;
   readonly onReferenceClick: (chunkId: string) => void;
+  readonly sourceOriginalFile?: SourceOriginalFileView | null;
 }): ReactNode {
   if (chunk.type === "image") {
     return (
@@ -40,6 +43,7 @@ export function ParsedChunkCard({
           isFocused={isFocused}
           isOriginalPreviewAvailable={isOriginalPreviewAvailable}
           onChunkClick={onChunkClick}
+          sourceOriginalFile={sourceOriginalFile}
         />
       </ChunkCardShell>
     );
@@ -362,12 +366,16 @@ function ImageChunkCard({
   isFocused,
   isOriginalPreviewAvailable,
   onChunkClick,
+  sourceOriginalFile,
 }: {
   readonly chunk: ParsedChunkView;
   readonly isFocused: boolean;
   readonly isOriginalPreviewAvailable: boolean;
   readonly onChunkClick?: (chunk: ParsedChunkView) => void;
+  readonly sourceOriginalFile: SourceOriginalFileView | null;
 }): ReactNode {
+  const imageAssetUrl = getImageChunkAssetUrl(chunk, sourceOriginalFile);
+
   return (
     <ChunkCardFrame
       chunk={chunk}
@@ -377,11 +385,11 @@ function ImageChunkCard({
     >
       <ChunkSummaryPanel chunk={chunk} />
       <ChunkContentPanel chunk={chunk}>
-        {chunk.assetUrl ? (
+        {imageAssetUrl ? (
           <figure className="overflow-hidden rounded-lg border border-border bg-muted/30">
             {/* eslint-disable-next-line @next/next/no-img-element -- Parsed artifact dimensions are not known before render. */}
             <img
-              src={chunk.assetUrl}
+              src={imageAssetUrl}
               alt={chunk.summary ?? "Image chunk"}
               className="max-h-[520px] w-full object-contain"
             />
@@ -405,6 +413,16 @@ function ImageChunkCard({
       <ChunkKeywords chunk={chunk} />
     </ChunkCardFrame>
   );
+}
+
+function getImageChunkAssetUrl(
+  chunk: ParsedChunkView,
+  sourceOriginalFile: SourceOriginalFileView | null,
+): string | null {
+  if (chunk.assetUrl) return chunk.assetUrl;
+  if (!sourceOriginalFile?.mimeType.startsWith("image/")) return null;
+
+  return sourceOriginalFile.url;
 }
 
 function renderTextChunkContent(

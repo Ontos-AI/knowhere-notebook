@@ -38,17 +38,10 @@ async function loadReconcile({
   listSourcesForWorkspace,
   markSourceFailed = vi.fn().mockResolvedValue(undefined),
   markSourceReady = vi.fn().mockResolvedValue(undefined),
-  saveSourceParseResult = vi.fn().mockResolvedValue(undefined),
-  storeParsedResultAssets = vi.fn().mockResolvedValue({
-    resultBlobUrl: "https://blob.example/result.zip",
-    assetUrlsByFilePath: {},
-  }),
 }: {
   listSourcesForWorkspace: ReturnType<typeof vi.fn>
   markSourceFailed?: ReturnType<typeof vi.fn>
   markSourceReady?: ReturnType<typeof vi.fn>
-  saveSourceParseResult?: ReturnType<typeof vi.fn>
-  storeParsedResultAssets?: ReturnType<typeof vi.fn>
 }): Promise<typeof import("./reconcile")> {
   vi.resetModules()
   vi.doMock("./workflow-runtime", () => ({
@@ -56,12 +49,8 @@ async function loadReconcile({
       listForWorkspace: listSourcesForWorkspace,
       markFailed: markSourceFailed,
       markReady: markSourceReady,
-      saveParseResult: saveSourceParseResult,
       clearStagedBlob: vi.fn(),
     },
-  }))
-  vi.doMock("./parsed-result-assets", () => ({
-    storeParsedResultAssets,
   }))
   return await import("./reconcile")
 }
@@ -103,7 +92,7 @@ describe("reconcileSourcesForWorkspace", () => {
     expect(result).toEqual([ready])
   })
 
-  it("stores parsed result assets before marking a completed source ready", async () => {
+  it("does not store parsed result assets before marking a completed source ready", async () => {
     const parsing = makeSource({ id: "source_1", knowhereJobId: "job_1" })
     const ready = makeSource({
       id: "source_1",
@@ -125,12 +114,6 @@ describe("reconcileSourcesForWorkspace", () => {
     })
     const storeParsedResultAssets = vi.fn(async () => {
       calls.push("store")
-      return {
-        resultBlobUrl: "https://blob.example/result.zip",
-        assetUrlsByFilePath: {
-          "images/image-1.jpg": "https://blob.example/image-1.jpg",
-        },
-      }
     })
     const saveSourceParseResult = vi.fn(async () => {
       calls.push("save")
@@ -146,28 +129,11 @@ describe("reconcileSourcesForWorkspace", () => {
       },
     } as unknown as import("@ontos-ai/knowhere-sdk").default
 
-    await reconcileSourcesForWorkspace(workspace, mockClient, {
-      storeParsedResultAssets,
-      saveSourceParseResult,
-    })
+    await reconcileSourcesForWorkspace(workspace, mockClient)
 
-    expect(storeParsedResultAssets).toHaveBeenCalledWith({
-      workspaceId: workspace.id,
-      sourceId: "source_1",
-      job,
-      client: mockClient,
-    })
-    expect(saveSourceParseResult).toHaveBeenCalledWith(
-      workspace.id,
-      "source_1",
-      {
-        resultBlobUrl: "https://blob.example/result.zip",
-        assetUrlsByFilePath: {
-          "images/image-1.jpg": "https://blob.example/image-1.jpg",
-        },
-      },
-    )
-    expect(calls).toEqual(["store", "save", "ready"])
+    expect(storeParsedResultAssets).not.toHaveBeenCalled()
+    expect(saveSourceParseResult).not.toHaveBeenCalled()
+    expect(calls).toEqual(["ready"])
   })
 
   it("keeps original public Blob uploads after completed URL parsing jobs", async () => {
@@ -280,7 +246,7 @@ describe("reconcileSourcesForWorkspace", () => {
 })
 
 describe("applyKnowhereJobToSource", () => {
-  it("stores completed parsed results before readying the source and then cleans staged blobs", async () => {
+  it("readies completed sources by document id and then cleans staged blobs", async () => {
     const parsing = makeSource({
       id: "source_1",
       knowhereJobId: "job_1",
@@ -298,21 +264,7 @@ describe("applyKnowhereJobToSource", () => {
       isTerminal: true,
     }
     const calls: string[] = []
-    const parsedAssets = {
-      resultBlobUrl: "https://blob.example/result.zip",
-      assetUrlsByFilePath: {
-        "images/image-1.jpg": "https://blob.example/image-1.jpg",
-      },
-    }
-    const client = {
-      jobs: {
-        load: vi.fn(),
-      },
-    }
     const repository = {
-      saveSourceParseResult: vi.fn(async () => {
-        calls.push("save")
-      }),
       markSourceReady: vi.fn(async () => {
         calls.push("ready")
       }),
@@ -321,12 +273,6 @@ describe("applyKnowhereJobToSource", () => {
       }),
       clearSourceStagedBlob: vi.fn(async () => {
         calls.push("clear-staged")
-      }),
-    }
-    const parsedResultStore = {
-      storeParsedResultAssets: vi.fn(async () => {
-        calls.push("store-assets")
-        return parsedAssets
       }),
     }
     const blobStore = {
@@ -339,23 +285,10 @@ describe("applyKnowhereJobToSource", () => {
       workspaceId: workspace.id,
       source: parsing,
       job,
-      client,
       repository,
-      parsedResultStore,
       blobStore,
     })
 
-    expect(parsedResultStore.storeParsedResultAssets).toHaveBeenCalledWith({
-      workspaceId: workspace.id,
-      sourceId: "source_1",
-      job,
-      client,
-    })
-    expect(repository.saveSourceParseResult).toHaveBeenCalledWith(
-      workspace.id,
-      "source_1",
-      parsedAssets,
-    )
     expect(repository.markSourceReady).toHaveBeenCalledWith(
       workspace.id,
       "source_1",
@@ -368,12 +301,6 @@ describe("applyKnowhereJobToSource", () => {
       workspace.id,
       "source_1",
     )
-    expect(calls).toEqual([
-      "store-assets",
-      "save",
-      "ready",
-      "delete-staged",
-      "clear-staged",
-    ])
+    expect(calls).toEqual(["ready", "delete-staged", "clear-staged"])
   })
 })

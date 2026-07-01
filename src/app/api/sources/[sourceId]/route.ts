@@ -19,18 +19,19 @@ export async function PATCH(
 ): Promise<NextResponse> {
   const { sourceId } = await context.params
   const routeContext = await nextRouteContext.read()
-  const archiveRequest = await sourceRouteRequest.readArchiveSource({
+  const mutationRequest = await sourceRouteRequest.readSourceMutation({
     cookieHeader: routeContext.cookieHeader,
     request,
     sourceId,
   })
-  if (!archiveRequest.ok) {
-    return nextRouteResponse.toNextResponse(archiveRequest.result)
+  if (!mutationRequest.ok) {
+    return nextRouteResponse.toNextResponse(mutationRequest.result)
   }
 
-  const result = await sourceRouteService.archiveSource({
-    ...archiveRequest.input,
-  })
+  const result =
+    mutationRequest.mutation.kind === "archive"
+      ? await sourceRouteService.archiveSource(mutationRequest.mutation.input)
+      : await sourceRouteService.retrySource(mutationRequest.mutation.input)
 
   return nextRouteResponse.toNextResponse(result)
 }

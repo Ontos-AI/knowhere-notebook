@@ -31,6 +31,7 @@ type UploadRepositoryRuntime = {
     sourceId: string,
     jobId: string,
     documentId?: string,
+    requiredStatus?: string,
   ) => Promise<Source | null>
   readonly markFailed: (
     workspaceId: string,
@@ -56,6 +57,13 @@ type SourceWorkflowRuntime = UploadRepositoryRuntime & {
     workspaceId: string,
     sourceId: string,
   ) => Promise<Readonly<Record<string, string>>>
+  readonly getParseResultProgress: (
+    workspaceId: string,
+    sourceId: string,
+  ) => Promise<{
+    readonly resultBlobUrl: string
+    readonly assetUrlsByFilePath: Readonly<Record<string, string>>
+  } | null>
   readonly listForWorkspace: (workspaceId: string) => Promise<Source[]>
   readonly localizeRemoteDocument: (
     workspaceId: string,
@@ -71,7 +79,17 @@ type SourceWorkflowRuntime = UploadRepositoryRuntime & {
     sourceId: string,
     documentId: string,
   ) => Promise<Source | null>
+  readonly updateRevisionKey: (
+    workspaceId: string,
+    sourceId: string,
+    revisionKey: string,
+  ) => Promise<Source | null>
   readonly saveParseResult: (
+    workspaceId: string,
+    sourceId: string,
+    input: SaveSourceParseResultInput,
+  ) => Promise<SourceParseResult | null>
+  readonly mergeParseAssetUrls: (
     workspaceId: string,
     sourceId: string,
     input: SaveSourceParseResultInput,
@@ -132,6 +150,7 @@ const markParsing: SourceWorkflowRuntime["markParsing"] = (
   sourceId: string,
   jobId: string,
   documentId?: string,
+  requiredStatus?: string,
 ) =>
   databaseRuntime.runPromise(
     sourceRepository.markParsingEffect(
@@ -139,6 +158,7 @@ const markParsing: SourceWorkflowRuntime["markParsing"] = (
       sourceId,
       jobId,
       documentId,
+      requiredStatus,
     ),
   )
 
@@ -149,6 +169,19 @@ const markReady: SourceWorkflowRuntime["markReady"] = (
 ) =>
   databaseRuntime.runPromise(
     sourceRepository.markReadyEffect(workspaceId, sourceId, documentId),
+  )
+
+const updateRevisionKey: SourceWorkflowRuntime["updateRevisionKey"] = (
+  workspaceId: string,
+  sourceId: string,
+  revisionKey: string,
+) =>
+  databaseRuntime.runPromise(
+    sourceRepository.updateRevisionKeyEffect(
+      workspaceId,
+      sourceId,
+      revisionKey,
+    ),
   )
 
 const markFailed: SourceWorkflowRuntime["markFailed"] = (
@@ -191,6 +224,21 @@ const saveParseResult: SourceWorkflowRuntime["saveParseResult"] = (
   databaseRuntime.runPromise(
     sourceRepository.saveParseResultEffect(workspaceId, sourceId, input),
   )
+
+const mergeParseAssetUrls: SourceWorkflowRuntime["mergeParseAssetUrls"] = (
+  workspaceId: string,
+  sourceId: string,
+  input: SaveSourceParseResultInput,
+) =>
+  databaseRuntime.runPromise(
+    sourceRepository.mergeParseAssetUrlsEffect(workspaceId, sourceId, input),
+  )
+
+const getParseResultProgress: SourceWorkflowRuntime["getParseResultProgress"] =
+  (workspaceId: string, sourceId: string) =>
+    databaseRuntime.runPromise(
+      sourceRepository.getParseResultProgressEffect(workspaceId, sourceId),
+    )
 
 const getParseAssetUrls: SourceWorkflowRuntime["getParseAssetUrls"] = (
   workspaceId: string,
@@ -238,6 +286,7 @@ export const sourceWorkflowRuntime: SourceWorkflowRuntime = {
   createUploading,
   findInWorkspace,
   getParseAssetUrls,
+  getParseResultProgress,
   hideDemoSource,
   listForWorkspace,
   listHiddenDemoSourceIds,
@@ -245,6 +294,8 @@ export const sourceWorkflowRuntime: SourceWorkflowRuntime = {
   markFailed,
   markParsing,
   markReady,
+  updateRevisionKey,
+  mergeParseAssetUrls,
   saveParseResult,
   softDelete,
   upsertMaterializedDemoSource,

@@ -37,10 +37,12 @@ type SourceUpdate = Partial<
 
 type LocalizeRemoteDocumentInput = {
   readonly documentId: string
+  readonly namespace?: string
   readonly title?: string
   readonly mimeType?: string
   readonly sizeBytes?: number
   readonly status: SourceStatus
+  readonly revisionKey?: string | null
 }
 
 type SourceRowRepository = {
@@ -64,11 +66,17 @@ type SourceRowRepository = {
     sourceId: string,
     jobId: string,
     documentId?: string,
+    requiredStatus?: string,
   ) => Effect.Effect<Source | null, never, DbClient>
   readonly markReadyEffect: (
     workspaceId: string,
     sourceId: string,
     documentId: string,
+  ) => Effect.Effect<Source | null, never, DbClient>
+  readonly updateRevisionKeyEffect: (
+    workspaceId: string,
+    sourceId: string,
+    revisionKey: string,
   ) => Effect.Effect<Source | null, never, DbClient>
   readonly markFailedEffect: (
     workspaceId: string,
@@ -178,13 +186,14 @@ const markParsingEffect: SourceRowRepository["markParsingEffect"] = (
   sourceId: string,
   jobId: string,
   documentId?: string,
+  requiredStatus?: string,
 ) =>
   updateInWorkspaceEffect(workspaceId, sourceId, {
     status: "parsing",
     knowhereJobId: jobId,
     knowhereDocumentId: documentId,
     failureReason: null,
-  })
+  }, requiredStatus)
 
 const markReadyEffect: SourceRowRepository["markReadyEffect"] = (
   workspaceId: string,
@@ -196,6 +205,15 @@ const markReadyEffect: SourceRowRepository["markReadyEffect"] = (
     knowhereDocumentId: documentId,
     failureReason: null,
   }, "parsing")
+
+const updateRevisionKeyEffect: SourceRowRepository["updateRevisionKeyEffect"] = (
+  workspaceId: string,
+  sourceId: string,
+  revisionKey: string,
+) =>
+  updateInWorkspaceEffect(workspaceId, sourceId, {
+    knowhereJobId: revisionKey,
+  }, "ready")
 
 const markFailedEffect: SourceRowRepository["markFailedEffect"] = (
   workspaceId: string,
@@ -333,7 +351,7 @@ async function localizeRemoteDocumentWithDb(
     status: input.status,
     failureReason:
       input.status === "failed" ? "Knowhere document failed." : null,
-    knowhereJobId: null,
+    knowhereJobId: input.revisionKey ?? null,
     knowhereDocumentId: input.documentId,
     stagedBlobPathname: null,
     stagedBlobUrl: null,
@@ -395,6 +413,7 @@ export const sourceRowRepository: SourceRowRepository = {
   localizeRemoteDocumentEffect,
   markParsingEffect,
   markReadyEffect,
+  updateRevisionKeyEffect,
   markFailedEffect,
   clearStagedBlobEffect,
   softDeleteEffect,

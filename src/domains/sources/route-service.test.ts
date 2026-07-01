@@ -37,7 +37,7 @@ const source: Source = {
 const localizeNoRemoteDocuments = vi.fn(async () => source);
 
 describe("source route service", () => {
-  it("reconciles authenticated sources through the listing route workflow", async () => {
+  it("lists authenticated sources and triggers background reconciliation", async () => {
     const knowhereClient = {
       documents: {
         archive: vi.fn(async () => undefined),
@@ -63,6 +63,7 @@ describe("source route service", () => {
     );
     const listSourcesForWorkspace = vi.fn(async () => [source]);
     const reconcileSourcesForWorkspace = vi.fn(async () => [source]);
+    const startBackgroundReconciliation = vi.fn(async () => undefined);
     const listHiddenDemoSourceIds = vi.fn(async () => []);
     const listing = createRouteListing({
       demoApi: {
@@ -79,6 +80,7 @@ describe("source route service", () => {
       makeKnowhereClient: vi.fn(() => knowhereClient),
       listSourcesForWorkspace,
       reconcileSourcesForWorkspace,
+      startBackgroundReconciliation,
       sourceService: {
         listHiddenDemoSourceIds,
         localizeRemoteDocument: localizeNoRemoteDocuments,
@@ -108,14 +110,16 @@ describe("source route service", () => {
       "session=abc",
     );
     expect(listSourcesForWorkspace).toHaveBeenCalledWith(workspace.id);
-    expect(reconcileSourcesForWorkspace).toHaveBeenCalledWith(
-      workspace,
-      knowhereClient,
+    expect(reconcileSourcesForWorkspace).not.toHaveBeenCalled();
+    expect(startBackgroundReconciliation).toHaveBeenCalledWith(
+      workspace.id,
+      source.id,
+      "jwt_123",
     );
     expect(listHiddenDemoSourceIds).toHaveBeenCalledWith(workspace.id);
   });
 
-  it("localizes shared default and legacy namespace documents into workspace sources", async () => {
+  it("lists shared default and legacy namespace documents as lightweight remote sources", async () => {
     const localReadySource: Source = {
       ...source,
       id: "source_ready",
@@ -136,6 +140,16 @@ describe("source route service", () => {
               mimeType: "application/pdf",
             },
           },
+        ],
+        pagination: {
+          page: 1,
+          page_size: 200,
+          total: 2,
+          total_pages: 2,
+        },
+      })
+      .mockResolvedValueOnce({
+        documents: [
           {
             documentId: "doc_local",
             namespace: "default",
@@ -143,6 +157,12 @@ describe("source route service", () => {
             sourceFileName: "local-duplicate.pdf",
           },
         ],
+        pagination: {
+          page: 2,
+          pageSize: 200,
+          total: 2,
+          totalPages: 2,
+        },
       })
       .mockResolvedValueOnce({
         documents: [
@@ -153,6 +173,12 @@ describe("source route service", () => {
             sourceFileName: "legacy.pdf",
           },
         ],
+        pagination: {
+          page: 1,
+          pageSize: 200,
+          total: 1,
+          totalPages: 1,
+        },
       });
     const knowhereClient = {
       documents: {
@@ -174,37 +200,7 @@ describe("source route service", () => {
         upload: vi.fn(),
       },
     };
-    const localizedDefaultSource: Source = {
-      ...source,
-      id: "00000000-0000-0000-0000-000000000101",
-      title: "cli.pdf",
-      mimeType: "application/pdf",
-      status: "ready",
-      knowhereJobId: null,
-      knowhereDocumentId: "doc_default",
-    };
-    const refreshedLocalSource: Source = {
-      ...localReadySource,
-      title: "local-duplicate.pdf",
-      mimeType: "application/octet-stream",
-      status: "ready",
-      knowhereJobId: null,
-      knowhereDocumentId: "doc_local",
-    };
-    const localizedLegacySource: Source = {
-      ...source,
-      id: "00000000-0000-0000-0000-000000000102",
-      title: "legacy.pdf",
-      mimeType: "application/octet-stream",
-      status: "ready",
-      knowhereJobId: null,
-      knowhereDocumentId: "doc_legacy",
-    };
-    const localizeRemoteDocument = vi
-      .fn()
-      .mockResolvedValueOnce(localizedDefaultSource)
-      .mockResolvedValueOnce(refreshedLocalSource)
-      .mockResolvedValueOnce(localizedLegacySource);
+    const localizeRemoteDocument = vi.fn();
     const listing = createRouteListing({
       demoApi: {
         fetchCatalog: vi.fn(async () => emptyDemoCatalog),
@@ -230,83 +226,60 @@ describe("source route service", () => {
 
     expect(listDocuments).toHaveBeenNthCalledWith(1, {
       namespace: "default",
+      page: 1,
+      pageSize: 200,
     });
     expect(listDocuments).toHaveBeenNthCalledWith(2, {
-      namespace: workspace.namespace,
+      namespace: "default",
+      page: 2,
+      pageSize: 200,
     });
-    expect(localizeRemoteDocument).toHaveBeenNthCalledWith(
-      1,
-      workspace.id,
-      {
-        documentId: "doc_default",
-        namespace: "default",
-        status: "ready",
-        title: "cli.pdf",
-        mimeType: "application/pdf",
-        sourceFileName: "cli.pdf",
-        documentMetadata: {
-          mimeType: "application/pdf",
-        },
-      },
-    );
-    expect(localizeRemoteDocument).toHaveBeenNthCalledWith(
-      2,
-      workspace.id,
-      {
-        documentId: "doc_local",
-        namespace: "default",
-        status: "ready",
-        title: "local-duplicate.pdf",
-        sourceFileName: "local-duplicate.pdf",
-        documentMetadata: {},
-      },
-    );
-    expect(localizeRemoteDocument).toHaveBeenNthCalledWith(
-      3,
-      workspace.id,
-      {
-        documentId: "doc_legacy",
-        namespace: workspace.namespace,
-        status: "ready",
-        title: "legacy.pdf",
-        sourceFileName: "legacy.pdf",
-        documentMetadata: {},
-      },
-    );
+    expect(listDocuments).toHaveBeenNthCalledWith(3, {
+      namespace: workspace.namespace,
+      page: 1,
+      pageSize: 200,
+    });
+    expect(localizeRemoteDocument).not.toHaveBeenCalled();
     expect(result.body.sources).toEqual([
       expect.objectContaining({
         id: "source_ready",
         documentId: "doc_local",
-        title: "local-duplicate.pdf",
+        title: "notes.pdf",
         status: "ready",
       }),
-      expect.objectContaining({
-        id: "00000000-0000-0000-0000-000000000101",
-        kind: "workspace",
+      {
+        id: "knowhere-doc:default:doc_default",
+        kind: "remote",
+        namespace: "default",
         title: "cli.pdf",
         mimeType: "application/pdf",
         status: "ready",
         documentId: "doc_default",
-      }),
-      expect.objectContaining({
-        id: "00000000-0000-0000-0000-000000000102",
-        kind: "workspace",
+        excludedFromQuery: true,
+      },
+      {
+        id: "knowhere-doc:notebook-workspace_1:doc_legacy",
+        kind: "remote",
+        namespace: workspace.namespace,
         title: "legacy.pdf",
         mimeType: "application/octet-stream",
         status: "ready",
         documentId: "doc_legacy",
-      }),
+        excludedFromQuery: true,
+      },
     ]);
   });
 
-  it("reconciles parsing sources before localizing matching Knowhere documents", async () => {
-    const reconciledSource: Source = {
+  it("keeps matching Notebook uploads parsing until artifacts are ready", async () => {
+    const parsingSource: Source = {
       ...source,
       id: "source_1",
       title: "uploaded.pdf",
-      status: "ready",
-      knowhereJobId: null,
-      knowhereDocumentId: "doc_uploaded",
+      mimeType: "application/pdf",
+      sizeBytes: 100,
+      status: "parsing",
+      knowhereJobId: "job_1",
+      knowhereDocumentId: null,
     };
     const listDocuments = vi
       .fn()
@@ -317,6 +290,12 @@ describe("source route service", () => {
             namespace: "default",
             status: "active",
             sourceFileName: "uploaded.pdf",
+            documentMetadata: {
+              createdByClient: "notebook",
+              title: "uploaded.pdf",
+              mimeType: "application/pdf",
+              sizeBytes: 100,
+            },
           },
         ],
       })
@@ -341,8 +320,9 @@ describe("source route service", () => {
         upload: vi.fn(),
       },
     };
-    const reconcileSourcesForWorkspace = vi.fn(async () => [reconciledSource]);
-    const localizeRemoteDocument = vi.fn(async () => reconciledSource);
+    const reconcileSourcesForWorkspace = vi.fn(async () => [parsingSource]);
+    const localizeRemoteDocument = vi.fn(async () => parsingSource);
+    const startBackgroundReconciliation = vi.fn(async () => undefined);
     const listing = createRouteListing({
       demoApi: {
         fetchCatalog: vi.fn(async () => emptyDemoCatalog),
@@ -356,8 +336,9 @@ describe("source route service", () => {
       })),
       getSourceViewOptionsBySourceId: vi.fn(() => Effect.succeed(new Map())),
       makeKnowhereClient: vi.fn(() => knowhereClient),
-      listSourcesForWorkspace: vi.fn(async () => [source]),
+      listSourcesForWorkspace: vi.fn(async () => [parsingSource]),
       reconcileSourcesForWorkspace,
+      startBackgroundReconciliation,
       sourceService: {
         listHiddenDemoSourceIds: vi.fn(async () => []),
         localizeRemoteDocument,
@@ -366,22 +347,19 @@ describe("source route service", () => {
 
     const result = await listing.listSources({ cookieHeader: "session=abc" });
 
-    expect(reconcileSourcesForWorkspace).toHaveBeenCalledWith(
-      workspace,
-      knowhereClient,
-    );
-    expect(localizeRemoteDocument).toHaveBeenCalledWith(
+    expect(reconcileSourcesForWorkspace).not.toHaveBeenCalled();
+    expect(startBackgroundReconciliation).toHaveBeenCalledWith(
       workspace.id,
-      expect.objectContaining({
-        documentId: "doc_uploaded",
-      }),
+      "source_1",
+      "jwt_123",
     );
+    expect(localizeRemoteDocument).not.toHaveBeenCalled();
     expect(result.body.sources).toEqual([
       expect.objectContaining({
         id: "source_1",
-        documentId: "doc_uploaded",
         title: "uploaded.pdf",
-        status: "ready",
+        status: "parsing",
+        documentId: undefined,
       }),
     ]);
   });
@@ -808,6 +786,131 @@ describe("source route service", () => {
       knowhereClient,
     );
     expect(onUploadFinished).toHaveBeenCalledOnce();
+  });
+
+  it("retries a failed source from its saved original Blob", async () => {
+    const failedSource: Source = {
+      ...source,
+      status: "failed",
+      failureReason: "Knowhere upload failed.",
+      originalBlobPathname: "source-uploads/upload_1/document.pdf",
+      originalBlobUrl:
+        "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
+    };
+    const parsingSource: Source = {
+      ...failedSource,
+      status: "parsing",
+      failureReason: null,
+      knowhereJobId: "job_retry",
+    };
+    const knowhereClient = {
+      jobs: {
+        create: vi.fn(),
+        get: vi.fn(),
+        upload: vi.fn(),
+      },
+      documents: {
+        archive: vi.fn(async () => undefined),
+        listChunks: vi.fn(async () => ({
+          chunks: [],
+          pagination: {
+            page: 1,
+            pageSize: 1,
+            total: 0,
+            totalPages: 0,
+          },
+        })),
+      },
+    };
+    const ensureApiKeyForWorkspace = vi.fn(async () => "jwt_123");
+    const retrySourceToKnowhere = vi.fn(async () => parsingSource);
+    const service = createSourceRouteService({
+      ensureApiKeyForWorkspace,
+      ensureWorkspace: vi.fn(async () => workspace),
+      makeKnowhereClient: vi.fn(() => knowhereClient),
+      requireUser: vi.fn(async () => ({
+        id: "user_1",
+        email: null,
+        name: null,
+      })),
+      sourceService: {
+        findInWorkspace: vi.fn(async () => failedSource),
+        retrySourceToKnowhere,
+      },
+    });
+
+    const result = await service.retrySource({
+      cookieHeader: "session=abc",
+      sourceId: "source_1",
+    });
+
+    expect(result).toEqual({
+      status: 200,
+      body: {
+        source: {
+          id: "source_1",
+          kind: "workspace",
+          title: "notes.pdf",
+          status: "parsing",
+          mimeType: "application/pdf",
+          documentId: undefined,
+          originalFile: {
+            url: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 5,
+          },
+        },
+      },
+    });
+    expect(ensureApiKeyForWorkspace).toHaveBeenCalledWith(
+      workspace.id,
+      "session=abc",
+    );
+    expect(retrySourceToKnowhere).toHaveBeenCalledWith(
+      workspace,
+      failedSource,
+      knowhereClient,
+    );
+  });
+
+  it("rejects retry when the failed source has no saved original Blob", async () => {
+    const failedSource: Source = {
+      ...source,
+      status: "failed",
+      failureReason: "Knowhere upload failed.",
+      originalBlobPathname: null,
+      originalBlobUrl: null,
+    };
+    const ensureApiKeyForWorkspace = vi.fn(async () => "jwt_123");
+    const retrySourceToKnowhere = vi.fn();
+    const service = createSourceRouteService({
+      ensureApiKeyForWorkspace,
+      ensureWorkspace: vi.fn(async () => workspace),
+      requireUser: vi.fn(async () => ({
+        id: "user_1",
+        email: null,
+        name: null,
+      })),
+      sourceService: {
+        findInWorkspace: vi.fn(async () => failedSource),
+        retrySourceToKnowhere,
+      },
+    });
+
+    const result = await service.retrySource({
+      cookieHeader: "session=abc",
+      sourceId: "source_1",
+    });
+
+    expect(result).toEqual({
+      status: 409,
+      body: {
+        message:
+          "This source cannot be retried because its original file is unavailable.",
+      },
+    });
+    expect(ensureApiKeyForWorkspace).not.toHaveBeenCalled();
+    expect(retrySourceToKnowhere).not.toHaveBeenCalled();
   });
 });
 

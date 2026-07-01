@@ -2,9 +2,11 @@ import type {
   ChunkKnowhereClient,
   ChunkPage,
   ChunkPageParams,
+} from "@/domains/chunks"
+import type {
   loadChunkPageForSource,
   loadChunksForSource,
-} from "@/domains/chunks"
+} from "@/domains/chunks/server"
 import type { ParsedChunkView } from "@/domains/chunks/types"
 import type { SourceStatus, SourceView } from "@/domains/sources/types"
 import type { AuthUser } from "@/infrastructure/auth"
@@ -23,14 +25,32 @@ type SourceRouteKnowhereClient = UploadKnowhereClient &
     readonly documents: ChunkKnowhereClient["documents"] & {
       list?(params?: {
         readonly namespace?: string
+        readonly page?: number
+        readonly pageSize?: number
       }): Promise<{
         readonly documents: readonly {
           readonly documentId: string
           readonly namespace: string
           readonly status: string
+          readonly currentJobResultId?: string | null
           readonly sourceFileName?: string | null
           readonly documentMetadata?: Record<string, unknown>
         }[]
+        readonly pagination?: {
+          readonly page?: number
+          readonly pageSize?: number
+          readonly total?: number
+          readonly totalPages?: number
+          readonly page_size?: number
+          readonly total_pages?: number
+        }
+      }>
+      get?(documentId: string): Promise<{
+        readonly documentId: string
+        readonly namespace: string
+        readonly status: string
+        readonly currentJobResultId?: string | null
+        readonly sourceFileName?: string | null
       }>
       archive(documentId: string): Promise<unknown>
     }
@@ -73,6 +93,14 @@ type ArchiveSourceBody =
       readonly message: string
     }
 
+type RetrySourceBody =
+  | {
+      readonly source: SourceView
+    }
+  | {
+      readonly message: string
+    }
+
 type SourceChunksBody =
   | {
       readonly chunks: readonly ParsedChunkView[]
@@ -97,6 +125,11 @@ type ArchiveSourceInput = {
   readonly sourceId: string
 }
 
+type RetrySourceInput = {
+  readonly cookieHeader: string
+  readonly sourceId: string
+}
+
 type LoadSourceChunksInput = {
   readonly cookieHeader: string
   readonly sourceId: string
@@ -114,6 +147,9 @@ type SourceRouteService = {
   readonly archiveSource: (
     input: ArchiveSourceInput,
   ) => Promise<JsonRouteResult<ArchiveSourceBody>>
+  readonly retrySource: (
+    input: RetrySourceInput,
+  ) => Promise<JsonRouteResult<RetrySourceBody>>
   readonly loadSourceChunks: (
     input: LoadSourceChunksInput,
   ) => Promise<JsonRouteResult<SourceChunksBody>>
@@ -128,6 +164,11 @@ type SourceWorkflowService = {
   readonly uploadSourceBlobToKnowhere: (
     workspace: Workspace,
     input: SourceBlobUploadInput,
+    knowhere: UploadKnowhereClient,
+  ) => Promise<Source>
+  readonly retrySourceToKnowhere: (
+    workspace: Workspace,
+    source: Source,
     knowhere: UploadKnowhereClient,
   ) => Promise<Source>
   readonly findInWorkspace: (
@@ -151,12 +192,19 @@ type SourceWorkflowService = {
     workspaceId: string,
     input: {
       readonly documentId: string
+      readonly namespace?: string
       readonly title?: string
       readonly mimeType?: string
       readonly sizeBytes?: number
       readonly status: SourceStatus
+      readonly revisionKey?: string | null
     },
   ) => Promise<Source>
+  readonly updateSourceRevisionKey: (
+    workspaceId: string,
+    sourceId: string,
+    revisionKey: string,
+  ) => Promise<Source | null>
   readonly upsertMaterializedDemoSource: (
     workspaceId: string,
     input: {
@@ -218,6 +266,8 @@ export type {
   ListSourcesBody,
   ListSourcesInput,
   LoadSourceChunksInput,
+  RetrySourceBody,
+  RetrySourceInput,
   SourceChunksBody,
   SourceRouteDemoApi,
   SourceRouteKnowhereClient,

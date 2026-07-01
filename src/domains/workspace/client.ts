@@ -14,6 +14,7 @@ const workspaceClientKeys = {
   chat: "/api/chat",
   materializeDemoSources: "/api/demo-sources/materialize",
   archiveSource: "archive-source",
+  retrySource: "retry-source",
   archiveChatThread: "archive-chat-thread",
 } as const
 
@@ -79,6 +80,11 @@ type ArchiveResponse = {
   archived?: boolean
 }
 
+type RetrySourceResponse = {
+  source?: SourceView
+  message?: string
+}
+
 export const workspaceClient = {
   keys: workspaceClientKeys,
   fetchChunks,
@@ -91,6 +97,7 @@ export const workspaceClient = {
   sendChatMessage,
   materializeDemoSources,
   archiveSource,
+  retrySource,
   archiveChatThread,
 } as const
 
@@ -198,6 +205,22 @@ function archiveSource(sourceId: string): Promise<ArchiveResponse> {
       archived: true,
     },
   )
+}
+
+async function retrySource(sourceId: string): Promise<SourceView> {
+  const response = await workspaceRouteClient.patchJsonWithStatus<
+    RetrySourceResponse
+  >(`/api/sources/${encodeURIComponent(sourceId)}`, {
+    retry: true,
+  })
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(response.body.message ?? "Source could not be retried.")
+  }
+  if (!response.body.source) {
+    throw new Error("Source could not be retried.")
+  }
+
+  return response.body.source
 }
 
 function archiveChatThread(threadId: string): Promise<ArchiveResponse> {

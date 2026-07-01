@@ -20,6 +20,10 @@ export type ChunkKnowhereClient = {
         includeAssetUrls: boolean
       },
     ): Promise<{
+      documentId?: string
+      namespace?: string
+      jobId?: string | null
+      jobResultId?: string | null
       chunks: DocumentChunk[]
       pagination?: {
         page?: number

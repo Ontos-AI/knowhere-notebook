@@ -5,7 +5,7 @@ import { del } from "@vercel/blob"
 import {
   loadChunkPageForSource,
   loadChunksForSource,
-} from "@/domains/chunks"
+} from "@/domains/chunks/server"
 import { ensureApiKeyForWorkspace } from "@/integrations/dashboard/api-key-service"
 import { makeKnowhereClient as makeDefaultKnowhereClient } from "@/integrations/knowhere"
 import { knowhereDemoApi } from "@/integrations/knowhere-demo"
@@ -49,9 +49,11 @@ const defaultDependencies: SourceRouteServiceDependencies = {
     hideDemoSource: defaultSourceService.hideDemoSource,
     listHiddenDemoSourceIds: defaultSourceService.listHiddenDemoSourceIds,
     localizeRemoteDocument: defaultSourceService.localizeRemoteDocument,
+    updateSourceRevisionKey: defaultSourceService.updateSourceRevisionKey,
     softDelete: defaultSourceService.softDelete,
     upsertMaterializedDemoSource:
       defaultSourceService.upsertMaterializedDemoSource,
+    retrySourceToKnowhere: defaultSourceService.retrySourceToKnowhere,
     uploadSourceBlobToKnowhere: defaultSourceService.uploadSourceBlobToKnowhere,
     uploadSourceToKnowhere: defaultSourceService.uploadSourceToKnowhere,
   },

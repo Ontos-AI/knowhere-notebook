@@ -10,8 +10,11 @@ import { routeResult } from "@/lib/route-result"
 import { logger } from "@/lib/logger"
 import { knowhereDemoApi } from "@/integrations/knowhere-demo"
 import { toSourceView } from "./view"
-import { startBackgroundReconciliation } from "./background-reconcile"
-import { localizeRemoteLibrarySources } from "./remote-library"
+import {
+  startBackgroundReconciliation as defaultStartBackgroundReconciliation,
+} from "./background-reconcile"
+import { listRemoteLibrarySourceViews } from "./remote-library"
+import type { Source } from "@/infrastructure/db/schema"
 import type {
   JsonRouteResult,
   ListSourcesBody,
@@ -39,6 +42,7 @@ type RouteListingDependencies = Pick<
   readonly reconcileSourcesForWorkspace: SourceRouteServiceDependencies[
     "reconcileSourcesForWorkspace"
   ]
+  readonly startBackgroundReconciliation?: typeof defaultStartBackgroundReconciliation
 }
 
 type RouteListing = {
@@ -84,41 +88,28 @@ const listSourcesEffect = (
       deps.ensureApiKeyForWorkspace(workspace.id, input.cookieHeader),
     )
     const client = deps.makeKnowhereClient(apiKey)
-    const sources = yield* Effect.tryPromise(() => {
-      if (!hasParsingSources(listedSources)) {
-        return Promise.resolve(listedSources)
-      }
-      return deps.reconcileSourcesForWorkspace(workspace, client)
-    })
+    const sources = listedSources
     const demoSourceResolution = resolveWorkspaceDemoSources(sources, catalog)
-    const workspaceSources = yield* localizeRemoteLibrarySources({
+    const workspaceSources = demoSourceResolution.workspaceSources
+    const remoteSourceViews = yield* listRemoteLibrarySourceViews({
       workspace,
       client,
       localSources: demoSourceResolution.workspaceSources,
-      localizeDocument: (document) =>
-        deps.sourceService.localizeRemoteDocument(workspace.id, document),
     })
     const sourcesNeedingKnowhereChunkCount =
       getWorkspaceSourcesNeedingKnowhereChunkCount(workspaceSources)
     const materializedDemoSourceOptions =
       getMaterializedDemoSourceViewOptionsBySourceId(workspaceSources, catalog)
-    const parsingSources = sources.filter(
-      (source) => source.status === "parsing" && source.knowhereJobId,
-    )
-    if (parsingSources.length > 0) {
-      logger.info("route-listing: re-triggering reconciliation for parsing sources", {
+    yield* Effect.sync(() =>
+      triggerBackgroundReconciliationForParsingSources({
         workspaceId: workspace.id,
-        count: parsingSources.length,
-        sourceIds: parsingSources.map((s) => s.id),
-      })
-    }
-    for (const source of parsingSources) {
-      yield* Effect.fork(
-        Effect.tryPromise(() =>
-          startBackgroundReconciliation(workspace.id, source.id, apiKey),
-        ),
-      )
-    }
+        sources,
+        apiKey,
+        startBackgroundReconciliation:
+          deps.startBackgroundReconciliation ??
+          defaultStartBackgroundReconciliation,
+      }),
+    )
     const sourceOptions = yield* deps.getSourceViewOptionsBySourceId(
       sourcesNeedingKnowhereChunkCount,
       client,
@@ -148,19 +139,39 @@ const listSourcesEffect = (
               sourceOptions.get(source.id),
           ),
         ),
+        ...remoteSourceViews,
       ],
     })
   })
 
 export { createRouteListing }
 
-function hasParsingSources(
-  sources: readonly {
-    readonly status: string
-    readonly knowhereJobId: string | null
-  }[],
-): boolean {
-  return sources.some(
+function triggerBackgroundReconciliationForParsingSources(input: {
+  readonly workspaceId: string
+  readonly sources: readonly Source[]
+  readonly apiKey: string
+  readonly startBackgroundReconciliation: typeof defaultStartBackgroundReconciliation
+}): void {
+  const parsingSources = input.sources.filter(
     (source) => source.status === "parsing" && source.knowhereJobId,
   )
+  if (parsingSources.length === 0) return
+
+  logger.info("route-listing: re-triggering reconciliation for parsing sources", {
+    workspaceId: input.workspaceId,
+    count: parsingSources.length,
+    sourceIds: parsingSources.map((source) => source.id),
+  })
+
+  for (const source of parsingSources) {
+    void input
+      .startBackgroundReconciliation(input.workspaceId, source.id, input.apiKey)
+      .catch((error: unknown) => {
+        logger.warn("route-listing: background reconciliation trigger failed", {
+          workspaceId: input.workspaceId,
+          sourceId: source.id,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      })
+  }
 }

@@ -9,6 +9,7 @@ import {
   uploadSourceBlobToKnowhereEffect,
   uploadSourceToKnowhereEffect,
 } from "./upload"
+import { retrySourceToKnowhereEffect } from "./retry"
 import { sourceWorkflowRuntime } from "./workflow-runtime"
 
 type SourceService = {
@@ -25,6 +26,11 @@ type SourceService = {
     workspaceId: string,
     input: Parameters<typeof sourceWorkflowRuntime.localizeRemoteDocument>[1],
   ) => Promise<Source>
+  readonly updateSourceRevisionKey: (
+    workspaceId: string,
+    sourceId: string,
+    revisionKey: string,
+  ) => Promise<Source | null>
   readonly listHiddenDemoSourceIds: (workspaceId: string) => Promise<string[]>
   readonly hideDemoSource: (
     workspaceId: string,
@@ -48,6 +54,11 @@ type SourceService = {
   readonly uploadSourceBlobToKnowhere: (
     workspace: Workspace,
     input: SourceBlobUploadInput,
+    knowhere: UploadKnowhereClient,
+  ) => Promise<Source>
+  readonly retrySourceToKnowhere: (
+    workspace: Workspace,
+    source: Source,
     knowhere: UploadKnowhereClient,
   ) => Promise<Source>
 }
@@ -77,6 +88,21 @@ const uploadSourceBlobToKnowhere: SourceService["uploadSourceBlobToKnowhere"] =
       }),
     )
 
+const retrySourceToKnowhere: SourceService["retrySourceToKnowhere"] = (
+  workspace: Workspace,
+  source: Source,
+  knowhere: UploadKnowhereClient,
+) =>
+  Effect.runPromise(
+    retrySourceToKnowhereEffect(workspace, source, {
+      repository: {
+        markSourceFailed: sourceWorkflowRuntime.markFailed,
+        markSourceParsing: sourceWorkflowRuntime.markParsing,
+      },
+      knowhere,
+    }),
+  )
+
 export const sourceService: SourceService = {
   findInWorkspace: sourceWorkflowRuntime.findInWorkspace,
   getParseAssetUrls: sourceWorkflowRuntime.getParseAssetUrls,
@@ -84,9 +110,11 @@ export const sourceService: SourceService = {
   listHiddenDemoSourceIds: sourceWorkflowRuntime.listHiddenDemoSourceIds,
   listForWorkspace: sourceWorkflowRuntime.listForWorkspace,
   localizeRemoteDocument: sourceWorkflowRuntime.localizeRemoteDocument,
+  updateSourceRevisionKey: sourceWorkflowRuntime.updateRevisionKey,
   softDelete: sourceWorkflowRuntime.softDelete,
   upsertMaterializedDemoSource:
     sourceWorkflowRuntime.upsertMaterializedDemoSource,
   uploadSourceToKnowhere,
   uploadSourceBlobToKnowhere,
+  retrySourceToKnowhere,
 }

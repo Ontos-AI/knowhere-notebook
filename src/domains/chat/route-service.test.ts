@@ -17,8 +17,9 @@ const mocks = vi.hoisted(() => ({
   loggerError: vi.fn(),
   loggerInfo: vi.fn(),
   loggerWarn: vi.fn(),
-  reconcileSourcesForWorkspace: vi.fn(),
+  listSourcesForWorkspace: vi.fn(),
   softDeleteChatThread: vi.fn(),
+  startBackgroundReconciliation: vi.fn(),
 }))
 
 vi.mock("@/domains/chat", async (importOriginal) => {
@@ -33,8 +34,14 @@ vi.mock("@/domains/chat/service", () => ({
   handleChatTurn: mocks.handleChatTurn,
 }))
 
-vi.mock("@/domains/sources/reconcile", () => ({
-  reconcileSourcesForWorkspace: mocks.reconcileSourcesForWorkspace,
+vi.mock("@/domains/sources/background-reconcile", () => ({
+  startBackgroundReconciliation: mocks.startBackgroundReconciliation,
+}))
+
+vi.mock("@/domains/sources/workflow-runtime", () => ({
+  sourceWorkflowRuntime: {
+    listForWorkspace: mocks.listSourcesForWorkspace,
+  },
 }))
 
 vi.mock("@/domains/workspace/request-context", () => ({
@@ -82,7 +89,7 @@ describe("chat route services", () => {
       apiKey: "jwt_123",
       client,
     })
-    mocks.reconcileSourcesForWorkspace.mockResolvedValue([readySource])
+    mocks.listSourcesForWorkspace.mockResolvedValue([readySource])
     mocks.handleChatTurn.mockResolvedValue(
       Either.right({
         threadId: "thread_1",
@@ -111,10 +118,8 @@ describe("chat route services", () => {
         ],
       },
     })
-    expect(mocks.reconcileSourcesForWorkspace).toHaveBeenCalledWith(
-      workspace,
-      client,
-    )
+    expect(mocks.listSourcesForWorkspace).toHaveBeenCalledWith(workspace.id)
+    expect(mocks.startBackgroundReconciliation).not.toHaveBeenCalled()
     expect(mocks.handleChatTurn).toHaveBeenCalledWith(
       expect.objectContaining({
         workspace,
@@ -135,6 +140,45 @@ describe("chat route services", () => {
     )
   })
 
+  it("triggers background reconciliation for parsing sources without blocking chat", async () => {
+    const workspace = makeWorkspace()
+    const client = { retrieval: { query: vi.fn() } }
+    const parsingSource = makeSource({
+      status: "parsing",
+      knowhereDocumentId: null,
+    })
+    mocks.getAuthenticatedWithClient.mockResolvedValue({
+      user: { id: "user_1" },
+      workspace,
+      apiKey: "jwt_123",
+      client,
+    })
+    mocks.listSourcesForWorkspace.mockResolvedValue([parsingSource])
+    mocks.startBackgroundReconciliation.mockResolvedValue(undefined)
+    mocks.handleChatTurn.mockResolvedValue(
+      Either.right({
+        threadId: "thread_1",
+        messages: [],
+      }),
+    )
+
+    const result = await chatAnswerRouteService.answerChat({
+      body: { message: "Summarize it" },
+    })
+
+    expect(result.status).toBe(200)
+    expect(mocks.startBackgroundReconciliation).toHaveBeenCalledWith(
+      workspace.id,
+      parsingSource.id,
+      "jwt_123",
+    )
+    expect(mocks.handleChatTurn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sources: [parsingSource],
+      }),
+    )
+  })
+
   it("returns an explicit generation failure instead of a fake session error", async () => {
     const workspace = makeWorkspace()
     const client = { retrieval: { query: vi.fn() } }
@@ -144,7 +188,7 @@ describe("chat route services", () => {
       apiKey: "jwt_123",
       client,
     })
-    mocks.reconcileSourcesForWorkspace.mockResolvedValue([makeSource()])
+    mocks.listSourcesForWorkspace.mockResolvedValue([makeSource()])
     mocks.handleChatTurn.mockRejectedValue(
       new Error("Gateway rejected tool schema: dataType enum invalid"),
     )
@@ -178,7 +222,7 @@ describe("chat route services", () => {
       apiKey: "jwt_123",
       client,
     })
-    mocks.reconcileSourcesForWorkspace.mockResolvedValue([makeSource()])
+    mocks.listSourcesForWorkspace.mockResolvedValue([makeSource()])
     mocks.handleChatTurn.mockRejectedValue(
       new Error("HTTP 401: invalid API key"),
     )

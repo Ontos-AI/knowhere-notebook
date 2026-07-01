@@ -2,6 +2,7 @@ import { Schema } from "effect";
 
 import type { Source } from "@/infrastructure/db/schema";
 import type { SourceView } from "@/domains/sources/types";
+import { sourceFailureMessage } from "./failure-message";
 
 const SourceStatus = Schema.Literal(
   "uploading",
@@ -15,15 +16,21 @@ export function toSourceView(
   options: { chunkCount?: number } = {},
 ): SourceView {
   const originalFile = getSourceOriginalFile(source)
+  const status = toSourceStatus(source.status)
+  const failureMessage =
+    status === "failed"
+      ? sourceFailureMessage.fromStoredReason(source.failureReason)
+      : undefined
 
   return {
     id: source.id,
     kind: "workspace",
     title: source.title,
     mimeType: source.mimeType,
-    status: toSourceStatus(source.status),
+    status,
     ...(source.demoKey ? { demoSourceId: source.demoKey } : {}),
     documentId: source.knowhereDocumentId ?? undefined,
+    ...(failureMessage ? { failureMessage } : {}),
     ...(originalFile ? { originalFile } : {}),
     ...(options.chunkCount !== undefined
       ? { chunkCount: options.chunkCount }

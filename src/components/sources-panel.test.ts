@@ -373,6 +373,40 @@ describe("SourcesPanel", () => {
       .toBeTruthy();
   });
 
+  it("shows retry actions for failed source rows", () => {
+    const onRetrySource = vi.fn();
+
+    render(
+      React.createElement(C, {
+        sources: [
+          {
+            id: "source_1",
+            title: "lecture.pdf",
+            status: "failed",
+            failureMessage:
+              "Too many concurrent requests (2/2 active). Please retry after 30 seconds.",
+            originalFile: {
+              url: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
+              mimeType: "application/pdf",
+            },
+          },
+        ],
+        onRetrySource,
+        retryingSourceIds: ["source_1"],
+      }),
+    );
+
+    const retryButton = screen.getByRole("button", {
+      name: "Retry lecture.pdf processing",
+    });
+    expect((retryButton as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      screen.getByText(
+        "Too many concurrent requests (2/2 active). Please retry after 30 seconds.",
+      ),
+    ).toBeTruthy();
+  });
+
   it("uploads selected files through the sources API", async () => {
     const user = userEvent.setup();
     const uploadedSource = {

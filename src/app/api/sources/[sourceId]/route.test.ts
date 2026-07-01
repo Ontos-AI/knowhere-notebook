@@ -14,7 +14,9 @@ const mocks = vi.hoisted(() => {
     hideDemoSource: vi.fn(),
     makeKnowhereClient: vi.fn(),
     requireUser: vi.fn(),
+    retrySourceToKnowhere: vi.fn(),
     softDeleteSource: vi.fn(),
+    startBackgroundReconciliation: vi.fn(),
   };
 });
 
@@ -46,10 +48,15 @@ vi.mock("@/integrations/knowhere", () => ({
   makeKnowhereClient: mocks.makeKnowhereClient,
 }));
 
+vi.mock("@/domains/sources/background-reconcile", () => ({
+  startBackgroundReconciliation: mocks.startBackgroundReconciliation,
+}));
+
 vi.mock("@/domains/sources/service", () => ({
   sourceService: {
     findInWorkspace: mocks.findSourceInWorkspace,
     hideDemoSource: mocks.hideDemoSource,
+    retrySourceToKnowhere: mocks.retrySourceToKnowhere,
     softDelete: mocks.softDeleteSource,
   },
 }));
@@ -254,5 +261,125 @@ describe("PATCH /api/sources/[sourceId]", () => {
     );
     expect(mocks.ensureApiKeyForWorkspace).not.toHaveBeenCalled();
     expect(mocks.archive).not.toHaveBeenCalled();
+  });
+
+  it("retries a failed source and starts background reconciliation", async () => {
+    mocks.requireUser.mockResolvedValue({ id: "user_1" });
+    mocks.ensureWorkspace.mockResolvedValue({ id: "workspace_1" });
+    mocks.findSourceInWorkspace.mockResolvedValue({
+      id: "source_1",
+      workspaceId: "workspace_1",
+      title: "lecture.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 5,
+      status: "failed",
+      failureReason: "Knowhere upload failed.",
+      knowhereJobId: null,
+      knowhereDocumentId: null,
+      stagedBlobPathname: null,
+      stagedBlobUrl: null,
+      originalBlobPathname: "source-uploads/upload_1/document.pdf",
+      originalBlobUrl:
+        "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
+      demoKey: null,
+      createdAt: new Date("2026-05-10T00:00:00Z"),
+      updatedAt: new Date("2026-05-10T00:00:00Z"),
+      deletedAt: null,
+    });
+    mocks.ensureApiKeyForWorkspace.mockResolvedValue("jwt_123");
+    const knowhereClient = {
+      jobs: {
+        create: vi.fn(),
+        get: vi.fn(),
+        upload: vi.fn(),
+      },
+      documents: {
+        archive: mocks.archive,
+      },
+    };
+    mocks.makeKnowhereClient.mockReturnValue(knowhereClient);
+    mocks.retrySourceToKnowhere.mockResolvedValue({
+      id: "source_1",
+      workspaceId: "workspace_1",
+      title: "lecture.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 5,
+      status: "parsing",
+      failureReason: null,
+      knowhereJobId: "job_retry",
+      knowhereDocumentId: null,
+      stagedBlobPathname: null,
+      stagedBlobUrl: null,
+      originalBlobPathname: "source-uploads/upload_1/document.pdf",
+      originalBlobUrl:
+        "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
+      demoKey: null,
+      createdAt: new Date("2026-05-10T00:00:00Z"),
+      updatedAt: new Date("2026-05-10T00:00:00Z"),
+      deletedAt: null,
+    });
+    mocks.startBackgroundReconciliation.mockResolvedValue(undefined);
+
+    const response = await PATCH(
+      new NextRequest("http://localhost:3001/api/sources/source_1", {
+        method: "PATCH",
+        body: JSON.stringify({ retry: true }),
+      }),
+      { params: Promise.resolve({ sourceId: "source_1" }) },
+    );
+
+    await expect(response.json()).resolves.toEqual({
+      source: {
+        id: "source_1",
+        kind: "workspace",
+        title: "lecture.pdf",
+        mimeType: "application/pdf",
+        status: "parsing",
+        documentId: undefined,
+        originalFile: {
+          url: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 5,
+        },
+      },
+    });
+    expect(response.status).toBe(200);
+    expect(mocks.retrySourceToKnowhere).toHaveBeenCalledWith(
+      { id: "workspace_1" },
+      expect.objectContaining({ id: "source_1", status: "failed" }),
+      knowhereClient,
+    );
+    expect(mocks.startBackgroundReconciliation).toHaveBeenCalledWith(
+      "workspace_1",
+      "source_1",
+      "jwt_123",
+    );
+  });
+
+  it("rejects retry requests for failed rows without a saved original Blob", async () => {
+    mocks.requireUser.mockResolvedValue({ id: "user_1" });
+    mocks.ensureWorkspace.mockResolvedValue({ id: "workspace_1" });
+    mocks.findSourceInWorkspace.mockResolvedValue({
+      id: "source_1",
+      status: "failed",
+      originalBlobPathname: null,
+      originalBlobUrl: null,
+    });
+
+    const response = await PATCH(
+      new NextRequest("http://localhost:3001/api/sources/source_1", {
+        method: "PATCH",
+        body: JSON.stringify({ retry: true }),
+      }),
+      { params: Promise.resolve({ sourceId: "source_1" }) },
+    );
+
+    await expect(response.json()).resolves.toEqual({
+      message:
+        "This source cannot be retried because its original file is unavailable.",
+    });
+    expect(response.status).toBe(409);
+    expect(mocks.ensureApiKeyForWorkspace).not.toHaveBeenCalled();
+    expect(mocks.retrySourceToKnowhere).not.toHaveBeenCalled();
   });
 });

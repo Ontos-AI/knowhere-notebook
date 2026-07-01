@@ -137,7 +137,7 @@ describe("uploadSourceToKnowhere", () => {
     const uploadingSource = makeSource();
     const failedSource = makeSource({
       status: "failed",
-      failureReason: "Knowhere upload failed.",
+      failureReason: "network",
     });
     const deps = {
       repository: {
@@ -165,12 +165,12 @@ describe("uploadSourceToKnowhere", () => {
         new File(["hello"], "notes.pdf", { type: "application/pdf" }),
         deps,
       ),
-    ).rejects.toThrow(/Knowhere upload failed/);
+    ).rejects.toThrow(/network/);
 
     expect(deps.repository.markSourceFailed).toHaveBeenCalledWith(
       workspace.id,
       uploadingSource.id,
-      "Knowhere upload failed.",
+      "network",
     );
     expect(deps.knowhere.jobs.get).not.toHaveBeenCalled();
   });
@@ -405,7 +405,7 @@ describe("uploadSourceToKnowhere", () => {
     const failedSource = makeSource({
       title: "large.pdf",
       status: "failed",
-      failureReason: "Knowhere upload failed.",
+      failureReason: "network",
       sizeBytes: 5,
       originalBlobPathname: "source-uploads/upload_1/document.pdf",
       originalBlobUrl: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
@@ -444,7 +444,7 @@ describe("uploadSourceToKnowhere", () => {
     expect(deps.repository.markSourceFailed).toHaveBeenCalledWith(
       workspace.id,
       uploadingSource.id,
-      "Knowhere upload failed.",
+      "network",
     );
   });
 });
