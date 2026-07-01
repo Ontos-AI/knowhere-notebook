@@ -1,12 +1,21 @@
 import Knowhere from "@ontos-ai/knowhere-sdk"
 import { logger } from "@/lib/logger"
 
+type KnowhereConstructorOptions = ConstructorParameters<typeof Knowhere>[0] & {
+  readonly apiVersion?: "v1" | "v2"
+}
+
 /**
  * Create a Knowhere client with the given API key.
  * Use for per-request clients created from Dashboard-issued JWTs.
  */
 export function makeKnowhereClient(apiKey: string): Knowhere {
-  const client = new Knowhere({ apiKey, baseURL: process.env.KNOWHERE_BASE_URL })
+  const options: KnowhereConstructorOptions = {
+    apiKey,
+    baseURL: process.env.KNOWHERE_BASE_URL,
+    apiVersion: "v2",
+  }
+  const client = new Knowhere(options)
   return wrapKnowhereClient(client)
 }
 

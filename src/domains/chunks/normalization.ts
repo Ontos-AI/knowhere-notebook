@@ -11,6 +11,7 @@ type ParsedChunkNormalizationInput = {
   readonly documentId?: string
   readonly sectionPath?: string | null
   readonly chunkType: unknown
+  readonly contentSource?: unknown
   readonly content?: unknown
   readonly metadata: Readonly<Record<string, unknown>>
   readonly filePathCandidates?: readonly unknown[]
@@ -27,19 +28,29 @@ function createParsedChunkView(
     (filePath ? input.assetUrlsByFilePath?.[filePath] : undefined) ??
     getString(input.assetUrl)
   const connections = getChunkConnections(input.metadata)
+  const type = normalizeChunkType(input.chunkType)
+  const content = normalizeChunkContent({
+    type,
+    content: input.content,
+    metadata: input.metadata,
+  })
+  const summary = getStringMetadata(input.metadata, "summary")
 
   return {
     chunkId: input.chunkId,
     documentId: input.documentId,
     parserChunkId: getString(input.parserChunkId),
     sectionPath: input.sectionPath,
-    type: normalizeChunkType(input.chunkType),
-    content: getString(input.content) ?? "",
+    type,
+    content,
+    contentSource: getContentSource(input),
+    readableContent: getReadableContent({ type, content, summary }),
     filePath,
     assetUrl,
-    summary: getStringMetadata(input.metadata, "summary"),
+    summary,
     keywords: getStringArrayMetadata(input.metadata, "keywords"),
     pageNums: getPageNumbers(input.metadata["page_nums"]),
+    entities: getEntities(input.metadata["entities"]),
     connections,
     sourceTitle: input.sourceTitle,
   }
@@ -97,8 +108,39 @@ function resolveCitationChunkByContent(
 }
 
 function normalizeChunkType(value: unknown): ChunkType {
-  if (value === "image" || value === "table") return value
+  if (value === "image" || value === "table" || value === "page") return value
   return "text"
+}
+
+function getContentSource(
+  input: ParsedChunkNormalizationInput,
+): string | undefined {
+  return (
+    getString(input.contentSource) ??
+    getString(input.metadata["contentSource"]) ??
+    getString(input.metadata["content_source"])
+  )
+}
+
+function normalizeChunkContent(input: {
+  readonly type: ChunkType
+  readonly content?: unknown
+  readonly metadata: Readonly<Record<string, unknown>>
+}): string {
+  const content = getString(input.content)
+  if (content) return content
+  if (input.type !== "page") return ""
+
+  return getStringMetadata(input.metadata, "summary") ?? ""
+}
+
+function getReadableContent(input: {
+  readonly type: ChunkType
+  readonly content: string
+  readonly summary?: string
+}): string | undefined {
+  if (input.type !== "page") return undefined
+  return input.content || input.summary || undefined
 }
 
 function getChunkConnections(
@@ -212,6 +254,15 @@ function getStringArrayMetadata(
     (item): item is string => typeof item === "string" && item.length > 0,
   )
   return strings.length > 0 ? strings : undefined
+}
+
+function getEntities(
+  value: unknown,
+): readonly Readonly<Record<string, unknown>>[] | undefined {
+  if (!Array.isArray(value)) return undefined
+
+  const entities = value.filter(isRecord)
+  return entities.length > 0 ? entities : undefined
 }
 
 function getPageNumbers(value: unknown): number[] | undefined {

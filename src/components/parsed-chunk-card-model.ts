@@ -116,6 +116,7 @@ function getFocusCardClasses(isFocused: boolean): string {
 }
 
 function getChunkTypeLabel(type: ParsedChunkView["type"]): string {
+  if (type === "page") return "Page"
   if (type === "image") return "Image"
   if (type === "table") return "Table"
   return "Text"
@@ -131,9 +132,31 @@ function formatPageNumbers(
   )
   if (uniquePageNums.length === 1) return `Page ${uniquePageNums[0]}`
 
-  const visiblePageNums = uniquePageNums.slice(0, 3).join(", ")
-  const suffix = uniquePageNums.length > 3 ? "..." : ""
-  return `Pages ${visiblePageNums}${suffix}`
+  const ranges: string[] = []
+  let rangeStart = uniquePageNums[0]!
+  let previousPageNum = rangeStart
+
+  uniquePageNums.slice(1).forEach((pageNum) => {
+    if (pageNum === previousPageNum + 1) {
+      previousPageNum = pageNum
+      return
+    }
+
+    ranges.push(
+      rangeStart === previousPageNum
+        ? String(rangeStart)
+        : `${rangeStart}-${previousPageNum}`,
+    )
+    rangeStart = pageNum
+    previousPageNum = pageNum
+  })
+  ranges.push(
+    rangeStart === previousPageNum
+      ? String(rangeStart)
+      : `${rangeStart}-${previousPageNum}`,
+  )
+
+  return `Pages ${ranges.join(", ")}`
 }
 
 export const parsedChunkCardModel: ParsedChunkCardModelModule = {

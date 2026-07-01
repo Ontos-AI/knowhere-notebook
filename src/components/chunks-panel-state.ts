@@ -272,6 +272,7 @@ function isAssetPath(sectionPath: string): boolean {
 function getFallbackSectionSegments(
   chunk: ParsedChunkView,
 ): readonly string[] {
+  if (chunk.type === "page") return ["Pages"]
   if (chunk.type === "image") return ["Assets", "Images"]
   if (chunk.type === "table") return ["Assets", "Tables"]
   return ["Unsectioned"]
