@@ -58,7 +58,6 @@ describe("makeKnowhereClient", () => {
     expect(constructorSpy).toHaveBeenCalledWith({
       apiKey: "sk_test",
       baseURL: "https://api-staging.knowhereto.ai",
-      apiVersion: "v2",
     });
   });
 
