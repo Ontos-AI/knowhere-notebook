@@ -141,6 +141,62 @@ describe("server chunk cache", () => {
     )
   })
 
+  it("treats visible cache read failures as misses", async () => {
+    const warmTasks: Array<() => Promise<void>> = []
+    const cacheStore = createCacheStore({
+      get: vi.fn(async () => {
+        throw new Error("No Blob token")
+      }),
+    })
+    const listChunks = vi.fn(async (
+      _documentId: string,
+      params: { readonly includeAssetUrls: boolean },
+    ) => ({
+      documentId: "doc_1",
+      jobResultId: "revision_1",
+      chunks: params.includeAssetUrls
+        ? [
+            makeDocumentChunk({
+              id: "page_1",
+              chunkId: "parser_page_1",
+              chunkType: "page",
+              content: "Raw page text",
+              metadata: {
+                summary: "Readable page summary",
+                page_nums: [1],
+              },
+            }),
+          ]
+        : [],
+      pagination: {
+        page: 1,
+        pageSize: 1,
+        total: 1,
+        totalPages: 1,
+      },
+    }))
+
+    const page = await Effect.runPromise(
+      loadChunkPageForSource(
+        makeSource({ knowhereJobId: "revision_1" }),
+        { documents: { listChunks } },
+        { page: 1, pageSize: 1 },
+        {
+          cacheStore,
+          scheduleWarm: (task) => warmTasks.push(task),
+          workspaceId: "workspace_1",
+        },
+      ),
+    )
+
+    expect(page.chunks[0]).toMatchObject({
+      chunkId: "page_1",
+      readableContent: "Readable page summary",
+    })
+    expect(listChunks).toHaveBeenCalledTimes(2)
+    expect(warmTasks).toHaveLength(1)
+  })
+
   it("ignores old cached pages when Knowhere reports a new job id", async () => {
     const warmTasks: Array<() => Promise<void>> = []
     const staleCachedPage = {

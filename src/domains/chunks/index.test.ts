@@ -169,6 +169,25 @@ describe("toParsedChunkView", () => {
     });
   });
 
+  it("prefers page summaries over raw extracted page content for display", () => {
+    const chunk = makeDocumentChunk({
+      chunkType: "page" as DocumentChunk["chunkType"],
+      content: "55\n序\n号\n事项\n违约金标准\n备注",
+      metadata: {
+        summary: "The page summarizes contract penalty terms in a table.",
+        page_nums: [1],
+      },
+    });
+
+    expect(toParsedChunkView(chunk, "manual.pdf")).toMatchObject({
+      type: "page",
+      content: "55\n序\n号\n事项\n违约金标准\n备注",
+      readableContent: "The page summarizes contract penalty terms in a table.",
+      summary: "The page summarizes contract penalty terms in a table.",
+      pageNums: [1],
+    });
+  });
+
   it("maps SDK-normalized page number metadata", () => {
     const chunk = makeDocumentChunk({
       metadata: {

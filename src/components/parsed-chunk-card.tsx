@@ -394,7 +394,7 @@ function PageChunkCard({
       onChunkClick={onChunkClick}
     >
       <ChunkContentPanel chunk={chunk} label="Page summary">
-        <p className="whitespace-pre-wrap break-words text-[13px] leading-relaxed text-foreground sm:text-sm">
+        <p className="whitespace-normal break-words text-[13px] leading-relaxed text-foreground sm:text-sm">
           {chunk.readableContent ?? chunk.content}
         </p>
       </ChunkContentPanel>

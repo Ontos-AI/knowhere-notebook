@@ -75,6 +75,12 @@ describe("ParsedChunkCard", () => {
     expect(screen.getByTestId("chunk-content-panel-page_1").textContent).toContain(
       "The refund policy is summarized",
     );
+    expect(
+      screen.getByTestId("chunk-content-panel-page_1").querySelector("p")?.className,
+    ).toContain("whitespace-normal");
+    expect(
+      screen.getByTestId("chunk-content-panel-page_1").querySelector("p")?.className,
+    ).not.toContain("whitespace-pre-wrap");
     expect(screen.queryByTestId("chunk-summary-panel-page_1")).toBeNull();
     expect(
       screen.getByRole("button", { name: "Open page 4 in original file" }),

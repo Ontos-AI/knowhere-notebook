@@ -370,7 +370,18 @@ async function readCachedChunkPage(input: {
   readonly workspaceId: string
 }): Promise<ChunkPage | null> {
   const pathname = getChunkPageCachePathname(input)
-  const result = await input.cacheStore.get(pathname, { access: "public" })
+  const result = await input.cacheStore
+    .get(pathname, { access: "public" })
+    .catch((error: unknown) => {
+      logger.warn("chunks: chunk page cache read failed", {
+        documentId: input.documentId,
+        page: input.params.page,
+        pageSize: input.params.pageSize,
+        revisionKey: input.revisionKey,
+        error: getErrorMessage(error),
+      })
+      return null
+    })
   if (!result || result.statusCode !== 200) return null
 
   const text = await new Response(result.stream).text()

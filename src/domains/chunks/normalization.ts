@@ -142,7 +142,7 @@ function getReadableContent(input: {
   readonly summary?: string
 }): string | undefined {
   if (input.type !== "page") return undefined
-  return input.content || input.summary || undefined
+  return input.summary || input.content || undefined
 }
 
 function getChunkConnections(
