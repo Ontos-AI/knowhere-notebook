@@ -169,11 +169,20 @@ describe("toParsedChunkView", () => {
     });
   });
 
-  it("ignores legacy page number aliases outside metadata.page_nums", () => {
+  it("maps SDK-normalized page number metadata", () => {
+    const chunk = makeDocumentChunk({
+      metadata: {
+        pageNums: [4, 5, 6],
+      },
+    });
+
+    expect(toParsedChunkView(chunk, "manual.pdf").pageNums).toEqual([4, 5, 6]);
+  });
+
+  it("ignores legacy page number aliases outside metadata", () => {
     const chunk = {
       ...makeDocumentChunk({
         metadata: {
-          pageNums: [1, 2],
           pageNumbers: [3],
           page_numbers: [4],
         },

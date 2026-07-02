@@ -49,7 +49,9 @@ function createParsedChunkView(
     assetUrl,
     summary,
     keywords: getStringArrayMetadata(input.metadata, "keywords"),
-    pageNums: getPageNumbers(input.metadata["page_nums"]),
+    pageNums: getPageNumbers(
+      input.metadata["pageNums"] ?? input.metadata["page_nums"],
+    ),
     entities: getEntities(input.metadata["entities"]),
     connections,
     sourceTitle: input.sourceTitle,
