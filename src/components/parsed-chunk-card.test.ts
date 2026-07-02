@@ -45,6 +45,42 @@ describe("ParsedChunkCard", () => {
     );
   });
 
+  it("renders page chunks as page summaries with page citations", () => {
+    render(
+      React.createElement(ParsedChunkCard, {
+        chunk: {
+          chunkId: "page_1",
+          type: "page",
+          content: "The refund policy is summarized across these pages.",
+          contentSource: "summary",
+          readableContent: "The refund policy is summarized across these pages.",
+          sourceTitle: "manual.pdf",
+          sectionPath: "Default_Root/manual.pdf-->pages/4-6",
+          pageNums: [4, 5, 6],
+          entities: [{ text: "refund", label: "topic" }],
+        },
+        isFocused: false,
+        isOriginalPreviewAvailable: true,
+        onChunkClick: vi.fn(),
+        onReferenceClick: vi.fn(),
+      }),
+    );
+
+    expect(screen.getByTestId("chunk-source-panel-page_1").textContent).toContain(
+      "Page",
+    );
+    expect(screen.getByTestId("chunk-source-panel-page_1").textContent).toContain(
+      "Pages 4-6",
+    );
+    expect(screen.getByTestId("chunk-content-panel-page_1").textContent).toContain(
+      "The refund policy is summarized",
+    );
+    expect(screen.queryByTestId("chunk-summary-panel-page_1")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Open page 4 in original file" }),
+    ).toBeTruthy();
+  });
+
   it("routes resolved artifact reference clicks to the target chunk", async () => {
     const user = userEvent.setup();
     const onReferenceClick = vi.fn();

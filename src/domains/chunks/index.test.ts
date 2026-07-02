@@ -138,11 +138,51 @@ describe("toParsedChunkView", () => {
     });
   });
 
-  it("ignores legacy page number aliases outside metadata.page_nums", () => {
+  it("maps page-memory chunks to summary-first page chunk views", () => {
+    const chunk = {
+      ...makeDocumentChunk({
+        id: "document_page_1",
+        chunkId: "parser_page_1",
+        chunkType: "page" as DocumentChunk["chunkType"],
+        content: null,
+        sectionPath: "Default_Root/manual.pdf-->pages/4-6",
+        metadata: {
+          summary: "Refund eligibility is summarized across pages 4 to 6.",
+          page_nums: [4, 5, 6],
+          entities: [{ text: "refund", label: "topic" }],
+        },
+        assetUrl: "https://assets.example/crop.pdf",
+      }),
+      contentSource: "summary",
+    } as DocumentChunk & { readonly contentSource: string };
+
+    expect(toParsedChunkView(chunk, "manual.pdf", "doc_123")).toMatchObject({
+      chunkId: "document_page_1",
+      parserChunkId: "parser_page_1",
+      type: "page",
+      contentSource: "summary",
+      content: "Refund eligibility is summarized across pages 4 to 6.",
+      readableContent: "Refund eligibility is summarized across pages 4 to 6.",
+      pageNums: [4, 5, 6],
+      entities: [{ text: "refund", label: "topic" }],
+      assetUrl: "https://assets.example/crop.pdf",
+    });
+  });
+
+  it("maps SDK-normalized page number metadata", () => {
+    const chunk = makeDocumentChunk({
+      metadata: {
+        pageNums: [4, 5, 6],
+      },
+    });
+
+    expect(toParsedChunkView(chunk, "manual.pdf").pageNums).toEqual([4, 5, 6]);
+  });
+
+  it("ignores legacy page number aliases outside metadata", () => {
     const chunk = {
       ...makeDocumentChunk({
         metadata: {
-          pageNums: [1, 2],
           pageNumbers: [3],
           page_numbers: [4],
         },

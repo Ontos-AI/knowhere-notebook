@@ -1,4 +1,4 @@
-export type ChunkType = "text" | "image" | "table"
+export type ChunkType = "text" | "image" | "table" | "page"
 
 export type ParsedChunkConnection = {
   readonly targetParserChunkId: string
@@ -23,7 +23,9 @@ export type ParsedChunkView = {
   /** Human-readable section path from Knowhere, used to focus citations. */
   readonly sectionPath?: string | null
   readonly type: ChunkType
+  readonly contentSource?: string
   readonly content: string
+  readonly readableContent?: string
   /** ZIP-relative parsed artifact path, e.g. images/image-1.jpg. */
   readonly filePath?: string
   /** Public Blob URL for parsed media/table artifacts when Notebook stored it. */
@@ -31,6 +33,7 @@ export type ParsedChunkView = {
   readonly summary?: string
   readonly keywords?: readonly string[]
   readonly pageNums?: readonly number[]
+  readonly entities?: readonly Readonly<Record<string, unknown>>[]
   readonly connections?: readonly ParsedChunkConnection[]
   /** Display-only attribution. */
   readonly sourceTitle: string

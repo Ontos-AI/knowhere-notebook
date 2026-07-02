@@ -935,7 +935,7 @@ function getChunkTreeLabel(chunk: ParsedChunkView): string {
   const summary = chunk.summary?.split(/\r?\n/, 1)[0]?.trim();
   if (summary) return truncateTreeLabel(summary);
 
-  const content = chunk.content.replace(/\s+/g, " ").trim();
+  const content = (chunk.readableContent ?? chunk.content).replace(/\s+/g, " ").trim();
   if (content) return truncateTreeLabel(content);
 
   return `${getChunkTypeLabel(chunk.type)} chunk`;
@@ -950,16 +950,43 @@ function getChunkTreeDetail(chunk: ParsedChunkView): string {
 
 function getChunkPageLabel(chunk: ParsedChunkView): string | null {
   const pageNumbers = chunk.pageNums ?? [];
-  const validPageNumbers = pageNumbers.filter(
-    (pageNumber) => Number.isFinite(pageNumber) && pageNumber > 0,
-  );
+  const validPageNumbers = Array.from(
+    new Set(
+      pageNumbers.filter(
+        (pageNumber) => Number.isFinite(pageNumber) && pageNumber > 0,
+      ),
+    ),
+  ).sort((leftPageNumber, rightPageNumber) => leftPageNumber - rightPageNumber);
   if (validPageNumbers.length === 0) return null;
+  if (validPageNumbers.length === 1) return `Page ${validPageNumbers[0]}`;
 
-  const firstPageNumber = Math.min(...validPageNumbers);
-  return `Page ${firstPageNumber}`;
+  const ranges: string[] = [];
+  let rangeStart = validPageNumbers[0]!;
+  let previousPageNumber = rangeStart;
+  validPageNumbers.slice(1).forEach((pageNumber) => {
+    if (pageNumber === previousPageNumber + 1) {
+      previousPageNumber = pageNumber;
+      return;
+    }
+    ranges.push(
+      rangeStart === previousPageNumber
+        ? String(rangeStart)
+        : `${rangeStart}-${previousPageNumber}`,
+    );
+    rangeStart = pageNumber;
+    previousPageNumber = pageNumber;
+  });
+  ranges.push(
+    rangeStart === previousPageNumber
+      ? String(rangeStart)
+      : `${rangeStart}-${previousPageNumber}`,
+  );
+
+  return `Pages ${ranges.join(", ")}`;
 }
 
 function getChunkTypeLabel(type: ParsedChunkView["type"]): string {
+  if (type === "page") return "Page";
   if (type === "image") return "Image";
   if (type === "table") return "Table";
   return "Text";

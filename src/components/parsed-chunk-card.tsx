@@ -35,6 +35,18 @@ export function ParsedChunkCard({
   readonly onReferenceClick: (chunkId: string) => void;
   readonly sourceOriginalFile?: SourceOriginalFileView | null;
 }): ReactNode {
+  if (chunk.type === "page") {
+    return (
+      <ChunkCardShell chunk={chunk}>
+        <PageChunkCard
+          chunk={chunk}
+          isFocused={isFocused}
+          isOriginalPreviewAvailable={isOriginalPreviewAvailable}
+          onChunkClick={onChunkClick}
+        />
+      </ChunkCardShell>
+    );
+  }
   if (chunk.type === "image") {
     return (
       <ChunkCardShell chunk={chunk}>
@@ -257,9 +269,11 @@ function ChunkSummaryPanel({
 
 function ChunkContentPanel({
   chunk,
+  label = "Content",
   children,
 }: {
   readonly chunk: ParsedChunkView;
+  readonly label?: string;
   readonly children: ReactNode;
 }): ReactNode {
   return (
@@ -267,7 +281,7 @@ function ChunkContentPanel({
       data-testid={`chunk-content-panel-${chunk.chunkId}`}
       className="rounded-lg border border-border/70 bg-card p-3"
     >
-      <SectionLabel icon={<FileText className="size-3.5" />} label="Content" />
+      <SectionLabel icon={<FileText className="size-3.5" />} label={label} />
       <div className="mt-2 min-w-0">{children}</div>
     </section>
   );
@@ -355,6 +369,34 @@ function TextChunkCard({
         <pre className="whitespace-pre-wrap break-words font-sans text-[13px] leading-relaxed text-foreground sm:text-sm">
           {renderTextChunkContent(chunk, onReferenceClick)}
         </pre>
+      </ChunkContentPanel>
+      <ChunkKeywords chunk={chunk} />
+    </ChunkCardFrame>
+  );
+}
+
+function PageChunkCard({
+  chunk,
+  isFocused,
+  isOriginalPreviewAvailable,
+  onChunkClick,
+}: {
+  readonly chunk: ParsedChunkView;
+  readonly isFocused: boolean;
+  readonly isOriginalPreviewAvailable: boolean;
+  readonly onChunkClick?: (chunk: ParsedChunkView) => void;
+}): ReactNode {
+  return (
+    <ChunkCardFrame
+      chunk={chunk}
+      isFocused={isFocused}
+      isOriginalPreviewAvailable={isOriginalPreviewAvailable}
+      onChunkClick={onChunkClick}
+    >
+      <ChunkContentPanel chunk={chunk} label="Page summary">
+        <p className="whitespace-pre-wrap break-words text-[13px] leading-relaxed text-foreground sm:text-sm">
+          {chunk.readableContent ?? chunk.content}
+        </p>
       </ChunkContentPanel>
       <ChunkKeywords chunk={chunk} />
     </ChunkCardFrame>
@@ -525,12 +567,16 @@ function TableChunkCard({
 }
 
 function renderChunkIcon(type: ParsedChunkView["type"]): ReactNode {
+  if (type === "page") return <FileSearch className="size-4" />;
   if (type === "image") return <ImageIcon className="size-4" />;
   if (type === "table") return <Table2 className="size-4" />;
   return <FileText className="size-4" />;
 }
 
 function getChunkIconClasses(type: ParsedChunkView["type"]): string {
+  if (type === "page") {
+    return "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300";
+  }
   if (type === "image") {
     return "border-violet-500/15 bg-violet-500/10 text-violet-600 dark:text-violet-300";
   }

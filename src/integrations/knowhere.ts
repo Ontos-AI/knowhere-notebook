@@ -6,7 +6,11 @@ import { logger } from "@/lib/logger"
  * Use for per-request clients created from Dashboard-issued JWTs.
  */
 export function makeKnowhereClient(apiKey: string): Knowhere {
-  const client = new Knowhere({ apiKey, baseURL: process.env.KNOWHERE_BASE_URL })
+  const options: ConstructorParameters<typeof Knowhere>[0] = {
+    apiKey,
+    baseURL: process.env.KNOWHERE_BASE_URL,
+  }
+  const client = new Knowhere(options)
   return wrapKnowhereClient(client)
 }
 
