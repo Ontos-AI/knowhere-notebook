@@ -163,6 +163,9 @@ export function toParsedChunkView(
     parserChunkId: chunk.chunkId,
     sectionPath: chunk.sectionPath,
     chunkType: chunk.chunkType,
+    contentSource:
+      (chunk as DocumentChunk & { readonly contentSource?: unknown }).contentSource ??
+      (chunk as DocumentChunk & { readonly content_source?: unknown }).content_source,
     content: chunk.content,
     metadata: chunk.metadata,
     filePathCandidates: [

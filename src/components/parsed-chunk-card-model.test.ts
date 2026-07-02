@@ -16,9 +16,25 @@ describe("parsedChunkCardModel", () => {
     )
 
     expect(metadata).toEqual({
-      pageLabel: "Pages 2, 4, 8...",
+      pageLabel: "Pages 2, 4, 8-9",
       sectionLabel: "FINANCIAL SUMMARY",
       typeLabel: "Text",
+    })
+  })
+
+  it("labels page chunks and formats continuous page ranges", () => {
+    const metadata = parsedChunkCardModel.getSourceMetadata(
+      makeChunk({
+        type: "page",
+        pageNums: [6, 4, 5],
+        sectionPath: "Default_Root/manual.pdf-->pages/4-6",
+      }),
+    )
+
+    expect(metadata).toEqual({
+      pageLabel: "Pages 4-6",
+      sectionLabel: "pages/4-6",
+      typeLabel: "Page",
     })
   })
 
