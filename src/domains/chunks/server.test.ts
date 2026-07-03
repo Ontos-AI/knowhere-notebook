@@ -9,6 +9,107 @@ import {
 } from "./server"
 
 describe("server chunk cache", () => {
+  it("loads ready source chunks from the parsed Blob snapshot without calling Knowhere listChunks", async () => {
+    const listChunks = vi.fn(async () => ({
+      documentId: "doc_1",
+      chunks: [],
+      pagination: {
+        page: 1,
+        pageSize: 1,
+        total: 0,
+        totalPages: 0,
+      },
+    }))
+    const snapshotStore = createSnapshotStore({
+      "workspaces/workspace_1/sources/source_1/parsed-result/manifest/current.json":
+        JSON.stringify({
+          version: 1,
+          kind: "knowhere-parsed-result-snapshot",
+          jobId: "job_1",
+          documentId: "doc_1",
+          sourceFileName: "notes.pdf",
+          totalChunks: 1,
+          chunkPageSize: 1,
+          chunkPages: [
+            {
+              page: 1,
+              pageSize: 1,
+              chunkCount: 1,
+              key: "workspaces/workspace_1/sources/source_1/parsed-result/chunks/page-1.json",
+            },
+          ],
+          assetUrlsByFilePath: {
+            "images/chart.png": "https://blob.example/images/chart.png",
+          },
+          createdAt: "2026-07-03T00:00:00.000Z",
+        }),
+      "workspaces/workspace_1/sources/source_1/parsed-result/chunks/page-1.json":
+        JSON.stringify({
+          version: 1,
+          jobId: "job_1",
+          documentId: "doc_1",
+          sourceFileName: "notes.pdf",
+          page: 1,
+          pageSize: 1,
+          total: 1,
+          totalPages: 1,
+          chunks: [
+            {
+              id: "chunk_image_1",
+              chunkId: "parser_image_1",
+              chunkType: "image",
+              content: "Chart summary",
+              sectionPath: "Revenue",
+              sourceChunkPath: "notes.pdf/Revenue",
+              filePath: "images/chart.png",
+              sortOrder: 1,
+              metadata: { summary: "Chart summary" },
+            },
+          ],
+        }),
+    })
+
+    const page = await Effect.runPromise(
+      loadChunkPageForSource(
+        makeSource({ status: "ready", knowhereJobId: "job_1" }),
+        { documents: { listChunks } },
+        { page: 1, pageSize: 1 },
+        {
+          snapshot: {
+            resultBlobUrl:
+              "https://blob.example/workspaces/workspace_1/sources/source_1/parsed-result/manifest/current.json",
+            snapshotManifestUrl:
+              "https://blob.example/workspaces/workspace_1/sources/source_1/parsed-result/manifest/current.json",
+            snapshotManifestKey:
+              "workspaces/workspace_1/sources/source_1/parsed-result/manifest/current.json",
+            assetUrlsByFilePath: {},
+          },
+          snapshotStore,
+          workspaceId: "workspace_1",
+        },
+      ),
+    )
+
+    expect(listChunks).not.toHaveBeenCalled()
+    expect(page).toEqual({
+      chunks: [
+        expect.objectContaining({
+          chunkId: "chunk_image_1",
+          parserChunkId: "parser_image_1",
+          type: "image",
+          assetUrl: "https://blob.example/images/chart.png",
+          sourceTitle: "notes.pdf",
+        }),
+      ],
+      pagination: {
+        page: 1,
+        pageSize: 1,
+        total: 1,
+        totalPages: 1,
+      },
+    })
+  })
+
   it("returns upstream chunks on a visible cache miss and warms mirrored assets in the background", async () => {
     const warmTasks: Array<() => Promise<void>> = []
     const cacheStore = createCacheStore()
@@ -355,6 +456,13 @@ type TestCacheStore = {
   readonly putMock: TestCachePutMock
 }
 
+type TestSnapshotStore = {
+  readonly get: (
+    pathname: string,
+    options: { readonly access: "public" },
+  ) => Promise<TestCacheGetResult | null>
+}
+
 type TestCacheGetMock = Mock<
   (
     pathname: string,
@@ -388,6 +496,21 @@ function createCacheStore(overrides: Partial<{
     put: (pathname, body, options) => putMock(pathname, body, options),
     getMock,
     putMock,
+  }
+}
+
+function createSnapshotStore(
+  entriesByPathname: Readonly<Record<string, string>>,
+): TestSnapshotStore {
+  return {
+    get: vi.fn(async (pathname: string) => {
+      const entry = entriesByPathname[pathname]
+      if (!entry) return null
+      return {
+        statusCode: 200 as const,
+        stream: createTextStream(entry),
+      }
+    }),
   }
 }
 

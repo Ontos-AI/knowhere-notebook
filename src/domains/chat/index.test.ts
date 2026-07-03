@@ -671,6 +671,8 @@ describe("answerQuestionWithRetrieval", () => {
   it("hardens page citation asset URLs before returning citations", async () => {
     const rawPageAssetUrl =
       "https://knowhere-storage.example/results/job_1/page_citation_assets/page-4.png?AWSAccessKeyId=test";
+    const storedPageAssetUrl =
+      "https://blob.example/workspaces/workspace_1/sources/source_pages/parsed-result/page_citation_assets/page-4.png";
     const hardenedPageAssetUrl =
       "https://blob.example/workspaces/workspace_1/chat-assets/source-source_pages/page-4.png";
     const result = makeRetrievalResult({
@@ -705,7 +707,7 @@ describe("answerQuestionWithRetrieval", () => {
     };
     const generateAnswer = vi.fn(async ({ searchSources }) => {
       await searchSources({ query: "page four evidence" });
-      return makeHarnessRunResult(`This page has the answer. ${rawPageAssetUrl}`);
+      return makeHarnessRunResult(`This page has the answer. ${storedPageAssetUrl}`);
     });
     const hardenMediaAssetUrls = vi.fn(
       async ({
@@ -720,6 +722,8 @@ describe("answerQuestionWithRetrieval", () => {
             ...candidate,
             pageCitationAssetUrl:
               candidate.pageCitationAssetUrl === rawPageAssetUrl
+                ? hardenedPageAssetUrl
+                : candidate.pageCitationAssetUrl === storedPageAssetUrl
                 ? hardenedPageAssetUrl
                 : candidate.pageCitationAssetUrl,
           }),
@@ -743,6 +747,9 @@ describe("answerQuestionWithRetrieval", () => {
         retrieval,
         generateAnswer,
         hardenMediaAssetUrls,
+        loadSourceAssetUrls: vi.fn(async () => ({
+          "page_citation_assets/page-4.png": storedPageAssetUrl,
+        })),
         messages: [],
       }),
     );
@@ -750,7 +757,7 @@ describe("answerQuestionWithRetrieval", () => {
     expect(hardenMediaAssetUrls).toHaveBeenCalledWith({
       results: [
         expect.objectContaining({
-          pageCitationAssetUrl: rawPageAssetUrl,
+          pageCitationAssetUrl: storedPageAssetUrl,
           source: expect.objectContaining({
             sourceFileName: "deck.pdf",
           }),
@@ -775,6 +782,8 @@ describe("answerQuestionWithRetrieval", () => {
   it("hardens page citation asset URLs from referenced chunk metadata", async () => {
     const rawPageAssetUrl =
       "https://knowhere-storage.example/results/job_1/page_citation_assets/page-6.png?AWSAccessKeyId=test";
+    const storedPageAssetUrl =
+      "https://blob.example/workspaces/workspace_1/sources/source_pages/parsed-result/page_citation_assets/page-6.png";
     const hardenedPageAssetUrl =
       "https://blob.example/workspaces/workspace_1/chat-assets/source-source_pages/page-6.png";
     const retrieval = {
@@ -827,6 +836,8 @@ describe("answerQuestionWithRetrieval", () => {
             pageCitationAssetUrl:
               candidate.pageCitationAssetUrl === rawPageAssetUrl
                 ? hardenedPageAssetUrl
+                : candidate.pageCitationAssetUrl === storedPageAssetUrl
+                ? hardenedPageAssetUrl
                 : candidate.pageCitationAssetUrl,
           }),
         ),
@@ -849,6 +860,9 @@ describe("answerQuestionWithRetrieval", () => {
         retrieval,
         generateAnswer,
         hardenMediaAssetUrls,
+        loadSourceAssetUrls: vi.fn(async () => ({
+          "page_citation_assets/page-6.png": storedPageAssetUrl,
+        })),
         messages: [],
       }),
     );
@@ -863,7 +877,7 @@ describe("answerQuestionWithRetrieval", () => {
               }),
             ],
           }),
-          pageCitationAssetUrl: rawPageAssetUrl,
+          pageCitationAssetUrl: storedPageAssetUrl,
         }),
       ],
       artifacts: undefined,

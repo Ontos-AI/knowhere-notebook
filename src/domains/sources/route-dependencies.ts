@@ -46,6 +46,7 @@ const defaultDependencies: SourceRouteServiceDependencies = {
   sourceService: {
     findInWorkspace: defaultSourceService.findInWorkspace,
     getParseAssetUrls: defaultSourceService.getParseAssetUrls,
+    getParseSnapshotMetadata: defaultSourceService.getParseSnapshotMetadata,
     hideDemoSource: defaultSourceService.hideDemoSource,
     listHiddenDemoSourceIds: defaultSourceService.listHiddenDemoSourceIds,
     localizeRemoteDocument: defaultSourceService.localizeRemoteDocument,

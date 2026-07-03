@@ -183,6 +183,15 @@ type SourceWorkflowService = {
     workspaceId: string,
     sourceId: string,
   ) => Promise<Readonly<Record<string, string>>>
+  readonly getParseSnapshotMetadata: (
+    workspaceId: string,
+    sourceId: string,
+  ) => Promise<{
+    readonly resultBlobUrl: string
+    readonly snapshotManifestUrl?: string | null
+    readonly snapshotManifestKey?: string | null
+    readonly assetUrlsByFilePath: Readonly<Record<string, string>>
+  } | null>
   readonly hideDemoSource: (
     workspaceId: string,
     demoSourceId: string,

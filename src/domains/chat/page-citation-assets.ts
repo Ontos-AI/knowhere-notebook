@@ -78,12 +78,6 @@ async function enrichRetrievalResultWithPageCitationAssetUrl(input: {
       pageCitationAssetUrl: sourceAssetUrl,
     }
   }
-  if (directAsset?.assetUrl) {
-    return {
-      ...input.result,
-      pageCitationAssetUrl: directAsset.assetUrl,
-    }
-  }
 
   return input.result
 }
@@ -127,14 +121,10 @@ function getDirectPageCitationAsset(
     const matchingCandidates = candidates.filter((candidate) =>
       pageNumbers.includes(candidate.pageNum),
     )
-    const matchingAssetWithUrl = matchingCandidates.find(
-      (candidate) => candidate.assetUrl,
-    )
-    if (matchingAssetWithUrl) return matchingAssetWithUrl
     if (matchingCandidates[0]) return matchingCandidates[0]
   }
 
-  return candidates.find((candidate) => candidate.assetUrl) ?? candidates[0] ?? null
+  return candidates[0] ?? null
 }
 
 function parsePageCitationAssetCandidates(

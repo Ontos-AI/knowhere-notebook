@@ -21,6 +21,7 @@ type SourceRepository = {
   readonly saveParseResultEffect: typeof sourceParseResultRepository.saveParseResultEffect
   readonly mergeParseAssetUrlsEffect: typeof sourceParseResultRepository.mergeParseAssetUrlsEffect
   readonly getParseResultProgressEffect: typeof sourceParseResultRepository.getParseResultProgressEffect
+  readonly getParseSnapshotMetadataEffect: typeof sourceParseResultRepository.getParseSnapshotMetadataEffect
   readonly getParseAssetUrlsEffect: typeof sourceParseResultRepository.getParseAssetUrlsEffect
 }
 
@@ -45,5 +46,7 @@ export const sourceRepository: SourceRepository = {
     sourceParseResultRepository.mergeParseAssetUrlsEffect,
   getParseResultProgressEffect:
     sourceParseResultRepository.getParseResultProgressEffect,
+  getParseSnapshotMetadataEffect:
+    sourceParseResultRepository.getParseSnapshotMetadataEffect,
   getParseAssetUrlsEffect: sourceParseResultRepository.getParseAssetUrlsEffect,
 }

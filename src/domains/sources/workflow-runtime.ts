@@ -62,6 +62,17 @@ type SourceWorkflowRuntime = UploadRepositoryRuntime & {
     sourceId: string,
   ) => Promise<{
     readonly resultBlobUrl: string
+    readonly snapshotManifestUrl?: string | null
+    readonly snapshotManifestKey?: string | null
+    readonly assetUrlsByFilePath: Readonly<Record<string, string>>
+  } | null>
+  readonly getParseSnapshotMetadata: (
+    workspaceId: string,
+    sourceId: string,
+  ) => Promise<{
+    readonly resultBlobUrl: string
+    readonly snapshotManifestUrl?: string | null
+    readonly snapshotManifestKey?: string | null
     readonly assetUrlsByFilePath: Readonly<Record<string, string>>
   } | null>
   readonly listForWorkspace: (workspaceId: string) => Promise<Source[]>
@@ -248,6 +259,12 @@ const getParseAssetUrls: SourceWorkflowRuntime["getParseAssetUrls"] = (
     sourceRepository.getParseAssetUrlsEffect(workspaceId, sourceId),
   )
 
+const getParseSnapshotMetadata: SourceWorkflowRuntime["getParseSnapshotMetadata"] =
+  (workspaceId: string, sourceId: string) =>
+    databaseRuntime.runPromise(
+      sourceRepository.getParseSnapshotMetadataEffect(workspaceId, sourceId),
+    )
+
 function createUploadRepository(
   runtime: UploadRepositoryRuntime = sourceWorkflowRuntime,
 ): UploadSourceRepository {
@@ -287,6 +304,7 @@ export const sourceWorkflowRuntime: SourceWorkflowRuntime = {
   findInWorkspace,
   getParseAssetUrls,
   getParseResultProgress,
+  getParseSnapshotMetadata,
   hideDemoSource,
   listForWorkspace,
   listHiddenDemoSourceIds,

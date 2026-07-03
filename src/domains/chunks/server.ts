@@ -7,7 +7,6 @@ import { after } from "next/server"
 import { Effect } from "effect"
 import type {
   DocumentChunk,
-  DocumentChunkListResponse,
 } from "@ontos-ai/knowhere-sdk"
 
 import {
@@ -18,6 +17,13 @@ import {
   type ChunkPageParams,
   type LoadChunksOptions,
 } from "@/domains/chunks"
+import {
+  readParsedResultSnapshotChunkPage,
+  readParsedResultSnapshotManifest,
+  type ParsedResultSnapshotBlobStore,
+  type ParsedResultSnapshotChunk,
+  type ParsedResultSnapshotManifest,
+} from "@/domains/sources/parse-result-storage-adapter"
 import type { ParsedChunkView } from "@/domains/chunks/types"
 import type { Source } from "@/infrastructure/db/schema"
 import { logger } from "@/lib/logger"
@@ -59,6 +65,8 @@ type ChunkPageWarmScheduler = (task: () => Promise<void>) => void
 
 type ServerLoadChunksOptions = LoadChunksOptions & {
   readonly workspaceId?: string
+  readonly snapshot?: SourceParsedSnapshotReadModel | null
+  readonly snapshotStore?: ParsedResultSnapshotBlobStore
   readonly cacheStore?: ChunkPageBlobStore
   readonly fetchAsset?: FetchChunkAsset
   readonly mode?: ChunkPageMode
@@ -84,6 +92,13 @@ type MirrorableChunkAsset = {
   readonly chunkType: "image" | "table"
   readonly assetUrl: string
   readonly filePath?: string
+}
+
+export type SourceParsedSnapshotReadModel = {
+  readonly resultBlobUrl: string
+  readonly snapshotManifestUrl?: string | null
+  readonly snapshotManifestKey?: string | null
+  readonly assetUrlsByFilePath: Readonly<Record<string, string>>
 }
 
 const documentChunkPageSize = 200
@@ -124,6 +139,17 @@ export const loadChunksForSource = (
   Effect.gen(function* () {
     if (source.status !== "ready" || !source.knowhereDocumentId) return []
 
+    if (options.snapshot) {
+      const snapshotChunks = yield* Effect.promise(() =>
+        loadAllSnapshotChunks({
+          source,
+          snapshot: options.snapshot!,
+          blobStore: options.snapshotStore,
+        }),
+      )
+      return resolveChunkConnectionTargets(snapshotChunks)
+    }
+
     const chunks: ParsedChunkView[] = []
     let page = 1
     let totalPages = 1
@@ -154,6 +180,17 @@ export const loadChunkPageForSource = (
     const emptyPage = createEmptyChunkPage(params)
     if (source.status !== "ready" || !source.knowhereDocumentId) {
       return emptyPage
+    }
+
+    if (options.snapshot) {
+      return yield* Effect.promise(() =>
+        loadSnapshotChunkPage({
+          source,
+          params,
+          snapshot: options.snapshot!,
+          blobStore: options.snapshotStore,
+        }),
+      )
     }
 
     const mode = options.mode ?? visibleChunkPageMode
@@ -235,6 +272,138 @@ export const loadChunkPageForSource = (
 
     return chunkPage
   })
+
+async function loadAllSnapshotChunks(input: {
+  readonly source: Source
+  readonly snapshot: SourceParsedSnapshotReadModel
+  readonly blobStore?: ParsedResultSnapshotBlobStore
+}): Promise<ParsedChunkView[]> {
+  const manifest = await loadSnapshotManifest(input)
+  if (!manifest) return []
+
+  const pages = await Promise.all(
+    manifest.chunkPages.map((page) =>
+      readParsedResultSnapshotChunkPage({
+        pageKey: page.key,
+        blobStore: input.blobStore,
+      }),
+    ),
+  )
+  const chunks = pages.flatMap((page) => page?.chunks ?? [])
+  return chunks.map((chunk) =>
+    toParsedChunkView(
+      toDocumentChunkFromSnapshot(chunk),
+      input.source.title,
+      input.source.knowhereDocumentId ?? undefined,
+      {
+        assetUrlsByFilePath: {
+          ...manifest.assetUrlsByFilePath,
+          ...input.snapshot.assetUrlsByFilePath,
+        },
+      },
+    ),
+  )
+}
+
+async function loadSnapshotChunkPage(input: {
+  readonly source: Source
+  readonly params: ChunkPageParams
+  readonly snapshot: SourceParsedSnapshotReadModel
+  readonly blobStore?: ParsedResultSnapshotBlobStore
+}): Promise<ChunkPage> {
+  const manifest = await loadSnapshotManifest(input)
+  if (!manifest) return createEmptyChunkPage(input.params)
+
+  const pageReference = manifest.chunkPages.find(
+    (page) => page.page === input.params.page && page.pageSize === input.params.pageSize,
+  )
+  if (!pageReference) {
+    return createEmptyChunkPage({
+      page: input.params.page,
+      pageSize: input.params.pageSize,
+    })
+  }
+
+  const page = await readParsedResultSnapshotChunkPage({
+    pageKey: pageReference.key,
+    blobStore: input.blobStore,
+  })
+  if (!page) return createEmptyChunkPage(input.params)
+
+  const assetUrlsByFilePath = {
+    ...manifest.assetUrlsByFilePath,
+    ...input.snapshot.assetUrlsByFilePath,
+  }
+  const chunks = page.chunks.map((chunk) =>
+    toParsedChunkView(
+      toDocumentChunkFromSnapshot(chunk),
+      input.source.title,
+      input.source.knowhereDocumentId ?? undefined,
+      { assetUrlsByFilePath },
+    ),
+  )
+
+  return {
+    chunks,
+    pagination: {
+      page: page.page,
+      pageSize: page.pageSize,
+      total: page.total,
+      totalPages: page.totalPages,
+    },
+  }
+}
+
+async function loadSnapshotManifest(input: {
+  readonly source: Source
+  readonly snapshot: SourceParsedSnapshotReadModel
+  readonly blobStore?: ParsedResultSnapshotBlobStore
+}): Promise<ParsedResultSnapshotManifest | null> {
+  const manifestKey = input.snapshot.snapshotManifestKey
+  if (!manifestKey) {
+    logger.warn("chunks: ready source missing parsed snapshot manifest", {
+      sourceId: input.source.id,
+      documentId: input.source.knowhereDocumentId,
+    })
+    return null
+  }
+
+  const manifest = await readParsedResultSnapshotManifest({
+    workspaceId: input.source.workspaceId,
+    sourceId: input.source.id,
+    manifestKey,
+    blobStore: input.blobStore,
+  })
+  if (!manifest) {
+    logger.warn("chunks: parsed snapshot manifest could not be read", {
+      sourceId: input.source.id,
+      documentId: input.source.knowhereDocumentId,
+      manifestKey,
+    })
+  }
+  return manifest
+}
+
+function toDocumentChunkFromSnapshot(chunk: ParsedResultSnapshotChunk): DocumentChunk {
+  return {
+    id: chunk.id,
+    chunkId: chunk.chunkId,
+    chunkType: normalizeDocumentChunkType(chunk.chunkType),
+    content: chunk.content,
+    sectionId: null,
+    sectionPath: chunk.sectionPath ?? null,
+    sourceChunkPath: chunk.sourceChunkPath,
+    filePath: chunk.filePath ?? null,
+    sortOrder: chunk.sortOrder,
+    metadata: chunk.metadata,
+    assetUrl: chunk.assetUrl ?? null,
+  }
+}
+
+function normalizeDocumentChunkType(value: string): DocumentChunk["chunkType"] {
+  if (value === "image" || value === "table" || value === "page") return value
+  return "text"
+}
 
 export async function warmChunkPageCache(
   input: WarmChunkPageCacheInput,
@@ -653,7 +822,10 @@ function getMirroredAssetContentType(
 }
 
 function getRevisionKey(
-  response: Pick<DocumentChunkListResponse, "jobId" | "jobResultId">,
+  response: {
+    readonly jobId?: string | null
+    readonly jobResultId?: string | null
+  },
   source: Source,
 ): string | null {
   return (

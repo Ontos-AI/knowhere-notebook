@@ -21,6 +21,10 @@ type SourceService = {
     workspaceId: string,
     sourceId: string,
   ) => Promise<Readonly<Record<string, string>>>
+  readonly getParseSnapshotMetadata: (
+    workspaceId: string,
+    sourceId: string,
+  ) => ReturnType<typeof sourceWorkflowRuntime.getParseSnapshotMetadata>
   readonly listForWorkspace: (workspaceId: string) => Promise<Source[]>
   readonly localizeRemoteDocument: (
     workspaceId: string,
@@ -106,6 +110,7 @@ const retrySourceToKnowhere: SourceService["retrySourceToKnowhere"] = (
 export const sourceService: SourceService = {
   findInWorkspace: sourceWorkflowRuntime.findInWorkspace,
   getParseAssetUrls: sourceWorkflowRuntime.getParseAssetUrls,
+  getParseSnapshotMetadata: sourceWorkflowRuntime.getParseSnapshotMetadata,
   hideDemoSource: sourceWorkflowRuntime.hideDemoSource,
   listHiddenDemoSourceIds: sourceWorkflowRuntime.listHiddenDemoSourceIds,
   listForWorkspace: sourceWorkflowRuntime.listForWorkspace,

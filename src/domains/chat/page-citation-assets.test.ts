@@ -5,7 +5,7 @@ import type { Source } from "@/infrastructure/db/schema"
 import { enrichRetrievalResultsWithPageCitationAssetUrls } from "./page-citation-assets"
 
 describe("enrichRetrievalResultsWithPageCitationAssetUrls", () => {
-  it("uses server-provided page asset URLs from result metadata", async () => {
+  it("does not use direct server-provided page asset URLs from result metadata", async () => {
     const [result] = await enrichRetrievalResultsWithPageCitationAssetUrls({
       results: [
         makeRetrievalResult({
@@ -25,12 +25,10 @@ describe("enrichRetrievalResultsWithPageCitationAssetUrls", () => {
       sources: [makeSource()],
     })
 
-    expect(result?.pageCitationAssetUrl).toBe(
-      "https://assets.example/pages/page-2.png",
-    )
+    expect(result?.pageCitationAssetUrl).toBeUndefined()
   })
 
-  it("prefers stored Blob URLs over server-provided page asset URLs", async () => {
+  it("uses stored Blob URLs for page citation assets", async () => {
     const loadSourceAssetUrls = vi.fn().mockResolvedValue({
       "page_citation_assets/page-2.png":
         "https://blob.example/page_citation_assets/page-2.png",
@@ -64,7 +62,12 @@ describe("enrichRetrievalResultsWithPageCitationAssetUrls", () => {
     )
   })
 
-  it("chooses the asset matching the citation page metadata", async () => {
+  it("chooses the stored asset matching the citation page metadata", async () => {
+    const loadSourceAssetUrls = vi.fn().mockResolvedValue({
+      "page_citation_assets/page-4.png":
+        "https://blob.example/page_citation_assets/page-4.png",
+    })
+
     const [result] = await enrichRetrievalResultsWithPageCitationAssetUrls({
       results: [
         makeRetrievalResult({
@@ -87,10 +90,11 @@ describe("enrichRetrievalResultsWithPageCitationAssetUrls", () => {
         }),
       ],
       sources: [makeSource()],
+      loadSourceAssetUrls,
     })
 
     expect(result?.pageCitationAssetUrl).toBe(
-      "https://assets.example/pages/page-4.png",
+      "https://blob.example/page_citation_assets/page-4.png",
     )
   })
 

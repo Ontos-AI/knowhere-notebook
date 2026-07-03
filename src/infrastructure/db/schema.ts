@@ -161,10 +161,9 @@ export type NewDemoSourceVisibility = typeof demoSourceVisibilities.$inferInsert
 /**
  * Notebook-owned parse-result artifact index for one source.
  *
- * Knowhere's chunk list currently may omit media asset URLs, while parsed chunk
- * metadata still points to ZIP-relative files like `images/image-1.jpg`.
- * This table stores the Notebook Blob copy of the result ZIP plus a
- * file-path-to-public-URL map for those extracted parsed artifacts.
+ * Blob is the Notebook-owned read model for parsed chunks after source
+ * reconciliation completes. This row stores the current parsed snapshot
+ * manifest and the file-path-to-public-URL map for parsed media artifacts.
  */
 export const sourceParseResults = pgTable(
   "source_parse_results",
@@ -175,6 +174,8 @@ export const sourceParseResults = pgTable(
       .references(() => sources.id, { onDelete: "cascade" })
       .unique(),
     resultBlobUrl: text("result_blob_url").notNull(),
+    snapshotManifestUrl: text("snapshot_manifest_url"),
+    snapshotManifestKey: text("snapshot_manifest_key"),
     assetUrls: jsonb("asset_urls")
       .$type<Readonly<Record<string, string>>>()
       .notNull(),

@@ -88,8 +88,16 @@ const loadSourceChunksEffect = (
     const client = yield* Effect.tryPromise(() =>
       getClientForWorkspace(workspace.id, input.cookieHeader, deps),
     )
+    const snapshot = yield* Effect.tryPromise(() =>
+      deps.sourceService.getParseSnapshotMetadata(workspace.id, source.id),
+    )
+    if (!isCompleteSnapshot(snapshot)) {
+      return sourceSnapshotProcessing(input)
+    }
+
     if (input.shouldLoadAll) {
       const chunks = yield* deps.loadChunksForSource(source, client, {
+        snapshot,
         workspaceId: workspace.id,
         onRevisionKey: async (revisionKey) => {
           await deps.sourceService.updateSourceRevisionKey(
@@ -111,6 +119,7 @@ const loadSourceChunksEffect = (
       input.pageParams,
       {
         assetUrlsByFilePath,
+        snapshot,
         workspaceId: workspace.id,
         onRevisionKey: async (revisionKey) => {
           await deps.sourceService.updateSourceRevisionKey(
@@ -292,6 +301,62 @@ function getErrorMessage(error: unknown): string {
 
 function sourceNotFound(): JsonRouteResult<{ readonly message: string }> {
   return routeResult.error(404, "Source not found.")
+}
+
+function sourceSnapshotProcessing(
+  input: LoadSourceChunksInput,
+): JsonRouteResult<{
+  readonly chunks: []
+  readonly pagination?: {
+    readonly page: number
+    readonly pageSize: number
+    readonly total: 0
+    readonly totalPages: 0
+  }
+  readonly message: string
+}> {
+  if (input.shouldLoadAll) {
+    return routeResult.ok(
+      {
+        chunks: [],
+        message: "Source parsed snapshot is still being prepared.",
+      },
+      202,
+    )
+  }
+
+  return routeResult.ok(
+    {
+      chunks: [],
+      pagination: {
+        page: input.pageParams.page,
+        pageSize: input.pageParams.pageSize,
+        total: 0,
+        totalPages: 0,
+      },
+      message: "Source parsed snapshot is still being prepared.",
+    },
+    202,
+  )
+}
+
+function isCompleteSnapshot(
+  snapshot:
+    | {
+        readonly snapshotManifestKey?: string | null
+        readonly snapshotManifestUrl?: string | null
+      }
+    | null,
+): snapshot is {
+  readonly snapshotManifestKey: string
+  readonly snapshotManifestUrl: string
+} {
+  return (
+    typeof snapshot?.snapshotManifestKey === "string" &&
+    snapshot.snapshotManifestKey.length > 0 &&
+    typeof snapshot.snapshotManifestUrl === "string" &&
+    snapshot.snapshotManifestUrl.length > 0
+  )
 }
 
 export { createRouteChunks }

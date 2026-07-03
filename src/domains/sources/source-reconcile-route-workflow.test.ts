@@ -3,7 +3,6 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 const mocks = vi.hoisted(() => ({
   createParsedResultStorageAdapter: vi.fn(),
   saveParseResult: vi.fn(),
-  writeParsedResultAssetIndex: vi.fn(),
   loggerError: vi.fn(),
   loggerInfo: vi.fn(),
   loggerWarn: vi.fn(),
@@ -27,7 +26,6 @@ vi.mock("@/domains/sources/workflow-runtime", () => ({
 
 vi.mock("./parse-result-storage-adapter", () => ({
   createParsedResultStorageAdapter: mocks.createParsedResultStorageAdapter,
-  writeParsedResultAssetIndex: mocks.writeParsedResultAssetIndex,
 }))
 
 vi.mock("@/integrations/knowhere", () => ({
@@ -66,7 +64,7 @@ describe("sourceReconcileRouteWorkflow", () => {
     })
   })
 
-  it("caches parsed assets before marking the source ready", async () => {
+  it("writes a parsed snapshot before marking the source ready", async () => {
     const context = createWorkflowContext()
     const continuations: ContinuationTriggerInput[] = []
     const restore =
@@ -86,13 +84,16 @@ describe("sourceReconcileRouteWorkflow", () => {
         "page_citation_assets/page-1.png":
           "https://blob.example/page_citation_assets/page-1.png",
       },
+      parsedSnapshot: {
+        manifestKey:
+          "workspaces/workspace_1/sources/source_1/parsed-result/manifest/current.json",
+        manifestUrl:
+          "https://blob.example/workspaces/workspace_1/sources/source_1/parsed-result/manifest/current.json",
+      },
     })
     const client = { jobs: {}, knowledge: { cacheJobResult } }
     mocks.createParsedResultStorageAdapter.mockReturnValue(storageAdapter)
     mocks.makeKnowhereClient.mockReturnValue(client)
-    mocks.writeParsedResultAssetIndex.mockResolvedValue(
-      "https://blob.example/asset-index.json",
-    )
     mocks.saveParseResult.mockResolvedValue({ id: "parse_result_1" })
     mocks.pollSourceReconciliation.mockResolvedValue({
       kind: "ready-to-prepare",
@@ -124,19 +125,16 @@ describe("sourceReconcileRouteWorkflow", () => {
       jobId: "job_1",
       storageAdapter,
     })
-    expect(mocks.writeParsedResultAssetIndex).toHaveBeenCalledWith({
-      workspaceId: "workspace_1",
-      sourceId: "source_1",
-      assetUrlsByFilePath: {
-        "page_citation_assets/page-1.png":
-          "https://blob.example/page_citation_assets/page-1.png",
-      },
-    })
     expect(mocks.saveParseResult).toHaveBeenCalledWith(
       "workspace_1",
       "source_1",
       {
-        resultBlobUrl: "https://blob.example/asset-index.json",
+        resultBlobUrl:
+          "https://blob.example/workspaces/workspace_1/sources/source_1/parsed-result/manifest/current.json",
+        snapshotManifestUrl:
+          "https://blob.example/workspaces/workspace_1/sources/source_1/parsed-result/manifest/current.json",
+        snapshotManifestKey:
+          "workspaces/workspace_1/sources/source_1/parsed-result/manifest/current.json",
         assetUrlsByFilePath: {
           "page_citation_assets/page-1.png":
             "https://blob.example/page_citation_assets/page-1.png",
@@ -150,6 +148,43 @@ describe("sourceReconcileRouteWorkflow", () => {
     })
     expect(mocks.loggerWarn).not.toHaveBeenCalled()
     expect(continuations).toEqual([])
+  })
+
+  it("does not mark ready when snapshot manifest storage is missing", async () => {
+    const context = createWorkflowContext()
+    const storageAdapter = {
+      adapter: {
+        writeObject: vi.fn(),
+      },
+      keyPrefix: "workspaces/workspace_1/sources/source_1/parsed-result",
+    }
+    const cacheJobResult = vi.fn().mockResolvedValue({
+      assetUrlsByFilePath: {},
+    })
+    mocks.createParsedResultStorageAdapter.mockReturnValue(storageAdapter)
+    mocks.makeKnowhereClient.mockReturnValue({
+      jobs: {},
+      knowledge: { cacheJobResult },
+    })
+    mocks.pollSourceReconciliation.mockResolvedValue({
+      kind: "ready-to-prepare",
+      jobId: "job_1",
+      documentId: "doc_1",
+    })
+
+    await expect(
+      sourceReconcileRouteWorkflow.runPollAndMirrorWorkflow({
+        context,
+        payload: sourceReconcileRouteWorkflow.normalizeReconcilePayload({
+          workspaceId: "workspace_1",
+          sourceId: "source_1",
+          apiKey: "jwt_1",
+        }),
+      }),
+    ).rejects.toThrow("Parsed result snapshot was not written")
+
+    expect(mocks.saveParseResult).not.toHaveBeenCalled()
+    expect(mocks.markSourceReadyAfterReconciliation).not.toHaveBeenCalled()
   })
 
   it("triggers a fresh poll run when Knowhere is still running after the segment budget", async () => {

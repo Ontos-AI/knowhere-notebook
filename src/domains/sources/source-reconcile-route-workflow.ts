@@ -10,7 +10,6 @@ import { makeKnowhereClient } from "@/integrations/knowhere"
 import { logger } from "@/lib/logger"
 import {
   createParsedResultStorageAdapter,
-  writeParsedResultAssetIndex,
 } from "./parse-result-storage-adapter"
 import { sourceWorkflowRuntime } from "./workflow-runtime"
 
@@ -23,6 +22,14 @@ type ReconcilePayload = {
 }
 
 type ReconcilePhase = "poll-and-ready" | "poll-and-mirror" | "asset-batches"
+
+type ParsedSnapshotResponse = {
+  readonly assetUrlsByFilePath?: Readonly<Record<string, string>>
+  readonly parsedSnapshot?: {
+    readonly manifestKey: string
+    readonly manifestUrl?: string
+  }
+}
 
 type NormalizedReconcilePayload = {
   readonly workspaceId: string
@@ -122,27 +129,32 @@ async function runPollAndMirrorWorkflow(input: {
     return
   }
 
-  const assetUrlsByFilePath = await context.run("cache-job-result-assets", async () => {
-    const cachedResult = await client.knowledge.cacheJobResult({
+  const snapshot = await context.run("cache-job-result-snapshot", async () => {
+    const cachedResult = (await client.knowledge.cacheJobResult({
       jobId: jobToPrepare.jobId,
       storageAdapter: createParsedResultStorageAdapter({
         workspaceId,
         sourceId,
       }),
-    })
-    return cachedResult.assetUrlsByFilePath ?? {}
+    })) as ParsedSnapshotResponse
+    const manifest = cachedResult.parsedSnapshot
+    if (!manifest?.manifestUrl || !manifest.manifestKey) {
+      throw new Error(
+        "Parsed result snapshot was not written; refusing to mark source ready.",
+      )
+    }
+    return {
+      assetUrlsByFilePath: cachedResult.assetUrlsByFilePath ?? {},
+      snapshotManifestUrl: manifest.manifestUrl,
+      snapshotManifestKey: manifest.manifestKey,
+    }
   })
-  const resultBlobUrl = await context.run("write-parse-result-asset-index", async () =>
-    writeParsedResultAssetIndex({
-      workspaceId,
-      sourceId,
-      assetUrlsByFilePath,
-    }),
-  )
   await context.run("save-parse-result-assets", async () =>
     sourceWorkflowRuntime.saveParseResult(workspaceId, sourceId, {
-      resultBlobUrl,
-      assetUrlsByFilePath,
+      resultBlobUrl: snapshot.snapshotManifestUrl,
+      snapshotManifestUrl: snapshot.snapshotManifestUrl,
+      snapshotManifestKey: snapshot.snapshotManifestKey,
+      assetUrlsByFilePath: snapshot.assetUrlsByFilePath,
     }),
   )
 

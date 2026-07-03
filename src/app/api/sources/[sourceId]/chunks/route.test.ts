@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   findSourceInWorkspace: vi.fn(),
   getCurrentUser: vi.fn(),
   getSourceParseAssetUrls: vi.fn(),
+  getSourceParseSnapshotMetadata: vi.fn(),
   localizeRemoteDocument: vi.fn(),
   makeKnowhereClient: vi.fn(),
   requireUser: vi.fn(),
@@ -51,6 +52,7 @@ vi.mock("@/domains/sources/service", () => ({
   sourceService: {
     findInWorkspace: mocks.findSourceInWorkspace,
     getParseAssetUrls: mocks.getSourceParseAssetUrls,
+    getParseSnapshotMetadata: mocks.getSourceParseSnapshotMetadata,
     localizeRemoteDocument: mocks.localizeRemoteDocument,
     updateSourceRevisionKey: mocks.updateSourceRevisionKey,
   },
@@ -71,6 +73,16 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
     mocks.blobPut.mockImplementation(async (pathname: string) => ({
       url: `https://blob.example/${pathname}`,
     }))
+    mocks.getSourceParseAssetUrls.mockResolvedValue({})
+    mocks.getSourceParseSnapshotMetadata.mockResolvedValue({
+      resultBlobUrl:
+        "https://blob.example/workspaces/workspace_1/sources/source_1/parsed-result/manifest/current.json",
+      snapshotManifestUrl:
+        "https://blob.example/workspaces/workspace_1/sources/source_1/parsed-result/manifest/current.json",
+      snapshotManifestKey:
+        "workspaces/workspace_1/sources/source_1/parsed-result/manifest/current.json",
+      assetUrlsByFilePath: {},
+    })
     mocks.updateSourceRevisionKey.mockResolvedValue(null)
   })
 
@@ -429,30 +441,10 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
     }
   })
 
-  it("loads authenticated workspace chunks without probing the demo endpoint first", async () => {
+  it("loads authenticated workspace chunks from the parsed Blob snapshot", async () => {
     const knowhereClient = {
       documents: {
-        listChunks: vi.fn(async () => ({
-          chunks: [
-            {
-              id: "dchk_1",
-              chunkId: "parser_1",
-              chunkType: "text",
-              content: "Workspace chunk",
-              sectionPath: "Summary",
-              sourceChunkPath: "Default_Root/notes.pdf/Summary",
-              filePath: null,
-              metadata: {},
-              sortOrder: 0,
-            },
-          ],
-          pagination: {
-            page: 1,
-            pageSize: 1,
-            total: 1,
-            totalPages: 1,
-          },
-        })),
+        listChunks: vi.fn(),
       },
     }
     mocks.getCurrentUser.mockResolvedValue({
@@ -487,7 +479,81 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
     })
     mocks.ensureApiKeyForWorkspace.mockResolvedValue("jwt_123")
     mocks.makeKnowhereClient.mockReturnValue(knowhereClient)
-    mocks.getSourceParseAssetUrls.mockResolvedValue({})
+    mocks.getSourceParseAssetUrls.mockResolvedValue({
+      "images/chart.png": "https://blob.example/images/chart.png",
+    })
+    mocks.getSourceParseSnapshotMetadata.mockResolvedValue({
+      resultBlobUrl:
+        "https://blob.example/workspaces/workspace_1/sources/00000000-0000-0000-0000-000000000002/parsed-result/manifest/current.json",
+      snapshotManifestUrl:
+        "https://blob.example/workspaces/workspace_1/sources/00000000-0000-0000-0000-000000000002/parsed-result/manifest/current.json",
+      snapshotManifestKey:
+        "workspaces/workspace_1/sources/00000000-0000-0000-0000-000000000002/parsed-result/manifest/current.json",
+      assetUrlsByFilePath: {
+        "images/chart.png": "https://blob.example/images/chart.png",
+      },
+    })
+    mocks.blobGet.mockImplementation(async (pathname: string) => {
+      if (pathname.endsWith("/manifest/current.json")) {
+        return {
+          statusCode: 200,
+          stream: createTextStream(
+            JSON.stringify({
+              version: 1,
+              kind: "knowhere-parsed-result-snapshot",
+              jobId: "job_1",
+              documentId: "doc_1",
+              sourceFileName: "notes.pdf",
+              totalChunks: 1,
+              chunkPageSize: 1,
+              chunkPages: [
+                {
+                  page: 1,
+                  pageSize: 1,
+                  chunkCount: 1,
+                  key: "workspaces/workspace_1/sources/00000000-0000-0000-0000-000000000002/parsed-result/chunks/page-1.json",
+                },
+              ],
+              assetUrlsByFilePath: {
+                "images/chart.png": "https://blob.example/images/chart.png",
+              },
+              createdAt: "2026-07-03T00:00:00.000Z",
+            }),
+          ),
+        }
+      }
+      if (pathname.endsWith("/chunks/page-1.json")) {
+        return {
+          statusCode: 200,
+          stream: createTextStream(
+            JSON.stringify({
+              version: 1,
+              jobId: "job_1",
+              documentId: "doc_1",
+              sourceFileName: "notes.pdf",
+              page: 1,
+              pageSize: 1,
+              total: 1,
+              totalPages: 1,
+              chunks: [
+                {
+                  id: "dchk_1",
+                  chunkId: "parser_1",
+                  chunkType: "image",
+                  content: "Workspace chunk",
+                  sectionPath: "Summary",
+                  sourceChunkPath: "Default_Root/notes.pdf/Summary",
+                  filePath: "images/chart.png",
+                  metadata: {},
+                  sortOrder: 1,
+                },
+              ],
+            }),
+          ),
+        }
+      }
+      return null
+    })
 
     const response = await GET(
       new NextRequest(
@@ -502,6 +568,7 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
           chunkId: "dchk_1",
           parserChunkId: "parser_1",
           documentId: "doc_1",
+          assetUrl: "https://blob.example/images/chart.png",
           sourceTitle: "notes.pdf",
         },
       ],
@@ -513,11 +580,68 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
     })
     expect(response.status).toBe(200)
     expect(mocks.fetchDemoChunkPage).not.toHaveBeenCalled()
-    expect(knowhereClient.documents.listChunks).toHaveBeenCalledWith("doc_1", {
-      page: 1,
-      pageSize: 1,
-      includeAssetUrls: true,
+    expect(knowhereClient.documents.listChunks).not.toHaveBeenCalled()
+  })
+
+  it("returns processing when a ready workspace source has no complete parsed snapshot", async () => {
+    const knowhereClient = {
+      documents: {
+        listChunks: vi.fn(),
+      },
+    }
+    mocks.getCurrentUser.mockResolvedValue({
+      id: "user_1",
+      email: null,
+      name: null,
     })
+    mocks.ensureWorkspace.mockResolvedValue({
+      id: "workspace_1",
+      userId: "user_1",
+      namespace: "notebook-workspace_1",
+      createdAt: new Date("2026-05-10T00:00:00.000Z"),
+    })
+    mocks.findSourceInWorkspace.mockResolvedValue({
+      id: "00000000-0000-0000-0000-000000000002",
+      workspaceId: "workspace_1",
+      title: "notes.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 1024,
+      status: "ready",
+      failureReason: null,
+      knowhereJobId: "job_1",
+      knowhereDocumentId: "doc_1",
+      stagedBlobPathname: null,
+      stagedBlobUrl: null,
+      originalBlobPathname: null,
+      originalBlobUrl: null,
+      demoKey: null,
+      createdAt: new Date("2026-05-10T00:00:00.000Z"),
+      updatedAt: new Date("2026-05-10T00:00:00.000Z"),
+      deletedAt: null,
+    })
+    mocks.ensureApiKeyForWorkspace.mockResolvedValue("jwt_123")
+    mocks.makeKnowhereClient.mockReturnValue(knowhereClient)
+    mocks.getSourceParseSnapshotMetadata.mockResolvedValue(null)
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost:3001/api/sources/00000000-0000-0000-0000-000000000002/chunks?page=1&pageSize=1",
+      ),
+      { params: Promise.resolve({ sourceId: "00000000-0000-0000-0000-000000000002" }) },
+    )
+
+    await expect(response.json()).resolves.toEqual({
+      chunks: [],
+      pagination: {
+        page: 1,
+        pageSize: 1,
+        total: 0,
+        totalPages: 0,
+      },
+      message: "Source parsed snapshot is still being prepared.",
+    })
+    expect(response.status).toBe(202)
+    expect(knowhereClient.documents.listChunks).not.toHaveBeenCalled()
   })
 
   it("materializes a remote source id on open before loading chunks", async () => {
@@ -650,3 +774,9 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
     )
   })
 })
+
+function createTextStream(text: string): ReadableStream<Uint8Array> {
+  const stream = new Response(text).body
+  if (!stream) throw new Error("Response body stream was not created.")
+  return stream
+}
