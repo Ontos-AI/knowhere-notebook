@@ -5,21 +5,14 @@ const mocks = vi.hoisted(() => ({
   loggerInfo: vi.fn(),
   loggerWarn: vi.fn(),
   makeKnowhereClient: vi.fn(),
-  markSourceFailedAfterReconciliation: vi.fn(),
   markFailed: vi.fn(),
   markSourceReadyAfterReconciliation: vi.fn(),
   pollSourceReconciliation: vi.fn(),
-  prepareSourcePageCitationAssets: vi.fn(),
 }))
 
 vi.mock("@/domains/sources/source-reconcile-workflow", () => ({
-  markSourceFailedAfterReconciliation: mocks.markSourceFailedAfterReconciliation,
   markSourceReadyAfterReconciliation: mocks.markSourceReadyAfterReconciliation,
   pollSourceReconciliation: mocks.pollSourceReconciliation,
-}))
-
-vi.mock("@/domains/sources/page-citation-assets", () => ({
-  prepareSourcePageCitationAssets: mocks.prepareSourcePageCitationAssets,
 }))
 
 vi.mock("@/domains/sources/workflow-runtime", () => ({
@@ -83,16 +76,6 @@ describe("sourceReconcileRouteWorkflow", () => {
     mocks.markSourceReadyAfterReconciliation.mockResolvedValue({
       status: "ready",
     })
-    mocks.prepareSourcePageCitationAssets.mockResolvedValue({
-      warnings: [
-        {
-          code: "render_limit_exceeded",
-          message: "One page was skipped.",
-          documentId: "doc_1",
-          jobId: "job_1",
-        },
-      ],
-    })
 
     try {
       await sourceReconcileRouteWorkflow.runPollAndMirrorWorkflow({
@@ -112,68 +95,9 @@ describe("sourceReconcileRouteWorkflow", () => {
       sourceId: "source_1",
       documentId: "doc_1",
     })
-    expect(mocks.prepareSourcePageCitationAssets).toHaveBeenCalledWith({
-      client,
-      sourceId: "source_1",
-      jobId: "job_1",
-      documentId: "doc_1",
-    })
-    expect(
-      mocks.prepareSourcePageCitationAssets.mock.invocationCallOrder[0],
-    ).toBeLessThan(
-      mocks.markSourceReadyAfterReconciliation.mock.invocationCallOrder[0]!,
-    )
-    expect(mocks.loggerWarn).toHaveBeenCalledWith(
-      "workflow: page citation asset warning",
-      expect.objectContaining({
-        sourceId: "source_1",
-        jobId: "job_1",
-        documentId: "doc_1",
-      }),
-    )
+    expect(client).toEqual({ jobs: {} })
+    expect(mocks.loggerWarn).not.toHaveBeenCalled()
     expect(continuations).toEqual([])
-  })
-
-  it("marks the source failed when page citation asset preparation throws", async () => {
-    const context = createWorkflowContext()
-    const restore =
-      sourceReconcileRouteWorkflow.setContinuationTriggerForTesting(
-        async () => undefined,
-      )
-    const client = { jobs: {}, knowledge: {} }
-    mocks.makeKnowhereClient.mockReturnValue(client)
-    mocks.pollSourceReconciliation.mockResolvedValue({
-      kind: "ready-to-prepare",
-      jobId: "job_1",
-      documentId: "doc_1",
-    })
-    mocks.prepareSourcePageCitationAssets.mockRejectedValue(
-      new Error("renderer setup failed"),
-    )
-    mocks.markSourceFailedAfterReconciliation.mockResolvedValue({
-      status: "failed",
-    })
-
-    try {
-      await sourceReconcileRouteWorkflow.runPollAndMirrorWorkflow({
-        context,
-        payload: sourceReconcileRouteWorkflow.normalizeReconcilePayload({
-          workspaceId: "workspace_1",
-          sourceId: "source_1",
-          apiKey: "jwt_1",
-        }),
-      })
-    } finally {
-      restore()
-    }
-
-    expect(mocks.markSourceFailedAfterReconciliation).toHaveBeenCalledWith({
-      workspaceId: "workspace_1",
-      sourceId: "source_1",
-      reason:
-        "Page citation asset preparation failed: renderer setup failed",
-    })
-    expect(mocks.markSourceReadyAfterReconciliation).not.toHaveBeenCalled()
   })
 
   it("triggers a fresh poll run when Knowhere is still running after the segment budget", async () => {
