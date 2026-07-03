@@ -18,7 +18,12 @@ import type {
 import type { RouteResult } from "@/lib/route-result"
 import type { SourceBlobUploadInput } from "./blob-upload"
 import type { sourceViewOptionsBySourceId } from "./counts"
+import type { syncRemoteParsedSnapshot } from "./remote-parsed-snapshot-sync"
 import type { UploadKnowhereClient } from "./upload"
+
+type SyncRemoteParsedSnapshotInput = Parameters<
+  typeof syncRemoteParsedSnapshot
+>[0]
 
 type SourceRouteKnowhereClient = UploadKnowhereClient &
   ChunkKnowhereClient & {
@@ -54,6 +59,7 @@ type SourceRouteKnowhereClient = UploadKnowhereClient &
       }>
       archive(documentId: string): Promise<unknown>
     }
+    readonly knowledge?: SyncRemoteParsedSnapshotInput["client"]["knowledge"]
   }
 
 type SourceUploadRequest =
@@ -171,6 +177,7 @@ type SourceWorkflowService = {
     source: Source,
     knowhere: UploadKnowhereClient,
   ) => Promise<Source>
+  readonly syncRemoteParsedSnapshot: typeof syncRemoteParsedSnapshot
   readonly findInWorkspace: (
     workspaceId: string,
     sourceId: string,

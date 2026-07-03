@@ -94,7 +94,6 @@ const loadSourceChunksEffect = (
     if (!isCompleteSnapshot(snapshot)) {
       return sourceSnapshotProcessing(input)
     }
-
     if (input.shouldLoadAll) {
       const chunks = yield* deps.loadChunksForSource(source, client, {
         snapshot,
@@ -168,9 +167,32 @@ const loadRemoteChunkPageEffect = (
         revisionKey: remoteDocument.revisionKey ?? null,
       }),
     )
+    const knowledge = client.knowledge
+    if (!knowledge) {
+      throw new Error("Knowhere client does not support parsed snapshot caching.")
+    }
+    const snapshot = yield* Effect.tryPromise(() =>
+      deps.sourceService.syncRemoteParsedSnapshot({
+        workspaceId: workspace.id,
+        source,
+        client: {
+          documents: client.documents,
+          knowledge,
+        },
+      }),
+    )
+    if (!isCompleteSnapshot(snapshot)) {
+      return sourceSnapshotProcessing(input)
+    }
+    const readySource = {
+      ...source,
+      status: "ready" as const,
+      knowhereDocumentId: source.knowhereDocumentId ?? remoteDocument.documentId,
+    }
 
     if (input.shouldLoadAll) {
-      const chunks = yield* deps.loadChunksForSource(source, client, {
+      const chunks = yield* deps.loadChunksForSource(readySource, client, {
+        snapshot,
         workspaceId: workspace.id,
         onRevisionKey: async (revisionKey) => {
           await deps.sourceService.updateSourceRevisionKey(
@@ -184,10 +206,12 @@ const loadRemoteChunkPageEffect = (
     }
 
     const chunkPage = yield* deps.loadChunkPageForSource(
-      source,
+      readySource,
       client,
       input.pageParams,
       {
+        assetUrlsByFilePath: snapshot.assetUrlsByFilePath,
+        snapshot,
         workspaceId: workspace.id,
         onRevisionKey: async (revisionKey) => {
           await deps.sourceService.updateSourceRevisionKey(

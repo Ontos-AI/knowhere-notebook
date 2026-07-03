@@ -9,6 +9,7 @@ import {
   uploadSourceBlobToKnowhereEffect,
   uploadSourceToKnowhereEffect,
 } from "./upload"
+import { syncRemoteParsedSnapshot } from "./remote-parsed-snapshot-sync"
 import { retrySourceToKnowhereEffect } from "./retry"
 import { sourceWorkflowRuntime } from "./workflow-runtime"
 
@@ -65,6 +66,7 @@ type SourceService = {
     source: Source,
     knowhere: UploadKnowhereClient,
   ) => Promise<Source>
+  readonly syncRemoteParsedSnapshot: typeof syncRemoteParsedSnapshot
 }
 
 const uploadSourceToKnowhere: SourceService["uploadSourceToKnowhere"] = (
@@ -122,4 +124,5 @@ export const sourceService: SourceService = {
   uploadSourceToKnowhere,
   uploadSourceBlobToKnowhere,
   retrySourceToKnowhere,
+  syncRemoteParsedSnapshot,
 }

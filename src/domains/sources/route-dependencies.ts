@@ -55,6 +55,7 @@ const defaultDependencies: SourceRouteServiceDependencies = {
     upsertMaterializedDemoSource:
       defaultSourceService.upsertMaterializedDemoSource,
     retrySourceToKnowhere: defaultSourceService.retrySourceToKnowhere,
+    syncRemoteParsedSnapshot: defaultSourceService.syncRemoteParsedSnapshot,
     uploadSourceBlobToKnowhere: defaultSourceService.uploadSourceBlobToKnowhere,
     uploadSourceToKnowhere: defaultSourceService.uploadSourceToKnowhere,
   },
