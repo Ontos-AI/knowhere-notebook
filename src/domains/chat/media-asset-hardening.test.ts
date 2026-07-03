@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import type { RetrievalResult } from "@ontos-ai/knowhere-sdk"
 
 import type { Source } from "@/infrastructure/db/schema"
 import {
   hardenChatMediaAssetUrls,
   type ChatMediaAssetBlobStore,
   type FetchChatMediaAsset,
+  type HardenableRetrievalResult,
 } from "./media-asset-hardening"
 
 const loggerMock = vi.hoisted(() => ({
@@ -71,6 +71,54 @@ describe("hardenChatMediaAssetUrls", () => {
     expect(result.results[0]?.assetUrl).toBe(
       "https://blob.example/workspaces/workspace_1/chat-assets/source-source_1/image-6.jpg",
     )
+  })
+
+  it("copies server page citation asset URLs into Notebook chat assets", async () => {
+    const rawPageAssetUrl =
+      "https://knowhere-storage.example/results/job_1/page_citation_assets/page-4.png?AWSAccessKeyId=test&Signature=secret"
+    const blobPageAssetUrl =
+      "https://blob.example/workspaces/workspace_1/chat-assets/source-source_1/page-4.png"
+    const blobStore = makeBlobStore(blobPageAssetUrl)
+    const fetchAsset = makeFetchAsset("page-image-bytes", "image/png")
+
+    const result = await hardenChatMediaAssetUrls({
+      workspaceId: "workspace_1",
+      sources: [
+        makeSource({
+          id: "source_1",
+          knowhereDocumentId: "doc_pages",
+        }),
+      ],
+      results: [
+        makeRetrievalResult({
+          chunkType: "page",
+          pageCitationAssetUrl: rawPageAssetUrl,
+          source: {
+            documentId: "doc_pages",
+            sourceFileName: "deck.pdf",
+            sectionPath: "Page 4",
+          },
+        }),
+      ],
+      blobStore,
+      fetchAsset,
+    })
+
+    expect(fetchAsset).toHaveBeenCalledWith(rawPageAssetUrl)
+    expect(blobStore.put).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /^workspaces\/workspace_1\/chat-assets\/source-source_1\/[a-f0-9]{24}-page-4\.png$/,
+      ),
+      expect.any(Buffer),
+      {
+        access: "public",
+        allowOverwrite: true,
+        contentType: "image/png",
+        multipart: true,
+      },
+    )
+    expect(result.results[0]?.pageCitationAssetUrl).toBe(blobPageAssetUrl)
+    expect(result.results[0]?.assetUrl).toBeUndefined()
   })
 
   it("uses an existing parsed asset URL before fetching the upstream URL", async () => {
@@ -234,6 +282,51 @@ describe("hardenChatMediaAssetUrls", () => {
     expect(artifact?.assetUrl).toBe(blobAssetUrl)
     expect(artifact?.citation?.assetUrl).toBe(blobAssetUrl)
   })
+
+  it("rewrites nested citation page citation asset URLs", async () => {
+    const rawPageAssetUrl =
+      "https://knowhere-storage.example/results/job_1/page_citation_assets/page-8.png?AWSAccessKeyId=test"
+    const blobPageAssetUrl =
+      "https://blob.example/workspaces/workspace_1/chat-assets/source-source_pages/page-8.png"
+    const blobStore = makeBlobStore(blobPageAssetUrl)
+    const fetchAsset = makeFetchAsset("page-eight-image", "image/png")
+
+    const result = await hardenChatMediaAssetUrls({
+      workspaceId: "workspace_1",
+      sources: [
+        makeSource({
+          id: "source_pages",
+          knowhereDocumentId: "doc_pages",
+        }),
+      ],
+      results: [],
+      artifacts: [
+        {
+          type: "image",
+          ref: "asset:r1:result:1",
+          assetUrl:
+            "https://blob.example/workspaces/workspace_1/chat-assets/source-source_pages/figure.png",
+          label: "figure",
+          citation: {
+            chunkType: "page",
+            score: 0.9,
+            pageCitationAssetUrl: rawPageAssetUrl,
+            source: {
+              documentId: "doc_pages",
+              sourceFileName: "deck.pdf",
+              sectionPath: "Page 8",
+            },
+          },
+        },
+      ],
+      blobStore,
+      fetchAsset,
+    })
+
+    const [artifact] = result.artifacts ?? []
+    expect(fetchAsset).toHaveBeenCalledWith(rawPageAssetUrl)
+    expect(artifact?.citation?.pageCitationAssetUrl).toBe(blobPageAssetUrl)
+  })
 })
 
 function makeFetchAsset(
@@ -257,8 +350,8 @@ function makeBlobStore(url: string): ChatMediaAssetBlobStore {
 }
 
 function makeRetrievalResult(
-  overrides: Partial<RetrievalResult> = {},
-): RetrievalResult {
+  overrides: Partial<HardenableRetrievalResult> = {},
+): HardenableRetrievalResult {
   return {
     content: "Asset evidence",
     chunkType: "text",

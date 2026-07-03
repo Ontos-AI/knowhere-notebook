@@ -9,7 +9,10 @@ import {
   generateAgenticOutputManifest,
   parseChatRequestBody,
 } from "."
-import type { HardenMediaAssetUrlsInput } from "./media-asset-hardening"
+import type {
+  HardenableRetrievalResult,
+  HardenMediaAssetUrlsInput,
+} from "./media-asset-hardening"
 import type { Source } from "@/infrastructure/db/schema"
 import type { ChatArtifactView } from "@/domains/chat/types"
 
@@ -663,6 +666,110 @@ describe("answerQuestionWithRetrieval", () => {
       hardenedAssetUrl,
     ]);
     expect(answer.artifacts?.[0]?.citation?.assetUrl).toBe(hardenedAssetUrl);
+  });
+
+  it("hardens page citation asset URLs before returning citations", async () => {
+    const rawPageAssetUrl =
+      "https://knowhere-storage.example/results/job_1/page_citation_assets/page-4.png?AWSAccessKeyId=test";
+    const hardenedPageAssetUrl =
+      "https://blob.example/workspaces/workspace_1/chat-assets/source-source_pages/page-4.png";
+    const result = makeRetrievalResult({
+      chunkType: "page",
+      metadata: {
+        pageNums: [4],
+        pageAssets: [
+          {
+            pageNum: 4,
+            artifactRef: "page_citation_assets/page-4.png",
+            assetUrl: rawPageAssetUrl,
+            contentType: "image/png",
+          },
+        ],
+      },
+      source: {
+        documentId: "doc_pages",
+        sourceFileName: "document-generated.pdf",
+        sectionPath: "Page 4",
+      },
+    });
+    const retrieval = {
+      query: vi.fn().mockResolvedValue({
+        results: [result],
+        evidenceText: "Page four evidence.",
+        referencedChunks: [],
+        namespace: "notebook-workspace",
+        query: "page four evidence",
+        routerUsed: "workflow_single_step",
+        answerText: null,
+      }),
+    };
+    const generateAnswer = vi.fn(async ({ searchSources }) => {
+      await searchSources({ query: "page four evidence" });
+      return makeHarnessRunResult(`This page has the answer. ${rawPageAssetUrl}`);
+    });
+    const hardenMediaAssetUrls = vi.fn(
+      async ({
+        results,
+        artifacts,
+      }: HardenMediaAssetUrlsInput): Promise<{
+        results: HardenableRetrievalResult[]
+        artifacts?: ChatArtifactView[]
+      }> => ({
+        results: results.map(
+          (candidate): HardenableRetrievalResult => ({
+            ...candidate,
+            pageCitationAssetUrl:
+              candidate.pageCitationAssetUrl === rawPageAssetUrl
+                ? hardenedPageAssetUrl
+                : candidate.pageCitationAssetUrl,
+          }),
+        ),
+        ...(artifacts ? { artifacts: [...artifacts] } : {}),
+      }),
+    );
+
+    const answer = await Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "What is on page four?",
+        namespace: "notebook-workspace",
+        sources: [
+          makeSource({
+            id: "source_pages",
+            title: "deck.pdf",
+            knowhereDocumentId: "doc_pages",
+          }),
+        ],
+        excludedSourceIds: [],
+        retrieval,
+        generateAnswer,
+        hardenMediaAssetUrls,
+        messages: [],
+      }),
+    );
+
+    expect(hardenMediaAssetUrls).toHaveBeenCalledWith({
+      results: [
+        expect.objectContaining({
+          pageCitationAssetUrl: rawPageAssetUrl,
+          source: expect.objectContaining({
+            sourceFileName: "deck.pdf",
+          }),
+        }),
+      ],
+      artifacts: undefined,
+    });
+    expect(answer.answer).toBe("This page has the answer.");
+    expect(answer.answer).not.toContain("knowhere-storage.example");
+    expect(answer.citations).toEqual([
+      expect.objectContaining({
+        chunkType: "page",
+        pageCitationAssetUrl: hardenedPageAssetUrl,
+        source: expect.objectContaining({
+          sourceFileName: "deck.pdf",
+        }),
+      }),
+    ]);
+    expect(answer.citations[0]?.pageCitationAssetUrl).not.toBe(rawPageAssetUrl);
   });
 
   it("returns only harness-selected artifacts when retrieval has extra media candidates", async () => {

@@ -13,13 +13,17 @@ import { logger } from "@/lib/logger"
 import type { LoadSourceAssetUrls } from "./media-assets"
 import { resolveAssetUrlFromReferenceText } from "./media-assets"
 
+export type HardenableRetrievalResult = RetrievalResult & {
+  readonly pageCitationAssetUrl?: string
+}
+
 export type HardenMediaAssetUrlsInput = {
-  readonly results: readonly RetrievalResult[]
+  readonly results: readonly HardenableRetrievalResult[]
   readonly artifacts?: readonly ChatArtifactView[]
 }
 
 export type HardenMediaAssetUrlsResult = {
-  readonly results: RetrievalResult[]
+  readonly results: HardenableRetrievalResult[]
   readonly artifacts?: ChatArtifactView[]
 }
 
@@ -121,7 +125,7 @@ export async function hardenChatMediaAssetUrls({
   }
 
   const hardenedResults = await Promise.all(
-    results.map((result): Promise<RetrievalResult> =>
+    results.map((result): Promise<HardenableRetrievalResult> =>
       hardenRetrievalResult(result, context),
     ),
   )
@@ -140,25 +144,48 @@ export async function hardenChatMediaAssetUrls({
 }
 
 async function hardenRetrievalResult(
-  result: RetrievalResult,
+  result: HardenableRetrievalResult,
   context: HardeningContext,
-): Promise<RetrievalResult> {
+): Promise<HardenableRetrievalResult> {
   const assetUrl = getTrimmedString(result.assetUrl)
-  if (!assetUrl) return result
+  const pageCitationAssetUrl = getTrimmedString(result.pageCitationAssetUrl)
+  if (!assetUrl && !pageCitationAssetUrl) return result
 
-  const hardenedAssetUrl = await hardenAssetUrl(
-    {
-      assetUrl,
-      source: result.source,
-      content: result.content,
-    },
-    context,
+  const hardenedAssetUrl = assetUrl
+    ? await hardenAssetUrl(
+        {
+          assetUrl,
+          source: result.source,
+          content: result.content,
+        },
+        context,
+      )
+    : undefined
+  const hardenedPageCitationAssetUrl = pageCitationAssetUrl
+    ? await hardenAssetUrl(
+        {
+          assetUrl: pageCitationAssetUrl,
+          source: result.source,
+          content: result.content,
+        },
+        context,
+      )
+    : undefined
+  const hasAssetUrlChange = Boolean(
+    assetUrl && hardenedAssetUrl !== result.assetUrl,
   )
-  if (hardenedAssetUrl === result.assetUrl) return result
+  const hasPageCitationAssetUrlChange = Boolean(
+    pageCitationAssetUrl &&
+      hardenedPageCitationAssetUrl !== result.pageCitationAssetUrl,
+  )
+  if (!hasAssetUrlChange && !hasPageCitationAssetUrlChange) return result
 
   return {
     ...result,
-    assetUrl: hardenedAssetUrl,
+    ...(hardenedAssetUrl ? { assetUrl: hardenedAssetUrl } : {}),
+    ...(hardenedPageCitationAssetUrl
+      ? { pageCitationAssetUrl: hardenedPageCitationAssetUrl }
+      : {}),
   }
 }
 
@@ -200,21 +227,44 @@ async function hardenCitation(
   context: HardeningContext,
 ): Promise<ChatCitationView> {
   const assetUrl = getTrimmedString(citation.assetUrl)
-  if (!assetUrl) return citation
+  const pageCitationAssetUrl = getTrimmedString(citation.pageCitationAssetUrl)
+  if (!assetUrl && !pageCitationAssetUrl) return citation
 
-  const hardenedAssetUrl = await hardenAssetUrl(
-    {
-      assetUrl,
-      source: citation.source,
-      content: citation.content,
-    },
-    context,
+  const hardenedAssetUrl = assetUrl
+    ? await hardenAssetUrl(
+        {
+          assetUrl,
+          source: citation.source,
+          content: citation.content,
+        },
+        context,
+      )
+    : undefined
+  const hardenedPageCitationAssetUrl = pageCitationAssetUrl
+    ? await hardenAssetUrl(
+        {
+          assetUrl: pageCitationAssetUrl,
+          source: citation.source,
+          content: citation.content,
+        },
+        context,
+      )
+    : undefined
+  const hasAssetUrlChange = Boolean(
+    assetUrl && hardenedAssetUrl !== citation.assetUrl,
   )
-  if (hardenedAssetUrl === citation.assetUrl) return citation
+  const hasPageCitationAssetUrlChange = Boolean(
+    pageCitationAssetUrl &&
+      hardenedPageCitationAssetUrl !== citation.pageCitationAssetUrl,
+  )
+  if (!hasAssetUrlChange && !hasPageCitationAssetUrlChange) return citation
 
   return {
     ...citation,
-    assetUrl: hardenedAssetUrl,
+    ...(hardenedAssetUrl ? { assetUrl: hardenedAssetUrl } : {}),
+    ...(hardenedPageCitationAssetUrl
+      ? { pageCitationAssetUrl: hardenedPageCitationAssetUrl }
+      : {}),
   }
 }
 

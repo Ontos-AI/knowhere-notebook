@@ -39,6 +39,7 @@ import {
   removeRetrievedMediaAssetUrls,
 } from "./media-assets"
 import { enrichRetrievalResultsWithPageCitationAssetUrls } from "./page-citation-assets"
+import type { HardenableRetrievalResult } from "./media-asset-hardening"
 
 const DEFAULT_TOP_K = 8
 const MAX_AGENTIC_TOP_K = 12
@@ -245,11 +246,17 @@ export const answerQuestionWithRetrieval = (
         evidenceText: formatRetrievalEvidenceText(retrievalResponses),
       }),
     )
+    const pageCitationResults = yield* Effect.tryPromise(() =>
+      enrichRetrievalResultsWithPageCitationAssetUrls({
+        results: enrichedResults,
+        sources: input.sources,
+      }),
+    )
     const artifacts = toChatArtifactViewsFromHarness(generatedAnswer, input.sources)
     const hardenedMedia = yield* Effect.tryPromise(() =>
       hardenAnswerMediaAssetUrls({
         input,
-        results: enrichedResults,
+        results: pageCitationResults,
         artifacts,
       }),
     )
@@ -258,26 +265,21 @@ export const answerQuestionWithRetrieval = (
       results: getGeneratedAnswerSanitizerResults({
         rawResults,
         enrichedResults,
+        pageCitationResults,
         hardenedResults: hardenedMedia.results,
         artifacts,
         hardenedArtifacts: hardenedMedia.artifacts,
       }),
     })
-    const citationResults = yield* Effect.tryPromise(() =>
-      enrichRetrievalResultsWithPageCitationAssetUrls({
-        results: hardenedMedia.results,
-        sources: input.sources,
-      }),
-    )
     const displayArtifacts = hardenedMedia.artifacts ?? []
     logger.info("chat-agent: answer complete", {
       answerLength: answer.length,
-      citationCount: citationResults.length,
+      citationCount: hardenedMedia.results.length,
       artifactCount: displayArtifacts.length,
     })
     return {
       answer,
-      citations: toChatCitationViews(citationResults, answer),
+      citations: toChatCitationViews(hardenedMedia.results, answer),
       artifacts: displayArtifacts,
     }
   })
@@ -422,7 +424,7 @@ function normalizeHarnessSource(
 
 type AnswerMediaAssetHardeningInput = {
   readonly input: AnswerQuestionInput
-  readonly results: readonly RetrievalResult[]
+  readonly results: readonly HardenableRetrievalResult[]
   readonly artifacts?: readonly ChatArtifactView[]
 }
 
@@ -431,7 +433,7 @@ async function hardenAnswerMediaAssetUrls({
   results,
   artifacts,
 }: AnswerMediaAssetHardeningInput): Promise<{
-  readonly results: RetrievalResult[]
+  readonly results: HardenableRetrievalResult[]
   readonly artifacts?: ChatArtifactView[]
 }> {
   if (!input.hardenMediaAssetUrls) {
@@ -462,7 +464,8 @@ async function hardenAnswerMediaAssetUrls({
 type GeneratedAnswerSanitizerResultsInput = {
   readonly rawResults: readonly RetrievalResult[]
   readonly enrichedResults: readonly RetrievalResult[]
-  readonly hardenedResults: readonly RetrievalResult[]
+  readonly pageCitationResults: readonly HardenableRetrievalResult[]
+  readonly hardenedResults: readonly HardenableRetrievalResult[]
   readonly artifacts?: readonly ChatArtifactView[]
   readonly hardenedArtifacts?: readonly ChatArtifactView[]
 }
@@ -470,6 +473,7 @@ type GeneratedAnswerSanitizerResultsInput = {
 function getGeneratedAnswerSanitizerResults({
   rawResults,
   enrichedResults,
+  pageCitationResults,
   hardenedResults,
   artifacts,
   hardenedArtifacts,
@@ -477,10 +481,30 @@ function getGeneratedAnswerSanitizerResults({
   return [
     ...rawResults,
     ...enrichedResults,
+    ...toPageCitationSanitizerResults(pageCitationResults),
     ...hardenedResults,
+    ...toPageCitationSanitizerResults(hardenedResults),
     ...toArtifactSanitizerResults(artifacts),
     ...toArtifactSanitizerResults(hardenedArtifacts),
   ]
+}
+
+function toPageCitationSanitizerResults(
+  results: readonly HardenableRetrievalResult[],
+): RetrievalResult[] {
+  return results.flatMap((result): RetrievalResult[] => {
+    if (!result.pageCitationAssetUrl) return []
+
+    return [
+      {
+        content: result.content,
+        chunkType: result.chunkType,
+        score: result.score,
+        assetUrl: result.pageCitationAssetUrl,
+        source: result.source,
+      },
+    ]
+  })
 }
 
 function toArtifactSanitizerResults(
@@ -501,6 +525,15 @@ function toArtifactSanitizerResults(
       results.push(
         toArtifactSanitizerResult({
           assetUrl: artifact.citation.assetUrl,
+          artifact,
+          citation: artifact.citation,
+        }),
+      )
+    }
+    if (artifact.citation?.pageCitationAssetUrl) {
+      results.push(
+        toArtifactSanitizerResult({
+          assetUrl: artifact.citation.pageCitationAssetUrl,
           artifact,
           citation: artifact.citation,
         }),
