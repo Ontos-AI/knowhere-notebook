@@ -1,12 +1,12 @@
 /**
  * Chat citation / retrieval hit. Mirrors RetrievalResult from the SDK.
- * No chunkId here; retrieval does not expose one.
  */
 export type RetrievalResultView = {
   readonly content: string
   readonly chunkType: string
   readonly score: number | null
   readonly assetUrl?: string
+  readonly pageCitationAssetUrl?: string
   readonly source: {
     readonly documentId?: string | null
     readonly sourceFileName?: string | null

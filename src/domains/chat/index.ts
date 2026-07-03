@@ -38,6 +38,7 @@ import {
   enrichRetrievalResultsWithAssetUrls,
   removeRetrievedMediaAssetUrls,
 } from "./media-assets"
+import { enrichRetrievalResultsWithPageCitationAssetUrls } from "./page-citation-assets"
 
 const DEFAULT_TOP_K = 8
 const MAX_AGENTIC_TOP_K = 12
@@ -262,7 +263,12 @@ export const answerQuestionWithRetrieval = (
         hardenedArtifacts: hardenedMedia.artifacts,
       }),
     })
-    const citationResults = hardenedMedia.results
+    const citationResults = yield* Effect.tryPromise(() =>
+      enrichRetrievalResultsWithPageCitationAssetUrls({
+        results: hardenedMedia.results,
+        sources: input.sources,
+      }),
+    )
     const displayArtifacts = hardenedMedia.artifacts ?? []
     logger.info("chat-agent: answer complete", {
       answerLength: answer.length,
@@ -792,17 +798,7 @@ function mapManifestCitationsToResults(
       resolveChunkForAssetRef(citation.ref, assetsByRef, chunksByRef)
     if (!chunk) continue
 
-    const retrievalResult: RetrievalResult = {
-      content: chunk.content,
-      chunkType: chunk.chunkType,
-      score: chunk.score,
-      ...(chunk.assetUrl ? { assetUrl: chunk.assetUrl } : {}),
-      source: {
-        documentId: chunk.source.documentId ?? undefined,
-        sourceFileName: chunk.source.sourceFileName ?? undefined,
-        sectionPath: chunk.source.sectionPath ?? undefined,
-      },
-    }
+    const retrievalResult = toRetrievalResultFromEvidenceChunk(chunk)
     const key = getRetrievalResultKey(retrievalResult)
     if (seenKeys.has(key)) continue
 
@@ -889,10 +885,14 @@ function toRetrievalResultFromEvidenceChunk(
   chunk: EvidenceChunk,
 ): RetrievalResult {
   return {
+    ...(chunk.chunkId ? { chunkId: chunk.chunkId } : {}),
     content: chunk.content,
     chunkType: chunk.chunkType,
     score: chunk.score,
     ...(chunk.assetUrl ? { assetUrl: chunk.assetUrl } : {}),
+    ...(chunk.sourceChunkPath ? { sourceChunkPath: chunk.sourceChunkPath } : {}),
+    ...(chunk.filePath ? { filePath: chunk.filePath } : {}),
+    ...(chunk.metadata ? { metadata: chunk.metadata } : {}),
     source: {
       documentId: chunk.source.documentId ?? undefined,
       sourceFileName: chunk.source.sourceFileName ?? undefined,
@@ -921,10 +921,14 @@ function collectRetrievalResults(
     for (const result of [
       ...response.results,
       ...response.referencedChunks.map((chunk): RetrievalResult => ({
+        chunkId: chunk.chunkId,
         content: "",
         chunkType: chunk.chunkType,
         score: null,
         ...(chunk.assetUrl ? { assetUrl: chunk.assetUrl } : {}),
+        ...(chunk.sourceChunkPath ? { sourceChunkPath: chunk.sourceChunkPath } : {}),
+        ...(chunk.filePath ? { filePath: chunk.filePath } : {}),
+        ...(chunk.metadata ? { metadata: chunk.metadata } : {}),
         source: {
           documentId: chunk.documentId,
           sourceFileName: sourceTitlesByDocumentId.get(chunk.documentId),

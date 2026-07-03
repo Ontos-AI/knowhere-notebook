@@ -3,11 +3,13 @@ import "server-only"
 import { Client, type WorkflowContext } from "@upstash/workflow"
 
 import {
+  markSourceFailedAfterReconciliation,
   markSourceReadyAfterReconciliation,
   pollSourceReconciliation,
 } from "@/domains/sources/source-reconcile-workflow"
 import { makeKnowhereClient } from "@/integrations/knowhere"
 import { logger } from "@/lib/logger"
+import { prepareSourcePageCitationAssets } from "./page-citation-assets"
 import { sourceWorkflowRuntime } from "./workflow-runtime"
 
 type ReconcilePayload = {
@@ -38,6 +40,19 @@ type ContinuationTriggerInput = {
   readonly payload: ReconcilePayload
   readonly workflowRunId: string
 }
+
+type PageCitationAssetPreparationStepResult =
+  | {
+      readonly ok: true
+      readonly warnings: Awaited<
+        ReturnType<typeof prepareSourcePageCitationAssets>
+      >["warnings"]
+    }
+  | {
+      readonly ok: false
+      readonly reason: string
+      readonly error: string
+    }
 
 const maxPollAttempts = 25
 const initialDelaySeconds = 3
@@ -118,6 +133,16 @@ async function runPollAndMirrorWorkflow(input: {
     return
   }
 
+  const preparation = await runPageCitationAssetPreparation({
+    context,
+    workspaceId,
+    sourceId,
+    client,
+    jobId: jobToPrepare.jobId,
+    documentId: jobToPrepare.documentId,
+  })
+  if (!preparation.ok) return
+
   const ready = await context.run("source-ready", async () =>
     markSourceReadyAfterReconciliation({
       workspaceId,
@@ -130,6 +155,79 @@ async function runPollAndMirrorWorkflow(input: {
     jobId: jobToPrepare.jobId,
     status: ready.status,
   })
+}
+
+async function runPageCitationAssetPreparation(input: {
+  readonly context: ReconcileWorkflowContext
+  readonly workspaceId: string
+  readonly sourceId: string
+  readonly client: ReturnType<typeof makeKnowhereClient>
+  readonly jobId: string
+  readonly documentId: string
+}): Promise<{ readonly ok: boolean }> {
+  const result = await input.context.run(
+    "prepare-page-citation-assets",
+    async (): Promise<PageCitationAssetPreparationStepResult> => {
+      try {
+        const preparation = await prepareSourcePageCitationAssets({
+          client: input.client,
+          sourceId: input.sourceId,
+          jobId: input.jobId,
+          documentId: input.documentId,
+        })
+
+        return {
+          ok: true,
+          warnings: preparation.warnings,
+        }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error)
+        return {
+          ok: false,
+          reason: `Page citation asset preparation failed: ${getSafeFailureReason(
+            errorMessage,
+          )}`,
+          error: errorMessage,
+        }
+      }
+    },
+  )
+
+  if (!result.ok) {
+    const failed = await input.context.run(
+      "source-failed-page-citation-assets",
+      async () =>
+        markSourceFailedAfterReconciliation({
+          workspaceId: input.workspaceId,
+          sourceId: input.sourceId,
+          reason: result.reason,
+        }),
+    )
+    logger.error("workflow: page citation asset preparation failed", {
+      sourceId: input.sourceId,
+      jobId: input.jobId,
+      documentId: input.documentId,
+      status: failed.status,
+      error: result.error,
+    })
+    return { ok: false }
+  }
+
+  for (const warning of result.warnings) {
+    logger.warn("workflow: page citation asset warning", {
+      sourceId: input.sourceId,
+      jobId: input.jobId,
+      documentId: input.documentId,
+      warning,
+    })
+  }
+  logger.info("workflow: page citation assets prepared", {
+    sourceId: input.sourceId,
+    jobId: input.jobId,
+    documentId: input.documentId,
+    warningCount: result.warnings.length,
+  })
+  return { ok: true }
 }
 
 function normalizeReconcilePayload(

@@ -7,6 +7,9 @@ const nextConfig: NextConfig = {
     "pg",
     "@neondatabase/serverless",
     "postgres",
+    "@ontos-ai/knowhere-sdk",
+    "@napi-rs/canvas",
+    "piscina",
   ],
   allowedDevOrigins: [
     "127.0.0.1",

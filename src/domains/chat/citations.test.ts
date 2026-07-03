@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
-import type { RetrievalResult } from "@ontos-ai/knowhere-sdk"
 
 import { toChatCitationViews } from "./citations"
+import type { PageCitationAssetRetrievalResult } from "./page-citation-assets"
 
 describe("toChatCitationViews", () => {
   it("extracts first citation description for each generated source label", () => {
@@ -31,11 +31,24 @@ describe("toChatCitationViews", () => {
       { ...secondResult, description: "margin expansion" },
     ])
   })
+
+  it("preserves page citation asset URLs", () => {
+    const result = makeRetrievalResult({
+      chunkType: "page",
+      pageCitationAssetUrl: "https://blob.example/pages/page-000004.png",
+    })
+
+    const citations = toChatCitationViews([result], "Grounded answer.")
+
+    expect(citations[0]?.pageCitationAssetUrl).toBe(
+      "https://blob.example/pages/page-000004.png",
+    )
+  })
 })
 
 function makeRetrievalResult(
-  overrides: Partial<RetrievalResult> = {},
-): RetrievalResult {
+  overrides: Partial<PageCitationAssetRetrievalResult> = {},
+): PageCitationAssetRetrievalResult {
   return {
     content: "Grounding content",
     chunkType: "text",

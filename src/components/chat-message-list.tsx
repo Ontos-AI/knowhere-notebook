@@ -2,7 +2,7 @@
 
 import { type CSSProperties, type ReactElement } from "react";
 import { type VirtualItem } from "@tanstack/react-virtual";
-import { ImageIcon, MessageCircle } from "lucide-react";
+import { ExternalLink, ImageIcon, MessageCircle } from "lucide-react";
 import ReactMarkdown, {
   defaultUrlTransform,
   type Components,
@@ -633,28 +633,60 @@ function CitationChip({
     citationId: string,
   ) => void;
 }): ReactElement {
+  const pageCitationAssetUrl = getTrimmedCitationField(
+    citation.pageCitationAssetUrl,
+  );
+
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          disabled={!onCitationClick || isPending}
-          onClick={() => onCitationClick?.(citation, citationId)}
-          aria-busy={isPending}
-          className="inline-flex h-8 max-w-[250px] cursor-pointer items-center rounded-md border border-primary/20 bg-primary/10 px-3 text-left font-mono text-xs font-semibold leading-none text-primary shadow-[0_1px_0_rgba(15,23,42,0.06)] transition-[background-color,border-color,color,box-shadow,transform] hover:border-primary/35 hover:bg-primary/15 hover:text-primary hover:shadow-[0_0_0_2px_rgba(37,99,235,0.12)] active:translate-y-px active:bg-primary/20 focus:outline-none focus:ring-4 focus:ring-ring/15 focus:ring-offset-2 focus:ring-offset-background disabled:cursor-wait disabled:opacity-75 disabled:hover:border-primary/20 disabled:hover:bg-primary/10 disabled:hover:text-primary disabled:hover:shadow-[0_1px_0_rgba(15,23,42,0.06)] dark:border-transparent dark:bg-[#5c606b] dark:text-[#cfd3dc] dark:shadow-none dark:hover:border-[#8f96a8] dark:hover:bg-[#4f535e] dark:hover:text-white dark:hover:shadow-[0_0_0_2px_rgba(143,150,168,0.22)] dark:active:bg-[#454955] dark:disabled:hover:border-transparent dark:disabled:hover:bg-[#5c606b] dark:disabled:hover:text-[#cfd3dc] dark:disabled:hover:shadow-none"
-          aria-label={`Open source ${label}`}
+    <span className="inline-flex min-w-0 items-center">
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            disabled={!onCitationClick || isPending}
+            onClick={() => onCitationClick?.(citation, citationId)}
+            aria-busy={isPending}
+            className={`inline-flex h-8 max-w-[250px] cursor-pointer items-center border border-primary/20 bg-primary/10 px-3 text-left font-mono text-xs font-semibold leading-none text-primary shadow-[0_1px_0_rgba(15,23,42,0.06)] transition-[background-color,border-color,color,box-shadow,transform] hover:border-primary/35 hover:bg-primary/15 hover:text-primary hover:shadow-[0_0_0_2px_rgba(37,99,235,0.12)] active:translate-y-px active:bg-primary/20 focus:outline-none focus:ring-4 focus:ring-ring/15 focus:ring-offset-2 focus:ring-offset-background disabled:cursor-wait disabled:opacity-75 disabled:hover:border-primary/20 disabled:hover:bg-primary/10 disabled:hover:text-primary disabled:hover:shadow-[0_1px_0_rgba(15,23,42,0.06)] dark:border-transparent dark:bg-[#5c606b] dark:text-[#cfd3dc] dark:shadow-none dark:hover:border-[#8f96a8] dark:hover:bg-[#4f535e] dark:hover:text-white dark:hover:shadow-[0_0_0_2px_rgba(143,150,168,0.22)] dark:active:bg-[#454955] dark:disabled:hover:border-transparent dark:disabled:hover:bg-[#5c606b] dark:disabled:hover:text-[#cfd3dc] dark:disabled:hover:shadow-none ${
+              pageCitationAssetUrl
+                ? "rounded-l-md rounded-r-none"
+                : "rounded-md"
+            }`}
+            aria-label={`Open source ${label}`}
+          >
+            <span className="min-w-0 truncate">{label}</span>
+          </button>
+        </TooltipTrigger>
+        <TooltipContent
+          side="top"
+          align="start"
+          className="max-w-[320px] bg-popover text-popover-foreground shadow-lg"
         >
-          <span className="min-w-0 truncate">{label}</span>
-        </button>
-      </TooltipTrigger>
-      <TooltipContent
-        side="top"
-        align="start"
-        className="max-w-[320px] bg-popover text-popover-foreground shadow-lg"
-      >
-        {tooltipLabel}
-      </TooltipContent>
-    </Tooltip>
+          {tooltipLabel}
+        </TooltipContent>
+      </Tooltip>
+      {pageCitationAssetUrl ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <a
+              href={pageCitationAssetUrl}
+              target="_blank"
+              rel="noreferrer"
+              aria-label={`Open page image for ${label}`}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-r-md border border-l-0 border-primary/20 bg-primary/10 text-primary transition-[background-color,border-color,color,box-shadow,transform] hover:border-primary/35 hover:bg-primary/15 hover:text-primary hover:shadow-[0_0_0_2px_rgba(37,99,235,0.12)] active:translate-y-px active:bg-primary/20 focus:outline-none focus:ring-4 focus:ring-ring/15 focus:ring-offset-2 focus:ring-offset-background dark:border-l-[#747b8c] dark:border-transparent dark:bg-[#5c606b] dark:text-[#cfd3dc] dark:shadow-none dark:hover:border-[#8f96a8] dark:hover:bg-[#4f535e] dark:hover:text-white dark:hover:shadow-[0_0_0_2px_rgba(143,150,168,0.22)]"
+            >
+              <ExternalLink className="size-3.5" />
+            </a>
+          </TooltipTrigger>
+          <TooltipContent
+            side="top"
+            align="start"
+            className="max-w-[240px] bg-popover text-popover-foreground shadow-lg"
+          >
+            Open page image
+          </TooltipContent>
+        </Tooltip>
+      ) : null}
+    </span>
   );
 }
 

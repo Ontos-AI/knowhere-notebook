@@ -25,6 +25,7 @@
 # misc
 .DS_Store
 *.pem
+.repos/effect
 
 # debug
 npm-debug.log*

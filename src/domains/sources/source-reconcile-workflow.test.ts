@@ -3,6 +3,7 @@ import type { JobResult } from "@ontos-ai/knowhere-sdk"
 
 import type { Source, Workspace } from "@/infrastructure/db/schema"
 import {
+  markSourceFailedAfterReconciliation,
   markSourceReadyAfterReconciliation,
   pollSourceReconciliation,
 } from "./source-reconcile-workflow"
@@ -194,6 +195,37 @@ describe("markSourceReadyAfterReconciliation", () => {
     expect(repository.clearStagedBlob).toHaveBeenCalledWith(
       workspace.id,
       "source_1",
+    )
+  })
+})
+
+describe("markSourceFailedAfterReconciliation", () => {
+  it("marks failed and cleans staged uploads after fatal preparation errors", async () => {
+    const source = makeSource({
+      stagedBlobPathname: "source-uploads/upload_1/document.pdf",
+    })
+    const repository = createRepository(source)
+    const blobStore = {
+      deleteStagedSourceBlob: vi.fn(async () => undefined),
+    }
+
+    const result = await markSourceFailedAfterReconciliation({
+      workspaceId: workspace.id,
+      sourceId: "source_1",
+      reason: "Page citation asset preparation failed.",
+      repository,
+      blobStore,
+    })
+
+    expect(result).toEqual({ status: "failed" })
+    expect(repository.markFailed).toHaveBeenCalledWith(
+      workspace.id,
+      "source_1",
+      "Page citation asset preparation failed.",
+      "parsing",
+    )
+    expect(blobStore.deleteStagedSourceBlob).toHaveBeenCalledWith(
+      "source-uploads/upload_1/document.pdf",
     )
   })
 })

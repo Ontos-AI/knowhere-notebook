@@ -55,6 +55,14 @@ export type MarkSourceReadyAfterReconciliationInput = {
   readonly blobStore?: SourceReconcileWorkflowBlobStore
 }
 
+export type MarkSourceFailedAfterReconciliationInput = {
+  readonly workspaceId: string
+  readonly sourceId: string
+  readonly reason: string
+  readonly repository?: SourceReconcileWorkflowRepository
+  readonly blobStore?: SourceReconcileWorkflowBlobStore
+}
+
 export type PollSourceReconciliationResult =
   | {
       readonly kind: "waiting"
@@ -72,6 +80,10 @@ export type PollSourceReconciliationResult =
     }
 
 export type MarkSourceReadyAfterReconciliationResult = {
+  readonly status: string
+}
+
+export type MarkSourceFailedAfterReconciliationResult = {
   readonly status: string
 }
 
@@ -163,6 +175,27 @@ export async function markSourceReadyAfterReconciliation({
     blobStore,
   })
   return { status: readySource.status }
+}
+
+export async function markSourceFailedAfterReconciliation({
+  workspaceId,
+  sourceId,
+  reason,
+  repository = sourceWorkflowRuntime,
+  blobStore = vercelBlobStore,
+}: MarkSourceFailedAfterReconciliationInput): Promise<MarkSourceFailedAfterReconciliationResult> {
+  const source = await repository.findInWorkspace(workspaceId, sourceId)
+  if (!source) return { status: "gone" }
+  if (source.status !== "parsing") return { status: source.status }
+
+  await failSourceAndCleanup({
+    workspaceId,
+    source,
+    reason,
+    repository,
+    blobStore,
+  })
+  return { status: "failed" }
 }
 
 async function failSourceAndCleanup(input: {
