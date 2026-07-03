@@ -3,6 +3,7 @@ import "server-only"
 import type { RetrievalResult } from "@ontos-ai/knowhere-sdk"
 
 import type { Source } from "@/infrastructure/db/schema"
+import type { LoadSourceAssetUrls } from "./media-assets"
 
 export type PageCitationAssetRetrievalResult = RetrievalResult & {
   readonly pageCitationAssetUrl?: string
@@ -11,26 +12,41 @@ export type PageCitationAssetRetrievalResult = RetrievalResult & {
 type EnrichRetrievalResultsWithPageCitationAssetUrlsInput = {
   readonly results: readonly RetrievalResult[]
   readonly sources: readonly Source[]
+  readonly loadSourceAssetUrls?: LoadSourceAssetUrls
 }
 
 type PageCitationAssetCandidate = {
   readonly pageNum: number
+  readonly artifactRef?: string
   readonly assetUrl?: string
 }
 
 export async function enrichRetrievalResultsWithPageCitationAssetUrls({
   results,
   sources,
+  loadSourceAssetUrls,
 }: EnrichRetrievalResultsWithPageCitationAssetUrlsInput): Promise<
   PageCitationAssetRetrievalResult[]
 > {
-  void sources
   if (results.length === 0) return []
+
+  const sourcesByDocumentId = new Map(
+    sources.flatMap((source): readonly [string, Source][] =>
+      source.knowhereDocumentId ? [[source.knowhereDocumentId, source]] : [],
+    ),
+  )
+  const assetUrlsBySourceId = new Map<
+    string,
+    Promise<Readonly<Record<string, string>>>
+  >()
 
   return Promise.all(
     results.map((result) =>
       enrichRetrievalResultWithPageCitationAssetUrl({
         result,
+        sourcesByDocumentId,
+        loadSourceAssetUrls,
+        assetUrlsBySourceId,
       }),
     ),
   )
@@ -38,11 +54,30 @@ export async function enrichRetrievalResultsWithPageCitationAssetUrls({
 
 async function enrichRetrievalResultWithPageCitationAssetUrl(input: {
   readonly result: RetrievalResult
+  readonly sourcesByDocumentId: ReadonlyMap<string, Source>
+  readonly loadSourceAssetUrls?: LoadSourceAssetUrls
+  readonly assetUrlsBySourceId: Map<
+    string,
+    Promise<Readonly<Record<string, string>>>
+  >
 }): Promise<PageCitationAssetRetrievalResult> {
   if (!isPageResult(input.result)) return input.result
 
   const pageNumbers = getPageNumbers(input.result.metadata)
   const directAsset = getDirectPageCitationAsset(input.result, pageNumbers)
+  const sourceAssetUrl = await getStoredPageCitationAssetUrl({
+    result: input.result,
+    directAsset,
+    sourcesByDocumentId: input.sourcesByDocumentId,
+    loadSourceAssetUrls: input.loadSourceAssetUrls,
+    assetUrlsBySourceId: input.assetUrlsBySourceId,
+  })
+  if (sourceAssetUrl) {
+    return {
+      ...input.result,
+      pageCitationAssetUrl: sourceAssetUrl,
+    }
+  }
   if (directAsset?.assetUrl) {
     return {
       ...input.result,
@@ -51,6 +86,31 @@ async function enrichRetrievalResultWithPageCitationAssetUrl(input: {
   }
 
   return input.result
+}
+
+async function getStoredPageCitationAssetUrl(input: {
+  readonly result: RetrievalResult
+  readonly directAsset: PageCitationAssetCandidate | null
+  readonly sourcesByDocumentId: ReadonlyMap<string, Source>
+  readonly loadSourceAssetUrls?: LoadSourceAssetUrls
+  readonly assetUrlsBySourceId: Map<
+    string,
+    Promise<Readonly<Record<string, string>>>
+  >
+}): Promise<string | null> {
+  const artifactRef = getTrimmedString(input.directAsset?.artifactRef)
+  const documentId = getTrimmedString(input.result.source.documentId)
+  if (!artifactRef || !documentId || !input.loadSourceAssetUrls) return null
+
+  const source = input.sourcesByDocumentId.get(documentId)
+  if (!source) return null
+
+  const assetUrls = await getCachedSourceAssetUrls(
+    source,
+    input.loadSourceAssetUrls,
+    input.assetUrlsBySourceId,
+  )
+  return getTrimmedString(assetUrls[artifactRef])
 }
 
 function isPageResult(result: RetrievalResult): boolean {
@@ -90,10 +150,24 @@ function parsePageCitationAssetCandidates(
     return [
       {
         pageNum,
+        artifactRef: getTrimmedString(item.artifactRef) ?? undefined,
         assetUrl: getTrimmedString(item.assetUrl) ?? undefined,
       },
     ]
   })
+}
+
+async function getCachedSourceAssetUrls(
+  source: Source,
+  loadSourceAssetUrls: LoadSourceAssetUrls,
+  cache: Map<string, Promise<Readonly<Record<string, string>>>>,
+): Promise<Readonly<Record<string, string>>> {
+  let cached = cache.get(source.id)
+  if (!cached) {
+    cached = loadSourceAssetUrls(source).catch(() => ({}))
+    cache.set(source.id, cached)
+  }
+  return cached
 }
 
 function getPageNumbers(

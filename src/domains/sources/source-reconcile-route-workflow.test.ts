@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
+  createParsedResultStorageAdapter: vi.fn(),
+  saveParseResult: vi.fn(),
+  writeParsedResultAssetIndex: vi.fn(),
   loggerError: vi.fn(),
   loggerInfo: vi.fn(),
   loggerWarn: vi.fn(),
@@ -18,7 +21,13 @@ vi.mock("@/domains/sources/source-reconcile-workflow", () => ({
 vi.mock("@/domains/sources/workflow-runtime", () => ({
   sourceWorkflowRuntime: {
     markFailed: mocks.markFailed,
+    saveParseResult: mocks.saveParseResult,
   },
+}))
+
+vi.mock("./parse-result-storage-adapter", () => ({
+  createParsedResultStorageAdapter: mocks.createParsedResultStorageAdapter,
+  writeParsedResultAssetIndex: mocks.writeParsedResultAssetIndex,
 }))
 
 vi.mock("@/integrations/knowhere", () => ({
@@ -57,7 +66,7 @@ describe("sourceReconcileRouteWorkflow", () => {
     })
   })
 
-  it("marks the source ready when Knowhere publishes a document id", async () => {
+  it("caches parsed assets before marking the source ready", async () => {
     const context = createWorkflowContext()
     const continuations: ContinuationTriggerInput[] = []
     const restore =
@@ -66,8 +75,25 @@ describe("sourceReconcileRouteWorkflow", () => {
           continuations.push(input)
         },
       )
-    const client = { jobs: {} }
+    const storageAdapter = {
+      adapter: {
+        writeObject: vi.fn(),
+      },
+      keyPrefix: "workspaces/workspace_1/sources/source_1/parsed-result",
+    }
+    const cacheJobResult = vi.fn().mockResolvedValue({
+      assetUrlsByFilePath: {
+        "page_citation_assets/page-1.png":
+          "https://blob.example/page_citation_assets/page-1.png",
+      },
+    })
+    const client = { jobs: {}, knowledge: { cacheJobResult } }
+    mocks.createParsedResultStorageAdapter.mockReturnValue(storageAdapter)
     mocks.makeKnowhereClient.mockReturnValue(client)
+    mocks.writeParsedResultAssetIndex.mockResolvedValue(
+      "https://blob.example/asset-index.json",
+    )
+    mocks.saveParseResult.mockResolvedValue({ id: "parse_result_1" })
     mocks.pollSourceReconciliation.mockResolvedValue({
       kind: "ready-to-prepare",
       jobId: "job_1",
@@ -90,12 +116,38 @@ describe("sourceReconcileRouteWorkflow", () => {
       restore()
     }
 
+    expect(mocks.createParsedResultStorageAdapter).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      sourceId: "source_1",
+    })
+    expect(cacheJobResult).toHaveBeenCalledWith({
+      jobId: "job_1",
+      storageAdapter,
+    })
+    expect(mocks.writeParsedResultAssetIndex).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      sourceId: "source_1",
+      assetUrlsByFilePath: {
+        "page_citation_assets/page-1.png":
+          "https://blob.example/page_citation_assets/page-1.png",
+      },
+    })
+    expect(mocks.saveParseResult).toHaveBeenCalledWith(
+      "workspace_1",
+      "source_1",
+      {
+        resultBlobUrl: "https://blob.example/asset-index.json",
+        assetUrlsByFilePath: {
+          "page_citation_assets/page-1.png":
+            "https://blob.example/page_citation_assets/page-1.png",
+        },
+      },
+    )
     expect(mocks.markSourceReadyAfterReconciliation).toHaveBeenCalledWith({
       workspaceId: "workspace_1",
       sourceId: "source_1",
       documentId: "doc_1",
     })
-    expect(client).toEqual({ jobs: {} })
     expect(mocks.loggerWarn).not.toHaveBeenCalled()
     expect(continuations).toEqual([])
   })

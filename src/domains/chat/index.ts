@@ -250,6 +250,7 @@ export const answerQuestionWithRetrieval = (
       enrichRetrievalResultsWithPageCitationAssetUrls({
         results: enrichedResults,
         sources: input.sources,
+        loadSourceAssetUrls: input.loadSourceAssetUrls,
       }),
     )
     const artifacts = toChatArtifactViewsFromHarness(generatedAnswer, input.sources)

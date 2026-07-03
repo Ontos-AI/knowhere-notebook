@@ -8,6 +8,10 @@ import {
 } from "@/domains/sources/source-reconcile-workflow"
 import { makeKnowhereClient } from "@/integrations/knowhere"
 import { logger } from "@/lib/logger"
+import {
+  createParsedResultStorageAdapter,
+  writeParsedResultAssetIndex,
+} from "./parse-result-storage-adapter"
 import { sourceWorkflowRuntime } from "./workflow-runtime"
 
 type ReconcilePayload = {
@@ -117,6 +121,30 @@ async function runPollAndMirrorWorkflow(input: {
     })
     return
   }
+
+  const assetUrlsByFilePath = await context.run("cache-job-result-assets", async () => {
+    const cachedResult = await client.knowledge.cacheJobResult({
+      jobId: jobToPrepare.jobId,
+      storageAdapter: createParsedResultStorageAdapter({
+        workspaceId,
+        sourceId,
+      }),
+    })
+    return cachedResult.assetUrlsByFilePath ?? {}
+  })
+  const resultBlobUrl = await context.run("write-parse-result-asset-index", async () =>
+    writeParsedResultAssetIndex({
+      workspaceId,
+      sourceId,
+      assetUrlsByFilePath,
+    }),
+  )
+  await context.run("save-parse-result-assets", async () =>
+    sourceWorkflowRuntime.saveParseResult(workspaceId, sourceId, {
+      resultBlobUrl,
+      assetUrlsByFilePath,
+    }),
+  )
 
   const ready = await context.run("source-ready", async () =>
     markSourceReadyAfterReconciliation({

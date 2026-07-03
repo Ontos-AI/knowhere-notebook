@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import type { RetrievalResult } from "@ontos-ai/knowhere-sdk"
 
 import type { Source } from "@/infrastructure/db/schema"
@@ -27,6 +27,40 @@ describe("enrichRetrievalResultsWithPageCitationAssetUrls", () => {
 
     expect(result?.pageCitationAssetUrl).toBe(
       "https://assets.example/pages/page-2.png",
+    )
+  })
+
+  it("prefers stored Blob URLs over server-provided page asset URLs", async () => {
+    const loadSourceAssetUrls = vi.fn().mockResolvedValue({
+      "page_citation_assets/page-2.png":
+        "https://blob.example/page_citation_assets/page-2.png",
+    })
+
+    const [result] = await enrichRetrievalResultsWithPageCitationAssetUrls({
+      results: [
+        makeRetrievalResult({
+          chunkType: "page",
+          metadata: {
+            pageNums: [2],
+            pageAssets: [
+              {
+                pageNum: 2,
+                artifactRef: "page_citation_assets/page-2.png",
+                assetUrl: "https://assets.example/pages/page-2.png",
+              },
+            ],
+          },
+        }),
+      ],
+      sources: [makeSource()],
+      loadSourceAssetUrls,
+    })
+
+    expect(loadSourceAssetUrls).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "source_1" }),
+    )
+    expect(result?.pageCitationAssetUrl).toBe(
+      "https://blob.example/page_citation_assets/page-2.png",
     )
   })
 
