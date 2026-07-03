@@ -61,10 +61,7 @@ function getDirectPageCitationAsset(
   result: RetrievalResult,
   pageNumbers: readonly number[],
 ): PageCitationAssetCandidate | null {
-  const candidates = [
-    isRecord(result) ? result.pageAssets : undefined,
-    result.metadata?.pageAssets,
-  ].flatMap(parsePageCitationAssetCandidates)
+  const candidates = parsePageCitationAssetCandidates(result.metadata?.pageAssets)
 
   if (pageNumbers.length > 0) {
     const matchingCandidates = candidates.filter((candidate) =>

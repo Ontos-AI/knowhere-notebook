@@ -772,6 +772,105 @@ describe("answerQuestionWithRetrieval", () => {
     expect(answer.citations[0]?.pageCitationAssetUrl).not.toBe(rawPageAssetUrl);
   });
 
+  it("hardens page citation asset URLs from referenced chunk metadata", async () => {
+    const rawPageAssetUrl =
+      "https://knowhere-storage.example/results/job_1/page_citation_assets/page-6.png?AWSAccessKeyId=test";
+    const hardenedPageAssetUrl =
+      "https://blob.example/workspaces/workspace_1/chat-assets/source-source_pages/page-6.png";
+    const retrieval = {
+      query: vi.fn().mockResolvedValue({
+        results: [],
+        evidenceText: "Page six evidence.",
+        referencedChunks: [
+          {
+            chunkId: "chunk_page_6",
+            documentId: "doc_pages",
+            chunkType: "page",
+            sectionPath: "Page 6",
+            filePath: null,
+            jobId: "job_1",
+            assetUrl: rawPageAssetUrl,
+            metadata: {
+              pageNums: [6],
+              pageAssets: [
+                {
+                  pageNum: 6,
+                  artifactRef: "page_citation_assets/page-6.png",
+                  assetUrl: rawPageAssetUrl,
+                  contentType: "image/png",
+                },
+              ],
+            },
+          },
+        ],
+        namespace: "notebook-workspace",
+        query: "page six evidence",
+        routerUsed: "workflow_single_step",
+        answerText: null,
+      }),
+    };
+    const generateAnswer = vi.fn(async ({ searchSources }) => {
+      await searchSources({ query: "page six evidence" });
+      return makeHarnessRunResult("This page has referenced evidence.");
+    });
+    const hardenMediaAssetUrls = vi.fn(
+      async ({
+        results,
+        artifacts,
+      }: HardenMediaAssetUrlsInput): Promise<{
+        results: HardenableRetrievalResult[]
+        artifacts?: ChatArtifactView[]
+      }> => ({
+        results: results.map(
+          (candidate): HardenableRetrievalResult => ({
+            ...candidate,
+            pageCitationAssetUrl:
+              candidate.pageCitationAssetUrl === rawPageAssetUrl
+                ? hardenedPageAssetUrl
+                : candidate.pageCitationAssetUrl,
+          }),
+        ),
+        ...(artifacts ? { artifacts: [...artifacts] } : {}),
+      }),
+    );
+
+    const answer = await Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "What is on page six?",
+        namespace: "notebook-workspace",
+        sources: [
+          makeSource({
+            id: "source_pages",
+            title: "deck.pdf",
+            knowhereDocumentId: "doc_pages",
+          }),
+        ],
+        excludedSourceIds: [],
+        retrieval,
+        generateAnswer,
+        hardenMediaAssetUrls,
+        messages: [],
+      }),
+    );
+
+    expect(hardenMediaAssetUrls).toHaveBeenCalledWith({
+      results: [
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            pageAssets: [
+              expect.objectContaining({
+                assetUrl: rawPageAssetUrl,
+              }),
+            ],
+          }),
+          pageCitationAssetUrl: rawPageAssetUrl,
+        }),
+      ],
+      artifacts: undefined,
+    });
+    expect(answer.citations[0]?.pageCitationAssetUrl).toBe(hardenedPageAssetUrl);
+  });
+
   it("returns only harness-selected artifacts when retrieval has extra media candidates", async () => {
     const frontAssetUrl = "https://blob.example/images/id-front.jpg";
     const backAssetUrl = "https://blob.example/images/id-back.jpg";

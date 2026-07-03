@@ -30,30 +30,6 @@ describe("enrichRetrievalResultsWithPageCitationAssetUrls", () => {
     )
   })
 
-  it("uses server-provided top-level page assets", async () => {
-    const [result] = await enrichRetrievalResultsWithPageCitationAssetUrls({
-      results: [
-        makeRetrievalResult({
-          chunkType: "page",
-          pageAssets: [
-            {
-              pageNum: 4,
-              artifactRef: "page_citation_assets/page-4.png",
-              assetUrl: "https://assets.example/pages/page-4.png",
-              contentType: "image/png",
-              source: "knowhere-rendered-page-citation-source",
-            },
-          ],
-        } as Partial<RetrievalResult>),
-      ],
-      sources: [makeSource()],
-    })
-
-    expect(result?.pageCitationAssetUrl).toBe(
-      "https://assets.example/pages/page-4.png",
-    )
-  })
-
   it("chooses the asset matching the citation page metadata", async () => {
     const [result] = await enrichRetrievalResultsWithPageCitationAssetUrls({
       results: [
