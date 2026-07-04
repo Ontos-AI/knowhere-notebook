@@ -73,6 +73,7 @@ vi.mock("@/lib/logger", () => ({
 
 import { chatAnswerRouteService } from "./route-answer"
 import { chatThreadRouteService } from "./route-threads"
+import { sourceService } from "@/domains/sources/service"
 
 describe("chat route services", () => {
   beforeEach(() => {
@@ -138,6 +139,68 @@ describe("chat route services", () => {
         }),
       }),
     )
+  })
+
+  it("ensures a legacy ready source snapshot before chat loads citation assets", async () => {
+    const workspace = makeWorkspace()
+    const documents = { listChunks: vi.fn() }
+    const knowledge = { loadJobResult: vi.fn() }
+    const client = { documents, knowledge, retrieval: { query: vi.fn() } }
+    const readySource = makeSource({
+      status: "ready",
+      knowhereDocumentId: "doc_legacy",
+      knowhereJobId: null,
+    })
+    const snapshot = {
+      resultBlobUrl: "https://blob.example/manifest/current.json",
+      snapshotManifestUrl: "https://blob.example/manifest/current.json",
+      snapshotManifestKey:
+        "workspaces/workspace_1/sources/source_1/parsed-result/manifest/current.json",
+      assetUrlsByFilePath: {
+        "pages/page-1.png": "https://blob.example/pages/page-1.png",
+      },
+    }
+    const ensureParsedSnapshotForRead = vi
+      .spyOn(sourceService, "ensureParsedSnapshotForRead")
+      .mockResolvedValue(snapshot)
+    mocks.getAuthenticatedWithClient.mockResolvedValue({
+      user: { id: "user_1" },
+      workspace,
+      apiKey: "jwt_123",
+      client,
+    })
+    mocks.listSourcesForWorkspace.mockResolvedValue([readySource])
+    mocks.handleChatTurn.mockImplementation(
+      async (input: {
+        readonly loadSourceAssetUrls?: (
+          source: Source,
+        ) => Promise<Readonly<Record<string, string>>>
+      }) => {
+        const assetUrls = await input.loadSourceAssetUrls?.(readySource)
+        expect(assetUrls).toEqual(snapshot.assetUrlsByFilePath)
+        return Either.right({
+          threadId: "thread_1",
+          messages: [
+            { id: "message_user", role: "user", content: "Show the page" },
+            { id: "message_assistant", role: "assistant", content: "Answer" },
+          ],
+        })
+      },
+    )
+
+    const result = await chatAnswerRouteService.answerChat({
+      body: { message: "Show the page" },
+    })
+
+    expect(result.status).toBe(200)
+    expect(ensureParsedSnapshotForRead).toHaveBeenCalledWith({
+      workspaceId: workspace.id,
+      source: readySource,
+      client: {
+        documents,
+        knowledge,
+      },
+    })
   })
 
   it("triggers background reconciliation for parsing sources without blocking chat", async () => {

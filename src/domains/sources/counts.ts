@@ -1,15 +1,32 @@
 import "server-only"
 
-import { Effect, Either } from "effect"
+import { Effect } from "effect"
 import type Knowhere from "@ontos-ai/knowhere-sdk"
 
 import type { Source } from "@/infrastructure/db/schema"
+import {
+  readParsedResultSnapshotManifest,
+  type ParsedResultSnapshotManifest,
+} from "./parse-result-storage-adapter"
+import { sourceWorkflowRuntime } from "./workflow-runtime"
+
+type ChunkCountRepository = Pick<
+  typeof sourceWorkflowRuntime,
+  "getParseSnapshotMetadata"
+>
+
+type ChunkCountOptions = {
+  readonly readSnapshotManifest?: typeof readParsedResultSnapshotManifest
+  readonly repository?: ChunkCountRepository
+}
 
 export const countChunksBySourceId = (
   sources: readonly Source[],
   client: Knowhere,
+  options: ChunkCountOptions = {},
 ) =>
   Effect.gen(function* () {
+    void client
     const readySources = sources.filter(
       (source) =>
         !source.demoKey &&
@@ -21,23 +38,18 @@ export const countChunksBySourceId = (
     const entries = yield* Effect.all(
       readySources.map((source) =>
         Effect.gen(function* () {
-          const documentId = source.knowhereDocumentId
-          if (!documentId) return [source.id, undefined] as const
-
-          const result = yield* Effect.either(
-            Effect.tryPromise(() =>
-              client.documents.listChunks(documentId, {
-                page: 1,
-                pageSize: 1,
-              }),
+          const manifest = yield* Effect.tryPromise(() =>
+            loadSourceSnapshotManifest(source, options),
+          ).pipe(
+            Effect.catchAll(() =>
+              Effect.succeed<ParsedResultSnapshotManifest | null>(null),
             ),
           )
-
-          if (Either.isLeft(result)) return [source.id, undefined] as const
+          if (!manifest) return [source.id, undefined] as const
 
           return [
             source.id,
-            result.right.pagination.total,
+            manifest.totalChunks,
           ] as const
         }),
       ),
@@ -55,9 +67,10 @@ export const countChunksBySourceId = (
 export const sourceViewOptionsBySourceId = (
   sources: readonly Source[],
   client: Knowhere,
+  options: ChunkCountOptions = {},
 ) =>
   Effect.gen(function* () {
-    const counts = yield* countChunksBySourceId(sources, client)
+    const counts = yield* countChunksBySourceId(sources, client, options)
     return new Map(
       sources.map((source) => [
         source.id,
@@ -65,3 +78,42 @@ export const sourceViewOptionsBySourceId = (
       ]),
     )
   })
+
+async function loadSourceSnapshotManifest(
+  source: Source,
+  options: ChunkCountOptions,
+): Promise<ParsedResultSnapshotManifest | null> {
+  const repository = options.repository ?? sourceWorkflowRuntime
+  const readSnapshotManifest =
+    options.readSnapshotManifest ?? readParsedResultSnapshotManifest
+  const snapshot = await repository.getParseSnapshotMetadata(
+    source.workspaceId,
+    source.id,
+  )
+  if (!isCompleteSnapshot(snapshot)) return null
+
+  return readSnapshotManifest({
+    workspaceId: source.workspaceId,
+    sourceId: source.id,
+    manifestKey: snapshot.snapshotManifestKey,
+  })
+}
+
+function isCompleteSnapshot(
+  snapshot:
+    | {
+        readonly snapshotManifestKey?: string | null
+        readonly snapshotManifestUrl?: string | null
+      }
+    | null,
+): snapshot is {
+  readonly snapshotManifestKey: string
+  readonly snapshotManifestUrl: string
+} {
+  return (
+    typeof snapshot?.snapshotManifestKey === "string" &&
+    snapshot.snapshotManifestKey.length > 0 &&
+    typeof snapshot.snapshotManifestUrl === "string" &&
+    snapshot.snapshotManifestUrl.length > 0
+  )
+}

@@ -102,7 +102,7 @@ export function SourceRow({
             }`}
           >
             {isReady
-              ? `${getReadySourceLabel(source)} · ${source.chunkCount ?? 0} chunks`
+              ? getReadySourceStatusText(source)
               : source.status === "parsing"
                 ? "Preparing"
                 : source.status === "uploading"
@@ -195,6 +195,11 @@ function getReadySourceLabel(source: SourceView): string {
   if (source.officialLibrary !== undefined) return "Official Library";
   if (source.kind === "remote") return "Remote";
   return "Processed";
+}
+
+function getReadySourceStatusText(source: SourceView): string {
+  if (typeof source.chunkCount !== "number") return getReadySourceLabel(source);
+  return `${getReadySourceLabel(source)} · ${source.chunkCount} chunks`;
 }
 
 function fileIconTint(title: string): { bg: string; fg: string } {

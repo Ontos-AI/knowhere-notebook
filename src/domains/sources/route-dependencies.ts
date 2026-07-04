@@ -44,6 +44,8 @@ const defaultDependencies: SourceRouteServiceDependencies = {
     ),
   requireUser,
   sourceService: {
+    ensureParsedSnapshotForRead:
+      defaultSourceService.ensureParsedSnapshotForRead,
     findInWorkspace: defaultSourceService.findInWorkspace,
     getParseAssetUrls: defaultSourceService.getParseAssetUrls,
     getParseSnapshotMetadata: defaultSourceService.getParseSnapshotMetadata,

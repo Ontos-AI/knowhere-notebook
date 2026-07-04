@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { Effect } from "effect";
 import type { Job } from "@ontos-ai/knowhere-sdk";
 
+import type { ChunkPage } from "@/domains/chunks";
 import type { Source, Workspace } from "@/infrastructure/db/schema";
 import { createRouteListing } from "./route-listing";
 import { createSourceRouteService } from "./route-service";
@@ -117,6 +118,189 @@ describe("source route service", () => {
       "jwt_123",
     );
     expect(listHiddenDemoSourceIds).toHaveBeenCalledWith(workspace.id);
+  });
+
+  it("syncs a ready legacy source snapshot before loading displayed chunks", async () => {
+    const readySource: Source = {
+      ...source,
+      id: "00000000-0000-4000-8000-000000000001",
+      knowhereJobId: null,
+      knowhereDocumentId: "doc_legacy",
+      status: "ready",
+    };
+    const snapshot = {
+      resultBlobUrl: "https://blob.example/manifest/current.json",
+      snapshotManifestUrl: "https://blob.example/manifest/current.json",
+      snapshotManifestKey:
+        "workspaces/workspace_1/sources/00000000-0000-4000-8000-000000000001/parsed-result/manifest/current.json",
+      assetUrlsByFilePath: {
+        "images/chart.png": "https://blob.example/images/chart.png",
+      },
+    };
+    const listChunks = vi.fn(async () => {
+      throw new Error("display path must not call Knowhere listChunks");
+    });
+    const knowledge = {
+      loadJobResult: vi.fn(),
+    };
+    const knowhereClient = {
+      documents: {
+        archive: vi.fn(async () => undefined),
+        listChunks,
+      },
+      jobs: {
+        create: vi.fn(),
+        get: vi.fn(),
+        upload: vi.fn(),
+      },
+      knowledge,
+    };
+    const loadedPage: ChunkPage = {
+      chunks: [
+        {
+          chunkId: "chunk_1",
+          type: "text",
+          content: "Chunk body",
+          sourceTitle: "notes.pdf",
+        },
+      ],
+      pagination: {
+        page: 1,
+        pageSize: 50,
+        total: 1,
+        totalPages: 1,
+      },
+    };
+    const loadChunkPageForSource = vi.fn(() => Effect.succeed(loadedPage));
+    const syncRemoteParsedSnapshot = vi.fn(async () => snapshot);
+    const service = createSourceRouteService({
+      ensureApiKeyForWorkspace: vi.fn(async () => "jwt_123"),
+      ensureWorkspace: vi.fn(async () => workspace),
+      getCurrentUser: vi.fn(async () => ({
+        id: "user_1",
+        email: null,
+        name: null,
+      })),
+      loadChunkPageForSource,
+      makeKnowhereClient: vi.fn(() => knowhereClient),
+      sourceService: {
+        findInWorkspace: vi.fn(async () => readySource),
+        ensureParsedSnapshotForRead: syncRemoteParsedSnapshot,
+        updateSourceRevisionKey: vi.fn(async () => readySource),
+      },
+    });
+
+    const result = await service.loadSourceChunks({
+      cookieHeader: "session=abc",
+      sourceId: readySource.id,
+      shouldLoadAll: false,
+      pageParams: { page: 1, pageSize: 50 },
+    });
+
+    expect(result).toEqual({
+      status: 200,
+      body: {
+        chunks: [
+          {
+            chunkId: "chunk_1",
+            type: "text",
+            content: "Chunk body",
+            sourceTitle: "notes.pdf",
+          },
+        ],
+        pagination: {
+          page: 1,
+          pageSize: 50,
+          total: 1,
+          totalPages: 1,
+        },
+      },
+    });
+    expect(syncRemoteParsedSnapshot).toHaveBeenCalledWith({
+      workspaceId: workspace.id,
+      source: readySource,
+      client: {
+        documents: knowhereClient.documents,
+        knowledge,
+      },
+    });
+    expect(loadChunkPageForSource).toHaveBeenCalledWith(
+      readySource,
+      knowhereClient,
+      { page: 1, pageSize: 50 },
+      expect.objectContaining({
+        assetUrlsByFilePath: snapshot.assetUrlsByFilePath,
+        snapshot,
+        workspaceId: workspace.id,
+      }),
+    );
+    expect(listChunks).not.toHaveBeenCalled();
+  });
+
+  it("returns processing when a ready legacy source snapshot is not synced yet", async () => {
+    const readySource: Source = {
+      ...source,
+      id: "00000000-0000-4000-8000-000000000002",
+      knowhereDocumentId: "doc_legacy",
+      knowhereJobId: null,
+      status: "ready",
+    };
+    const knowledge = {
+      loadJobResult: vi.fn(),
+    };
+    const knowhereClient = {
+      documents: {
+        archive: vi.fn(async () => undefined),
+        listChunks: vi.fn(),
+      },
+      jobs: {
+        create: vi.fn(),
+        get: vi.fn(),
+        upload: vi.fn(),
+      },
+      knowledge,
+    };
+    const loadChunkPageForSource = vi.fn();
+    const service = createSourceRouteService({
+      ensureApiKeyForWorkspace: vi.fn(async () => "jwt_123"),
+      ensureWorkspace: vi.fn(async () => workspace),
+      getCurrentUser: vi.fn(async () => ({
+        id: "user_1",
+        email: null,
+        name: null,
+      })),
+      loadChunkPageForSource,
+      makeKnowhereClient: vi.fn(() => knowhereClient),
+      sourceService: {
+        findInWorkspace: vi.fn(async () => readySource),
+        ensureParsedSnapshotForRead: vi.fn(async () => {
+          throw new Error("snapshot import still running");
+        }),
+      },
+    });
+
+    const result = await service.loadSourceChunks({
+      cookieHeader: "session=abc",
+      sourceId: readySource.id,
+      shouldLoadAll: false,
+      pageParams: { page: 1, pageSize: 50 },
+    });
+
+    expect(result).toEqual({
+      status: 202,
+      body: {
+        chunks: [],
+        pagination: {
+          page: 1,
+          pageSize: 50,
+          total: 0,
+          totalPages: 0,
+        },
+        message: "Source parsed snapshot is still being prepared.",
+      },
+    });
+    expect(loadChunkPageForSource).not.toHaveBeenCalled();
+    expect(knowhereClient.documents.listChunks).not.toHaveBeenCalled();
   });
 
   it("lists shared default and legacy namespace documents as lightweight remote sources", async () => {

@@ -14,6 +14,9 @@ import { retrySourceToKnowhereEffect } from "./retry"
 import { sourceWorkflowRuntime } from "./workflow-runtime"
 
 type SourceService = {
+  readonly ensureParsedSnapshotForRead: (
+    input: EnsureParsedSnapshotForReadInput,
+  ) => Promise<EnsureParsedSnapshotForReadResult | null>
   readonly findInWorkspace: (
     workspaceId: string,
     sourceId: string,
@@ -69,6 +72,19 @@ type SourceService = {
   readonly syncRemoteParsedSnapshot: typeof syncRemoteParsedSnapshot
 }
 
+type EnsureParsedSnapshotForReadInput = {
+  readonly workspaceId: string
+  readonly source: Source
+  readonly client?: Parameters<typeof syncRemoteParsedSnapshot>[0]["client"] | null
+}
+
+type EnsureParsedSnapshotForReadResult = {
+  readonly resultBlobUrl: string
+  readonly snapshotManifestUrl?: string | null
+  readonly snapshotManifestKey?: string | null
+  readonly assetUrlsByFilePath: Readonly<Record<string, string>>
+}
+
 const uploadSourceToKnowhere: SourceService["uploadSourceToKnowhere"] = (
   workspace: Workspace,
   file: File,
@@ -109,7 +125,25 @@ const retrySourceToKnowhere: SourceService["retrySourceToKnowhere"] = (
     }),
   )
 
+const ensureParsedSnapshotForRead: SourceService["ensureParsedSnapshotForRead"] =
+  async ({ workspaceId, source, client }: EnsureParsedSnapshotForReadInput) => {
+    const existingSnapshot =
+      await sourceWorkflowRuntime.getParseSnapshotMetadata(workspaceId, source.id)
+    if (isCompleteParsedSnapshot(existingSnapshot)) return existingSnapshot
+
+    if (!canSyncParsedSnapshotForRead(source, client)) {
+      return existingSnapshot
+    }
+
+    return syncRemoteParsedSnapshot({
+      workspaceId,
+      source,
+      client,
+    })
+  }
+
 export const sourceService: SourceService = {
+  ensureParsedSnapshotForRead,
   findInWorkspace: sourceWorkflowRuntime.findInWorkspace,
   getParseAssetUrls: sourceWorkflowRuntime.getParseAssetUrls,
   getParseSnapshotMetadata: sourceWorkflowRuntime.getParseSnapshotMetadata,
@@ -125,4 +159,30 @@ export const sourceService: SourceService = {
   uploadSourceBlobToKnowhere,
   retrySourceToKnowhere,
   syncRemoteParsedSnapshot,
+}
+
+function canSyncParsedSnapshotForRead(
+  source: Source,
+  client: EnsureParsedSnapshotForReadInput["client"],
+): client is Parameters<typeof syncRemoteParsedSnapshot>[0]["client"] {
+  return (
+    Boolean(client) &&
+    (source.status === "ready" || source.status === "parsing") &&
+    typeof source.knowhereDocumentId === "string" &&
+    source.knowhereDocumentId.length > 0
+  )
+}
+
+function isCompleteParsedSnapshot(
+  snapshot: EnsureParsedSnapshotForReadResult | null,
+): snapshot is EnsureParsedSnapshotForReadResult & {
+  readonly snapshotManifestKey: string
+  readonly snapshotManifestUrl: string
+} {
+  return (
+    typeof snapshot?.snapshotManifestKey === "string" &&
+    snapshot.snapshotManifestKey.length > 0 &&
+    typeof snapshot.snapshotManifestUrl === "string" &&
+    snapshot.snapshotManifestUrl.length > 0
+  )
 }

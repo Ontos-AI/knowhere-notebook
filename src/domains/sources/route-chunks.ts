@@ -89,7 +89,28 @@ const loadSourceChunksEffect = (
       getClientForWorkspace(workspace.id, input.cookieHeader, deps),
     )
     const snapshot = yield* Effect.tryPromise(() =>
-      deps.sourceService.getParseSnapshotMetadata(workspace.id, source.id),
+      deps.sourceService.ensureParsedSnapshotForRead({
+        workspaceId: workspace.id,
+        source,
+        client: client.knowledge
+          ? {
+              documents: client.documents,
+              knowledge: client.knowledge,
+            }
+          : null,
+      }),
+    ).pipe(
+      Effect.catchAll((error) =>
+        Effect.sync(() => {
+          logger.warn("sources: parsed snapshot sync for read failed", {
+            workspaceId: workspace.id,
+            sourceId: source.id,
+            documentId: source.knowhereDocumentId,
+            error: getErrorMessage(error),
+          })
+          return null
+        }),
+      ),
     )
     if (!isCompleteSnapshot(snapshot)) {
       return sourceSnapshotProcessing(input)
@@ -109,15 +130,12 @@ const loadSourceChunksEffect = (
       return routeResult.ok({ chunks })
     }
 
-    const assetUrlsByFilePath = yield* Effect.tryPromise(() =>
-      deps.sourceService.getParseAssetUrls(workspace.id, source.id),
-    )
     const chunkPage = yield* deps.loadChunkPageForSource(
       source,
       client,
       input.pageParams,
       {
-        assetUrlsByFilePath,
+        assetUrlsByFilePath: snapshot.assetUrlsByFilePath,
         snapshot,
         workspaceId: workspace.id,
         onRevisionKey: async (revisionKey) => {

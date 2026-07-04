@@ -80,6 +80,7 @@ export type WorkspaceShellLayoutProps = {
   readonly pendingCitationId: string | null
   readonly readySourceCount: number
   readonly selectedChunks: readonly ParsedChunkView[]
+  readonly selectedChunksMessage: string | null
   readonly selectedSourceFile: SourceOriginalFileView | null
   readonly selectedSourceId: string | null
   readonly selectedSourceTitle: string | null
@@ -271,6 +272,7 @@ export function WorkspaceShellLayout(
                 isLoading={props.isSelectedChunksLoading}
                 isLoadingAllChunks={props.isSelectedAllChunksLoading}
                 isLoadingMore={props.isSelectedChunksLoadingMore}
+                processingMessage={props.selectedChunksMessage}
                 hasMoreChunks={props.hasMoreSelectedChunks}
                 onLoadAllChunks={props.onLoadAllChunks}
                 onLoadMore={props.onLoadMoreChunks}
@@ -412,6 +414,7 @@ export function WorkspaceShellLayout(
             isLoading={props.isSelectedChunksLoading}
             isLoadingAllChunks={props.isSelectedAllChunksLoading}
             isLoadingMore={props.isSelectedChunksLoadingMore}
+            processingMessage={props.selectedChunksMessage}
             hasMoreChunks={props.hasMoreSelectedChunks}
             onLoadAllChunks={props.onLoadAllChunks}
             onLoadMore={props.onLoadMoreChunks}

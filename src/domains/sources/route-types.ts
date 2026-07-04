@@ -162,6 +162,16 @@ type SourceRouteService = {
 }
 
 type SourceWorkflowService = {
+  readonly ensureParsedSnapshotForRead: (input: {
+    readonly workspaceId: string
+    readonly source: Source
+    readonly client?: SyncRemoteParsedSnapshotInput["client"] | null
+  }) => Promise<{
+    readonly resultBlobUrl: string
+    readonly snapshotManifestUrl?: string | null
+    readonly snapshotManifestKey?: string | null
+    readonly assetUrlsByFilePath: Readonly<Record<string, string>>
+  } | null>
   readonly uploadSourceToKnowhere: (
     workspace: Workspace,
     file: File,

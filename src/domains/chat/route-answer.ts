@@ -68,8 +68,32 @@ const answerChatEffect = (input: AnswerChatInput) =>
         apiKey,
       }),
     )
-    const loadSourceAssetUrls = (source: (typeof sources)[number]) =>
-      sourceService.getParseAssetUrls(workspace.id, source.id)
+    const loadSourceAssetUrls = async (
+      source: (typeof sources)[number],
+    ): Promise<Readonly<Record<string, string>>> => {
+      try {
+        const snapshot = await sourceService.ensureParsedSnapshotForRead({
+          workspaceId: workspace.id,
+          source,
+          client: client.knowledge
+            ? {
+                documents: client.documents,
+                knowledge: client.knowledge,
+              }
+            : null,
+        })
+        if (snapshot) return snapshot.assetUrlsByFilePath
+      } catch (error) {
+        logger.warn("chat: parsed snapshot sync for assets failed", {
+          workspaceId: workspace.id,
+          sourceId: source.id,
+          documentId: source.knowhereDocumentId,
+          error: summarizeUnknownError(error),
+        })
+      }
+
+      return sourceService.getParseAssetUrls(workspace.id, source.id)
+    }
 
     const result: Either.Either<ChatTurnValue, ChatAnswerFailure> =
       yield* Effect.tryPromise(() =>

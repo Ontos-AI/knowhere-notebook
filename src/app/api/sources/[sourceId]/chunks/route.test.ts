@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   ensureWorkspace: vi.fn(),
   fetchDemoChunkPage: vi.fn(),
   findSourceInWorkspace: vi.fn(),
+  ensureParsedSnapshotForRead: vi.fn(),
   getCurrentUser: vi.fn(),
   getSourceParseAssetUrls: vi.fn(),
   getSourceParseSnapshotMetadata: vi.fn(),
@@ -51,6 +52,7 @@ vi.mock("@vercel/blob", () => ({
 
 vi.mock("@/domains/sources/service", () => ({
   sourceService: {
+    ensureParsedSnapshotForRead: mocks.ensureParsedSnapshotForRead,
     findInWorkspace: mocks.findSourceInWorkspace,
     getParseAssetUrls: mocks.getSourceParseAssetUrls,
     getParseSnapshotMetadata: mocks.getSourceParseSnapshotMetadata,
@@ -77,6 +79,15 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
     }))
     mocks.getSourceParseAssetUrls.mockResolvedValue({})
     mocks.getSourceParseSnapshotMetadata.mockResolvedValue({
+      resultBlobUrl:
+        "https://blob.example/workspaces/workspace_1/sources/source_1/parsed-result/manifest/current.json",
+      snapshotManifestUrl:
+        "https://blob.example/workspaces/workspace_1/sources/source_1/parsed-result/manifest/current.json",
+      snapshotManifestKey:
+        "workspaces/workspace_1/sources/source_1/parsed-result/manifest/current.json",
+      assetUrlsByFilePath: {},
+    })
+    mocks.ensureParsedSnapshotForRead.mockResolvedValue({
       resultBlobUrl:
         "https://blob.example/workspaces/workspace_1/sources/source_1/parsed-result/manifest/current.json",
       snapshotManifestUrl:
@@ -504,6 +515,17 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
         "images/chart.png": "https://blob.example/images/chart.png",
       },
     })
+    mocks.ensureParsedSnapshotForRead.mockResolvedValue({
+      resultBlobUrl:
+        "https://blob.example/workspaces/workspace_1/sources/00000000-0000-0000-0000-000000000002/parsed-result/manifest/current.json",
+      snapshotManifestUrl:
+        "https://blob.example/workspaces/workspace_1/sources/00000000-0000-0000-0000-000000000002/parsed-result/manifest/current.json",
+      snapshotManifestKey:
+        "workspaces/workspace_1/sources/00000000-0000-0000-0000-000000000002/parsed-result/manifest/current.json",
+      assetUrlsByFilePath: {
+        "images/chart.png": "https://blob.example/images/chart.png",
+      },
+    })
     mocks.blobGet.mockImplementation(async (pathname: string) => {
       if (pathname.endsWith("/manifest/current.json")) {
         return {
@@ -633,6 +655,7 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
     mocks.ensureApiKeyForWorkspace.mockResolvedValue("jwt_123")
     mocks.makeKnowhereClient.mockReturnValue(knowhereClient)
     mocks.getSourceParseSnapshotMetadata.mockResolvedValue(null)
+    mocks.ensureParsedSnapshotForRead.mockResolvedValue(null)
 
     const response = await GET(
       new NextRequest(

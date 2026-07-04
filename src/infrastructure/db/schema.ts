@@ -17,8 +17,8 @@ import {
  *   - Postgres stores only metadata, status, Knowhere IDs, and chat
  *     threads/messages.
  *   - It does NOT store file bytes or chunk copies in Postgres. Original
- *     uploads and parsed media artifacts live in Blob storage; chunks are
- *     fetched on demand from Knowhere's chunks API.
+ *     uploads and parsed-source snapshots live in Blob storage; retrieval
+ *     stays upstream in Knowhere.
  *
  * Soft delete:
  *   - Every user-visible resource has a nullable `deleted_at` timestamp.
@@ -67,9 +67,9 @@ export type NewWorkspace = typeof workspaces.$inferInsert;
  *   - `status`       — lifecycle: uploading | parsing | ready | failed
  *   - `failure_reason` — human-readable error text when status=failed
  *   - `knowhere_job_id`      — set once the parse job is created
- *   - `knowhere_document_id` — set when parsing completes; the sole handle
- *                              used to fetch chunks and to exclude a source
- *                              from a retrieval query
+ *   - `knowhere_document_id` — set when parsing completes; used to import
+ *                              parsed snapshots and to exclude a source from a
+ *                              retrieval query
  *   - `original_blob_*` — public Blob pointer for the original upload preview
  *                         and download path
  *   - `staged_blob_*`   — legacy temporary Blob staging pointer retained for

@@ -29,13 +29,36 @@ function makeSource(overrides: Partial<Source> = {}): Source {
 }
 
 describe("countChunksBySourceId", () => {
-  it("counts chunks only for ready sources with a Knowhere document id", async () => {
-    const listChunks = vi.fn().mockResolvedValue({
-      pagination: { total: 12 },
-    })
+  it("counts ready source chunks from the parsed snapshot manifest", async () => {
+    const listChunks = vi.fn()
     const mockClient = {
       documents: { listChunks },
     } as unknown as Knowhere
+    const repository = {
+      getParseSnapshotMetadata: vi.fn(async (workspaceId: string, sourceId: string) =>
+        sourceId === "ready"
+          ? {
+              resultBlobUrl: "https://blob.example/manifest/current.json",
+              snapshotManifestUrl: "https://blob.example/manifest/current.json",
+              snapshotManifestKey:
+                "workspaces/workspace_1/sources/ready/parsed-result/manifest/current.json",
+              assetUrlsByFilePath: {},
+            }
+          : null,
+      ),
+    }
+    const readSnapshotManifest = vi.fn(async () => ({
+      version: 1 as const,
+      kind: "knowhere-parsed-result-snapshot" as const,
+      jobId: "job_1",
+      documentId: "doc_ready",
+      sourceFileName: "notes.pdf",
+      totalChunks: 12,
+      chunkPageSize: 50,
+      chunkPages: [],
+      assetUrlsByFilePath: {},
+      createdAt: "2026-07-04T00:00:00.000Z",
+    }))
 
     const { countChunksBySourceId } = await import("./counts")
 
@@ -47,22 +70,44 @@ describe("countChunksBySourceId", () => {
           makeSource({ id: "missing-doc", knowhereDocumentId: null }),
         ],
         mockClient,
+        {
+          repository,
+          readSnapshotManifest,
+        },
       ),
     )
 
-    expect(listChunks).toHaveBeenCalledOnce()
-    expect(listChunks).toHaveBeenCalledWith("doc_ready", {
-      page: 1,
-      pageSize: 1,
+    expect(listChunks).not.toHaveBeenCalled()
+    expect(repository.getParseSnapshotMetadata).toHaveBeenCalledWith(
+      "workspace_1",
+      "ready",
+    )
+    expect(readSnapshotManifest).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      sourceId: "ready",
+      manifestKey:
+        "workspaces/workspace_1/sources/ready/parsed-result/manifest/current.json",
     })
     expect(counts).toEqual(new Map([["ready", 12]]))
   })
 
-  it("skips a source count when Knowhere chunks lookup fails", async () => {
-    const listChunks = vi.fn().mockRejectedValue(new Error("temporary outage"))
+  it("skips a source count when snapshot manifest lookup fails", async () => {
+    const listChunks = vi.fn()
     const mockClient = {
       documents: { listChunks },
     } as unknown as Knowhere
+    const repository = {
+      getParseSnapshotMetadata: vi.fn(async () => ({
+        resultBlobUrl: "https://blob.example/manifest/current.json",
+        snapshotManifestUrl: "https://blob.example/manifest/current.json",
+        snapshotManifestKey:
+          "workspaces/workspace_1/sources/ready/parsed-result/manifest/current.json",
+        assetUrlsByFilePath: {},
+      })),
+    }
+    const readSnapshotManifest = vi.fn(async () => {
+      throw new Error("temporary outage")
+    })
 
     const { countChunksBySourceId } = await import("./counts")
 
@@ -70,10 +115,15 @@ describe("countChunksBySourceId", () => {
       countChunksBySourceId(
         [makeSource({ id: "ready", knowhereDocumentId: "doc_ready" })],
         mockClient,
+        {
+          repository,
+          readSnapshotManifest,
+        },
       ),
     )
 
     expect(counts.size).toBe(0)
+    expect(listChunks).not.toHaveBeenCalled()
   })
 
   it("does not count materialized demo sources through their copied document id", async () => {

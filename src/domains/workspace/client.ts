@@ -24,6 +24,8 @@ const workspaceClientConfig = {
 
 type SourceChunksResponse = {
   chunks?: ParsedChunkView[]
+  isProcessing?: boolean
+  message?: string
   pagination?: {
     page: number
     pageSize: number
@@ -128,6 +130,8 @@ async function fetchChunkPage(
 
   return {
     chunks: Array.isArray(body.chunks) ? body.chunks : [],
+    ...(typeof body.message === "string" ? { message: body.message } : {}),
+    ...(typeof body.message === "string" ? { isProcessing: true } : {}),
     pagination: body.pagination,
   }
 }
