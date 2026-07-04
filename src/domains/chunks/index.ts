@@ -1,5 +1,5 @@
 import { Effect } from "effect"
-import type { DocumentChunk } from "@ontos-ai/knowhere-sdk"
+import type { DocumentChunk, KnowledgeReadChunk } from "@ontos-ai/knowhere-sdk"
 
 import { parsedChunkNormalization } from "./normalization"
 import type { Source } from "@/infrastructure/db/schema"
@@ -175,6 +175,35 @@ export function toParsedChunkView(
     ],
     assetUrl: chunk.assetUrl,
     assetUrlsByFilePath: options.assetUrlsByFilePath,
+    sourceTitle,
+  })
+}
+
+/**
+ * Map an SDK `KnowledgeReadChunk` (from `knowledge.readChunks`) to the view
+ * model. Asset URLs on durable reads are already hardened SDK-side, so no
+ * `assetUrlsByFilePath` remap is needed here.
+ */
+export function toParsedChunkViewFromReadChunk(
+  chunk: KnowledgeReadChunk,
+  sourceTitle: string,
+  documentId?: string,
+): ParsedChunkView {
+  return parsedChunkNormalization.createParsedChunkView({
+    chunkId: chunk.chunkId,
+    documentId,
+    parserChunkId: chunk.chunkId,
+    sectionPath: chunk.sectionPath,
+    chunkType: chunk.chunkType,
+    contentSource: chunk.contentSource,
+    content: chunk.content,
+    metadata: chunk.metadata,
+    filePathCandidates: [
+      chunk.filePath,
+      chunk.metadata["filePath"],
+      chunk.metadata["file_path"],
+    ],
+    assetUrl: chunk.assetUrl,
     sourceTitle,
   })
 }

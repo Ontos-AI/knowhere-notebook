@@ -1,8 +1,12 @@
 import { Effect } from "effect"
 
+import { logger } from "@/lib/logger"
 import { routeResult } from "@/lib/route-result"
 import { startBackgroundReconciliation } from "./background-reconcile"
+import { enqueueParsedDocumentSync } from "./parsed-document-sync-scheduler"
+import { sourceWorkflowRuntime } from "./workflow-runtime"
 import { toSourceView } from "./view"
+import type { Source, Workspace } from "@/infrastructure/db/schema"
 import type {
   JsonRouteResult,
   RetrySourceBody,
@@ -17,7 +21,9 @@ type RouteRetryDependencies = Pick<
   | "makeKnowhereClient"
   | "requireUser"
   | "sourceService"
->
+> & {
+  readonly resumeParsedSync?: typeof resumeParsedSync
+}
 
 type RouteRetry = {
   readonly retrySource: (
@@ -51,6 +57,23 @@ const retrySourceEffect = (
     if (source.status !== "failed") {
       return routeResult.error(409, "Only failed sources can be retried.")
     }
+
+    // A storage-sync failure keeps the parsed Knowhere document intact — resume
+    // the parsed-document sync from the stored revision instead of reparsing.
+    if (source.failureStage === "storage_sync" && source.knowhereDocumentId) {
+      const apiKey = yield* Effect.tryPromise(() =>
+        deps.ensureApiKeyForWorkspace(workspace.id, input.cookieHeader),
+      )
+      const resumedSource = yield* Effect.tryPromise(() =>
+        (deps.resumeParsedSync ?? resumeParsedSync)({
+          workspace,
+          source,
+          apiKey,
+        }),
+      )
+      return routeResult.ok({ source: toSourceView(resumedSource) })
+    }
+
     if (!source.originalBlobUrl || !source.originalBlobPathname) {
       return routeResult.error(
         409,
@@ -75,4 +98,50 @@ const retrySourceEffect = (
     return routeResult.ok({ source: toSourceView(retriedSource) })
   })
 
-export { createRouteRetry }
+/**
+ * Resume a parsed-document storage sync that failed after a successful parse.
+ * Moves the source back to `parsing` (clearing the failure stage), resets the
+ * sync status, and re-enqueues the resumable parsed-sync workflow from the
+ * stored document + revision — no reparse.
+ */
+async function resumeParsedSync(input: {
+  readonly workspace: Workspace
+  readonly source: Source
+  readonly apiKey: string
+}): Promise<Source> {
+  const { workspace, source, apiKey } = input
+  const documentId = source.knowhereDocumentId
+  if (!documentId) return source
+
+  const revisionKey = source.knowhereJobId ?? undefined
+  const parsingSource = await sourceWorkflowRuntime.markParsing(
+    workspace.id,
+    source.id,
+    revisionKey ?? documentId,
+    documentId,
+    "failed",
+  )
+  if (!parsingSource) return source
+
+  await sourceWorkflowRuntime.updateSyncStatus(workspace.id, source.id, {
+    revisionKey,
+    syncStatus: "running",
+    syncError: null,
+  })
+  await enqueueParsedDocumentSync({
+    workspaceId: workspace.id,
+    sourceId: source.id,
+    documentId,
+    apiKey,
+    revisionKey,
+  })
+  logger.info("sources: resumed parsed document storage sync on retry", {
+    workspaceId: workspace.id,
+    sourceId: source.id,
+    documentId,
+    revisionKey,
+  })
+  return parsingSource
+}
+
+export { createRouteRetry, resumeParsedSync }

@@ -1,13 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
-  createParsedResultStorageAdapter: vi.fn(),
-  saveParseResult: vi.fn(),
+  enqueueParsedDocumentSync: vi.fn(),
+  updateSyncStatus: vi.fn(),
+  markFailed: vi.fn(),
   loggerError: vi.fn(),
   loggerInfo: vi.fn(),
   loggerWarn: vi.fn(),
-  makeKnowhereClient: vi.fn(),
-  markFailed: vi.fn(),
+  makeKnowhereClientWithParsedStorage: vi.fn(),
   markSourceReadyAfterReconciliation: vi.fn(),
   pollSourceReconciliation: vi.fn(),
 }))
@@ -20,16 +20,17 @@ vi.mock("@/domains/sources/source-reconcile-workflow", () => ({
 vi.mock("@/domains/sources/workflow-runtime", () => ({
   sourceWorkflowRuntime: {
     markFailed: mocks.markFailed,
-    saveParseResult: mocks.saveParseResult,
+    updateSyncStatus: mocks.updateSyncStatus,
   },
 }))
 
-vi.mock("./parse-result-storage-adapter", () => ({
-  createParsedResultStorageAdapter: mocks.createParsedResultStorageAdapter,
+vi.mock("./parsed-document-sync-scheduler", () => ({
+  enqueueParsedDocumentSync: mocks.enqueueParsedDocumentSync,
 }))
 
 vi.mock("@/integrations/knowhere", () => ({
-  makeKnowhereClient: mocks.makeKnowhereClient,
+  makeKnowhereClientWithParsedStorage:
+    mocks.makeKnowhereClientWithParsedStorage,
 }))
 
 vi.mock("@/lib/logger", () => ({
@@ -41,6 +42,30 @@ vi.mock("@/lib/logger", () => ({
 }))
 
 import { sourceReconcileRouteWorkflow } from "./source-reconcile-route-workflow"
+
+function createClient(overrides: {
+  syncParsedDocument?: ReturnType<typeof vi.fn>
+  jobResultId?: string
+  jobId?: string
+}) {
+  const listChunks = vi.fn(async () => ({
+    jobResultId: overrides.jobResultId ?? "rev_1",
+    jobId: overrides.jobId ?? "job_1",
+  }))
+  return {
+    client: { jobs: {}, documents: { listChunks } },
+    knowledge: {
+      syncParsedDocument:
+        overrides.syncParsedDocument ??
+        vi.fn(async () => ({
+          documentId: "doc_1",
+          revisionKey: "rev_1",
+          completed: true,
+        })),
+    },
+    listChunks,
+  }
+}
 
 describe("sourceReconcileRouteWorkflow", () => {
   afterEach(() => {
@@ -64,7 +89,7 @@ describe("sourceReconcileRouteWorkflow", () => {
     })
   })
 
-  it("writes a parsed snapshot before marking the source ready", async () => {
+  it("syncs the parsed document then marks the source ready", async () => {
     const context = createWorkflowContext()
     const continuations: ContinuationTriggerInput[] = []
     const restore =
@@ -73,35 +98,18 @@ describe("sourceReconcileRouteWorkflow", () => {
           continuations.push(input)
         },
       )
-    const storageAdapter = {
-      adapter: {
-        writeObject: vi.fn(),
-      },
-      keyPrefix: "workspaces/workspace_1/sources/source_1/parsed-result",
-    }
-    const loadJobResult = vi.fn().mockResolvedValue({
-      assetUrlsByFilePath: {
-        "page_citation_assets/page-1.png":
-          "https://blob.example/page_citation_assets/page-1.png",
-      },
-      parsedSnapshot: {
-        manifestKey:
-          "workspaces/workspace_1/sources/source_1/parsed-result/manifest/current.json",
-        manifestUrl:
-          "https://blob.example/workspaces/workspace_1/sources/source_1/parsed-result/manifest/current.json",
-      },
+    const wired = createClient({})
+    mocks.makeKnowhereClientWithParsedStorage.mockReturnValue({
+      client: wired.client,
+      knowledge: wired.knowledge,
     })
-    const client = { jobs: {}, knowledge: { loadJobResult } }
-    mocks.createParsedResultStorageAdapter.mockReturnValue(storageAdapter)
-    mocks.makeKnowhereClient.mockReturnValue(client)
-    mocks.saveParseResult.mockResolvedValue({ id: "parse_result_1" })
+    mocks.markSourceReadyAfterReconciliation.mockResolvedValue({
+      status: "ready",
+    })
     mocks.pollSourceReconciliation.mockResolvedValue({
       kind: "ready-to-prepare",
       jobId: "job_1",
       documentId: "doc_1",
-    })
-    mocks.markSourceReadyAfterReconciliation.mockResolvedValue({
-      status: "ready",
     })
 
     try {
@@ -117,54 +125,70 @@ describe("sourceReconcileRouteWorkflow", () => {
       restore()
     }
 
-    expect(mocks.createParsedResultStorageAdapter).toHaveBeenCalledWith({
-      workspaceId: "workspace_1",
-      sourceId: "source_1",
+    expect(wired.knowledge.syncParsedDocument).toHaveBeenCalledWith({
+      documentId: "doc_1",
+      revisionKey: "rev_1",
     })
-    expect(loadJobResult).toHaveBeenCalledWith({
-      jobId: "job_1",
-      storageAdapter,
-    })
-    expect(mocks.saveParseResult).toHaveBeenCalledWith(
+    expect(mocks.updateSyncStatus).toHaveBeenCalledWith(
       "workspace_1",
       "source_1",
-      {
-        resultBlobUrl:
-          "https://blob.example/workspaces/workspace_1/sources/source_1/parsed-result/manifest/current.json",
-        snapshotManifestUrl:
-          "https://blob.example/workspaces/workspace_1/sources/source_1/parsed-result/manifest/current.json",
-        snapshotManifestKey:
-          "workspaces/workspace_1/sources/source_1/parsed-result/manifest/current.json",
-        assetUrlsByFilePath: {
-          "page_citation_assets/page-1.png":
-            "https://blob.example/page_citation_assets/page-1.png",
-        },
-      },
+      { revisionKey: "rev_1", syncStatus: "completed" },
     )
     expect(mocks.markSourceReadyAfterReconciliation).toHaveBeenCalledWith({
       workspaceId: "workspace_1",
       sourceId: "source_1",
       documentId: "doc_1",
     })
-    expect(mocks.loggerWarn).not.toHaveBeenCalled()
+    expect(mocks.enqueueParsedDocumentSync).not.toHaveBeenCalled()
     expect(continuations).toEqual([])
   })
 
-  it("does not mark ready when snapshot manifest storage is missing", async () => {
+  it("hands off to parsed-sync and stays parsing when sync is incomplete", async () => {
     const context = createWorkflowContext()
-    const storageAdapter = {
-      adapter: {
-        writeObject: vi.fn(),
-      },
-      keyPrefix: "workspaces/workspace_1/sources/source_1/parsed-result",
-    }
-    const loadJobResult = vi.fn().mockResolvedValue({
-      assetUrlsByFilePath: {},
+    const syncParsedDocument = vi.fn(async () => ({
+      documentId: "doc_1",
+      revisionKey: "rev_1",
+      completed: false,
+    }))
+    const wired = createClient({ syncParsedDocument })
+    mocks.makeKnowhereClientWithParsedStorage.mockReturnValue({
+      client: wired.client,
+      knowledge: wired.knowledge,
     })
-    mocks.createParsedResultStorageAdapter.mockReturnValue(storageAdapter)
-    mocks.makeKnowhereClient.mockReturnValue({
-      jobs: {},
-      knowledge: { loadJobResult },
+    mocks.pollSourceReconciliation.mockResolvedValue({
+      kind: "ready-to-prepare",
+      jobId: "job_1",
+      documentId: "doc_1",
+    })
+
+    await sourceReconcileRouteWorkflow.runPollAndMirrorWorkflow({
+      context,
+      payload: sourceReconcileRouteWorkflow.normalizeReconcilePayload({
+        workspaceId: "workspace_1",
+        sourceId: "source_1",
+        apiKey: "jwt_1",
+      }),
+    })
+
+    expect(mocks.markSourceReadyAfterReconciliation).not.toHaveBeenCalled()
+    expect(mocks.enqueueParsedDocumentSync).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      sourceId: "source_1",
+      documentId: "doc_1",
+      apiKey: "jwt_1",
+      revisionKey: "rev_1",
+    })
+  })
+
+  it("fails the source with storage_sync stage when sync throws", async () => {
+    const context = createWorkflowContext()
+    const syncParsedDocument = vi.fn(async () => {
+      throw new Error("blob write failed")
+    })
+    const wired = createClient({ syncParsedDocument })
+    mocks.makeKnowhereClientWithParsedStorage.mockReturnValue({
+      client: wired.client,
+      knowledge: wired.knowledge,
     })
     mocks.pollSourceReconciliation.mockResolvedValue({
       kind: "ready-to-prepare",
@@ -181,9 +205,15 @@ describe("sourceReconcileRouteWorkflow", () => {
           apiKey: "jwt_1",
         }),
       }),
-    ).rejects.toThrow("Parsed result snapshot was not written")
+    ).rejects.toThrow("blob write failed")
 
-    expect(mocks.saveParseResult).not.toHaveBeenCalled()
+    expect(mocks.markFailed).toHaveBeenCalledWith(
+      "workspace_1",
+      "source_1",
+      expect.stringContaining("storage sync failed"),
+      "parsing",
+      "storage_sync",
+    )
     expect(mocks.markSourceReadyAfterReconciliation).not.toHaveBeenCalled()
   })
 
@@ -196,7 +226,10 @@ describe("sourceReconcileRouteWorkflow", () => {
           continuations.push(input)
         },
       )
-    mocks.makeKnowhereClient.mockReturnValue({ jobs: {} })
+    mocks.makeKnowhereClientWithParsedStorage.mockReturnValue({
+      client: { jobs: {}, documents: { listChunks: vi.fn() } },
+      knowledge: { syncParsedDocument: vi.fn() },
+    })
     mocks.pollSourceReconciliation.mockResolvedValue({
       kind: "waiting",
       jobId: "job_1",

@@ -145,7 +145,7 @@ describeIfDb("workspace helpers — integration", () => {
       markSourceReady: sourceWorkflowRuntime.markReady,
       markSourceFailed: sourceWorkflowRuntime.markFailed,
       saveSourceParseResult: sourceWorkflowRuntime.saveParseResult,
-      getParseAssetUrls: sourceService.getParseAssetUrls,
+      getParseAssetUrls: sourceWorkflowRuntime.getParseAssetUrls,
       hideDemoSource: sourceService.hideDemoSource,
       listHiddenDemoSourceIds: sourceService.listHiddenDemoSourceIds,
       upsertMaterializedDemoSource:

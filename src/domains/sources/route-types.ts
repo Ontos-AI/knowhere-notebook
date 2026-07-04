@@ -3,10 +3,6 @@ import type {
   ChunkPage,
   ChunkPageParams,
 } from "@/domains/chunks"
-import type {
-  loadChunkPageForSource,
-  loadChunksForSource,
-} from "@/domains/chunks/server"
 import type { ParsedChunkView } from "@/domains/chunks/types"
 import type { SourceStatus, SourceView } from "@/domains/sources/types"
 import type { AuthUser } from "@/infrastructure/auth"
@@ -18,12 +14,7 @@ import type {
 import type { RouteResult } from "@/lib/route-result"
 import type { SourceBlobUploadInput } from "./blob-upload"
 import type { sourceViewOptionsBySourceId } from "./counts"
-import type { syncRemoteParsedSnapshot } from "./remote-parsed-snapshot-sync"
 import type { UploadKnowhereClient } from "./upload"
-
-type SyncRemoteParsedSnapshotInput = Parameters<
-  typeof syncRemoteParsedSnapshot
->[0]
 
 type SourceRouteKnowhereClient = UploadKnowhereClient &
   ChunkKnowhereClient & {
@@ -59,7 +50,6 @@ type SourceRouteKnowhereClient = UploadKnowhereClient &
       }>
       archive(documentId: string): Promise<unknown>
     }
-    readonly knowledge?: SyncRemoteParsedSnapshotInput["client"]["knowledge"]
   }
 
 type SourceUploadRequest =
@@ -162,16 +152,6 @@ type SourceRouteService = {
 }
 
 type SourceWorkflowService = {
-  readonly ensureParsedSnapshotForRead: (input: {
-    readonly workspaceId: string
-    readonly source: Source
-    readonly client?: SyncRemoteParsedSnapshotInput["client"] | null
-  }) => Promise<{
-    readonly resultBlobUrl: string
-    readonly snapshotManifestUrl?: string | null
-    readonly snapshotManifestKey?: string | null
-    readonly assetUrlsByFilePath: Readonly<Record<string, string>>
-  } | null>
   readonly uploadSourceToKnowhere: (
     workspace: Workspace,
     file: File,
@@ -187,7 +167,6 @@ type SourceWorkflowService = {
     source: Source,
     knowhere: UploadKnowhereClient,
   ) => Promise<Source>
-  readonly syncRemoteParsedSnapshot: typeof syncRemoteParsedSnapshot
   readonly findInWorkspace: (
     workspaceId: string,
     sourceId: string,
@@ -196,19 +175,6 @@ type SourceWorkflowService = {
     workspaceId: string,
     sourceId: string,
   ) => Promise<boolean>
-  readonly getParseAssetUrls: (
-    workspaceId: string,
-    sourceId: string,
-  ) => Promise<Readonly<Record<string, string>>>
-  readonly getParseSnapshotMetadata: (
-    workspaceId: string,
-    sourceId: string,
-  ) => Promise<{
-    readonly resultBlobUrl: string
-    readonly snapshotManifestUrl?: string | null
-    readonly snapshotManifestKey?: string | null
-    readonly assetUrlsByFilePath: Readonly<Record<string, string>>
-  } | null>
   readonly hideDemoSource: (
     workspaceId: string,
     demoSourceId: string,
@@ -226,11 +192,6 @@ type SourceWorkflowService = {
       readonly revisionKey?: string | null
     },
   ) => Promise<Source>
-  readonly updateSourceRevisionKey: (
-    workspaceId: string,
-    sourceId: string,
-    revisionKey: string,
-  ) => Promise<Source | null>
   readonly upsertMaterializedDemoSource: (
     workspaceId: string,
     input: {
@@ -266,8 +227,6 @@ type SourceRouteServiceDependencies = {
     sources: readonly Source[],
     client: SourceRouteKnowhereClient,
   ) => ReturnType<typeof sourceViewOptionsBySourceId>
-  readonly loadChunkPageForSource: typeof loadChunkPageForSource
-  readonly loadChunksForSource: typeof loadChunksForSource
   readonly makeKnowhereClient: (apiKey: string) => SourceRouteKnowhereClient
   readonly listSourcesForWorkspace: (workspaceId: string) => Promise<Source[]>
   readonly reconcileSourcesForWorkspace: (

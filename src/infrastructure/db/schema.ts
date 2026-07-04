@@ -66,6 +66,8 @@ export type NewWorkspace = typeof workspaces.$inferInsert;
  *   - `size_bytes`   — original upload size (for display + quota)
  *   - `status`       — lifecycle: uploading | parsing | ready | failed
  *   - `failure_reason` — human-readable error text when status=failed
+ *   - `failure_stage`  — which stage failed: parse | storage_sync; drives
+ *                        whether a retry reparses or only resumes storage sync
  *   - `knowhere_job_id`      — set once the parse job is created
  *   - `knowhere_document_id` — set when parsing completes; used to import
  *                              parsed snapshots and to exclude a source from a
@@ -95,6 +97,7 @@ export const sources = pgTable(
     sizeBytes: bigint("size_bytes", { mode: "number" }).notNull(),
     status: text("status").notNull(),
     failureReason: text("failure_reason"),
+    failureStage: text("failure_stage"),
     knowhereJobId: text("knowhere_job_id"),
     knowhereDocumentId: text("knowhere_document_id"),
     stagedBlobPathname: text("staged_blob_pathname"),
@@ -162,8 +165,18 @@ export type NewDemoSourceVisibility = typeof demoSourceVisibilities.$inferInsert
  * Notebook-owned parse-result artifact index for one source.
  *
  * Blob is the Notebook-owned read model for parsed chunks after source
- * reconciliation completes. This row stores the current parsed snapshot
- * manifest and the file-path-to-public-URL map for parsed media artifacts.
+ * reconciliation completes. The parsed snapshot itself (manifest, chunk pages,
+ * assets, and resumable sync progress) lives in Vercel Blob under
+ * `workspaces/{ws}/parsed-documents/{documentId}/{revisionKey}/...`, managed by
+ * the SDK `ParsedDocumentStorage`. This row records:
+ *   - `revision_key`  — current parsed revision (jobResultId ?? jobId); the
+ *                       storage fast-path key passed into SDK reads
+ *   - `sync_status`   — pending | running | completed | failed for the
+ *                       background/parse-time storage sync
+ *   - `sync_error`    — last storage-sync error detail when sync_status=failed
+ *   - `result_blob_url` / `snapshot_manifest_*` — legacy columns retained for
+ *                       rows written by the pre-migration manifest format
+ *   - `asset_urls`    — legacy file-path-to-public-URL map for older rows
  */
 export const sourceParseResults = pgTable(
   "source_parse_results",
@@ -173,9 +186,12 @@ export const sourceParseResults = pgTable(
       .notNull()
       .references(() => sources.id, { onDelete: "cascade" })
       .unique(),
-    resultBlobUrl: text("result_blob_url").notNull(),
+    resultBlobUrl: text("result_blob_url"),
     snapshotManifestUrl: text("snapshot_manifest_url"),
     snapshotManifestKey: text("snapshot_manifest_key"),
+    revisionKey: text("revision_key"),
+    syncStatus: text("sync_status"),
+    syncError: text("sync_error"),
     assetUrls: jsonb("asset_urls")
       .$type<Readonly<Record<string, string>>>()
       .notNull(),

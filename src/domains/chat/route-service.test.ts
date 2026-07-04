@@ -18,6 +18,8 @@ const mocks = vi.hoisted(() => ({
   loggerInfo: vi.fn(),
   loggerWarn: vi.fn(),
   listSourcesForWorkspace: vi.fn(),
+  makeKnowhereClientWithParsedStorage: vi.fn(),
+  readChunks: vi.fn(),
   softDeleteChatThread: vi.fn(),
   startBackgroundReconciliation: vi.fn(),
 }))
@@ -51,6 +53,11 @@ vi.mock("@/domains/workspace/request-context", () => ({
   },
 }))
 
+vi.mock("@/integrations/knowhere", () => ({
+  makeKnowhereClientWithParsedStorage:
+    mocks.makeKnowhereClientWithParsedStorage,
+}))
+
 vi.mock("@/domains/chat/thread-service", () => ({
   chatThreadService: {
     appendMessage: mocks.appendMessageToThread,
@@ -73,11 +80,22 @@ vi.mock("@/lib/logger", () => ({
 
 import { chatAnswerRouteService } from "./route-answer"
 import { chatThreadRouteService } from "./route-threads"
-import { sourceService } from "@/domains/sources/service"
 
 describe("chat route services", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.makeKnowhereClientWithParsedStorage.mockReturnValue({
+      client: { documents: { listChunks: vi.fn() } },
+      knowledge: { readChunks: mocks.readChunks },
+    })
+    mocks.readChunks.mockResolvedValue({
+      document: { localDocumentId: "doc" },
+      chunks: [],
+      page: 1,
+      pageSize: 200,
+      totalChunks: 0,
+      totalPages: 1,
+    })
   })
 
   it("orchestrates a chat turn from request body to response body", async () => {
@@ -141,28 +159,37 @@ describe("chat route services", () => {
     )
   })
 
-  it("ensures a legacy ready source snapshot before chat loads citation assets", async () => {
+  it("builds durable citation asset URLs from SDK reads for a ready source", async () => {
     const workspace = makeWorkspace()
-    const documents = { listChunks: vi.fn() }
-    const knowledge = { loadJobResult: vi.fn() }
-    const client = { documents, knowledge, retrieval: { query: vi.fn() } }
+    const client = { retrieval: { query: vi.fn() } }
     const readySource = makeSource({
       status: "ready",
       knowhereDocumentId: "doc_legacy",
-      knowhereJobId: null,
+      knowhereJobId: "job_1",
     })
-    const snapshot = {
-      resultBlobUrl: "https://blob.example/manifest/current.json",
-      snapshotManifestUrl: "https://blob.example/manifest/current.json",
-      snapshotManifestKey:
-        "workspaces/workspace_1/sources/source_1/parsed-result/manifest/current.json",
-      assetUrlsByFilePath: {
-        "pages/page-1.png": "https://blob.example/pages/page-1.png",
-      },
-    }
-    const ensureParsedSnapshotForRead = vi
-      .spyOn(sourceService, "ensureParsedSnapshotForRead")
-      .mockResolvedValue(snapshot)
+    const durableUrl =
+      "https://fake.public.blob.vercel-storage.com/workspaces/workspace_1/parsed-documents/doc_legacy/job_1/assets/pages/page-1.png"
+    mocks.readChunks.mockResolvedValue({
+      document: { localDocumentId: "doc_legacy" },
+      chunks: [
+        {
+          position: 1,
+          chunkId: "c1",
+          chunkType: "page",
+          content: "Page",
+          readableContent: "Page",
+          sectionPath: "Page 1",
+          sourceChunkPath: "Page 1",
+          filePath: "pages/page-1.png",
+          assetUrl: durableUrl,
+          metadata: {},
+        },
+      ],
+      page: 1,
+      pageSize: 200,
+      totalChunks: 1,
+      totalPages: 1,
+    })
     mocks.getAuthenticatedWithClient.mockResolvedValue({
       user: { id: "user_1" },
       workspace,
@@ -177,7 +204,7 @@ describe("chat route services", () => {
         ) => Promise<Readonly<Record<string, string>>>
       }) => {
         const assetUrls = await input.loadSourceAssetUrls?.(readySource)
-        expect(assetUrls).toEqual(snapshot.assetUrlsByFilePath)
+        expect(assetUrls).toEqual({ "pages/page-1.png": durableUrl })
         return Either.right({
           threadId: "thread_1",
           messages: [
@@ -193,13 +220,16 @@ describe("chat route services", () => {
     })
 
     expect(result.status).toBe(200)
-    expect(ensureParsedSnapshotForRead).toHaveBeenCalledWith({
-      workspaceId: workspace.id,
-      source: readySource,
-      client: {
-        documents,
-        knowledge,
-      },
+    expect(mocks.makeKnowhereClientWithParsedStorage).toHaveBeenCalledWith(
+      "jwt_123",
+      { workspaceId: workspace.id },
+    )
+    expect(mocks.readChunks).toHaveBeenCalledWith({
+      documentId: "doc_legacy",
+      revisionKey: "job_1",
+      page: 1,
+      pageSize: 200,
+      assetUrlPolicy: "durable",
     })
   })
 
@@ -444,6 +474,7 @@ function makeSource(overrides: Partial<Source> = {}): Source {
     sizeBytes: 100,
     status: "ready",
     failureReason: null,
+    failureStage: null,
     knowhereJobId: "job_123",
     knowhereDocumentId: "doc_1",
     stagedBlobPathname: null,

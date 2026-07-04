@@ -14,13 +14,25 @@ type SaveSourceParseResultInput = {
   readonly resultBlobUrl: string
   readonly snapshotManifestUrl?: string
   readonly snapshotManifestKey?: string
+  readonly revisionKey?: string
+  readonly syncStatus?: SourceParseSyncStatus
+  readonly syncError?: string | null
   readonly assetUrlsByFilePath: Readonly<Record<string, string>>
 }
+
+export type SourceParseSyncStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed"
 
 type SourceParseResultProgress = {
   readonly resultBlobUrl: string
   readonly snapshotManifestUrl?: string | null
   readonly snapshotManifestKey?: string | null
+  readonly revisionKey?: string | null
+  readonly syncStatus?: string | null
+  readonly syncError?: string | null
   readonly assetUrlsByFilePath: Readonly<Record<string, string>>
 }
 
@@ -28,7 +40,16 @@ export type SourceParseSnapshotMetadata = {
   readonly resultBlobUrl: string
   readonly snapshotManifestUrl?: string | null
   readonly snapshotManifestKey?: string | null
+  readonly revisionKey?: string | null
+  readonly syncStatus?: string | null
+  readonly syncError?: string | null
   readonly assetUrlsByFilePath: Readonly<Record<string, string>>
+}
+
+type UpdateSyncStatusInput = {
+  readonly revisionKey?: string
+  readonly syncStatus: SourceParseSyncStatus
+  readonly syncError?: string | null
 }
 
 type SourceParseResultRepository = {
@@ -54,6 +75,11 @@ type SourceParseResultRepository = {
     workspaceId: string,
     sourceId: string,
   ) => Effect.Effect<Readonly<Record<string, string>>, never, DbClient>
+  readonly updateSyncStatusEffect: (
+    workspaceId: string,
+    sourceId: string,
+    input: UpdateSyncStatusInput,
+  ) => Effect.Effect<SourceParseResult | null, never, DbClient>
 }
 
 export function buildAtomicAssetUrlsMergeSql(
@@ -79,6 +105,9 @@ const saveParseResultEffect: SourceParseResultRepository["saveParseResultEffect"
             resultBlobUrl: input.resultBlobUrl,
             snapshotManifestUrl: input.snapshotManifestUrl,
             snapshotManifestKey: input.snapshotManifestKey,
+            revisionKey: input.revisionKey,
+            syncStatus: input.syncStatus,
+            syncError: input.syncError,
             assetUrls: input.assetUrlsByFilePath,
           })
           .onConflictDoUpdate({
@@ -87,6 +116,9 @@ const saveParseResultEffect: SourceParseResultRepository["saveParseResultEffect"
               resultBlobUrl: input.resultBlobUrl,
               snapshotManifestUrl: input.snapshotManifestUrl,
               snapshotManifestKey: input.snapshotManifestKey,
+              revisionKey: input.revisionKey,
+              syncStatus: input.syncStatus,
+              syncError: input.syncError,
               assetUrls: input.assetUrlsByFilePath,
               updatedAt: sql`now()`,
             },
@@ -114,6 +146,9 @@ const mergeParseAssetUrlsEffect: SourceParseResultRepository["mergeParseAssetUrl
             resultBlobUrl: input.resultBlobUrl,
             snapshotManifestUrl: input.snapshotManifestUrl,
             snapshotManifestKey: input.snapshotManifestKey,
+            revisionKey: input.revisionKey,
+            syncStatus: input.syncStatus,
+            syncError: input.syncError,
             assetUrls: input.assetUrlsByFilePath,
           })
           .onConflictDoUpdate({
@@ -122,6 +157,9 @@ const mergeParseAssetUrlsEffect: SourceParseResultRepository["mergeParseAssetUrl
               resultBlobUrl: input.resultBlobUrl,
               snapshotManifestUrl: input.snapshotManifestUrl,
               snapshotManifestKey: input.snapshotManifestKey,
+              revisionKey: input.revisionKey,
+              syncStatus: input.syncStatus,
+              syncError: input.syncError,
               assetUrls: buildAtomicAssetUrlsMergeSql(
                 input.assetUrlsByFilePath,
               ),
@@ -149,6 +187,9 @@ const getParseResultProgressEffect: SourceParseResultRepository["getParseResultP
             resultBlobUrl: sourceParseResults.resultBlobUrl,
             snapshotManifestUrl: sourceParseResults.snapshotManifestUrl,
             snapshotManifestKey: sourceParseResults.snapshotManifestKey,
+            revisionKey: sourceParseResults.revisionKey,
+            syncStatus: sourceParseResults.syncStatus,
+            syncError: sourceParseResults.syncError,
             assetUrls: sourceParseResults.assetUrls,
           })
           .from(sourceParseResults)
@@ -159,11 +200,52 @@ const getParseResultProgressEffect: SourceParseResultRepository["getParseResultP
       if (!progress) return null
 
       return {
-        resultBlobUrl: progress.resultBlobUrl,
+        resultBlobUrl: progress.resultBlobUrl ?? "",
         snapshotManifestUrl: progress.snapshotManifestUrl,
         snapshotManifestKey: progress.snapshotManifestKey,
+        revisionKey: progress.revisionKey,
+        syncStatus: progress.syncStatus,
+        syncError: progress.syncError,
         assetUrlsByFilePath: progress.assetUrls,
       }
+    })
+
+const updateSyncStatusEffect: SourceParseResultRepository["updateSyncStatusEffect"] =
+  (workspaceId: string, sourceId: string, input: UpdateSyncStatusInput) =>
+    Effect.gen(function* () {
+      const db = yield* DbClient
+      const source = yield* Effect.promise(() =>
+        sourceRowRepository.findInWorkspaceWithDb(db, workspaceId, sourceId),
+      )
+      if (!source) return null
+
+      // Upsert: a read-miss backfill may set sync status before any parsed
+      // snapshot row exists, so insert a bare row when one is not present yet.
+      const [result] = yield* Effect.promise(() =>
+        db
+          .insert(sourceParseResults)
+          .values({
+            sourceId,
+            revisionKey: input.revisionKey,
+            syncStatus: input.syncStatus,
+            syncError: input.syncError ?? null,
+            assetUrls: {},
+          })
+          .onConflictDoUpdate({
+            target: sourceParseResults.sourceId,
+            set: {
+              ...(input.revisionKey !== undefined
+                ? { revisionKey: input.revisionKey }
+                : {}),
+              syncStatus: input.syncStatus,
+              syncError: input.syncError ?? null,
+              updatedAt: sql`now()`,
+            },
+          })
+          .returning(),
+      )
+
+      return result ?? null
     })
 
 const getParseAssetUrlsEffect: SourceParseResultRepository["getParseAssetUrlsEffect"] =
@@ -199,4 +281,5 @@ export const sourceParseResultRepository: SourceParseResultRepository = {
   getParseResultProgressEffect,
   getParseSnapshotMetadataEffect,
   getParseAssetUrlsEffect,
+  updateSyncStatusEffect,
 }

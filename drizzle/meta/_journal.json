@@ -78,6 +78,13 @@
       "when": 1783098230819,
       "tag": "0010_minor_piledriver",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1783175614191,
+      "tag": "0011_rare_deadpool",
+      "breakpoints": true
     }
   ]
 }

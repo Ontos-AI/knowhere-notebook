@@ -1,6 +1,8 @@
 import { Effect } from "effect"
 
 import { demoView } from "@/domains/demo/view"
+import { readAllSourceChunks, readSourceChunkPage } from "@/domains/chunks/read"
+import { resolveChunkConnectionTargets } from "@/domains/chunks"
 import type { DemoChunkPage } from "@/integrations/knowhere-demo"
 import { logger } from "@/lib/logger"
 import { routeResult } from "@/lib/route-result"
@@ -8,7 +10,10 @@ import {
   decodeRemoteSourceId,
   findRemoteLibraryDocumentBySourceId,
 } from "./remote-library"
-import { getClientForWorkspace } from "./route-dependencies"
+import {
+  getClientForWorkspace,
+  getKnowledgeForSource,
+} from "./route-dependencies"
 import { sourceRowRepository } from "./source-row-repository"
 import type {
   JsonRouteResult,
@@ -23,8 +28,6 @@ type RouteChunksDependencies = Pick<
   | "ensureApiKeyForWorkspace"
   | "ensureWorkspace"
   | "getCurrentUser"
-  | "loadChunkPageForSource"
-  | "loadChunksForSource"
   | "makeKnowhereClient"
   | "sourceService"
 >
@@ -85,67 +88,42 @@ const loadSourceChunksEffect = (
       return demoResult ?? sourceNotFound()
     }
 
-    const client = yield* Effect.tryPromise(() =>
-      getClientForWorkspace(workspace.id, input.cookieHeader, deps),
-    )
-    const snapshot = yield* Effect.tryPromise(() =>
-      deps.sourceService.ensureParsedSnapshotForRead({
-        workspaceId: workspace.id,
-        source,
-        client: client.knowledge
-          ? {
-              documents: client.documents,
-              knowledge: client.knowledge,
-            }
-          : null,
-      }),
-    ).pipe(
-      Effect.catchAll((error) =>
-        Effect.sync(() => {
-          logger.warn("sources: parsed snapshot sync for read failed", {
-            workspaceId: workspace.id,
-            sourceId: source.id,
-            documentId: source.knowhereDocumentId,
-            error: getErrorMessage(error),
-          })
-          return null
-        }),
-      ),
-    )
-    if (!isCompleteSnapshot(snapshot)) {
+    // Reads never return zero chunks for a ready remote document; the SDK falls
+    // back to Knowhere when Blob storage is missing or stale. A source that is
+    // not yet ready has no published document to read.
+    if (source.status !== "ready" || !source.knowhereDocumentId) {
       return sourceSnapshotProcessing(input)
     }
-    if (input.shouldLoadAll) {
-      const chunks = yield* deps.loadChunksForSource(source, client, {
-        snapshot,
-        workspaceId: workspace.id,
-        onRevisionKey: async (revisionKey) => {
-          await deps.sourceService.updateSourceRevisionKey(
-            workspace.id,
-            source.id,
-            revisionKey,
-          )
-        },
-      })
-      return routeResult.ok({ chunks })
+
+    const apiKey = yield* Effect.tryPromise(() =>
+      deps.ensureApiKeyForWorkspace(workspace.id, input.cookieHeader),
+    )
+    const knowledge = getKnowledgeForSource({
+      apiKey,
+      workspaceId: workspace.id,
+      sourceId: source.id,
+      documentId: source.knowhereDocumentId,
+      revisionKey: source.knowhereJobId,
+    })
+    const readableSource = {
+      documentId: source.knowhereDocumentId,
+      title: source.title,
+      revisionKey: source.knowhereJobId,
     }
 
-    const chunkPage = yield* deps.loadChunkPageForSource(
-      source,
-      client,
-      input.pageParams,
-      {
-        assetUrlsByFilePath: snapshot.assetUrlsByFilePath,
-        snapshot,
-        workspaceId: workspace.id,
-        onRevisionKey: async (revisionKey) => {
-          await deps.sourceService.updateSourceRevisionKey(
-            workspace.id,
-            source.id,
-            revisionKey,
-          )
-        },
-      },
+    if (input.shouldLoadAll) {
+      const chunks = yield* Effect.tryPromise(() =>
+        readAllSourceChunks({ knowledge, source: readableSource }),
+      )
+      return routeResult.ok({ chunks: resolveChunkConnectionTargets(chunks) })
+    }
+
+    const chunkPage = yield* Effect.tryPromise(() =>
+      readSourceChunkPage({
+        knowledge,
+        source: readableSource,
+        params: input.pageParams,
+      }),
     )
     return routeResult.ok(chunkPage)
   })
@@ -162,6 +140,9 @@ const loadRemoteChunkPageEffect = (
 
     const workspace = yield* Effect.tryPromise(() =>
       deps.ensureWorkspace(user.id),
+    )
+    const apiKey = yield* Effect.tryPromise(() =>
+      deps.ensureApiKeyForWorkspace(workspace.id, input.cookieHeader),
     )
     const client = yield* Effect.tryPromise(() =>
       getClientForWorkspace(workspace.id, input.cookieHeader, deps),
@@ -185,60 +166,34 @@ const loadRemoteChunkPageEffect = (
         revisionKey: remoteDocument.revisionKey ?? null,
       }),
     )
-    const knowledge = client.knowledge
-    if (!knowledge) {
-      throw new Error("Knowhere client does not support parsed snapshot caching.")
-    }
-    const snapshot = yield* Effect.tryPromise(() =>
-      deps.sourceService.syncRemoteParsedSnapshot({
-        workspaceId: workspace.id,
-        source,
-        client: {
-          documents: client.documents,
-          knowledge,
-        },
-      }),
-    )
-    if (!isCompleteSnapshot(snapshot)) {
-      return sourceSnapshotProcessing(input)
-    }
-    const readySource = {
-      ...source,
-      status: "ready" as const,
-      knowhereDocumentId: source.knowhereDocumentId ?? remoteDocument.documentId,
+    const documentId = source.knowhereDocumentId ?? remoteDocument.documentId
+
+    const knowledge = getKnowledgeForSource({
+      apiKey,
+      workspaceId: workspace.id,
+      sourceId: source.id,
+      documentId,
+      revisionKey: source.knowhereJobId ?? remoteDocument.revisionKey ?? null,
+    })
+    const readableSource = {
+      documentId,
+      title: source.title,
+      revisionKey: source.knowhereJobId ?? remoteDocument.revisionKey ?? null,
     }
 
     if (input.shouldLoadAll) {
-      const chunks = yield* deps.loadChunksForSource(readySource, client, {
-        snapshot,
-        workspaceId: workspace.id,
-        onRevisionKey: async (revisionKey) => {
-          await deps.sourceService.updateSourceRevisionKey(
-            workspace.id,
-            source.id,
-            revisionKey,
-          )
-        },
-      })
-      return routeResult.ok({ chunks })
+      const chunks = yield* Effect.tryPromise(() =>
+        readAllSourceChunks({ knowledge, source: readableSource }),
+      )
+      return routeResult.ok({ chunks: resolveChunkConnectionTargets(chunks) })
     }
 
-    const chunkPage = yield* deps.loadChunkPageForSource(
-      readySource,
-      client,
-      input.pageParams,
-      {
-        assetUrlsByFilePath: snapshot.assetUrlsByFilePath,
-        snapshot,
-        workspaceId: workspace.id,
-        onRevisionKey: async (revisionKey) => {
-          await deps.sourceService.updateSourceRevisionKey(
-            workspace.id,
-            source.id,
-            revisionKey,
-          )
-        },
-      },
+    const chunkPage = yield* Effect.tryPromise(() =>
+      readSourceChunkPage({
+        knowledge,
+        source: readableSource,
+        params: input.pageParams,
+      }),
     )
     return routeResult.ok(chunkPage)
   })
@@ -361,7 +316,7 @@ function sourceSnapshotProcessing(
     return routeResult.ok(
       {
         chunks: [],
-        message: "Source parsed snapshot is still being prepared.",
+        message: "Source is still being prepared.",
       },
       202,
     )
@@ -376,28 +331,9 @@ function sourceSnapshotProcessing(
         total: 0,
         totalPages: 0,
       },
-      message: "Source parsed snapshot is still being prepared.",
+      message: "Source is still being prepared.",
     },
     202,
-  )
-}
-
-function isCompleteSnapshot(
-  snapshot:
-    | {
-        readonly snapshotManifestKey?: string | null
-        readonly snapshotManifestUrl?: string | null
-      }
-    | null,
-): snapshot is {
-  readonly snapshotManifestKey: string
-  readonly snapshotManifestUrl: string
-} {
-  return (
-    typeof snapshot?.snapshotManifestKey === "string" &&
-    snapshot.snapshotManifestKey.length > 0 &&
-    typeof snapshot.snapshotManifestUrl === "string" &&
-    snapshot.snapshotManifestUrl.length > 0
   )
 }
 

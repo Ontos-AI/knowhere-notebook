@@ -31,6 +31,7 @@ function makeSource(status: Source["status"]): Source {
     sizeBytes: 1024,
     status,
     failureReason: status === "failed" ? "failed" : null,
+    failureStage: null,
     knowhereJobId: status === "parsing" ? "job_1" : null,
     knowhereDocumentId: status === "ready" ? "document_1" : null,
     stagedBlobPathname: null,
