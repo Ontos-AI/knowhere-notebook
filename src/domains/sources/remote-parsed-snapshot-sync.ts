@@ -27,7 +27,7 @@ type RemoteParsedSnapshotClient = {
     }>
   }
   readonly knowledge: {
-    cacheJobResult(params: {
+    loadJobResult(params: {
       readonly jobId: string
       readonly storageAdapter: ReturnType<typeof createParsedResultStorageAdapter>
     }): Promise<RemoteParsedSnapshotResponse>
@@ -107,21 +107,21 @@ const syncRemoteParsedSnapshotEffect = Effect.fn(
   )
 
   const snapshot = yield* Effect.tryPromise(async () => {
-    const cachedResult = await client.knowledge.cacheJobResult({
+    const loadedResult = await client.knowledge.loadJobResult({
       jobId,
       storageAdapter: createParsedResultStorageAdapter({
         workspaceId,
         sourceId: source.id,
       }),
     })
-    const manifest = cachedResult.parsedSnapshot
+    const manifest = loadedResult.parsedSnapshot
     if (!manifest?.manifestUrl || !manifest.manifestKey) {
       throw new Error(
         "Remote parsed snapshot was not written; refusing to mark source ready.",
       )
     }
     return {
-      assetUrlsByFilePath: cachedResult.assetUrlsByFilePath ?? {},
+      assetUrlsByFilePath: loadedResult.assetUrlsByFilePath ?? {},
       snapshotManifestUrl: manifest.manifestUrl,
       snapshotManifestKey: manifest.manifestKey,
     }

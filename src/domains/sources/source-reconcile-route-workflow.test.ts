@@ -79,7 +79,7 @@ describe("sourceReconcileRouteWorkflow", () => {
       },
       keyPrefix: "workspaces/workspace_1/sources/source_1/parsed-result",
     }
-    const cacheJobResult = vi.fn().mockResolvedValue({
+    const loadJobResult = vi.fn().mockResolvedValue({
       assetUrlsByFilePath: {
         "page_citation_assets/page-1.png":
           "https://blob.example/page_citation_assets/page-1.png",
@@ -91,7 +91,7 @@ describe("sourceReconcileRouteWorkflow", () => {
           "https://blob.example/workspaces/workspace_1/sources/source_1/parsed-result/manifest/current.json",
       },
     })
-    const client = { jobs: {}, knowledge: { cacheJobResult } }
+    const client = { jobs: {}, knowledge: { loadJobResult } }
     mocks.createParsedResultStorageAdapter.mockReturnValue(storageAdapter)
     mocks.makeKnowhereClient.mockReturnValue(client)
     mocks.saveParseResult.mockResolvedValue({ id: "parse_result_1" })
@@ -121,7 +121,7 @@ describe("sourceReconcileRouteWorkflow", () => {
       workspaceId: "workspace_1",
       sourceId: "source_1",
     })
-    expect(cacheJobResult).toHaveBeenCalledWith({
+    expect(loadJobResult).toHaveBeenCalledWith({
       jobId: "job_1",
       storageAdapter,
     })
@@ -158,13 +158,13 @@ describe("sourceReconcileRouteWorkflow", () => {
       },
       keyPrefix: "workspaces/workspace_1/sources/source_1/parsed-result",
     }
-    const cacheJobResult = vi.fn().mockResolvedValue({
+    const loadJobResult = vi.fn().mockResolvedValue({
       assetUrlsByFilePath: {},
     })
     mocks.createParsedResultStorageAdapter.mockReturnValue(storageAdapter)
     mocks.makeKnowhereClient.mockReturnValue({
       jobs: {},
-      knowledge: { cacheJobResult },
+      knowledge: { loadJobResult },
     })
     mocks.pollSourceReconciliation.mockResolvedValue({
       kind: "ready-to-prepare",

@@ -23,7 +23,7 @@ describe("syncRemoteParsedSnapshot", () => {
     vi.clearAllMocks()
   })
 
-  it("caches an already-parsed remote document into the Notebook Blob snapshot", async () => {
+  it("loads an already-parsed remote document into the Notebook Blob snapshot", async () => {
     const storageAdapter = {
       adapter: {
         writeObject: vi.fn(),
@@ -34,7 +34,7 @@ describe("syncRemoteParsedSnapshot", () => {
     const listChunks = vi.fn(async () => ({
       jobResultId: "job_result_1",
     }))
-    const cacheJobResult = vi.fn(async () => ({
+    const loadJobResult = vi.fn(async () => ({
       assetUrlsByFilePath: {
         "pages/page-1.png": "https://blob.example/pages/page-1.png",
       },
@@ -58,7 +58,7 @@ describe("syncRemoteParsedSnapshot", () => {
           listChunks,
         },
         knowledge: {
-          cacheJobResult,
+          loadJobResult,
         },
       },
       repository,
@@ -73,7 +73,7 @@ describe("syncRemoteParsedSnapshot", () => {
       workspaceId: "workspace_1",
       sourceId: "00000000-0000-0000-0000-000000000009",
     })
-    expect(cacheJobResult).toHaveBeenCalledWith({
+    expect(loadJobResult).toHaveBeenCalledWith({
       jobId: "job_result_1",
       storageAdapter,
     })
@@ -130,7 +130,7 @@ describe("syncRemoteParsedSnapshot", () => {
       getParseSnapshotMetadata: vi.fn(async () => existingSnapshot),
     })
     const listChunks = vi.fn()
-    const cacheJobResult = vi.fn()
+    const loadJobResult = vi.fn()
 
     const snapshot = await syncRemoteParsedSnapshot({
       workspaceId: "workspace_1",
@@ -140,7 +140,7 @@ describe("syncRemoteParsedSnapshot", () => {
           listChunks,
         },
         knowledge: {
-          cacheJobResult,
+          loadJobResult,
         },
       },
       repository,
@@ -148,7 +148,7 @@ describe("syncRemoteParsedSnapshot", () => {
 
     expect(snapshot).toEqual(existingSnapshot)
     expect(listChunks).not.toHaveBeenCalled()
-    expect(cacheJobResult).not.toHaveBeenCalled()
+    expect(loadJobResult).not.toHaveBeenCalled()
     expect(repository.markParsing).not.toHaveBeenCalled()
     expect(repository.markReady).not.toHaveBeenCalled()
   })
@@ -167,7 +167,7 @@ describe("syncRemoteParsedSnapshot", () => {
       getParseSnapshotMetadata: vi.fn(async () => existingSnapshot),
     })
     const listChunks = vi.fn()
-    const cacheJobResult = vi.fn()
+    const loadJobResult = vi.fn()
 
     const snapshot = await syncRemoteParsedSnapshot({
       workspaceId: "workspace_1",
@@ -180,7 +180,7 @@ describe("syncRemoteParsedSnapshot", () => {
           listChunks,
         },
         knowledge: {
-          cacheJobResult,
+          loadJobResult,
         },
       },
       repository,
@@ -188,7 +188,7 @@ describe("syncRemoteParsedSnapshot", () => {
 
     expect(snapshot).toEqual(existingSnapshot)
     expect(listChunks).not.toHaveBeenCalled()
-    expect(cacheJobResult).not.toHaveBeenCalled()
+    expect(loadJobResult).not.toHaveBeenCalled()
     expect(repository.markReady).toHaveBeenCalledWith(
       "workspace_1",
       "00000000-0000-0000-0000-000000000009",
@@ -205,7 +205,7 @@ describe("syncRemoteParsedSnapshot", () => {
         "workspaces/workspace_1/sources/00000000-0000-0000-0000-000000000009/parsed-result",
     }
     const listChunks = vi.fn()
-    const cacheJobResult = vi.fn(async () => ({
+    const loadJobResult = vi.fn(async () => ({
       assetUrlsByFilePath: {},
       parsedSnapshot: {
         manifestKey:
@@ -228,14 +228,14 @@ describe("syncRemoteParsedSnapshot", () => {
           listChunks,
         },
         knowledge: {
-          cacheJobResult,
+          loadJobResult,
         },
       },
       repository,
     })
 
     expect(listChunks).not.toHaveBeenCalled()
-    expect(cacheJobResult).toHaveBeenCalledWith({
+    expect(loadJobResult).toHaveBeenCalledWith({
       jobId: "job_result_1",
       storageAdapter,
     })

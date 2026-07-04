@@ -129,22 +129,22 @@ async function runPollAndMirrorWorkflow(input: {
     return
   }
 
-  const snapshot = await context.run("cache-job-result-snapshot", async () => {
-    const cachedResult = (await client.knowledge.cacheJobResult({
+  const snapshot = await context.run("load-job-result-snapshot", async () => {
+    const loadedResult = (await client.knowledge.loadJobResult({
       jobId: jobToPrepare.jobId,
       storageAdapter: createParsedResultStorageAdapter({
         workspaceId,
         sourceId,
       }),
     })) as ParsedSnapshotResponse
-    const manifest = cachedResult.parsedSnapshot
+    const manifest = loadedResult.parsedSnapshot
     if (!manifest?.manifestUrl || !manifest.manifestKey) {
       throw new Error(
         "Parsed result snapshot was not written; refusing to mark source ready.",
       )
     }
     return {
-      assetUrlsByFilePath: cachedResult.assetUrlsByFilePath ?? {},
+      assetUrlsByFilePath: loadedResult.assetUrlsByFilePath ?? {},
       snapshotManifestUrl: manifest.manifestUrl,
       snapshotManifestKey: manifest.manifestKey,
     }

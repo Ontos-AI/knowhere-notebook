@@ -675,7 +675,7 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
         listChunks: vi.fn(),
       },
       knowledge: {
-        cacheJobResult: vi.fn(),
+        loadJobResult: vi.fn(),
       },
     }
     mocks.getCurrentUser.mockResolvedValue({
@@ -839,7 +839,7 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
       },
     })
     expect(knowhereClient.documents.listChunks).not.toHaveBeenCalled()
-    expect(knowhereClient.knowledge.cacheJobResult).not.toHaveBeenCalled()
+    expect(knowhereClient.knowledge.loadJobResult).not.toHaveBeenCalled()
   })
 
   it("returns processing for a remote source when the parsed Blob snapshot is incomplete", async () => {
@@ -862,7 +862,7 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
         listChunks: vi.fn(),
       },
       knowledge: {
-        cacheJobResult: vi.fn(),
+        loadJobResult: vi.fn(),
       },
     }
     mocks.getCurrentUser.mockResolvedValue({
@@ -945,7 +945,7 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
         listChunks: vi.fn(),
       },
       knowledge: {
-        cacheJobResult: vi.fn(),
+        loadJobResult: vi.fn(),
       },
     }
     mocks.getCurrentUser.mockResolvedValue({
