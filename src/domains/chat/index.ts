@@ -43,9 +43,13 @@ import type { HardenableRetrievalResult } from "./media-asset-hardening"
 
 const DEFAULT_TOP_K = 8
 const MAX_AGENTIC_TOP_K = 12
+const MAX_AGENTIC_MERGED_RESULT_COUNT = 24
+const MAX_AGENTIC_MERGED_REFERENCED_CHUNK_COUNT = 24
+const MAX_AGENTIC_MERGED_TEXT_CHARS = 12_000
 const MAX_CITATION_RESULTS = 20
 const KNOWHERE_RESPONSE_TEXT_LOG_LIMIT = 200
 const KNOWHERE_CHUNK_LOG_LIMIT = 100
+const KNOWHERE_RESPONSE_LOG_ITEM_LIMIT = 20
 const NO_RESULTS_ANSWER = "I couldn't find that in your sources."
 const HARNESS_VALIDATION_FAILURE_ANSWER =
   "I couldn't safely finish that response because the agent output did not pass Notebook's validation checks. Please try again."
@@ -86,6 +90,13 @@ type KnowhereResultChunkLog = {
 type KnowhereReferencedChunkLog = {
   readonly chunkType: string
   readonly summary: string
+}
+
+type AgenticMergedEvidenceLimits = {
+  readonly resultCountPerResponse: number
+  readonly referencedChunkCountPerResponse: number
+  readonly resultCount: number
+  readonly referencedChunkCount: number
 }
 
 export type {
@@ -186,7 +197,14 @@ export const answerQuestionWithRetrieval = (
       ) {
         throw queryFailures[0]
       }
-      return mergeRetrievalResponses(queryResponses, retrievalPlan)
+      return mergeRetrievalResponses(
+        queryResponses,
+        retrievalPlan,
+        getAgenticMergedEvidenceLimits({
+          namespaceCount: queryResponses.length,
+          topK: queryInput.topK,
+        }),
+      )
     }
 
     const generatedAnswer = yield* Effect.tryPromise(() =>
@@ -593,10 +611,12 @@ function formatKnowhereQueryResponseForLog(
       response.evidenceText ?? "",
       KNOWHERE_RESPONSE_TEXT_LOG_LIMIT,
     ),
-    results: response.results.map(formatKnowhereResultChunkForLog),
-    referencedChunks: response.referencedChunks.map(
-      formatKnowhereReferencedChunkForLog,
-    ),
+    results: response.results
+      .slice(0, KNOWHERE_RESPONSE_LOG_ITEM_LIMIT)
+      .map(formatKnowhereResultChunkForLog),
+    referencedChunks: response.referencedChunks
+      .slice(0, KNOWHERE_RESPONSE_LOG_ITEM_LIMIT)
+      .map(formatKnowhereReferencedChunkForLog),
   }
 }
 
@@ -654,6 +674,7 @@ function getRetrievalNamespaces(input: AnswerQuestionInput): readonly string[] {
 function mergeRetrievalResponses(
   responses: readonly RetrievalQueryResponse[],
   retrievalPlan: AgenticRetrievalPlan,
+  evidenceLimits: AgenticMergedEvidenceLimits,
 ): AgenticRetrievalResponse {
   const [first] = responses
   if (!first) {
@@ -661,16 +682,27 @@ function mergeRetrievalResponses(
   }
 
   const statusResponses = getRetrievalStatusResponses(responses)
-  const results = responses.flatMap((response) => response.results)
-  const referencedChunks = responses.flatMap(
-    (response) => response.referencedChunks,
-  )
+  const results = responses
+    .flatMap((response) =>
+      response.results.slice(0, evidenceLimits.resultCountPerResponse),
+    )
+    .slice(0, evidenceLimits.resultCount)
+  const referencedChunks = responses
+    .flatMap((response) =>
+      response.referencedChunks.slice(
+        0,
+        evidenceLimits.referencedChunkCountPerResponse,
+      ),
+    )
+    .slice(0, evidenceLimits.referencedChunkCount)
   const evidenceTexts = responses
     .map((response) => response.evidenceText)
     .filter((value): value is string => Boolean(value))
+    .map(truncateAgenticModelText)
   const answerTexts = responses
     .map((response) => response.answerText)
     .filter((value): value is string => Boolean(value))
+    .map(truncateAgenticModelText)
 
   return {
     ...first,
@@ -691,6 +723,30 @@ function mergeRetrievalResponses(
     referencedChunks,
     retrievalPlan,
   }
+}
+
+function getAgenticMergedEvidenceLimits(input: {
+  readonly namespaceCount: number
+  readonly topK: number | undefined
+}): AgenticMergedEvidenceLimits {
+  const namespaceCount = Math.max(input.namespaceCount, 1)
+  const perResponseCount = normalizeTopK(input.topK)
+  const requestedCount = perResponseCount * namespaceCount
+  return {
+    resultCountPerResponse: perResponseCount,
+    referencedChunkCountPerResponse: perResponseCount,
+    resultCount: Math.min(requestedCount, MAX_AGENTIC_MERGED_RESULT_COUNT),
+    referencedChunkCount: Math.min(
+      requestedCount,
+      MAX_AGENTIC_MERGED_REFERENCED_CHUNK_COUNT,
+    ),
+  }
+}
+
+function truncateAgenticModelText(value: string): string {
+  const trimmed = value.trim()
+  if (trimmed.length <= MAX_AGENTIC_MERGED_TEXT_CHARS) return trimmed
+  return `${trimmed.slice(0, MAX_AGENTIC_MERGED_TEXT_CHARS)}\n...[truncated]`
 }
 
 function getRetrievalStatusResponses(
