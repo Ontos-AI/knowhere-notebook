@@ -8,6 +8,7 @@ import {
   answerQuestionWithRetrieval,
   generateAgenticOutputManifest,
   parseChatRequestBody,
+  type SearchSources,
 } from "."
 import type {
   HardenableRetrievalResult,
@@ -174,6 +175,91 @@ describe("answerQuestionWithRetrieval", () => {
     });
   });
 
+  it("bounds merged retrieval evidence before passing it to the answer agent", async () => {
+    const defaultResults = Array.from({ length: 40 }, (_, index) =>
+      makeRetrievalResult({
+        content: `Default namespace result ${index + 1}`,
+        source: {
+          documentId: `doc_default_${index + 1}`,
+          sourceFileName: "default.pdf",
+          sectionPath: `Default ${index + 1}`,
+        },
+      }),
+    );
+    const workspaceResults = Array.from({ length: 40 }, (_, index) =>
+      makeRetrievalResult({
+        content: `Workspace result ${index + 1}`,
+        source: {
+          documentId: `doc_workspace_${index + 1}`,
+          sourceFileName: "workspace.pdf",
+          sectionPath: `Workspace ${index + 1}`,
+        },
+      }),
+    );
+    const referencedChunks = Array.from({ length: 40 }, (_, index) => ({
+      chunkId: `chunk_${index + 1}`,
+      documentId: `doc_reference_${index + 1}`,
+      chunkType: "text" as const,
+      sectionPath: `Reference ${index + 1}`,
+    }));
+    const retrieval = {
+      query: vi
+        .fn()
+        .mockResolvedValueOnce({
+          results: defaultResults,
+          evidenceText: "Default evidence",
+          referencedChunks,
+          namespace: "default",
+          query: "large response",
+          routerUsed: "workflow_single_step",
+          answerText: null,
+          stopReason: "answer_done",
+          failureReason: null,
+        })
+        .mockResolvedValueOnce({
+          results: workspaceResults,
+          evidenceText: "Workspace evidence",
+          referencedChunks,
+          namespace: "notebook-workspace",
+          query: "large response",
+          routerUsed: "workflow_single_step",
+          answerText: null,
+          stopReason: "answer_done",
+          failureReason: null,
+        }),
+    };
+    const generateAnswer = vi.fn(
+      async ({ searchSources }: { searchSources: SearchSources }) => {
+        const response = await searchSources({
+          query: "large response",
+          topK: 3,
+        });
+        expect(response.results).toHaveLength(6);
+        expect(response.referencedChunks).toHaveLength(6);
+        expect(response.results.map((result) => result.content)).toEqual(
+          [
+            ...defaultResults.slice(0, 3),
+            ...workspaceResults.slice(0, 3),
+          ].map((result) => result.content),
+        );
+        return makeHarnessRunResult("The answer is grounded.");
+      },
+    );
+
+    await Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "What does the document say?",
+        namespace: "notebook-workspace",
+        namespaces: ["default", "notebook-workspace"],
+        sources: [makeSource()],
+        excludedSourceIds: [],
+        retrieval,
+        generateAnswer,
+        messages: [],
+      }),
+    );
+  });
+
   it("does not hide a failed namespace query behind an empty namespace result", async () => {
     const retrievalError = new Error("Legacy namespace query failed.");
     const retrieval = {
@@ -235,7 +321,14 @@ describe("answerQuestionWithRetrieval", () => {
     });
     const retrieval = {
       query: vi.fn().mockResolvedValue({
-        results: [result],
+        results: [
+          result,
+          ...Array.from({ length: 30 }, (_, index) =>
+            makeRetrievalResult({
+              content: `extra result ${index + 1}`,
+            }),
+          ),
+        ],
         evidenceText: `Evidence https://blob.example/evidence.jpg ${"evidence ".repeat(
           80,
         )}`,
@@ -251,6 +344,12 @@ describe("answerQuestionWithRetrieval", () => {
             jobId: "job_1",
             assetUrl: "https://blob.example/id.jpg",
           },
+          ...Array.from({ length: 30 }, (_, index) => ({
+            chunkId: `chunk_extra_${index + 1}`,
+            documentId: "doc_identity",
+            chunkType: "text" as const,
+            sectionPath: `Extra referenced chunk ${index + 1}`,
+          })),
         ],
         namespace: "notebook-workspace",
         query: "冯荣洲 身份证 ID card",
@@ -284,19 +383,13 @@ describe("answerQuestionWithRetrieval", () => {
     const response = meta.response as KnowhereQueryResponseLogMeta;
     expect(response).toMatchObject({
       query: "冯荣洲 身份证 ID card",
-      resultCount: 1,
-      referencedChunkCount: 1,
-      results: [
-        {
-          chunkType: "image",
-        },
-      ],
-      referencedChunks: [
-        {
-          chunkType: "image",
-        },
-      ],
+      resultCount: 31,
+      referencedChunkCount: 31,
     });
+    expect(response.results).toHaveLength(20);
+    expect(response.referencedChunks).toHaveLength(20);
+    expect(response.results[0]).toMatchObject({ chunkType: "image" });
+    expect(response.referencedChunks[0]).toMatchObject({ chunkType: "image" });
     expect(response.answerText.length).toBeLessThanOrEqual(203);
     expect(response.evidenceText.length).toBeLessThanOrEqual(203);
     expect(response.results[0]?.content.length).toBeLessThanOrEqual(103);

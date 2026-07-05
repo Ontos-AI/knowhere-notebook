@@ -353,6 +353,7 @@ export function createHarnessTools(input: {
               }
             }
 
+            const beforeSnapshot = input.ledger.snapshot()
             const response = await input.retrieval.query({
               query: request.query,
               modalities: request.modalities as TargetModality[],
@@ -363,13 +364,19 @@ export function createHarnessTools(input: {
               threshold: request.threshold,
             })
             const snapshot = input.ledger.addRetrievalResponse(response)
+            const currentChunks = snapshot.chunks.slice(
+              beforeSnapshot.chunks.length,
+            )
+            const currentAssets = snapshot.assets.slice(
+              beforeSnapshot.assets.length,
+            )
             return {
               ok: true,
               retrievalCount: snapshot.retrievalCount,
               evidenceText: response.evidenceText ?? "",
               stopReason: response.stopReason ?? null,
               failureReason: response.failureReason ?? null,
-              chunks: snapshot.chunks.map((chunk) => ({
+              chunks: currentChunks.map((chunk) => ({
                 ref: chunk.ref,
                 kind: chunk.kind,
                 type: chunk.chunkType,
@@ -377,7 +384,7 @@ export function createHarnessTools(input: {
                 source: chunk.source,
                 assetRef: chunk.assetRef,
               })),
-              assets: snapshot.assets.map((asset) => ({
+              assets: currentAssets.map((asset) => ({
                 ref: asset.ref,
                 type: asset.type,
                 label: asset.label,

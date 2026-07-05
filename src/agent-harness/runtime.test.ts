@@ -98,6 +98,73 @@ describe("agent harness runtime", () => {
     ])
   })
 
+  it("returns only newly retrieved evidence in each retrieve tool result", async () => {
+    const query = vi
+      .fn<RetrievalCapability["query"]>()
+      .mockResolvedValueOnce(makeRetrievalResponse())
+      .mockResolvedValueOnce({
+        ...makeRetrievalResponse(),
+        query: "second query",
+        evidenceText: "Second evidence",
+        results: [
+          {
+            content: "Second retrieval evidence.",
+            chunkType: "text",
+            score: 0.8,
+            source: {
+              documentId: "doc_2",
+              sourceFileName: "second.pdf",
+              sectionPath: "Second",
+            },
+          },
+        ],
+      })
+    const state: {
+      intent?: IntentFrame
+      contextPolicy?: ContextPolicy
+      toolCalls?: HarnessToolCallTrace[]
+    } = {
+      intent: {
+        task: "answer",
+        dependsOnPreviousTurn: false,
+        retrievalNeeded: "yes",
+        targetModalities: ["text"],
+        constraints: {},
+        groundingPolicy: "must_use_sources",
+      },
+      contextPolicy: {
+        carryHistory: "none",
+        reason: "Self-contained request.",
+        activePriorTurnIds: [],
+      },
+    }
+    const ledger = createEvidenceLedger()
+    const tools = createHarnessTools({
+      state,
+      ledger,
+      retrieval: { query },
+      recentTurns: [],
+    })
+
+    const firstResult = await executeTool(tools.retrieve, { query: "first" })
+    const secondResult = await executeTool(tools.retrieve, { query: "second" })
+
+    expect(firstResult).toMatchObject({
+      retrievalCount: 1,
+      chunks: [{ ref: "r1:result:1" }],
+    })
+    expect(secondResult).toMatchObject({
+      retrievalCount: 2,
+      evidenceText: "Second evidence",
+      chunks: [{ ref: "r2:result:1" }],
+    })
+    expect(JSON.stringify(secondResult)).not.toContain("r1:result:1")
+    expect(ledger.snapshot().chunks.map((chunk) => chunk.ref)).toEqual([
+      "r1:result:1",
+      "r2:result:1",
+    ])
+  })
+
   it("blocks finalize until intent and context policy are declared", async () => {
     const state: {
       intent?: IntentFrame
