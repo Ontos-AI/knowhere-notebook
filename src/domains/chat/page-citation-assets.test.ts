@@ -29,10 +29,9 @@ describe("enrichRetrievalResultsWithPageCitationAssetUrls", () => {
   })
 
   it("uses stored Blob URLs for page citation assets", async () => {
-    const loadSourceAssetUrls = vi.fn().mockResolvedValue({
-      "page_citation_assets/page-2.png":
-        "https://blob.example/page_citation_assets/page-2.png",
-    })
+    const hardenChatAssetUrl = vi
+      .fn()
+      .mockResolvedValue("https://blob.example/page_citation_assets/page-2.png")
 
     const [result] = await enrichRetrievalResultsWithPageCitationAssetUrls({
       results: [
@@ -51,22 +50,24 @@ describe("enrichRetrievalResultsWithPageCitationAssetUrls", () => {
         }),
       ],
       sources: [makeSource()],
-      loadSourceAssetUrls,
+      hardenChatAssetUrl,
     })
 
-    expect(loadSourceAssetUrls).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "source_1" }),
-    )
+    expect(hardenChatAssetUrl).toHaveBeenCalledWith({
+      source: expect.objectContaining({ id: "source_1" }),
+      sourcePath: "page_citation_assets/page-2.png",
+      assetUrl: "https://assets.example/pages/page-2.png",
+      contentType: undefined,
+    })
     expect(result?.pageCitationAssetUrl).toBe(
       "https://blob.example/page_citation_assets/page-2.png",
     )
   })
 
   it("chooses the stored asset matching the citation page metadata", async () => {
-    const loadSourceAssetUrls = vi.fn().mockResolvedValue({
-      "page_citation_assets/page-4.png":
-        "https://blob.example/page_citation_assets/page-4.png",
-    })
+    const hardenChatAssetUrl = vi
+      .fn()
+      .mockResolvedValue("https://blob.example/page_citation_assets/page-4.png")
 
     const [result] = await enrichRetrievalResultsWithPageCitationAssetUrls({
       results: [
@@ -90,9 +91,15 @@ describe("enrichRetrievalResultsWithPageCitationAssetUrls", () => {
         }),
       ],
       sources: [makeSource()],
-      loadSourceAssetUrls,
+      hardenChatAssetUrl,
     })
 
+    expect(hardenChatAssetUrl).toHaveBeenCalledWith({
+      source: expect.objectContaining({ id: "source_1" }),
+      sourcePath: "page_citation_assets/page-4.png",
+      assetUrl: "https://assets.example/pages/page-4.png",
+      contentType: undefined,
+    })
     expect(result?.pageCitationAssetUrl).toBe(
       "https://blob.example/page_citation_assets/page-4.png",
     )

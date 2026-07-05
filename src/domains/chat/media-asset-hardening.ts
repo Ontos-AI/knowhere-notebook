@@ -6,8 +6,7 @@ import type {
 } from "@/domains/chat/types"
 import type { Source } from "@/infrastructure/db/schema"
 import { logger } from "@/lib/logger"
-import type { LoadSourceAssetUrls } from "./media-assets"
-import { resolveAssetUrlFromReferenceText } from "./media-assets"
+import type { HardenChatAssetUrl } from "./media-assets"
 
 export type HardenableRetrievalResult = RetrievalResult & {
   readonly pageCitationAssetUrl?: string
@@ -31,7 +30,7 @@ export type HardenChatMediaAssetUrlsForWorkspaceInput =
   HardenMediaAssetUrlsInput & {
     readonly workspaceId: string
     readonly sources: readonly Source[]
-    readonly loadSourceAssetUrls: LoadSourceAssetUrls
+    readonly hardenChatAssetUrl: HardenChatAssetUrl
   }
 
 type AssetReferenceSource = ChatCitationView["source"]
@@ -44,11 +43,7 @@ type AssetUrlReference = {
 
 type HardeningContext = {
   readonly sourcesByDocumentId: ReadonlyMap<string, Source>
-  readonly loadSourceAssetUrls: LoadSourceAssetUrls
-  readonly assetUrlsBySourceId: Map<
-    string,
-    Promise<Readonly<Record<string, string>>>
-  >
+  readonly hardenChatAssetUrl: HardenChatAssetUrl
 }
 
 const parsedResultDirectoryName = "parsed-result"
@@ -56,9 +51,9 @@ const chatAssetsDirectoryName = "chat-assets"
 
 /**
  * Resolve chat citation/media asset URLs to durable Notebook Blob URLs. The
- * single hardening path is the SDK's `assetUrlPolicy: "durable"` read that
- * `loadSourceAssetUrls` performs; here we only map a retrieval result's
- * reference text to the durable URL that read produced.
+ * hardening path is one asset at a time: derive the source path already present
+ * on the returned chat/citation asset, then let the route-level hardener check
+ * Blob and write only that missing asset.
  *
  * An asset that is already Notebook-owned is kept as-is. An asset that cannot
  * be resolved to a durable URL is omitted rather than exposing a presigned
@@ -68,12 +63,11 @@ export async function hardenChatMediaAssetUrls({
   results,
   artifacts,
   sources,
-  loadSourceAssetUrls,
+  hardenChatAssetUrl,
 }: HardenChatMediaAssetUrlsForWorkspaceInput): Promise<HardenMediaAssetUrlsResult> {
   const context: HardeningContext = {
     sourcesByDocumentId: createSourcesByDocumentId(sources),
-    loadSourceAssetUrls,
-    assetUrlsBySourceId: new Map(),
+    hardenChatAssetUrl,
   }
 
   const hardenedResults = await Promise.all(
@@ -195,7 +189,7 @@ async function hardenCitation(
 
 /**
  * Return a durable Notebook-owned URL for a reference: keep already-owned URLs,
- * otherwise resolve against the source's durable parsed asset map. Returns
+ * otherwise harden only the referenced asset path. Returns
  * `undefined` when no durable URL is available so callers omit the URL rather
  * than leak a presigned Knowhere URL.
  */
@@ -210,15 +204,24 @@ async function resolveDurableAssetUrl(
   const source = resolveSourceForReference(reference, context)
   if (!source) return undefined
 
-  const assetUrlsByFilePath = await getCachedSourceAssetUrls(source, context)
-  const durableUrl = resolveAssetUrlFromReferenceText({
-    values: [
-      reference.source?.sectionPath,
-      reference.content,
-      getAssetUrlPathname(reference.assetUrl),
-    ],
-    assetUrlsByFilePath,
-  })
+  const sourcePath = resolveSourcePathForReference(reference)
+  if (!sourcePath) return undefined
+
+  const durableUrl = await context
+    .hardenChatAssetUrl({
+      source,
+      sourcePath,
+      assetUrl: reference.assetUrl,
+    })
+    .catch((error: unknown) => {
+      logger.warn("chat: failed to harden referenced asset", {
+        sourceId: source.id,
+        sourcePath,
+        error: formatUnknownError(error),
+      })
+      return null
+    })
+
   return durableUrl ?? undefined
 }
 
@@ -261,26 +264,6 @@ function applyAssetUrls<
   return next as T
 }
 
-async function getCachedSourceAssetUrls(
-  source: Source,
-  context: HardeningContext,
-): Promise<Readonly<Record<string, string>>> {
-  const cached = context.assetUrlsBySourceId.get(source.id)
-  if (cached) return cached
-
-  const loaded = context
-    .loadSourceAssetUrls(source)
-    .catch((error: unknown) => {
-      logger.warn("chat: failed to load durable parsed asset map", {
-        sourceId: source.id,
-        error: formatUnknownError(error),
-      })
-      return {}
-    })
-  context.assetUrlsBySourceId.set(source.id, loaded)
-  return loaded
-}
-
 export function isNotebookOwnedAssetUrl(assetUrl: string): boolean {
   const pathname = getAssetUrlPathname(assetUrl).toLowerCase()
   if (
@@ -310,6 +293,58 @@ function parseAbsoluteHttpUrl(assetUrl: string): URL | null {
     return url.protocol === "http:" || url.protocol === "https:" ? url : null
   } catch {
     return null
+  }
+}
+
+function resolveSourcePathForReference(
+  reference: AssetUrlReference,
+): string | null {
+  const candidates = [
+    reference.source?.sectionPath,
+    reference.content,
+    getAssetUrlPathname(reference.assetUrl),
+  ]
+
+  for (const candidate of candidates) {
+    const sourcePath = getSupportedAssetPath(candidate)
+    if (sourcePath) return sourcePath
+  }
+
+  return null
+}
+
+function getSupportedAssetPath(value: string | null | undefined): string | null {
+  const normalizedText = normalizeSourcePathCandidate(value)
+  if (!normalizedText) return null
+
+  const match =
+    /(?:^|\/)((?:images|tables|pages|page_citation_assets)\/[^?#]+)/i.exec(
+      normalizedText,
+    )
+  const matchedPath = match?.[1]
+  return matchedPath ? matchedPath.trim() : null
+}
+
+function normalizeSourcePathCandidate(
+  value: string | null | undefined,
+): string | null {
+  const trimmedValue = getTrimmedString(value)
+  if (!trimmedValue) return null
+
+  const normalized = decodeUrlText(trimmedValue)
+    .replaceAll("\\", "/")
+    .replace(/\s*\/\s*/g, "/")
+    .replace(/\s+/g, " ")
+    .trim()
+
+  return normalized.length > 0 ? normalized : null
+}
+
+function decodeUrlText(value: string): string {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
   }
 }
 

@@ -242,7 +242,7 @@ export const answerQuestionWithRetrieval = (
       enrichRetrievalResultsWithAssetUrls({
         results: useNotebookSourceTitles(rawResults, input.sources),
         sources: input.sources,
-        loadSourceAssetUrls: input.loadSourceAssetUrls,
+        hardenChatAssetUrl: input.hardenChatAssetUrl,
         evidenceText: formatRetrievalEvidenceText(retrievalResponses),
       }),
     )
@@ -250,7 +250,7 @@ export const answerQuestionWithRetrieval = (
       enrichRetrievalResultsWithPageCitationAssetUrls({
         results: enrichedResults,
         sources: input.sources,
-        loadSourceAssetUrls: input.loadSourceAssetUrls,
+        hardenChatAssetUrl: input.hardenChatAssetUrl,
       }),
     )
     const artifacts = toChatArtifactViewsFromHarness(generatedAnswer, input.sources)

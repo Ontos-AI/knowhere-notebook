@@ -20,7 +20,7 @@ function makeReadChunk(overrides: Record<string, unknown> = {}) {
 }
 
 describe("readSourceChunkPage", () => {
-  it("reads a durable page and maps chunks to the view model", async () => {
+  it("reads a page without durable asset hardening and maps chunks to the view model", async () => {
     const readChunks = vi.fn(async () => ({
       document: { localDocumentId: "doc_1" },
       chunks: [
@@ -48,7 +48,6 @@ describe("readSourceChunkPage", () => {
       revisionKey: "rev_1",
       page: 2,
       pageSize: 50,
-      assetUrlPolicy: "durable",
     })
     expect(result.pagination).toEqual({
       page: 2,
@@ -85,7 +84,6 @@ describe("readSourceChunkPage", () => {
       documentId: "doc_1",
       page: 1,
       pageSize: 50,
-      assetUrlPolicy: "durable",
     })
   })
 })

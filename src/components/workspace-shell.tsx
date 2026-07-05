@@ -114,6 +114,7 @@ function WorkspaceShellContent({
     fetchChunks: workspaceClient.fetchChunks,
     initialPrefetchedChunksBySourceId:
       initialPrefetchedChunksBySourceId ?? undefined,
+    onRemoteSourceChunksLoaded: sourceWorkflow.handleSourcesRefresh,
     onSelectSource: handleCitationSourceSelected,
     selectedSourceId: sourceWorkflow.selectedSourceId,
     sources: sourceWorkflow.sources,
