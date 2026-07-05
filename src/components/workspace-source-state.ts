@@ -69,8 +69,10 @@ function getResolvedSelectedSourceId(
   sources: readonly SourceView[],
   selectedSourceId: string | null,
 ): string | null {
+  if (!selectedSourceId) return getFirstReadySourceId(sources)
+
   const selectedSource = sources.find((source) => source.id === selectedSourceId)
-  if (selectedSource && isReadySource(selectedSource)) {
+  if (selectedSource) {
     return selectedSource.id
   }
 
@@ -83,7 +85,7 @@ function getResolvedSelectedSourceId(
     if (localizedSource) return localizedSource.id
   }
 
-  return getFirstReadySourceId(sources)
+  return null
 }
 
 function isReadySource(source: SourceView): boolean {

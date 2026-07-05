@@ -1,4 +1,10 @@
-import { stepCountIs, ToolLoopAgent, tool, type ModelMessage } from "ai"
+import {
+  stepCountIs,
+  ToolLoopAgent,
+  tool,
+  type ModelMessage,
+  type ToolResultPart,
+} from "ai"
 import { z } from "zod"
 
 import { createEvidenceLedger } from "./ledger"
@@ -147,6 +153,9 @@ export async function runAgentHarness(
     model: input.model,
     instructions: buildHarnessSystemPrompt(input.turn),
     tools,
+    prepareStep: ({ messages: stepMessages }) => ({
+      messages: sanitizeHarnessModelMessagesForStep(stepMessages),
+    }),
     stopWhen: stepCountIs(input.maxSteps ?? defaultMaxSteps),
   })
 
@@ -204,6 +213,62 @@ export async function runAgentHarness(
     },
   }
 }
+
+export function sanitizeHarnessModelMessagesForStep(
+  messages: readonly ModelMessage[],
+): ModelMessage[] {
+  return messages.map(sanitizeHarnessModelMessageForStep)
+}
+
+function sanitizeHarnessModelMessageForStep(
+  message: ModelMessage,
+): ModelMessage {
+  if (message.role === "tool") {
+    return {
+      ...message,
+      providerOptions: undefined,
+      content: message.content.map(sanitizeToolMessageContentPart),
+    }
+  }
+
+  if (message.role === "assistant" && Array.isArray(message.content)) {
+    return {
+      ...message,
+      content: message.content.map(sanitizeAssistantMessageContentPart),
+    }
+  }
+
+  return message
+}
+
+function sanitizeToolMessageContentPart(
+  part: ModelMessageForRole<"tool">["content"][number],
+): ModelMessageForRole<"tool">["content"][number] {
+  if (part.type !== "tool-result") return part
+
+  return removeToolResultPartProviderOptions(part)
+}
+
+function sanitizeAssistantMessageContentPart(
+  part: Exclude<ModelMessageForRole<"assistant">["content"], string>[number],
+): Exclude<ModelMessageForRole<"assistant">["content"], string>[number] {
+  if (part.type !== "tool-result") return part
+
+  return removeToolResultPartProviderOptions(part)
+}
+
+function removeToolResultPartProviderOptions(
+  part: ToolResultPart,
+): ToolResultPart {
+  const sanitizedPart = { ...part }
+  delete sanitizedPart.providerOptions
+  return sanitizedPart
+}
+
+type ModelMessageForRole<TRole extends ModelMessage["role"]> = Extract<
+  ModelMessage,
+  { readonly role: TRole }
+>
 
 function buildRevisionFeedback(errors: readonly string[]): string {
   return [
