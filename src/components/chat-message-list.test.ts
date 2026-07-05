@@ -129,6 +129,56 @@ describe("ChatMessageList", () => {
     );
   });
 
+  it("renders a separate page image link without replacing source focus", async () => {
+    const user = userEvent.setup();
+    const onCitationClick = vi.fn();
+
+    render(
+      React.createElement(ChatMessageList, {
+        messages: [
+          {
+            id: "assistant_1",
+            role: "assistant",
+            content: "The referenced page discusses revenue.",
+            citations: [
+              {
+                chunkType: "page",
+                score: 0.9,
+                pageCitationAssetUrl:
+                  "https://blob.example/pages/page-000004.png",
+                source: {
+                  documentId: "doc_1",
+                  sourceFileName: "report.pdf",
+                  sectionPath: "Page 4",
+                },
+              },
+            ],
+          },
+        ],
+        onCitationClick,
+      }),
+    );
+
+    const citationButton = screen.getByRole("button", {
+      name: "Open source report.pdf",
+    });
+    const pageImageLink = screen.getByRole("link", {
+      name: "Open page image for report.pdf",
+    });
+
+    expect(pageImageLink.getAttribute("href")).toBe(
+      "https://blob.example/pages/page-000004.png",
+    );
+
+    await user.click(citationButton);
+    expect(onCitationClick).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pageCitationAssetUrl: "https://blob.example/pages/page-000004.png",
+      }),
+      "assistant_1:0",
+    );
+  });
+
   it("removes description-only source labels without changing other markdown whitespace", () => {
     render(
       React.createElement(ChatMessageList, {

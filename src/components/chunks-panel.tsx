@@ -57,6 +57,7 @@ export type ChunksPanelProps = {
   isLoadingMore?: boolean;
   isLoadingAllChunks?: boolean;
   hasMoreChunks?: boolean;
+  processingMessage?: string | null;
   onLoadMore?: () => void;
   onLoadAllChunks?: () => void;
   onLoginClick?: () => void;
@@ -84,6 +85,7 @@ export function ChunksPanel({
   isLoadingMore = false,
   isLoadingAllChunks = false,
   hasMoreChunks = false,
+  processingMessage = null,
   onLoadMore,
   onLoadAllChunks,
   onLoginClick,
@@ -360,7 +362,7 @@ export function ChunksPanel({
               className="mx-auto flex w-[90%] min-w-0 max-w-[1600px] flex-col items-center p-3 sm:p-6"
             >
               {isLoading ? (
-                <LoadingChunks />
+                <LoadingChunks message={processingMessage} />
               ) : chunks.length === 0 ? (
                 selectedSource ? (
                   <EmptyChunks />
@@ -1138,13 +1140,19 @@ function EmptyChunks(): ReactNode {
   );
 }
 
-function LoadingChunks(): ReactNode {
+function LoadingChunks({
+  message,
+}: {
+  readonly message?: string | null;
+}): ReactNode {
   return (
     <div className="flex flex-col items-center gap-3 px-4 py-14 text-center sm:py-20">
       <div className="flex size-12 items-center justify-center rounded-full bg-muted">
         <Layers className="size-5 text-muted-foreground" />
       </div>
-      <p className="text-sm text-muted-foreground">Loading parsed chunks...</p>
+      <p className="text-sm text-muted-foreground">
+        {message ?? "Loading parsed chunks..."}
+      </p>
     </div>
   );
 }

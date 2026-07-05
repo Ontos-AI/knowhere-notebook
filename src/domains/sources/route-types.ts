@@ -3,10 +3,6 @@ import type {
   ChunkPage,
   ChunkPageParams,
 } from "@/domains/chunks"
-import type {
-  loadChunkPageForSource,
-  loadChunksForSource,
-} from "@/domains/chunks/server"
 import type { ParsedChunkView } from "@/domains/chunks/types"
 import type { SourceStatus, SourceView } from "@/domains/sources/types"
 import type { AuthUser } from "@/infrastructure/auth"
@@ -179,10 +175,6 @@ type SourceWorkflowService = {
     workspaceId: string,
     sourceId: string,
   ) => Promise<boolean>
-  readonly getParseAssetUrls: (
-    workspaceId: string,
-    sourceId: string,
-  ) => Promise<Readonly<Record<string, string>>>
   readonly hideDemoSource: (
     workspaceId: string,
     demoSourceId: string,
@@ -200,11 +192,6 @@ type SourceWorkflowService = {
       readonly revisionKey?: string | null
     },
   ) => Promise<Source>
-  readonly updateSourceRevisionKey: (
-    workspaceId: string,
-    sourceId: string,
-    revisionKey: string,
-  ) => Promise<Source | null>
   readonly upsertMaterializedDemoSource: (
     workspaceId: string,
     input: {
@@ -240,8 +227,6 @@ type SourceRouteServiceDependencies = {
     sources: readonly Source[],
     client: SourceRouteKnowhereClient,
   ) => ReturnType<typeof sourceViewOptionsBySourceId>
-  readonly loadChunkPageForSource: typeof loadChunkPageForSource
-  readonly loadChunksForSource: typeof loadChunksForSource
   readonly makeKnowhereClient: (apiKey: string) => SourceRouteKnowhereClient
   readonly listSourcesForWorkspace: (workspaceId: string) => Promise<Source[]>
   readonly reconcileSourcesForWorkspace: (

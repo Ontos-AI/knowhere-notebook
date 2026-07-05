@@ -11,9 +11,10 @@ import {
   type ChatTurnValue,
 } from "@/domains/chat/service"
 import { chatTurnPersistence } from "@/domains/chat/chat-turn-persistence"
+import { readSourceAssetUrls } from "@/domains/chunks/read"
 import { startBackgroundReconciliation } from "@/domains/sources/background-reconcile"
-import { sourceService } from "@/domains/sources/service"
 import { sourceWorkflowRuntime } from "@/domains/sources/workflow-runtime"
+import { makeKnowhereClientWithParsedStorage } from "@/integrations/knowhere"
 import { notebookRequestContext } from "@/domains/workspace/request-context"
 import type { Source } from "@/infrastructure/db/schema"
 import { isAuthError } from "@/integrations/dashboard/api-key-service"
@@ -68,8 +69,30 @@ const answerChatEffect = (input: AnswerChatInput) =>
         apiKey,
       }),
     )
-    const loadSourceAssetUrls = (source: (typeof sources)[number]) =>
-      sourceService.getParseAssetUrls(workspace.id, source.id)
+    const { knowledge } = makeKnowhereClientWithParsedStorage(apiKey, {
+      workspaceId: workspace.id,
+    })
+    const loadSourceAssetUrls = async (
+      source: (typeof sources)[number],
+    ): Promise<Readonly<Record<string, string>>> => {
+      if (source.status !== "ready" || !source.knowhereDocumentId) return {}
+
+      try {
+        return await readSourceAssetUrls({
+          knowledge,
+          documentId: source.knowhereDocumentId,
+          revisionKey: source.knowhereJobId,
+        })
+      } catch (error) {
+        logger.warn("chat: durable parsed asset read failed", {
+          workspaceId: workspace.id,
+          sourceId: source.id,
+          documentId: source.knowhereDocumentId,
+          error: summarizeUnknownError(error),
+        })
+        return {}
+      }
+    }
 
     const result: Either.Either<ChatTurnValue, ChatAnswerFailure> =
       yield* Effect.tryPromise(() =>

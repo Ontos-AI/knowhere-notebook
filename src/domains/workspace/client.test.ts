@@ -63,6 +63,33 @@ describe("workspaceClient", () => {
     })
   })
 
+  it("preserves source chunk processing messages", async () => {
+    mockRouteClient.getJson.mockResolvedValue({
+      chunks: [],
+      message: "Source parsed snapshot is still being prepared.",
+      pagination: {
+        page: 1,
+        pageSize: 50,
+        total: 0,
+        totalPages: 0,
+      },
+    })
+
+    const page = await workspaceClient.fetchChunkPage("source_1", 1)
+
+    expect(page).toEqual({
+      chunks: [],
+      isProcessing: true,
+      message: "Source parsed snapshot is still being prepared.",
+      pagination: {
+        page: 1,
+        pageSize: 50,
+        total: 0,
+        totalPages: 0,
+      },
+    })
+  })
+
   it("throws materialization route errors instead of treating them as empty sources", async () => {
     mockRouteClient.postJsonWithStatus.mockResolvedValue({
       status: 502,

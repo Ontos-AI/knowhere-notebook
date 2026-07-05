@@ -43,6 +43,7 @@ type WorkspaceCitationFocus = {
   readonly requestChunkFocus: (chunkId: string | null) => void
   readonly isSelectedChunksLoading: boolean
   readonly isSelectedChunksLoadingMore: boolean
+  readonly selectedChunksMessage: string | null
   readonly selectedChunks: ParsedChunkView[]
   readonly selectedSource: SourceView | undefined
 }
@@ -80,6 +81,7 @@ export function useWorkspaceCitationFocus({
     handleLoadMoreChunks,
     isSelectedChunksLoading,
     isSelectedChunksLoadingMore,
+    selectedChunksMessage,
     selectedChunks,
     selectedSource,
   } = useWorkspaceSelectedChunks({
@@ -277,6 +279,7 @@ export function useWorkspaceCitationFocus({
     pendingCitationId,
     prefetchedChunksBySourceId,
     requestChunkFocus,
+    selectedChunksMessage,
     selectedChunks,
     selectedSource,
   }

@@ -18,6 +18,7 @@ describe("retrySourceToKnowhereEffect", () => {
     const parsingSource = makeSource({
       status: "parsing",
       failureReason: null,
+      failureStage: null,
       knowhereJobId: "job_retry",
       knowhereDocumentId: "doc_retry",
     })
@@ -123,6 +124,7 @@ function makeSource(overrides: Partial<Source> = {}): Source {
     sizeBytes: 5,
     status: "failed",
     failureReason: "Knowhere upload failed.",
+    failureStage: null,
     knowhereJobId: null,
     knowhereDocumentId: null,
     stagedBlobPathname: null,

@@ -24,6 +24,7 @@ type WorkspaceSelectedChunks = {
   readonly handleLoadMoreChunks: () => void
   readonly isSelectedChunksLoading: boolean
   readonly isSelectedChunksLoadingMore: boolean
+  readonly selectedChunksMessage: string | null
   readonly selectedChunks: ParsedChunkView[]
   readonly selectedSource: SourceView | undefined
 }
@@ -57,8 +58,11 @@ export function useWorkspaceSelectedChunks({
     {
       revalidateIfStale: false,
       keepPreviousData: false,
+      refreshInterval: (pages: readonly SourceChunksResponse[] | undefined) =>
+        hasProcessingChunkPage(pages) ? 2_000 : 0,
     },
   )
+  const selectedChunksMessage = getSelectedChunksMessage(selectedChunkPages)
   const pagedSelectedChunks = useMemo(
     () =>
       resolveChunkConnectionTargets(
@@ -90,10 +94,11 @@ export function useWorkspaceSelectedChunks({
         typeof selectedChunkPages[selectedChunkPageCount - 1] === "undefined",
     )
   const isSelectedChunksLoading =
-    selectedChunkSourceId !== null &&
-    !prefetchedSelectedChunks &&
-    !selectedChunkPages &&
-    isChunksLoading
+    Boolean(selectedChunksMessage) ||
+    (selectedChunkSourceId !== null &&
+      !prefetchedSelectedChunks &&
+      !selectedChunkPages &&
+      isChunksLoading)
 
   function handleLoadMoreChunks(): void {
     if (!hasMoreSelectedChunks || isSelectedChunksLoadingMore) return
@@ -105,6 +110,7 @@ export function useWorkspaceSelectedChunks({
     handleLoadMoreChunks,
     isSelectedChunksLoading,
     isSelectedChunksLoadingMore,
+    selectedChunksMessage,
     selectedChunks,
     selectedSource,
   }
@@ -116,6 +122,22 @@ function fetchChunksByKey([
   page,
 ]: SourceChunksKey): Promise<SourceChunksResponse> {
   return workspaceClient.fetchChunkPage(sourceId, page)
+}
+
+function hasProcessingChunkPage(
+  pages: readonly SourceChunksResponse[] | undefined,
+): boolean {
+  return pages?.some((page) => page.isProcessing) ?? false
+}
+
+function getSelectedChunksMessage(
+  pages: readonly SourceChunksResponse[] | undefined,
+): string | null {
+  const page = pages?.find(
+    (candidate) =>
+      candidate.isProcessing && typeof candidate.message === "string",
+  )
+  return page?.message ?? null
 }
 
 function mergeVisibleChunkAssetUrls(

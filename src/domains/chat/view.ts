@@ -51,6 +51,7 @@ function toPersistedCitationViews(value: unknown): ChatCitationView[] | undefine
         chunkType: getString(item.chunkType) ?? "text",
         score: getNumber(item.score) ?? 0,
         assetUrl: getString(item.assetUrl),
+        pageCitationAssetUrl: getString(item.pageCitationAssetUrl),
         description: getString(item.description),
         source: {
           documentId: getString(item.source.documentId),
@@ -81,6 +82,9 @@ function toPersistedArtifactViews(value: unknown): ChatArtifactView[] | undefine
             chunkType: getString(item.citation.chunkType) ?? "text",
             score: getNumber(item.citation.score) ?? 0,
             assetUrl: getString(item.citation.assetUrl),
+            pageCitationAssetUrl: getString(
+              item.citation.pageCitationAssetUrl,
+            ),
             description: getString(item.citation.description),
             source: {
               documentId: getString(item.citation.source.documentId),

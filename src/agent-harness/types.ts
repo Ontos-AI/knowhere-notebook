@@ -94,10 +94,14 @@ export type RetrievalCapability = {
 export type EvidenceChunk = {
   readonly ref: string
   readonly kind: "result" | "referenced_chunk"
+  readonly chunkId?: string
   readonly content: string
   readonly contentPreview: string
   readonly chunkType: string
   readonly score: number | null
+  readonly sourceChunkPath?: string | null
+  readonly filePath?: string | null
+  readonly metadata?: Readonly<Record<string, unknown>>
   readonly source: {
     readonly documentId?: string | null
     readonly sourceFileName?: string | null

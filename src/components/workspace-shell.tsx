@@ -236,6 +236,7 @@ function WorkspaceShellContent({
       pendingCitationId={citationFocus.pendingCitationId}
       readySourceCount={sourceWorkflow.readySourceCount}
       selectedChunks={citationFocus.selectedChunks}
+      selectedChunksMessage={citationFocus.selectedChunksMessage}
       selectedSourceFile={citationFocus.selectedSource?.originalFile ?? null}
       selectedSourceId={sourceWorkflow.selectedSourceId}
       selectedSourceTitle={selectedSourceTitle}

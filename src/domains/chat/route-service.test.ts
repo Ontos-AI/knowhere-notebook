@@ -18,6 +18,8 @@ const mocks = vi.hoisted(() => ({
   loggerInfo: vi.fn(),
   loggerWarn: vi.fn(),
   listSourcesForWorkspace: vi.fn(),
+  makeKnowhereClientWithParsedStorage: vi.fn(),
+  readChunks: vi.fn(),
   softDeleteChatThread: vi.fn(),
   startBackgroundReconciliation: vi.fn(),
 }))
@@ -51,6 +53,11 @@ vi.mock("@/domains/workspace/request-context", () => ({
   },
 }))
 
+vi.mock("@/integrations/knowhere", () => ({
+  makeKnowhereClientWithParsedStorage:
+    mocks.makeKnowhereClientWithParsedStorage,
+}))
+
 vi.mock("@/domains/chat/thread-service", () => ({
   chatThreadService: {
     appendMessage: mocks.appendMessageToThread,
@@ -77,6 +84,18 @@ import { chatThreadRouteService } from "./route-threads"
 describe("chat route services", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.makeKnowhereClientWithParsedStorage.mockReturnValue({
+      client: { documents: { listChunks: vi.fn() } },
+      knowledge: { readChunks: mocks.readChunks },
+    })
+    mocks.readChunks.mockResolvedValue({
+      document: { localDocumentId: "doc" },
+      chunks: [],
+      page: 1,
+      pageSize: 200,
+      totalChunks: 0,
+      totalPages: 1,
+    })
   })
 
   it("orchestrates a chat turn from request body to response body", async () => {
@@ -138,6 +157,80 @@ describe("chat route services", () => {
         }),
       }),
     )
+  })
+
+  it("builds durable citation asset URLs from SDK reads for a ready source", async () => {
+    const workspace = makeWorkspace()
+    const client = { retrieval: { query: vi.fn() } }
+    const readySource = makeSource({
+      status: "ready",
+      knowhereDocumentId: "doc_legacy",
+      knowhereJobId: "job_1",
+    })
+    const durableUrl =
+      "https://fake.public.blob.vercel-storage.com/workspaces/workspace_1/parsed-documents/doc_legacy/job_1/assets/pages/page-1.png"
+    mocks.readChunks.mockResolvedValue({
+      document: { localDocumentId: "doc_legacy" },
+      chunks: [
+        {
+          position: 1,
+          chunkId: "c1",
+          chunkType: "page",
+          content: "Page",
+          readableContent: "Page",
+          sectionPath: "Page 1",
+          sourceChunkPath: "Page 1",
+          filePath: "pages/page-1.png",
+          assetUrl: durableUrl,
+          metadata: {},
+        },
+      ],
+      page: 1,
+      pageSize: 200,
+      totalChunks: 1,
+      totalPages: 1,
+    })
+    mocks.getAuthenticatedWithClient.mockResolvedValue({
+      user: { id: "user_1" },
+      workspace,
+      apiKey: "jwt_123",
+      client,
+    })
+    mocks.listSourcesForWorkspace.mockResolvedValue([readySource])
+    mocks.handleChatTurn.mockImplementation(
+      async (input: {
+        readonly loadSourceAssetUrls?: (
+          source: Source,
+        ) => Promise<Readonly<Record<string, string>>>
+      }) => {
+        const assetUrls = await input.loadSourceAssetUrls?.(readySource)
+        expect(assetUrls).toEqual({ "pages/page-1.png": durableUrl })
+        return Either.right({
+          threadId: "thread_1",
+          messages: [
+            { id: "message_user", role: "user", content: "Show the page" },
+            { id: "message_assistant", role: "assistant", content: "Answer" },
+          ],
+        })
+      },
+    )
+
+    const result = await chatAnswerRouteService.answerChat({
+      body: { message: "Show the page" },
+    })
+
+    expect(result.status).toBe(200)
+    expect(mocks.makeKnowhereClientWithParsedStorage).toHaveBeenCalledWith(
+      "jwt_123",
+      { workspaceId: workspace.id },
+    )
+    expect(mocks.readChunks).toHaveBeenCalledWith({
+      documentId: "doc_legacy",
+      revisionKey: "job_1",
+      page: 1,
+      pageSize: 200,
+      assetUrlPolicy: "durable",
+    })
   })
 
   it("triggers background reconciliation for parsing sources without blocking chat", async () => {
@@ -381,6 +474,7 @@ function makeSource(overrides: Partial<Source> = {}): Source {
     sizeBytes: 100,
     status: "ready",
     failureReason: null,
+    failureStage: null,
     knowhereJobId: "job_123",
     knowhereDocumentId: "doc_1",
     stagedBlobPathname: null,

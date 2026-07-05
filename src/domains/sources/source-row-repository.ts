@@ -26,6 +26,7 @@ type SourceUpdate = Partial<
     | "sizeBytes"
     | "status"
     | "failureReason"
+    | "failureStage"
     | "knowhereJobId"
     | "knowhereDocumentId"
     | "stagedBlobPathname"
@@ -83,6 +84,7 @@ type SourceRowRepository = {
     sourceId: string,
     reason: string,
     requiredStatus?: string,
+    failureStage?: string,
   ) => Effect.Effect<Source | null, never, DbClient>
   readonly clearStagedBlobEffect: (
     workspaceId: string,
@@ -193,6 +195,7 @@ const markParsingEffect: SourceRowRepository["markParsingEffect"] = (
     knowhereJobId: jobId,
     knowhereDocumentId: documentId,
     failureReason: null,
+    failureStage: null,
   }, requiredStatus)
 
 const markReadyEffect: SourceRowRepository["markReadyEffect"] = (
@@ -204,6 +207,7 @@ const markReadyEffect: SourceRowRepository["markReadyEffect"] = (
     status: "ready",
     knowhereDocumentId: documentId,
     failureReason: null,
+    failureStage: null,
   }, "parsing")
 
 const updateRevisionKeyEffect: SourceRowRepository["updateRevisionKeyEffect"] = (
@@ -220,10 +224,12 @@ const markFailedEffect: SourceRowRepository["markFailedEffect"] = (
   sourceId: string,
   reason: string,
   requiredStatus?: string,
+  failureStage?: string,
 ) =>
   updateInWorkspaceEffect(workspaceId, sourceId, {
     status: "failed",
     failureReason: reason,
+    failureStage: failureStage ?? null,
   }, requiredStatus)
 
 const clearStagedBlobEffect: SourceRowRepository["clearStagedBlobEffect"] = (

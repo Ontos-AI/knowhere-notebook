@@ -6,8 +6,10 @@ import {
   markSourceReadyAfterReconciliation,
   pollSourceReconciliation,
 } from "@/domains/sources/source-reconcile-workflow"
-import { makeKnowhereClient } from "@/integrations/knowhere"
+import { makeKnowhereClientWithParsedStorage } from "@/integrations/knowhere"
 import { logger } from "@/lib/logger"
+import { enqueueParsedDocumentSync } from "./parsed-document-sync-scheduler"
+import { parsedDocumentSyncCapacityGuard } from "./parsed-document-sync-capacity"
 import { sourceWorkflowRuntime } from "./workflow-runtime"
 
 type ReconcilePayload = {
@@ -39,9 +41,12 @@ type ContinuationTriggerInput = {
   readonly workflowRunId: string
 }
 
+type SyncLeaseReleaseReason = "completed" | "incomplete" | "failed"
+
 const maxPollAttempts = 25
 const initialDelaySeconds = 3
 const maxDelaySeconds = 30
+const maxSyncStepsPerReconcile = 4
 
 let triggerContinuation: typeof triggerReconcileContinuation =
   triggerReconcileContinuation
@@ -52,7 +57,9 @@ async function runPollAndMirrorWorkflow(input: {
 }): Promise<void> {
   const { context, payload } = input
   const { workspaceId, sourceId, apiKey } = payload
-  const client = makeKnowhereClient(apiKey)
+  const { client, knowledge } = makeKnowhereClientWithParsedStorage(apiKey, {
+    workspaceId,
+  })
   let delay = initialDelaySeconds
   let completedJob: {
     readonly jobId: string
@@ -118,6 +125,21 @@ async function runPollAndMirrorWorkflow(input: {
     return
   }
 
+  const revisionKey = await context.run("resolve-revision-key", async () => {
+    const firstPage = await client.documents.listChunks(
+      jobToPrepare.documentId,
+      { page: 1, pageSize: 1, includeAssetUrls: false },
+    )
+    return firstPage.jobResultId ?? firstPage.jobId ?? jobToPrepare.jobId
+  })
+  await context.run("record-sync-pending", async () =>
+    sourceWorkflowRuntime.updateSyncStatus(workspaceId, sourceId, {
+      revisionKey,
+      syncStatus: "pending",
+      syncError: null,
+    }),
+  )
+
   const ready = await context.run("source-ready", async () =>
     markSourceReadyAfterReconciliation({
       workspaceId,
@@ -125,11 +147,142 @@ async function runPollAndMirrorWorkflow(input: {
       documentId: jobToPrepare.documentId,
     }),
   )
+  if (ready.status === "gone") return
+
+  const capacity = await context.run("acquire-sync-capacity", async () =>
+    parsedDocumentSyncCapacityGuard.acquire({
+      workspaceId,
+      sourceId,
+      documentId: jobToPrepare.documentId,
+      revisionKey,
+    }),
+  )
+  if (capacity.kind === "source-missing") return
+  if (capacity.kind === "capacity-full") {
+    await context.run("enqueue-capacity-retry", async () =>
+      enqueueParsedDocumentSync({
+        workspaceId,
+        sourceId,
+        documentId: jobToPrepare.documentId,
+        apiKey,
+        revisionKey,
+        delaySeconds: capacity.waitSeconds,
+      }),
+    )
+    logger.info("workflow: parsed storage sync delayed by capacity guard", {
+      sourceId,
+      documentId: jobToPrepare.documentId,
+      revisionKey,
+      reason: capacity.reason,
+      waitSeconds: capacity.waitSeconds,
+      activeCounts: capacity.activeCounts,
+    })
+    return
+  }
+
+  let syncCompleted = false
+  let releaseReason: SyncLeaseReleaseReason = "incomplete"
+  try {
+    await context.run("record-sync-running", async () =>
+      sourceWorkflowRuntime.updateSyncStatus(workspaceId, sourceId, {
+        revisionKey,
+        syncStatus: "running",
+        syncError: null,
+      }),
+    )
+
+    for (let step = 0; step < maxSyncStepsPerReconcile; step++) {
+      const result = await context.run(`parsed-sync-${step}`, async () => {
+        try {
+          return await knowledge.syncParsedDocument({
+            documentId: jobToPrepare.documentId,
+            revisionKey,
+          })
+        } catch (error) {
+          await sourceWorkflowRuntime.updateSyncStatus(workspaceId, sourceId, {
+            revisionKey,
+            syncStatus: "failed",
+            syncError: getErrorMessage(error),
+          })
+          throw error
+        }
+      })
+      if (result.completed) {
+        syncCompleted = true
+        releaseReason = "completed"
+        break
+      }
+    }
+
+    if (!syncCompleted) {
+      await context.run("record-sync-progress", async () =>
+        sourceWorkflowRuntime.updateSyncStatus(workspaceId, sourceId, {
+          revisionKey,
+          syncStatus: "running",
+        }),
+      )
+      await context.run("enqueue-parsed-sync-continuation", async () =>
+        enqueueParsedDocumentSync({
+          workspaceId,
+          sourceId,
+          documentId: jobToPrepare.documentId,
+          apiKey,
+          revisionKey,
+        }),
+      )
+      logger.info("workflow: parsed storage sync handed off to parsed-sync", {
+        sourceId,
+        documentId: jobToPrepare.documentId,
+        revisionKey,
+      })
+      return
+    }
+  } catch (error) {
+    releaseReason = "failed"
+    throw error
+  } finally {
+    await context.run("release-sync-capacity", async () =>
+      releaseCapacityLease({
+        leaseToken: capacity.leaseToken,
+        releaseReason,
+        sourceId,
+        documentId: jobToPrepare.documentId,
+      }),
+    )
+  }
+
+  await context.run("record-sync-completed", async () =>
+    sourceWorkflowRuntime.updateSyncStatus(workspaceId, sourceId, {
+      revisionKey,
+      syncStatus: "completed",
+    }),
+  )
   logger.info("workflow: source parse reconciliation finished", {
     sourceId,
     jobId: jobToPrepare.jobId,
+    revisionKey,
     status: ready.status,
   })
+}
+
+async function releaseCapacityLease(input: {
+  readonly leaseToken: string
+  readonly releaseReason: SyncLeaseReleaseReason
+  readonly sourceId: string
+  readonly documentId: string
+}): Promise<void> {
+  try {
+    await parsedDocumentSyncCapacityGuard.release({
+      leaseToken: input.leaseToken,
+      releaseReason: input.releaseReason,
+    })
+  } catch (error) {
+    logger.error("workflow: failed to release sync capacity lease", {
+      sourceId: input.sourceId,
+      documentId: input.documentId,
+      error: getErrorMessage(error),
+    })
+  }
 }
 
 function normalizeReconcilePayload(
@@ -206,6 +359,10 @@ function getSafeFailureReason(value: string): string {
   const normalized = value.replace(/\s+/g, " ").trim()
   if (normalized.length === 0) return "retry attempts were exhausted."
   return normalized.slice(0, 500)
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
 export const sourceReconcileRouteWorkflow = {

@@ -22,6 +22,7 @@ const source: Source = {
   sizeBytes: 5,
   status: "parsing",
   failureReason: null,
+  failureStage: null,
   knowhereJobId: "job_1",
   knowhereDocumentId: null,
   stagedBlobPathname: null,
@@ -117,6 +118,51 @@ describe("source route service", () => {
       "jwt_123",
     );
     expect(listHiddenDemoSourceIds).toHaveBeenCalledWith(workspace.id);
+  });
+
+  it("returns processing without building a client when a source is not ready", async () => {
+    const parsingSource: Source = {
+      ...source,
+      id: "00000000-0000-4000-8000-000000000002",
+      knowhereDocumentId: "doc_legacy",
+      knowhereJobId: null,
+      status: "parsing",
+    };
+    const makeKnowhereClient = vi.fn();
+    const service = createSourceRouteService({
+      ensureApiKeyForWorkspace: vi.fn(async () => "jwt_123"),
+      ensureWorkspace: vi.fn(async () => workspace),
+      getCurrentUser: vi.fn(async () => ({
+        id: "user_1",
+        email: null,
+        name: null,
+      })),
+      makeKnowhereClient,
+      sourceService: {
+        findInWorkspace: vi.fn(async () => parsingSource),
+      },
+    });
+
+    const result = await service.loadSourceChunks({
+      cookieHeader: "session=abc",
+      sourceId: parsingSource.id,
+      shouldLoadAll: false,
+      pageParams: { page: 1, pageSize: 50 },
+    });
+
+    expect(result).toEqual({
+      status: 202,
+      body: {
+        chunks: [],
+        pagination: {
+          page: 1,
+          pageSize: 50,
+          total: 0,
+          totalPages: 0,
+        },
+        message: "Source is still being prepared.",
+      },
+    });
   });
 
   it("lists shared default and legacy namespace documents as lightweight remote sources", async () => {
@@ -801,6 +847,7 @@ describe("source route service", () => {
       ...failedSource,
       status: "parsing",
       failureReason: null,
+      failureStage: null,
       knowhereJobId: "job_retry",
     };
     const knowhereClient = {

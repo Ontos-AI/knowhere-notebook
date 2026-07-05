@@ -129,6 +129,38 @@ describe("useWorkspaceSelectedChunks", () => {
     });
   });
 
+  it("treats a processing chunk page as a loading state", async () => {
+    fetchChunkPageMock.mockResolvedValue({
+      chunks: [],
+      isProcessing: true,
+      message: "Source parsed snapshot is still being prepared.",
+      pagination: {
+        page: 1,
+        pageSize: 50,
+        total: 0,
+        totalPages: 0,
+      },
+    });
+
+    const { result } = renderHook(
+      () =>
+        useWorkspaceSelectedChunks({
+          selectedSourceId: "source_1",
+          sources: [readySource],
+          prefetchedChunksBySourceId: {},
+        }),
+      { wrapper: createSWRWrapper },
+    );
+
+    await waitFor(() =>
+      expect(result.current.selectedChunksMessage).toBe(
+        "Source parsed snapshot is still being prepared.",
+      ),
+    );
+    expect(result.current.isSelectedChunksLoading).toBe(true);
+    expect(result.current.selectedChunks).toEqual([]);
+  });
+
   it("returns an empty chunk list when no source is selected", () => {
     const { result } = renderHook(
       () =>

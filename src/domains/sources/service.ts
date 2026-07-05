@@ -17,20 +17,11 @@ type SourceService = {
     workspaceId: string,
     sourceId: string,
   ) => Promise<Source | null>
-  readonly getParseAssetUrls: (
-    workspaceId: string,
-    sourceId: string,
-  ) => Promise<Readonly<Record<string, string>>>
   readonly listForWorkspace: (workspaceId: string) => Promise<Source[]>
   readonly localizeRemoteDocument: (
     workspaceId: string,
     input: Parameters<typeof sourceWorkflowRuntime.localizeRemoteDocument>[1],
   ) => Promise<Source>
-  readonly updateSourceRevisionKey: (
-    workspaceId: string,
-    sourceId: string,
-    revisionKey: string,
-  ) => Promise<Source | null>
   readonly listHiddenDemoSourceIds: (workspaceId: string) => Promise<string[]>
   readonly hideDemoSource: (
     workspaceId: string,
@@ -105,12 +96,10 @@ const retrySourceToKnowhere: SourceService["retrySourceToKnowhere"] = (
 
 export const sourceService: SourceService = {
   findInWorkspace: sourceWorkflowRuntime.findInWorkspace,
-  getParseAssetUrls: sourceWorkflowRuntime.getParseAssetUrls,
   hideDemoSource: sourceWorkflowRuntime.hideDemoSource,
   listHiddenDemoSourceIds: sourceWorkflowRuntime.listHiddenDemoSourceIds,
   listForWorkspace: sourceWorkflowRuntime.listForWorkspace,
   localizeRemoteDocument: sourceWorkflowRuntime.localizeRemoteDocument,
-  updateSourceRevisionKey: sourceWorkflowRuntime.updateRevisionKey,
   softDelete: sourceWorkflowRuntime.softDelete,
   upsertMaterializedDemoSource:
     sourceWorkflowRuntime.upsertMaterializedDemoSource,

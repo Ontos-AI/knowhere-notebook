@@ -48,7 +48,7 @@ export type SourceView = {
   readonly originalFile?: SourceOriginalFileView
   /** Official Library metadata when this row is an API-owned catalog item. */
   readonly officialLibrary?: SourceOfficialLibraryView
-  /** Count from the Knowhere chunks API, not a local aggregate. */
+  /** Count from the Notebook parsed snapshot manifest when available. */
   readonly chunkCount?: number
   /** User opt-out for this query session. Drives excludeDocumentIds. */
   readonly excludedFromQuery?: boolean

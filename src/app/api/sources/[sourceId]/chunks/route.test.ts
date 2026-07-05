@@ -2,19 +2,17 @@ import { NextRequest } from "next/server"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
-  blobGet: vi.fn(),
-  blobPut: vi.fn(),
   deleteBlob: vi.fn(),
   ensureApiKeyForWorkspace: vi.fn(),
   ensureWorkspace: vi.fn(),
   fetchDemoChunkPage: vi.fn(),
   findSourceInWorkspace: vi.fn(),
   getCurrentUser: vi.fn(),
-  getSourceParseAssetUrls: vi.fn(),
   localizeRemoteDocument: vi.fn(),
   makeKnowhereClient: vi.fn(),
+  makeKnowhereClientWithParsedStorage: vi.fn(),
+  readChunks: vi.fn(),
   requireUser: vi.fn(),
-  updateSourceRevisionKey: vi.fn(),
 }))
 
 vi.mock("next/headers", () => ({
@@ -39,20 +37,18 @@ vi.mock("@/infrastructure/auth", () => ({
 
 vi.mock("@/integrations/knowhere", () => ({
   makeKnowhereClient: mocks.makeKnowhereClient,
+  makeKnowhereClientWithParsedStorage:
+    mocks.makeKnowhereClientWithParsedStorage,
 }))
 
 vi.mock("@vercel/blob", () => ({
   del: mocks.deleteBlob,
-  get: mocks.blobGet,
-  put: mocks.blobPut,
 }))
 
 vi.mock("@/domains/sources/service", () => ({
   sourceService: {
     findInWorkspace: mocks.findSourceInWorkspace,
-    getParseAssetUrls: mocks.getSourceParseAssetUrls,
     localizeRemoteDocument: mocks.localizeRemoteDocument,
-    updateSourceRevisionKey: mocks.updateSourceRevisionKey,
   },
 }))
 
@@ -67,11 +63,10 @@ import { GET } from "./route"
 describe("GET /api/sources/[sourceId]/chunks", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.blobGet.mockResolvedValue(null)
-    mocks.blobPut.mockImplementation(async (pathname: string) => ({
-      url: `https://blob.example/${pathname}`,
-    }))
-    mocks.updateSourceRevisionKey.mockResolvedValue(null)
+    mocks.makeKnowhereClientWithParsedStorage.mockReturnValue({
+      client: { documents: { listChunks: vi.fn() } },
+      knowledge: { readChunks: mocks.readChunks },
+    })
   })
 
   it("serves API-owned demo chunks for anonymous canonical demo sources", async () => {
@@ -132,7 +127,6 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
     })
     expect(mocks.ensureApiKeyForWorkspace).not.toHaveBeenCalled()
     expect(mocks.makeKnowhereClient).not.toHaveBeenCalled()
-    expect(mocks.getSourceParseAssetUrls).not.toHaveBeenCalled()
   })
 
   it("loads every API-owned demo chunk page for full anonymous chunk requests", async () => {
@@ -287,7 +281,6 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
     expect(mocks.findSourceInWorkspace).not.toHaveBeenCalled()
     expect(mocks.ensureApiKeyForWorkspace).not.toHaveBeenCalled()
     expect(mocks.makeKnowhereClient).not.toHaveBeenCalled()
-    expect(mocks.getSourceParseAssetUrls).not.toHaveBeenCalled()
   })
 
   it("serves demo chunks for authenticated materialized demo sources", async () => {
@@ -377,7 +370,6 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
     })
     expect(mocks.ensureApiKeyForWorkspace).not.toHaveBeenCalled()
     expect(mocks.makeKnowhereClient).not.toHaveBeenCalled()
-    expect(mocks.getSourceParseAssetUrls).not.toHaveBeenCalled()
   })
 
   it("logs the demo chunk load failure before returning 404", async () => {
@@ -429,32 +421,7 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
     }
   })
 
-  it("loads authenticated workspace chunks without probing the demo endpoint first", async () => {
-    const knowhereClient = {
-      documents: {
-        listChunks: vi.fn(async () => ({
-          chunks: [
-            {
-              id: "dchk_1",
-              chunkId: "parser_1",
-              chunkType: "text",
-              content: "Workspace chunk",
-              sectionPath: "Summary",
-              sourceChunkPath: "Default_Root/notes.pdf/Summary",
-              filePath: null,
-              metadata: {},
-              sortOrder: 0,
-            },
-          ],
-          pagination: {
-            page: 1,
-            pageSize: 1,
-            total: 1,
-            totalPages: 1,
-          },
-        })),
-      },
-    }
+  it("loads authenticated workspace chunks through the SDK durable read", async () => {
     mocks.getCurrentUser.mockResolvedValue({
       id: "user_1",
       email: null,
@@ -466,42 +433,55 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
       namespace: "notebook-workspace_1",
       createdAt: new Date("2026-05-10T00:00:00.000Z"),
     })
-    mocks.findSourceInWorkspace.mockResolvedValue({
-      id: "00000000-0000-0000-0000-000000000002",
-      workspaceId: "workspace_1",
-      title: "notes.pdf",
-      mimeType: "application/pdf",
-      sizeBytes: 1024,
-      status: "ready",
-      failureReason: null,
-      knowhereJobId: "job_1",
-      knowhereDocumentId: "doc_1",
-      stagedBlobPathname: null,
-      stagedBlobUrl: null,
-      originalBlobPathname: null,
-      originalBlobUrl: null,
-      demoKey: null,
-      createdAt: new Date("2026-05-10T00:00:00.000Z"),
-      updatedAt: new Date("2026-05-10T00:00:00.000Z"),
-      deletedAt: null,
-    })
+    mocks.findSourceInWorkspace.mockResolvedValue(
+      makeReadySource({
+        id: "00000000-0000-0000-0000-000000000002",
+        knowhereJobId: "job_1",
+        knowhereDocumentId: "doc_1",
+      }),
+    )
     mocks.ensureApiKeyForWorkspace.mockResolvedValue("jwt_123")
-    mocks.makeKnowhereClient.mockReturnValue(knowhereClient)
-    mocks.getSourceParseAssetUrls.mockResolvedValue({})
+    mocks.readChunks.mockResolvedValue({
+      document: { localDocumentId: "doc_1" },
+      chunks: [
+        {
+          position: 1,
+          chunkId: "parser_1",
+          chunkType: "image",
+          content: "Workspace chunk",
+          readableContent: "Workspace chunk",
+          sectionPath: "Summary",
+          sourceChunkPath: "Summary",
+          filePath: "images/chart.png",
+          assetUrl:
+            "https://fake.public.blob.vercel-storage.com/images/chart.png",
+          metadata: {},
+        },
+      ],
+      page: 1,
+      pageSize: 1,
+      totalChunks: 1,
+      totalPages: 1,
+    })
 
     const response = await GET(
       new NextRequest(
         "http://localhost:3001/api/sources/00000000-0000-0000-0000-000000000002/chunks?page=1&pageSize=1",
       ),
-      { params: Promise.resolve({ sourceId: "00000000-0000-0000-0000-000000000002" }) },
+      {
+        params: Promise.resolve({
+          sourceId: "00000000-0000-0000-0000-000000000002",
+        }),
+      },
     )
 
     await expect(response.json()).resolves.toMatchObject({
       chunks: [
         {
-          chunkId: "dchk_1",
           parserChunkId: "parser_1",
           documentId: "doc_1",
+          assetUrl:
+            "https://fake.public.blob.vercel-storage.com/images/chart.png",
           sourceTitle: "notes.pdf",
         },
       ],
@@ -513,14 +493,62 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
     })
     expect(response.status).toBe(200)
     expect(mocks.fetchDemoChunkPage).not.toHaveBeenCalled()
-    expect(knowhereClient.documents.listChunks).toHaveBeenCalledWith("doc_1", {
+    expect(mocks.readChunks).toHaveBeenCalledWith({
+      documentId: "doc_1",
+      revisionKey: "job_1",
       page: 1,
       pageSize: 1,
-      includeAssetUrls: true,
+      assetUrlPolicy: "durable",
     })
   })
 
-  it("materializes a remote source id on open before loading chunks", async () => {
+  it("returns processing when a workspace source is not ready", async () => {
+    mocks.getCurrentUser.mockResolvedValue({
+      id: "user_1",
+      email: null,
+      name: null,
+    })
+    mocks.ensureWorkspace.mockResolvedValue({
+      id: "workspace_1",
+      userId: "user_1",
+      namespace: "notebook-workspace_1",
+      createdAt: new Date("2026-05-10T00:00:00.000Z"),
+    })
+    mocks.findSourceInWorkspace.mockResolvedValue(
+      makeReadySource({
+        id: "00000000-0000-0000-0000-000000000002",
+        status: "parsing",
+        knowhereJobId: "job_1",
+        knowhereDocumentId: "doc_1",
+      }),
+    )
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost:3001/api/sources/00000000-0000-0000-0000-000000000002/chunks?page=1&pageSize=1",
+      ),
+      {
+        params: Promise.resolve({
+          sourceId: "00000000-0000-0000-0000-000000000002",
+        }),
+      },
+    )
+
+    await expect(response.json()).resolves.toEqual({
+      chunks: [],
+      pagination: {
+        page: 1,
+        pageSize: 1,
+        total: 0,
+        totalPages: 0,
+      },
+      message: "Source is still being prepared.",
+    })
+    expect(response.status).toBe(202)
+    expect(mocks.readChunks).not.toHaveBeenCalled()
+  })
+
+  it("materializes a remote source id and reads chunks through the SDK", async () => {
     const knowhereClient = {
       documents: {
         list: vi.fn(async () => ({
@@ -537,29 +565,7 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
             },
           ],
         })),
-        listChunks: vi.fn(async () => ({
-          documentId: "doc_remote",
-          jobResultId: "job_result_1",
-          chunks: [
-            {
-              id: "dchk_remote",
-              chunkId: "parser_remote",
-              chunkType: "text",
-              content: "Remote chunk",
-              sectionPath: "Summary",
-              sourceChunkPath: "Default_Root/remote.pdf/Summary",
-              filePath: null,
-              metadata: {},
-              sortOrder: 0,
-            },
-          ],
-          pagination: {
-            page: 1,
-            pageSize: 1,
-            total: 1,
-            totalPages: 1,
-          },
-        })),
+        listChunks: vi.fn(),
       },
     }
     mocks.getCurrentUser.mockResolvedValue({
@@ -576,24 +582,35 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
     mocks.fetchDemoChunkPage.mockRejectedValue(new Error("not a demo"))
     mocks.ensureApiKeyForWorkspace.mockResolvedValue("jwt_123")
     mocks.makeKnowhereClient.mockReturnValue(knowhereClient)
-    mocks.localizeRemoteDocument.mockResolvedValue({
-      id: "00000000-0000-0000-0000-000000000009",
-      workspaceId: "workspace_1",
-      title: "remote.pdf",
-      mimeType: "application/pdf",
-      sizeBytes: 0,
-      status: "ready",
-      failureReason: null,
-      knowhereJobId: "job_result_1",
-      knowhereDocumentId: "doc_remote",
-      stagedBlobPathname: null,
-      stagedBlobUrl: null,
-      originalBlobPathname: null,
-      originalBlobUrl: null,
-      demoKey: null,
-      createdAt: new Date("2026-05-10T00:00:00.000Z"),
-      updatedAt: new Date("2026-05-10T00:00:00.000Z"),
-      deletedAt: null,
+    mocks.localizeRemoteDocument.mockResolvedValue(
+      makeReadySource({
+        id: "00000000-0000-0000-0000-000000000009",
+        title: "remote.pdf",
+        knowhereJobId: "job_result_1",
+        knowhereDocumentId: "doc_remote",
+      }),
+    )
+    mocks.readChunks.mockResolvedValue({
+      document: { localDocumentId: "doc_remote" },
+      chunks: [
+        {
+          position: 1,
+          chunkId: "parser_remote",
+          chunkType: "page",
+          content: "Remote chunk",
+          readableContent: "Remote chunk",
+          sectionPath: "Summary",
+          sourceChunkPath: "Summary",
+          filePath: "pages/page-1.png",
+          assetUrl:
+            "https://fake.public.blob.vercel-storage.com/pages/page-1.png",
+          metadata: {},
+        },
+      ],
+      page: 1,
+      pageSize: 1,
+      totalChunks: 1,
+      totalPages: 1,
     })
 
     const response = await GET(
@@ -610,9 +627,10 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
     await expect(response.json()).resolves.toMatchObject({
       chunks: [
         {
-          chunkId: "dchk_remote",
           parserChunkId: "parser_remote",
           documentId: "doc_remote",
+          assetUrl:
+            "https://fake.public.blob.vercel-storage.com/pages/page-1.png",
           sourceTitle: "remote.pdf",
         },
       ],
@@ -628,25 +646,45 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
       "workspace_1",
       "session=abc",
     )
-    expect(mocks.localizeRemoteDocument).toHaveBeenCalledWith(
-      "workspace_1",
-      {
-        documentId: "doc_remote",
-        namespace: "default",
-        status: "ready",
-        title: "remote.pdf",
-        mimeType: "application/pdf",
-        sizeBytes: undefined,
-        revisionKey: "job_result_1",
-      },
-    )
-    expect(knowhereClient.documents.listChunks).toHaveBeenCalledWith(
-      "doc_remote",
-      {
-        page: 1,
-        pageSize: 1,
-        includeAssetUrls: true,
-      },
-    )
+    expect(mocks.localizeRemoteDocument).toHaveBeenCalledWith("workspace_1", {
+      documentId: "doc_remote",
+      namespace: "default",
+      status: "ready",
+      title: "remote.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: undefined,
+      revisionKey: "job_result_1",
+    })
+    expect(mocks.readChunks).toHaveBeenCalledWith({
+      documentId: "doc_remote",
+      revisionKey: "job_result_1",
+      page: 1,
+      pageSize: 1,
+      assetUrlPolicy: "durable",
+    })
   })
 })
+
+function makeReadySource(overrides: Record<string, unknown>) {
+  return {
+    id: "00000000-0000-0000-0000-000000000002",
+    workspaceId: "workspace_1",
+    title: "notes.pdf",
+    mimeType: "application/pdf",
+    sizeBytes: 1024,
+    status: "ready",
+    failureReason: null,
+    failureStage: null,
+    knowhereJobId: "job_1",
+    knowhereDocumentId: "doc_1",
+    stagedBlobPathname: null,
+    stagedBlobUrl: null,
+    originalBlobPathname: null,
+    originalBlobUrl: null,
+    demoKey: null,
+    createdAt: new Date("2026-05-10T00:00:00.000Z"),
+    updatedAt: new Date("2026-05-10T00:00:00.000Z"),
+    deletedAt: null,
+    ...overrides,
+  }
+}

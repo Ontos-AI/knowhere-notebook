@@ -68,10 +68,14 @@ export function createEvidenceLedger() {
           chunk: {
             ref: `r${retrievalIndex}:referenced:${index + 1}`,
             kind: "referenced_chunk",
+            chunkId: chunk.chunkId,
             content,
             contentPreview: content,
             chunkType: chunk.chunkType,
             score: null,
+            sourceChunkPath: chunk.sourceChunkPath,
+            filePath: chunk.filePath,
+            metadata: chunk.metadata,
             source: {
               documentId: chunk.documentId,
               sourceFileName: null,
@@ -146,6 +150,10 @@ function addChunkFromResult(input: {
       contentPreview: buildContentPreview(input.result.content),
       chunkType: input.result.chunkType,
       score: input.result.score,
+      chunkId: input.result.chunkId,
+      sourceChunkPath: input.result.sourceChunkPath,
+      filePath: input.result.filePath,
+      metadata: input.result.metadata,
       source: {
         documentId: input.result.source.documentId,
         sourceFileName: input.result.source.sourceFileName,

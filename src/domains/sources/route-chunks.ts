@@ -1,6 +1,8 @@
 import { Effect } from "effect"
 
 import { demoView } from "@/domains/demo/view"
+import { readAllSourceChunks, readSourceChunkPage } from "@/domains/chunks/read"
+import { resolveChunkConnectionTargets } from "@/domains/chunks"
 import type { DemoChunkPage } from "@/integrations/knowhere-demo"
 import { logger } from "@/lib/logger"
 import { routeResult } from "@/lib/route-result"
@@ -8,7 +10,10 @@ import {
   decodeRemoteSourceId,
   findRemoteLibraryDocumentBySourceId,
 } from "./remote-library"
-import { getClientForWorkspace } from "./route-dependencies"
+import {
+  getClientForWorkspace,
+  getKnowledgeForSource,
+} from "./route-dependencies"
 import { sourceRowRepository } from "./source-row-repository"
 import type {
   JsonRouteResult,
@@ -23,8 +28,6 @@ type RouteChunksDependencies = Pick<
   | "ensureApiKeyForWorkspace"
   | "ensureWorkspace"
   | "getCurrentUser"
-  | "loadChunkPageForSource"
-  | "loadChunksForSource"
   | "makeKnowhereClient"
   | "sourceService"
 >
@@ -85,41 +88,42 @@ const loadSourceChunksEffect = (
       return demoResult ?? sourceNotFound()
     }
 
-    const client = yield* Effect.tryPromise(() =>
-      getClientForWorkspace(workspace.id, input.cookieHeader, deps),
-    )
-    if (input.shouldLoadAll) {
-      const chunks = yield* deps.loadChunksForSource(source, client, {
-        workspaceId: workspace.id,
-        onRevisionKey: async (revisionKey) => {
-          await deps.sourceService.updateSourceRevisionKey(
-            workspace.id,
-            source.id,
-            revisionKey,
-          )
-        },
-      })
-      return routeResult.ok({ chunks })
+    // Reads never return zero chunks for a ready remote document; the SDK falls
+    // back to Knowhere when Blob storage is missing or stale. A source that is
+    // not yet ready has no published document to read.
+    if (source.status !== "ready" || !source.knowhereDocumentId) {
+      return sourceSnapshotProcessing(input)
     }
 
-    const assetUrlsByFilePath = yield* Effect.tryPromise(() =>
-      deps.sourceService.getParseAssetUrls(workspace.id, source.id),
+    const apiKey = yield* Effect.tryPromise(() =>
+      deps.ensureApiKeyForWorkspace(workspace.id, input.cookieHeader),
     )
-    const chunkPage = yield* deps.loadChunkPageForSource(
-      source,
-      client,
-      input.pageParams,
-      {
-        assetUrlsByFilePath,
-        workspaceId: workspace.id,
-        onRevisionKey: async (revisionKey) => {
-          await deps.sourceService.updateSourceRevisionKey(
-            workspace.id,
-            source.id,
-            revisionKey,
-          )
-        },
-      },
+    const knowledge = getKnowledgeForSource({
+      apiKey,
+      workspaceId: workspace.id,
+      sourceId: source.id,
+      documentId: source.knowhereDocumentId,
+      revisionKey: source.knowhereJobId,
+    })
+    const readableSource = {
+      documentId: source.knowhereDocumentId,
+      title: source.title,
+      revisionKey: source.knowhereJobId,
+    }
+
+    if (input.shouldLoadAll) {
+      const chunks = yield* Effect.tryPromise(() =>
+        readAllSourceChunks({ knowledge, source: readableSource }),
+      )
+      return routeResult.ok({ chunks: resolveChunkConnectionTargets(chunks) })
+    }
+
+    const chunkPage = yield* Effect.tryPromise(() =>
+      readSourceChunkPage({
+        knowledge,
+        source: readableSource,
+        params: input.pageParams,
+      }),
     )
     return routeResult.ok(chunkPage)
   })
@@ -136,6 +140,9 @@ const loadRemoteChunkPageEffect = (
 
     const workspace = yield* Effect.tryPromise(() =>
       deps.ensureWorkspace(user.id),
+    )
+    const apiKey = yield* Effect.tryPromise(() =>
+      deps.ensureApiKeyForWorkspace(workspace.id, input.cookieHeader),
     )
     const client = yield* Effect.tryPromise(() =>
       getClientForWorkspace(workspace.id, input.cookieHeader, deps),
@@ -159,35 +166,34 @@ const loadRemoteChunkPageEffect = (
         revisionKey: remoteDocument.revisionKey ?? null,
       }),
     )
+    const documentId = source.knowhereDocumentId ?? remoteDocument.documentId
 
-    if (input.shouldLoadAll) {
-      const chunks = yield* deps.loadChunksForSource(source, client, {
-        workspaceId: workspace.id,
-        onRevisionKey: async (revisionKey) => {
-          await deps.sourceService.updateSourceRevisionKey(
-            workspace.id,
-            source.id,
-            revisionKey,
-          )
-        },
-      })
-      return routeResult.ok({ chunks })
+    const knowledge = getKnowledgeForSource({
+      apiKey,
+      workspaceId: workspace.id,
+      sourceId: source.id,
+      documentId,
+      revisionKey: source.knowhereJobId ?? remoteDocument.revisionKey ?? null,
+    })
+    const readableSource = {
+      documentId,
+      title: source.title,
+      revisionKey: source.knowhereJobId ?? remoteDocument.revisionKey ?? null,
     }
 
-    const chunkPage = yield* deps.loadChunkPageForSource(
-      source,
-      client,
-      input.pageParams,
-      {
-        workspaceId: workspace.id,
-        onRevisionKey: async (revisionKey) => {
-          await deps.sourceService.updateSourceRevisionKey(
-            workspace.id,
-            source.id,
-            revisionKey,
-          )
-        },
-      },
+    if (input.shouldLoadAll) {
+      const chunks = yield* Effect.tryPromise(() =>
+        readAllSourceChunks({ knowledge, source: readableSource }),
+      )
+      return routeResult.ok({ chunks: resolveChunkConnectionTargets(chunks) })
+    }
+
+    const chunkPage = yield* Effect.tryPromise(() =>
+      readSourceChunkPage({
+        knowledge,
+        source: readableSource,
+        params: input.pageParams,
+      }),
     )
     return routeResult.ok(chunkPage)
   })
@@ -292,6 +298,43 @@ function getErrorMessage(error: unknown): string {
 
 function sourceNotFound(): JsonRouteResult<{ readonly message: string }> {
   return routeResult.error(404, "Source not found.")
+}
+
+function sourceSnapshotProcessing(
+  input: LoadSourceChunksInput,
+): JsonRouteResult<{
+  readonly chunks: []
+  readonly pagination?: {
+    readonly page: number
+    readonly pageSize: number
+    readonly total: 0
+    readonly totalPages: 0
+  }
+  readonly message: string
+}> {
+  if (input.shouldLoadAll) {
+    return routeResult.ok(
+      {
+        chunks: [],
+        message: "Source is still being prepared.",
+      },
+      202,
+    )
+  }
+
+  return routeResult.ok(
+    {
+      chunks: [],
+      pagination: {
+        page: input.pageParams.page,
+        pageSize: input.pageParams.pageSize,
+        total: 0,
+        totalPages: 0,
+      },
+      message: "Source is still being prepared.",
+    },
+    202,
+  )
 }
 
 export { createRouteChunks }

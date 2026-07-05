@@ -38,6 +38,8 @@ import {
   enrichRetrievalResultsWithAssetUrls,
   removeRetrievedMediaAssetUrls,
 } from "./media-assets"
+import { enrichRetrievalResultsWithPageCitationAssetUrls } from "./page-citation-assets"
+import type { HardenableRetrievalResult } from "./media-asset-hardening"
 
 const DEFAULT_TOP_K = 8
 const MAX_AGENTIC_TOP_K = 12
@@ -244,11 +246,18 @@ export const answerQuestionWithRetrieval = (
         evidenceText: formatRetrievalEvidenceText(retrievalResponses),
       }),
     )
+    const pageCitationResults = yield* Effect.tryPromise(() =>
+      enrichRetrievalResultsWithPageCitationAssetUrls({
+        results: enrichedResults,
+        sources: input.sources,
+        loadSourceAssetUrls: input.loadSourceAssetUrls,
+      }),
+    )
     const artifacts = toChatArtifactViewsFromHarness(generatedAnswer, input.sources)
     const hardenedMedia = yield* Effect.tryPromise(() =>
       hardenAnswerMediaAssetUrls({
         input,
-        results: enrichedResults,
+        results: pageCitationResults,
         artifacts,
       }),
     )
@@ -257,21 +266,21 @@ export const answerQuestionWithRetrieval = (
       results: getGeneratedAnswerSanitizerResults({
         rawResults,
         enrichedResults,
+        pageCitationResults,
         hardenedResults: hardenedMedia.results,
         artifacts,
         hardenedArtifacts: hardenedMedia.artifacts,
       }),
     })
-    const citationResults = hardenedMedia.results
     const displayArtifacts = hardenedMedia.artifacts ?? []
     logger.info("chat-agent: answer complete", {
       answerLength: answer.length,
-      citationCount: citationResults.length,
+      citationCount: hardenedMedia.results.length,
       artifactCount: displayArtifacts.length,
     })
     return {
       answer,
-      citations: toChatCitationViews(citationResults, answer),
+      citations: toChatCitationViews(hardenedMedia.results, answer),
       artifacts: displayArtifacts,
     }
   })
@@ -416,7 +425,7 @@ function normalizeHarnessSource(
 
 type AnswerMediaAssetHardeningInput = {
   readonly input: AnswerQuestionInput
-  readonly results: readonly RetrievalResult[]
+  readonly results: readonly HardenableRetrievalResult[]
   readonly artifacts?: readonly ChatArtifactView[]
 }
 
@@ -425,7 +434,7 @@ async function hardenAnswerMediaAssetUrls({
   results,
   artifacts,
 }: AnswerMediaAssetHardeningInput): Promise<{
-  readonly results: RetrievalResult[]
+  readonly results: HardenableRetrievalResult[]
   readonly artifacts?: ChatArtifactView[]
 }> {
   if (!input.hardenMediaAssetUrls) {
@@ -456,7 +465,8 @@ async function hardenAnswerMediaAssetUrls({
 type GeneratedAnswerSanitizerResultsInput = {
   readonly rawResults: readonly RetrievalResult[]
   readonly enrichedResults: readonly RetrievalResult[]
-  readonly hardenedResults: readonly RetrievalResult[]
+  readonly pageCitationResults: readonly HardenableRetrievalResult[]
+  readonly hardenedResults: readonly HardenableRetrievalResult[]
   readonly artifacts?: readonly ChatArtifactView[]
   readonly hardenedArtifacts?: readonly ChatArtifactView[]
 }
@@ -464,6 +474,7 @@ type GeneratedAnswerSanitizerResultsInput = {
 function getGeneratedAnswerSanitizerResults({
   rawResults,
   enrichedResults,
+  pageCitationResults,
   hardenedResults,
   artifacts,
   hardenedArtifacts,
@@ -471,10 +482,30 @@ function getGeneratedAnswerSanitizerResults({
   return [
     ...rawResults,
     ...enrichedResults,
+    ...toPageCitationSanitizerResults(pageCitationResults),
     ...hardenedResults,
+    ...toPageCitationSanitizerResults(hardenedResults),
     ...toArtifactSanitizerResults(artifacts),
     ...toArtifactSanitizerResults(hardenedArtifacts),
   ]
+}
+
+function toPageCitationSanitizerResults(
+  results: readonly HardenableRetrievalResult[],
+): RetrievalResult[] {
+  return results.flatMap((result): RetrievalResult[] => {
+    if (!result.pageCitationAssetUrl) return []
+
+    return [
+      {
+        content: result.content,
+        chunkType: result.chunkType,
+        score: result.score,
+        assetUrl: result.pageCitationAssetUrl,
+        source: result.source,
+      },
+    ]
+  })
 }
 
 function toArtifactSanitizerResults(
@@ -495,6 +526,15 @@ function toArtifactSanitizerResults(
       results.push(
         toArtifactSanitizerResult({
           assetUrl: artifact.citation.assetUrl,
+          artifact,
+          citation: artifact.citation,
+        }),
+      )
+    }
+    if (artifact.citation?.pageCitationAssetUrl) {
+      results.push(
+        toArtifactSanitizerResult({
+          assetUrl: artifact.citation.pageCitationAssetUrl,
           artifact,
           citation: artifact.citation,
         }),
@@ -792,17 +832,7 @@ function mapManifestCitationsToResults(
       resolveChunkForAssetRef(citation.ref, assetsByRef, chunksByRef)
     if (!chunk) continue
 
-    const retrievalResult: RetrievalResult = {
-      content: chunk.content,
-      chunkType: chunk.chunkType,
-      score: chunk.score,
-      ...(chunk.assetUrl ? { assetUrl: chunk.assetUrl } : {}),
-      source: {
-        documentId: chunk.source.documentId ?? undefined,
-        sourceFileName: chunk.source.sourceFileName ?? undefined,
-        sectionPath: chunk.source.sectionPath ?? undefined,
-      },
-    }
+    const retrievalResult = toRetrievalResultFromEvidenceChunk(chunk)
     const key = getRetrievalResultKey(retrievalResult)
     if (seenKeys.has(key)) continue
 
@@ -889,10 +919,14 @@ function toRetrievalResultFromEvidenceChunk(
   chunk: EvidenceChunk,
 ): RetrievalResult {
   return {
+    ...(chunk.chunkId ? { chunkId: chunk.chunkId } : {}),
     content: chunk.content,
     chunkType: chunk.chunkType,
     score: chunk.score,
     ...(chunk.assetUrl ? { assetUrl: chunk.assetUrl } : {}),
+    ...(chunk.sourceChunkPath ? { sourceChunkPath: chunk.sourceChunkPath } : {}),
+    ...(chunk.filePath ? { filePath: chunk.filePath } : {}),
+    ...(chunk.metadata ? { metadata: chunk.metadata } : {}),
     source: {
       documentId: chunk.source.documentId ?? undefined,
       sourceFileName: chunk.source.sourceFileName ?? undefined,
@@ -921,10 +955,14 @@ function collectRetrievalResults(
     for (const result of [
       ...response.results,
       ...response.referencedChunks.map((chunk): RetrievalResult => ({
+        chunkId: chunk.chunkId,
         content: "",
         chunkType: chunk.chunkType,
         score: null,
         ...(chunk.assetUrl ? { assetUrl: chunk.assetUrl } : {}),
+        ...(chunk.sourceChunkPath ? { sourceChunkPath: chunk.sourceChunkPath } : {}),
+        ...(chunk.filePath ? { filePath: chunk.filePath } : {}),
+        ...(chunk.metadata ? { metadata: chunk.metadata } : {}),
         source: {
           documentId: chunk.documentId,
           sourceFileName: sourceTitlesByDocumentId.get(chunk.documentId),

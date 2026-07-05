@@ -232,6 +232,7 @@ function makeSource(
     sizeBytes: 5648867,
     status: "ready",
     failureReason: null,
+    failureStage: null,
     knowhereJobId: null,
     knowhereDocumentId: "doc_user_copy",
     stagedBlobPathname: null,

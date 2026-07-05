@@ -647,6 +647,7 @@ function makeSource(
     sizeBytes: 1024,
     status: "ready",
     failureReason: null,
+    failureStage: null,
     knowhereJobId: "job_1",
     knowhereDocumentId: "document_1",
     stagedBlobPathname: null,

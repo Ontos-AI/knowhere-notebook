@@ -14,6 +14,7 @@ function makeSource(overrides: Partial<Source> = {}): Source {
     sizeBytes: 1,
     status: "ready",
     failureReason: null,
+    failureStage: null,
     knowhereJobId: "job_1",
     knowhereDocumentId: "doc_1",
     stagedBlobPathname: null,
@@ -29,10 +30,8 @@ function makeSource(overrides: Partial<Source> = {}): Source {
 }
 
 describe("countChunksBySourceId", () => {
-  it("counts chunks only for ready sources with a Knowhere document id", async () => {
-    const listChunks = vi.fn().mockResolvedValue({
-      pagination: { total: 12 },
-    })
+  it("counts ready source chunks from the document total", async () => {
+    const listChunks = vi.fn(async () => ({ pagination: { total: 12 } }))
     const mockClient = {
       documents: { listChunks },
     } as unknown as Knowhere
@@ -43,14 +42,18 @@ describe("countChunksBySourceId", () => {
       countChunksBySourceId(
         [
           makeSource({ id: "ready", knowhereDocumentId: "doc_ready" }),
-          makeSource({ id: "parsing", status: "parsing", knowhereDocumentId: null }),
+          makeSource({
+            id: "parsing",
+            status: "parsing",
+            knowhereDocumentId: null,
+          }),
           makeSource({ id: "missing-doc", knowhereDocumentId: null }),
         ],
         mockClient,
       ),
     )
 
-    expect(listChunks).toHaveBeenCalledOnce()
+    expect(listChunks).toHaveBeenCalledTimes(1)
     expect(listChunks).toHaveBeenCalledWith("doc_ready", {
       page: 1,
       pageSize: 1,
@@ -58,8 +61,10 @@ describe("countChunksBySourceId", () => {
     expect(counts).toEqual(new Map([["ready", 12]]))
   })
 
-  it("skips a source count when Knowhere chunks lookup fails", async () => {
-    const listChunks = vi.fn().mockRejectedValue(new Error("temporary outage"))
+  it("skips a source count when the document total lookup fails", async () => {
+    const listChunks = vi.fn(async () => {
+      throw new Error("temporary outage")
+    })
     const mockClient = {
       documents: { listChunks },
     } as unknown as Knowhere
@@ -74,6 +79,7 @@ describe("countChunksBySourceId", () => {
     )
 
     expect(counts.size).toBe(0)
+    expect(listChunks).toHaveBeenCalledTimes(1)
   })
 
   it("does not count materialized demo sources through their copied document id", async () => {

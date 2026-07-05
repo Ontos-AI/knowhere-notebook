@@ -1,15 +1,27 @@
 import "server-only"
 
-import { Effect, Either } from "effect"
+import { Effect } from "effect"
 import type Knowhere from "@ontos-ai/knowhere-sdk"
 
 import type { Source } from "@/infrastructure/db/schema"
+
+type CountChunksClient = {
+  readonly documents: {
+    listChunks(
+      documentId: string,
+      params: { readonly page: number; readonly pageSize: number },
+    ): Promise<{
+      readonly pagination?: { readonly total?: number }
+    }>
+  }
+}
 
 export const countChunksBySourceId = (
   sources: readonly Source[],
   client: Knowhere,
 ) =>
   Effect.gen(function* () {
+    const countClient = client as unknown as CountChunksClient
     const readySources = sources.filter(
       (source) =>
         !source.demoKey &&
@@ -21,24 +33,10 @@ export const countChunksBySourceId = (
     const entries = yield* Effect.all(
       readySources.map((source) =>
         Effect.gen(function* () {
-          const documentId = source.knowhereDocumentId
-          if (!documentId) return [source.id, undefined] as const
-
-          const result = yield* Effect.either(
-            Effect.tryPromise(() =>
-              client.documents.listChunks(documentId, {
-                page: 1,
-                pageSize: 1,
-              }),
-            ),
-          )
-
-          if (Either.isLeft(result)) return [source.id, undefined] as const
-
-          return [
-            source.id,
-            result.right.pagination.total,
-          ] as const
+          const total = yield* Effect.tryPromise(() =>
+            loadSourceChunkCount(countClient, source.knowhereDocumentId!),
+          ).pipe(Effect.catchAll(() => Effect.succeed<number | undefined>(undefined)))
+          return [source.id, total] as const
         }),
       ),
       { concurrency: "unbounded" },
@@ -65,3 +63,15 @@ export const sourceViewOptionsBySourceId = (
       ]),
     )
   })
+
+async function loadSourceChunkCount(
+  client: CountChunksClient,
+  documentId: string,
+): Promise<number | undefined> {
+  const response = await client.documents.listChunks(documentId, {
+    page: 1,
+    pageSize: 1,
+  })
+  const total = response.pagination?.total
+  return typeof total === "number" && Number.isFinite(total) ? total : undefined
+}

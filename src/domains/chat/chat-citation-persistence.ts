@@ -86,6 +86,7 @@ function toCitationView(
     chunkType: citation.chunkType,
     score: citation.score,
     assetUrl: citation.assetUrl,
+    pageCitationAssetUrl: citation.pageCitationAssetUrl,
     description: "description" in citation ? citation.description : undefined,
     source: {
       documentId: citation.source.documentId,

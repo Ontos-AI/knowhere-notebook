@@ -1,11 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import type { RetrievalResult } from "@ontos-ai/knowhere-sdk"
 
 import type { Source } from "@/infrastructure/db/schema"
 import {
   hardenChatMediaAssetUrls,
-  type ChatMediaAssetBlobStore,
-  type FetchChatMediaAsset,
+  isNotebookOwnedAssetUrl,
+  type HardenableRetrievalResult,
 } from "./media-asset-hardening"
 
 const loggerMock = vi.hoisted(() => ({
@@ -20,68 +19,42 @@ vi.mock("@/lib/logger", () => ({
 
 afterEach(() => {
   vi.clearAllMocks()
-  delete process.env.KNOWHERE_BASE_URL
 })
 
 describe("hardenChatMediaAssetUrls", () => {
-  it("copies upstream absolute asset URLs into Notebook chat assets", async () => {
-    const rawAssetUrl =
-      "https://knowhere-storage.example/results/job_1/images/image-6-%E6%83%85%E6%84%9F%E5%88%86%E7%B1%BB%E6%A8%A1%E5%9E%8B.jpg?AWSAccessKeyId=test&Signature=secret"
-    const blobStore = makeBlobStore(
-      "https://blob.example/workspaces/workspace_1/chat-assets/source-source_1/image-6.jpg",
-    )
-    const fetchAsset = makeFetchAsset("image-bytes", "image/jpeg")
+  it("keeps an already Notebook-owned asset URL without loading the asset map", async () => {
+    const ownedUrl =
+      "https://fake.public.blob.vercel-storage.com/workspaces/workspace_1/parsed-documents/doc_1/rev_1/assets/images/a.png"
+    const loadSourceAssetUrls = vi.fn(async () => ({}))
 
     const result = await hardenChatMediaAssetUrls({
       workspaceId: "workspace_1",
-      sources: [
-        makeSource({
-          id: "source_1",
-          knowhereDocumentId: "doc_model",
-        }),
-      ],
+      sources: [makeSource({ id: "source_1", knowhereDocumentId: "doc_1" })],
       results: [
         makeRetrievalResult({
           chunkType: "image",
-          assetUrl: rawAssetUrl,
+          assetUrl: ownedUrl,
           source: {
-            documentId: "doc_model",
+            documentId: "doc_1",
             sourceFileName: "model.pdf",
             sectionPath: "Root",
           },
         }),
       ],
-      blobStore,
-      fetchAsset,
+      loadSourceAssetUrls,
     })
 
-    expect(fetchAsset).toHaveBeenCalledWith(rawAssetUrl)
-    expect(blobStore.put).toHaveBeenCalledWith(
-      expect.stringMatching(
-        /^workspaces\/workspace_1\/chat-assets\/source-source_1\/[a-f0-9]{24}-image-6\.jpg$/,
-      ),
-      expect.any(Buffer),
-      {
-        access: "public",
-        allowOverwrite: true,
-        contentType: "image/jpeg",
-        multipart: true,
-      },
-    )
-    expect(result.results[0]?.assetUrl).toBe(
-      "https://blob.example/workspaces/workspace_1/chat-assets/source-source_1/image-6.jpg",
-    )
+    expect(result.results[0]?.assetUrl).toBe(ownedUrl)
+    expect(loadSourceAssetUrls).not.toHaveBeenCalled()
   })
 
-  it("uses an existing parsed asset URL before fetching the upstream URL", async () => {
+  it("resolves a raw asset URL to the durable parsed asset URL", async () => {
     const rawAssetUrl =
       "https://knowhere-storage.example/results/job_1/images/id-front.jpg?AWSAccessKeyId=test"
-    const parsedAssetUrl =
-      "https://blob.example/workspaces/workspace_1/sources/source_identity/parsed-result/images/id-front.jpg"
-    const blobStore = makeBlobStore("https://blob.example/should-not-upload.jpg")
-    const fetchAsset = makeFetchAsset("should-not-fetch", "image/jpeg")
+    const durableUrl =
+      "https://fake.public.blob.vercel-storage.com/workspaces/workspace_1/parsed-documents/doc_identity/rev_1/assets/images/id-front.jpg"
     const loadSourceAssetUrls = vi.fn().mockResolvedValue({
-      "images/id-front.jpg": parsedAssetUrl,
+      "images/id-front.jpg": durableUrl,
     })
 
     const result = await hardenChatMediaAssetUrls({
@@ -104,99 +77,49 @@ describe("hardenChatMediaAssetUrls", () => {
         }),
       ],
       loadSourceAssetUrls,
-      blobStore,
-      fetchAsset,
     })
 
     expect(loadSourceAssetUrls).toHaveBeenCalledWith(
       expect.objectContaining({ id: "source_identity" }),
     )
-    expect(fetchAsset).not.toHaveBeenCalled()
-    expect(blobStore.put).not.toHaveBeenCalled()
-    expect(result.results[0]?.assetUrl).toBe(parsedAssetUrl)
+    expect(result.results[0]?.assetUrl).toBe(durableUrl)
   })
 
-  it("fetches demo asset routes from the upstream demo API", async () => {
-    process.env.KNOWHERE_BASE_URL = "https://knowhere.example"
-    const demoAssetUrl =
-      "/api/demo-sources/demo_source_1/assets/images/demo%20chart.png"
-    const blobStore = makeBlobStore(
-      "https://blob.example/workspaces/workspace_1/chat-assets/demo-demo_source_1/demo-chart.png",
-    )
-    const fetchAsset = makeFetchAsset("demo-image", "image/png")
-
-    const result = await hardenChatMediaAssetUrls({
-      workspaceId: "workspace_1",
-      sources: [],
-      results: [
-        makeRetrievalResult({
-          chunkType: "image",
-          assetUrl: demoAssetUrl,
-          source: {
-            documentId: "demo_doc",
-            sourceFileName: "demo.pdf",
-            sectionPath: "images/demo chart.png",
-          },
-        }),
-      ],
-      blobStore,
-      fetchAsset,
-    })
-
-    expect(fetchAsset).toHaveBeenCalledWith(
-      "https://knowhere.example/api/v1/demo/sources/demo_source_1/assets/images/demo%20chart.png",
-    )
-    expect(fetchAsset).not.toHaveBeenCalledWith(demoAssetUrl)
-    expect(blobStore.put).toHaveBeenCalledWith(
-      expect.stringContaining("/chat-assets/demo-demo_source_1/"),
-      expect.any(Buffer),
-      expect.objectContaining({ contentType: "image/png" }),
-    )
-    expect(result.results[0]?.assetUrl).toBe(
-      "https://blob.example/workspaces/workspace_1/chat-assets/demo-demo_source_1/demo-chart.png",
-    )
-  })
-
-  it("falls back to the raw URL when hardening fails", async () => {
+  it("omits an asset URL that cannot be resolved to a durable URL", async () => {
     const rawAssetUrl =
       "https://knowhere-storage.example/results/job_1/tables/table-1.html?AWSAccessKeyId=test"
-    const blobStore = makeBlobStore("https://blob.example/should-not-exist.html")
-    const fetchAsset: FetchChatMediaAsset = vi
-      .fn()
-      .mockRejectedValue(new Error("expired URL"))
+    const loadSourceAssetUrls = vi.fn().mockResolvedValue({})
 
     const result = await hardenChatMediaAssetUrls({
       workspaceId: "workspace_1",
-      sources: [],
+      sources: [
+        makeSource({ id: "source_1", knowhereDocumentId: "doc_1" }),
+      ],
       results: [
         makeRetrievalResult({
           chunkType: "table",
           assetUrl: rawAssetUrl,
+          source: {
+            documentId: "doc_1",
+            sourceFileName: "source.pdf",
+            sectionPath: "tables/table-1.html",
+          },
         }),
       ],
-      blobStore,
-      fetchAsset,
+      loadSourceAssetUrls,
     })
 
-    expect(result.results[0]?.assetUrl).toBe(rawAssetUrl)
-    expect(blobStore.put).not.toHaveBeenCalled()
-    expect(loggerMock.warn).toHaveBeenCalledWith(
-      "chat-agent: media asset hardening failed; keeping raw URL",
-      expect.objectContaining({
-        assetUrl:
-          "https://knowhere-storage.example/results/job_1/tables/table-1.html",
-        error: "expired URL",
-      }),
-    )
+    expect(result.results[0]?.assetUrl).toBeUndefined()
   })
 
-  it("rewrites artifact asset URLs and nested citation asset URLs", async () => {
+  it("resolves an artifact asset URL and its nested citation URL", async () => {
     const rawAssetUrl =
       "https://knowhere-storage.example/results/job_1/images/front.jpg?AWSAccessKeyId=test"
-    const blobAssetUrl =
-      "https://blob.example/workspaces/workspace_1/chat-assets/source-source_identity/front.jpg"
-    const blobStore = makeBlobStore(blobAssetUrl)
-    const fetchAsset = makeFetchAsset("front-image", "image/jpeg")
+    const durableUrl =
+      "https://fake.public.blob.vercel-storage.com/workspaces/workspace_1/parsed-documents/doc_identity/rev_1/assets/images/front.jpg"
+    const loadSourceAssetUrls = vi.fn().mockResolvedValue({
+      "images/front.jpg": durableUrl,
+    })
 
     const result = await hardenChatMediaAssetUrls({
       workspaceId: "workspace_1",
@@ -225,40 +148,38 @@ describe("hardenChatMediaAssetUrls", () => {
           },
         },
       ],
-      blobStore,
-      fetchAsset,
+      loadSourceAssetUrls,
     })
 
     const [artifact] = result.artifacts ?? []
-    expect(fetchAsset).toHaveBeenCalledTimes(1)
-    expect(artifact?.assetUrl).toBe(blobAssetUrl)
-    expect(artifact?.citation?.assetUrl).toBe(blobAssetUrl)
+    expect(artifact?.assetUrl).toBe(durableUrl)
+    expect(artifact?.citation?.assetUrl).toBe(durableUrl)
   })
 })
 
-function makeFetchAsset(
-  body: string,
-  contentType: string,
-): FetchChatMediaAsset {
-  return vi.fn().mockResolvedValue(
-    new Response(Buffer.from(body), {
-      status: 200,
-      headers: {
-        "content-type": contentType,
-      },
-    }),
-  )
-}
-
-function makeBlobStore(url: string): ChatMediaAssetBlobStore {
-  return {
-    put: vi.fn().mockResolvedValue({ url }),
-  }
-}
+describe("isNotebookOwnedAssetUrl", () => {
+  it("treats Vercel Blob hosts and parsed-document paths as owned", () => {
+    expect(
+      isNotebookOwnedAssetUrl(
+        "https://fake.public.blob.vercel-storage.com/x/y.png",
+      ),
+    ).toBe(true)
+    expect(
+      isNotebookOwnedAssetUrl(
+        "https://cdn.example/workspaces/w/parsed-documents/d/r/assets/a.png",
+      ),
+    ).toBe(true)
+    expect(
+      isNotebookOwnedAssetUrl(
+        "https://knowhere-storage.example/results/job_1/images/a.png?sig=x",
+      ),
+    ).toBe(false)
+  })
+})
 
 function makeRetrievalResult(
-  overrides: Partial<RetrievalResult> = {},
-): RetrievalResult {
+  overrides: Partial<HardenableRetrievalResult> = {},
+): HardenableRetrievalResult {
   return {
     content: "Asset evidence",
     chunkType: "text",
@@ -281,6 +202,7 @@ function makeSource(overrides: Partial<Source> = {}): Source {
     sizeBytes: 100,
     status: "ready",
     failureReason: null,
+    failureStage: null,
     knowhereJobId: "job_123",
     knowhereDocumentId: "doc_1",
     stagedBlobPathname: null,

@@ -298,6 +298,7 @@ function makeSource(overrides: Partial<Source> = {}): Source {
     sizeBytes: 100,
     status: "ready",
     failureReason: null,
+    failureStage: null,
     knowhereJobId: "job_1",
     knowhereDocumentId: "doc_1",
     stagedBlobPathname: null,
