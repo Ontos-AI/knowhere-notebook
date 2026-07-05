@@ -301,7 +301,7 @@ describe("source route service", () => {
         mimeType: "application/pdf",
         status: "ready",
         documentId: "doc_default",
-        excludedFromQuery: true,
+        excludedFromQuery: false,
       },
       {
         id: "knowhere-doc:notebook-workspace_1:doc_legacy",
@@ -311,7 +311,7 @@ describe("source route service", () => {
         mimeType: "application/octet-stream",
         status: "ready",
         documentId: "doc_legacy",
-        excludedFromQuery: true,
+        excludedFromQuery: false,
       },
     ]);
   });

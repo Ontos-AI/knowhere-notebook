@@ -66,7 +66,7 @@ describe("answerQuestionWithRetrieval", () => {
         question: "What does the document say?",
         namespace: "notebook-workspace",
         sources,
-        excludedSourceIds: ["source_2"],
+        excludedSourceIds: ["source_2", "knowhere-doc:default:doc_remote"],
         retrieval,
         generateAnswer,
         messages: [],
@@ -79,13 +79,13 @@ describe("answerQuestionWithRetrieval", () => {
       topK: 8,
       useAgentic: true,
       dataType: 1,
-      excludeDocumentIds: ["doc_excluded"],
+      excludeDocumentIds: ["doc_excluded", "doc_remote"],
     });
     expect(generateAnswer).toHaveBeenCalledWith({
       question: "What does the document say?",
       messages: [],
       sources,
-      excludedSourceIds: ["source_2"],
+      excludedSourceIds: ["source_2", "knowhere-doc:default:doc_remote"],
       searchSources: expect.any(Function),
     });
     expect(answer).toEqual({

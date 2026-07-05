@@ -1,6 +1,7 @@
 import type { RetrievalQueryParams } from "@ontos-ai/knowhere-sdk"
 
 import type { Source } from "@/infrastructure/db/schema"
+import { decodeRemoteSourceId } from "@/domains/sources/remote-library"
 
 const RETRIEVAL_QUERY_CHAR_LIMIT = 600
 
@@ -25,10 +26,16 @@ export function excludeDocuments(
   excludedSourceIds: readonly string[],
 ): Pick<RetrievalQueryParams, "excludeDocumentIds"> {
   const excluded = new Set(excludedSourceIds)
-  const documentIds = sources
+  const localDocumentIds = sources
     .filter((source) => excluded.has(source.id))
     .map((source) => source.knowhereDocumentId)
     .filter((documentId): documentId is string => Boolean(documentId))
+  const remoteDocumentIds = excludedSourceIds
+    .map((sourceId) => decodeRemoteSourceId(sourceId)?.documentId)
+    .filter((documentId): documentId is string => Boolean(documentId))
+  const documentIds = Array.from(
+    new Set([...localDocumentIds, ...remoteDocumentIds]),
+  )
 
   return documentIds.length > 0 ? { excludeDocumentIds: documentIds } : {}
 }

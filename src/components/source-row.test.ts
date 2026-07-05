@@ -49,6 +49,44 @@ describe("SourceRow", () => {
     expect(screen.getByText("Processed · 3 chunks")).toBeTruthy();
   });
 
+  it("labels unlocalized remote documents as processed without chunk counts", () => {
+    const onToggleIncluded = vi.fn();
+
+    render(
+      React.createElement(SourceRow, {
+        isArchiving: false,
+        isSelected: false,
+        onSelect: vi.fn(),
+        onToggleIncluded,
+        source: {
+          id: "knowhere-doc:default:doc_remote",
+          kind: "remote",
+          mimeType: "application/pdf",
+          title: "remote.pdf",
+          status: "ready",
+          chunkCount: 4,
+          documentId: "doc_remote",
+          excludedFromQuery: false,
+        },
+      }),
+    );
+
+    const checkbox = screen.getByRole("checkbox", {
+      name: "Use remote.pdf in answers",
+    });
+
+    expect(screen.getByText("Processed")).toBeTruthy();
+    expect(screen.queryByText("Processed · 4 chunks")).toBeNull();
+    expect(checkbox.getAttribute("aria-checked")).toBe("true");
+
+    fireEvent.click(checkbox);
+
+    expect(onToggleIncluded).toHaveBeenCalledWith(
+      "knowhere-doc:default:doc_remote",
+      false,
+    );
+  });
+
   it("shows source archive loading locally", () => {
     render(
       React.createElement(SourceRow, {

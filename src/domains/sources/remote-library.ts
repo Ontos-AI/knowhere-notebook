@@ -280,7 +280,7 @@ function toRemoteSourceView(document: RemoteDocument): SourceView {
     mimeType: document.mimeType ?? "application/octet-stream",
     status: document.status,
     documentId: document.documentId,
-    excludedFromQuery: true,
+    excludedFromQuery: false,
   }
 }
 
