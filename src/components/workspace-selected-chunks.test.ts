@@ -161,6 +161,58 @@ describe("useWorkspaceSelectedChunks", () => {
     expect(result.current.selectedChunks).toEqual([]);
   });
 
+  it("requests a source refresh after loading an unlocalized remote source", async () => {
+    const onRemoteSourceChunksLoaded = vi.fn();
+    const remoteSource: SourceView = {
+      ...readySource,
+      id: "knowhere-doc:default:doc_remote",
+      kind: "remote",
+      documentId: "doc_remote",
+      excludedFromQuery: false,
+    };
+    fetchChunkPageMock.mockResolvedValue({
+      chunks: [
+        {
+          chunkId: "chunk_1",
+          type: "text",
+          content: "Remote content",
+          sourceTitle: "Remote.pdf",
+        },
+      ],
+      pagination: {
+        page: 1,
+        pageSize: 50,
+        total: 1,
+        totalPages: 1,
+      },
+    });
+
+    const { rerender } = renderHook(
+      (input: {
+        readonly onRemoteSourceChunksLoaded: (sourceId: string) => void;
+      }) =>
+        useWorkspaceSelectedChunks({
+          selectedSourceId: "knowhere-doc:default:doc_remote",
+          sources: [remoteSource],
+          prefetchedChunksBySourceId: {},
+          onRemoteSourceChunksLoaded: input.onRemoteSourceChunksLoaded,
+        }),
+      {
+        initialProps: { onRemoteSourceChunksLoaded },
+        wrapper: createSWRWrapper,
+      },
+    );
+
+    await waitFor(() =>
+      expect(onRemoteSourceChunksLoaded).toHaveBeenCalledWith(
+        "knowhere-doc:default:doc_remote",
+      ),
+    );
+
+    rerender({ onRemoteSourceChunksLoaded });
+    expect(onRemoteSourceChunksLoaded).toHaveBeenCalledTimes(1);
+  });
+
   it("returns an empty chunk list when no source is selected", () => {
     const { result } = renderHook(
       () =>

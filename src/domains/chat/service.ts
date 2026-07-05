@@ -67,7 +67,7 @@ type ChatTurnInput = {
   excludedSourceIds: readonly string[]
   retrieval: RetrievalClient
   generateAnswer: GenerateAnswer
-  loadSourceAssetUrls?: AnswerQuestionInput["loadSourceAssetUrls"]
+  hardenChatAssetUrl?: AnswerQuestionInput["hardenChatAssetUrl"]
   hardenMediaAssetUrls?: AnswerQuestionInput["hardenMediaAssetUrls"]
   repository: ChatRepository
 }
@@ -126,7 +126,7 @@ export const handleChatTurnEffect = (input: ChatTurnInput) =>
       excludedSourceIds: input.excludedSourceIds,
       retrieval: input.retrieval,
       generateAnswer: input.generateAnswer,
-      loadSourceAssetUrls: input.loadSourceAssetUrls,
+      hardenChatAssetUrl: input.hardenChatAssetUrl,
       hardenMediaAssetUrls: input.hardenMediaAssetUrls,
       messages: chatHistoryMessages,
     }).pipe(Effect.catchAllCause(Effect.die))

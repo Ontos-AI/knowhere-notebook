@@ -21,6 +21,7 @@ type PrefetchedChunksUpdater = (
 type WorkspaceCitationFocusInput = {
   readonly fetchChunks: (sourceId: string) => Promise<ParsedChunkView[]>
   readonly initialPrefetchedChunksBySourceId?: PrefetchedChunksBySourceId
+  readonly onRemoteSourceChunksLoaded?: (sourceId: string) => void
   readonly onSelectSource: (sourceId: string | null) => void
   readonly selectedSourceId: string | null
   readonly sources: readonly SourceView[]
@@ -51,6 +52,7 @@ type WorkspaceCitationFocus = {
 export function useWorkspaceCitationFocus({
   fetchChunks,
   initialPrefetchedChunksBySourceId = {},
+  onRemoteSourceChunksLoaded,
   onSelectSource,
   selectedSourceId,
   sources,
@@ -88,6 +90,7 @@ export function useWorkspaceCitationFocus({
     selectedSourceId,
     sources,
     prefetchedChunksBySourceId,
+    onRemoteSourceChunksLoaded,
   })
 
   const requestChunkFocus = useCallback(

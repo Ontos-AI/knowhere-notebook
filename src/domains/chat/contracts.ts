@@ -10,7 +10,7 @@ import type {
   ChatCitationView,
 } from "@/domains/chat/types"
 import type { HardenMediaAssetUrls } from "./media-asset-hardening"
-import type { LoadSourceAssetUrls } from "./media-assets"
+import type { HardenChatAssetUrl } from "./media-assets"
 
 export type RetrievalClient = {
   query(params: RetrievalQueryParams): Promise<RetrievalQueryResponse>
@@ -67,7 +67,7 @@ export type AnswerQuestionInput = {
   excludedSourceIds: readonly string[]
   retrieval: RetrievalClient
   generateAnswer: GenerateAnswer
-  loadSourceAssetUrls?: LoadSourceAssetUrls
+  hardenChatAssetUrl?: HardenChatAssetUrl
   hardenMediaAssetUrls?: HardenMediaAssetUrls
   messages: readonly ChatHistoryMessage[]
 }

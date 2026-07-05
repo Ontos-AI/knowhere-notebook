@@ -83,6 +83,27 @@ describe("workspaceSourceState", () => {
     ).toBe("source_target");
   });
 
+  it("keeps a localized remote document selected after source refresh", () => {
+    const sources: readonly SourceView[] = [
+      {
+        id: "source_localized",
+        kind: "workspace",
+        title: "remote.pdf",
+        status: "ready",
+        mimeType: "application/pdf",
+        documentId: "doc_remote",
+        excludedFromQuery: false,
+      },
+    ];
+
+    expect(
+      workspaceSourceState.getResolvedSelectedSourceId(
+        sources,
+        "knowhere-doc:default:doc_remote",
+      ),
+    ).toBe("source_localized");
+  });
+
   it("applies source query exclusions without mutating the source list", () => {
     const sources: readonly SourceView[] = [
       {

@@ -74,6 +74,15 @@ function getResolvedSelectedSourceId(
     return selectedSource.id
   }
 
+  const selectedDocumentId = getRemoteSourceDocumentId(selectedSourceId)
+  if (selectedDocumentId) {
+    const localizedSource = sources.find(
+      (source) =>
+        source.documentId === selectedDocumentId && isReadySource(source),
+    )
+    if (localizedSource) return localizedSource.id
+  }
+
   return getFirstReadySourceId(sources)
 }
 
@@ -132,6 +141,20 @@ function removeRecordKey<T>(
     if (recordKey !== key) remaining[recordKey] = value
   })
   return remaining
+}
+
+function getRemoteSourceDocumentId(sourceId: string | null): string | null {
+  if (!sourceId) return null
+
+  const parts = sourceId.split(":")
+  if (parts.length !== 3 || parts[0] !== "knowhere-doc") return null
+
+  try {
+    const documentId = decodeURIComponent(parts[2] ?? "")
+    return documentId.length > 0 ? documentId : null
+  } catch {
+    return null
+  }
 }
 
 export const workspaceSourceState: WorkspaceSourceStateModule = {

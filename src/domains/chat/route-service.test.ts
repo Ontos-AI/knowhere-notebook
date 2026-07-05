@@ -1,5 +1,5 @@
 import { Either } from "effect"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { ChatMessage, ChatThread, Source, Workspace } from "@/infrastructure/db/schema"
 
@@ -18,8 +18,8 @@ const mocks = vi.hoisted(() => ({
   loggerInfo: vi.fn(),
   loggerWarn: vi.fn(),
   listSourcesForWorkspace: vi.fn(),
-  makeKnowhereClientWithParsedStorage: vi.fn(),
-  readChunks: vi.fn(),
+  parsedStorageGetAssetUrl: vi.fn(),
+  parsedStorageWriteAsset: vi.fn(),
   softDeleteChatThread: vi.fn(),
   startBackgroundReconciliation: vi.fn(),
 }))
@@ -53,9 +53,13 @@ vi.mock("@/domains/workspace/request-context", () => ({
   },
 }))
 
-vi.mock("@/integrations/knowhere", () => ({
-  makeKnowhereClientWithParsedStorage:
-    mocks.makeKnowhereClientWithParsedStorage,
+vi.mock("@/domains/sources/parsed-document-blob-storage", () => ({
+  BlobParsedDocumentStorage: vi.fn().mockImplementation(function () {
+    return {
+      getAssetUrl: mocks.parsedStorageGetAssetUrl,
+      writeAsset: mocks.parsedStorageWriteAsset,
+    }
+  }),
 }))
 
 vi.mock("@/domains/chat/thread-service", () => ({
@@ -84,18 +88,18 @@ import { chatThreadRouteService } from "./route-threads"
 describe("chat route services", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.makeKnowhereClientWithParsedStorage.mockReturnValue({
-      client: { documents: { listChunks: vi.fn() } },
-      knowledge: { readChunks: mocks.readChunks },
-    })
-    mocks.readChunks.mockResolvedValue({
-      document: { localDocumentId: "doc" },
-      chunks: [],
-      page: 1,
-      pageSize: 200,
-      totalChunks: 0,
-      totalPages: 1,
-    })
+    mocks.parsedStorageGetAssetUrl.mockResolvedValue(null)
+    mocks.parsedStorageWriteAsset.mockResolvedValue({ url: null })
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(new Uint8Array([1, 2, 3]), {
+        headers: { "content-type": "image/png" },
+      })),
+    )
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
   })
 
   it("orchestrates a chat turn from request body to response body", async () => {
@@ -148,7 +152,7 @@ describe("chat route services", () => {
         excludedSourceIds: ["source_skipped"],
         retrieval: client.retrieval,
         generateAnswer: mocks.generateAgenticOutputManifest,
-        loadSourceAssetUrls: expect.any(Function),
+        hardenChatAssetUrl: expect.any(Function),
         repository: expect.objectContaining({
           appendMessageToThread: expect.any(Function),
           ensureDefaultChatThread: expect.any(Function),
@@ -159,7 +163,7 @@ describe("chat route services", () => {
     )
   })
 
-  it("builds durable citation asset URLs from SDK reads for a ready source", async () => {
+  it("hardens one chat asset through Notebook Blob for a ready source", async () => {
     const workspace = makeWorkspace()
     const client = { retrieval: { query: vi.fn() } }
     const readySource = makeSource({
@@ -167,29 +171,10 @@ describe("chat route services", () => {
       knowhereDocumentId: "doc_legacy",
       knowhereJobId: "job_1",
     })
+    const rawUrl = "https://knowhere-storage.example/results/job_1/pages/page-1.png"
     const durableUrl =
       "https://fake.public.blob.vercel-storage.com/workspaces/workspace_1/parsed-documents/doc_legacy/job_1/assets/pages/page-1.png"
-    mocks.readChunks.mockResolvedValue({
-      document: { localDocumentId: "doc_legacy" },
-      chunks: [
-        {
-          position: 1,
-          chunkId: "c1",
-          chunkType: "page",
-          content: "Page",
-          readableContent: "Page",
-          sectionPath: "Page 1",
-          sourceChunkPath: "Page 1",
-          filePath: "pages/page-1.png",
-          assetUrl: durableUrl,
-          metadata: {},
-        },
-      ],
-      page: 1,
-      pageSize: 200,
-      totalChunks: 1,
-      totalPages: 1,
-    })
+    mocks.parsedStorageWriteAsset.mockResolvedValue({ url: durableUrl })
     mocks.getAuthenticatedWithClient.mockResolvedValue({
       user: { id: "user_1" },
       workspace,
@@ -199,12 +184,20 @@ describe("chat route services", () => {
     mocks.listSourcesForWorkspace.mockResolvedValue([readySource])
     mocks.handleChatTurn.mockImplementation(
       async (input: {
-        readonly loadSourceAssetUrls?: (
-          source: Source,
-        ) => Promise<Readonly<Record<string, string>>>
+        readonly hardenChatAssetUrl?: (assetInput: {
+          readonly source: Source
+          readonly sourcePath: string
+          readonly assetUrl?: string | null
+          readonly contentType?: string | null
+        }) => Promise<string | null>
       }) => {
-        const assetUrls = await input.loadSourceAssetUrls?.(readySource)
-        expect(assetUrls).toEqual({ "pages/page-1.png": durableUrl })
+        const assetUrl = await input.hardenChatAssetUrl?.({
+          source: readySource,
+          sourcePath: "pages/page-1.png",
+          assetUrl: rawUrl,
+          contentType: "image/png",
+        })
+        expect(assetUrl).toBe(durableUrl)
         return Either.right({
           threadId: "thread_1",
           messages: [
@@ -220,16 +213,18 @@ describe("chat route services", () => {
     })
 
     expect(result.status).toBe(200)
-    expect(mocks.makeKnowhereClientWithParsedStorage).toHaveBeenCalledWith(
-      "jwt_123",
-      { workspaceId: workspace.id },
-    )
-    expect(mocks.readChunks).toHaveBeenCalledWith({
+    expect(mocks.parsedStorageGetAssetUrl).toHaveBeenCalledWith({
       documentId: "doc_legacy",
       revisionKey: "job_1",
-      page: 1,
-      pageSize: 200,
-      assetUrlPolicy: "durable",
+      sourcePath: "pages/page-1.png",
+    })
+    expect(fetch).toHaveBeenCalledWith(rawUrl)
+    expect(mocks.parsedStorageWriteAsset).toHaveBeenCalledWith({
+      documentId: "doc_legacy",
+      revisionKey: "job_1",
+      sourcePath: "pages/page-1.png",
+      body: new Uint8Array([1, 2, 3]),
+      contentType: "image/png",
     })
   })
 

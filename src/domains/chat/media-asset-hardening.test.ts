@@ -22,10 +22,10 @@ afterEach(() => {
 })
 
 describe("hardenChatMediaAssetUrls", () => {
-  it("keeps an already Notebook-owned asset URL without loading the asset map", async () => {
+  it("keeps an already Notebook-owned asset URL without calling the hardener", async () => {
     const ownedUrl =
       "https://fake.public.blob.vercel-storage.com/workspaces/workspace_1/parsed-documents/doc_1/rev_1/assets/images/a.png"
-    const loadSourceAssetUrls = vi.fn(async () => ({}))
+    const hardenChatAssetUrl = vi.fn(async () => null)
 
     const result = await hardenChatMediaAssetUrls({
       workspaceId: "workspace_1",
@@ -41,11 +41,11 @@ describe("hardenChatMediaAssetUrls", () => {
           },
         }),
       ],
-      loadSourceAssetUrls,
+      hardenChatAssetUrl,
     })
 
     expect(result.results[0]?.assetUrl).toBe(ownedUrl)
-    expect(loadSourceAssetUrls).not.toHaveBeenCalled()
+    expect(hardenChatAssetUrl).not.toHaveBeenCalled()
   })
 
   it("resolves a raw asset URL to the durable parsed asset URL", async () => {
@@ -53,9 +53,7 @@ describe("hardenChatMediaAssetUrls", () => {
       "https://knowhere-storage.example/results/job_1/images/id-front.jpg?AWSAccessKeyId=test"
     const durableUrl =
       "https://fake.public.blob.vercel-storage.com/workspaces/workspace_1/parsed-documents/doc_identity/rev_1/assets/images/id-front.jpg"
-    const loadSourceAssetUrls = vi.fn().mockResolvedValue({
-      "images/id-front.jpg": durableUrl,
-    })
+    const hardenChatAssetUrl = vi.fn().mockResolvedValue(durableUrl)
 
     const result = await hardenChatMediaAssetUrls({
       workspaceId: "workspace_1",
@@ -76,19 +74,21 @@ describe("hardenChatMediaAssetUrls", () => {
           },
         }),
       ],
-      loadSourceAssetUrls,
+      hardenChatAssetUrl,
     })
 
-    expect(loadSourceAssetUrls).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "source_identity" }),
-    )
+    expect(hardenChatAssetUrl).toHaveBeenCalledWith({
+      source: expect.objectContaining({ id: "source_identity" }),
+      sourcePath: "images/id-front.jpg",
+      assetUrl: rawAssetUrl,
+    })
     expect(result.results[0]?.assetUrl).toBe(durableUrl)
   })
 
   it("omits an asset URL that cannot be resolved to a durable URL", async () => {
     const rawAssetUrl =
       "https://knowhere-storage.example/results/job_1/tables/table-1.html?AWSAccessKeyId=test"
-    const loadSourceAssetUrls = vi.fn().mockResolvedValue({})
+    const hardenChatAssetUrl = vi.fn().mockResolvedValue(null)
 
     const result = await hardenChatMediaAssetUrls({
       workspaceId: "workspace_1",
@@ -106,7 +106,7 @@ describe("hardenChatMediaAssetUrls", () => {
           },
         }),
       ],
-      loadSourceAssetUrls,
+      hardenChatAssetUrl,
     })
 
     expect(result.results[0]?.assetUrl).toBeUndefined()
@@ -117,9 +117,7 @@ describe("hardenChatMediaAssetUrls", () => {
       "https://knowhere-storage.example/results/job_1/images/front.jpg?AWSAccessKeyId=test"
     const durableUrl =
       "https://fake.public.blob.vercel-storage.com/workspaces/workspace_1/parsed-documents/doc_identity/rev_1/assets/images/front.jpg"
-    const loadSourceAssetUrls = vi.fn().mockResolvedValue({
-      "images/front.jpg": durableUrl,
-    })
+    const hardenChatAssetUrl = vi.fn().mockResolvedValue(durableUrl)
 
     const result = await hardenChatMediaAssetUrls({
       workspaceId: "workspace_1",
@@ -148,7 +146,7 @@ describe("hardenChatMediaAssetUrls", () => {
           },
         },
       ],
-      loadSourceAssetUrls,
+      hardenChatAssetUrl,
     })
 
     const [artifact] = result.artifacts ?? []

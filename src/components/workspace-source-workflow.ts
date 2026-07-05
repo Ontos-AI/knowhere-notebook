@@ -22,6 +22,7 @@ type WorkspaceSourceWorkflow = {
   readonly handleRetrySource: (sourceId: string) => Promise<void>
   readonly handleOfficialLibrarySourceAdd: (demoSourceId: string) => Promise<boolean>
   readonly handleSelectedSourceChange: (sourceId: string | null) => void
+  readonly handleSourcesRefresh: () => void
   readonly handleSourcesMaterialized: (
     demoSourceIds: readonly string[],
     materializedSources: readonly SourceView[],
@@ -153,6 +154,10 @@ export function useWorkspaceSourceWorkflow({
     setSelectedSourceId(sourceId)
   }
 
+  function handleSourcesRefresh(): void {
+    void mutateSources()
+  }
+
   async function handleArchiveSource(sourceId: string): Promise<void> {
     setArchivingSourceIds((current) =>
       workspaceSourceState.addPendingId(current, sourceId),
@@ -237,6 +242,7 @@ export function useWorkspaceSourceWorkflow({
     handleRetrySource,
     handleOfficialLibrarySourceAdd,
     handleSelectedSourceChange,
+    handleSourcesRefresh,
     handleSourcesMaterialized,
     handleSourceUploaded,
     handleToggleIncluded,

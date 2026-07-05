@@ -11,12 +11,12 @@ import {
   type ChatTurnValue,
 } from "@/domains/chat/service"
 import { chatTurnPersistence } from "@/domains/chat/chat-turn-persistence"
-import { readSourceAssetUrls } from "@/domains/chunks/read"
 import { startBackgroundReconciliation } from "@/domains/sources/background-reconcile"
+import { BlobParsedDocumentStorage } from "@/domains/sources/parsed-document-blob-storage"
 import { sourceWorkflowRuntime } from "@/domains/sources/workflow-runtime"
-import { makeKnowhereClientWithParsedStorage } from "@/integrations/knowhere"
 import { notebookRequestContext } from "@/domains/workspace/request-context"
 import type { Source } from "@/infrastructure/db/schema"
+import type { HardenChatAssetUrl } from "./media-assets"
 import { isAuthError } from "@/integrations/dashboard/api-key-service"
 import { summarizeUnknownError } from "@/lib/format-log-value"
 import { logger } from "@/lib/logger"
@@ -69,30 +69,23 @@ const answerChatEffect = (input: AnswerChatInput) =>
         apiKey,
       }),
     )
-    const { knowledge } = makeKnowhereClientWithParsedStorage(apiKey, {
+    const parsedStorage = new BlobParsedDocumentStorage({
       workspaceId: workspace.id,
     })
-    const loadSourceAssetUrls = async (
-      source: (typeof sources)[number],
-    ): Promise<Readonly<Record<string, string>>> => {
-      if (source.status !== "ready" || !source.knowhereDocumentId) return {}
-
-      try {
-        return await readSourceAssetUrls({
-          knowledge,
-          documentId: source.knowhereDocumentId,
-          revisionKey: source.knowhereJobId,
-        })
-      } catch (error) {
-        logger.warn("chat: durable parsed asset read failed", {
-          workspaceId: workspace.id,
-          sourceId: source.id,
-          documentId: source.knowhereDocumentId,
-          error: summarizeUnknownError(error),
-        })
-        return {}
-      }
-    }
+    const hardenChatAssetUrl: HardenChatAssetUrl = async ({
+      source,
+      sourcePath,
+      assetUrl,
+      contentType,
+    }): Promise<string | null> =>
+      hardenSingleChatAsset({
+        workspaceId: workspace.id,
+        parsedStorage,
+        source,
+        sourcePath,
+        assetUrl,
+        contentType,
+      })
 
     const result: Either.Either<ChatTurnValue, ChatAnswerFailure> =
       yield* Effect.tryPromise(() =>
@@ -104,14 +97,14 @@ const answerChatEffect = (input: AnswerChatInput) =>
           excludedSourceIds: body.value.excludedSourceIds,
           retrieval: client.retrieval,
           generateAnswer: generateAgenticOutputManifest,
-          loadSourceAssetUrls,
+          hardenChatAssetUrl,
           hardenMediaAssetUrls: ({ results, artifacts }) =>
             hardenChatMediaAssetUrls({
               workspaceId: workspace.id,
               sources,
               results,
               artifacts,
-              loadSourceAssetUrls,
+              hardenChatAssetUrl,
             }),
           repository: chatTurnPersistence.createRepository(),
         }),
@@ -165,6 +158,104 @@ async function answerChat(
 
 export const chatAnswerRouteService: ChatAnswerRouteService = {
   answerChat,
+}
+
+async function hardenSingleChatAsset(input: {
+  readonly workspaceId: string
+  readonly parsedStorage: BlobParsedDocumentStorage
+  readonly source: Source
+  readonly sourcePath: string
+  readonly assetUrl?: string | null
+  readonly contentType?: string | null
+}): Promise<string | null> {
+  if (
+    input.source.status !== "ready" ||
+    !input.source.knowhereDocumentId ||
+    !input.source.knowhereJobId
+  ) {
+    return null
+  }
+
+  try {
+    const existingUrl = await input.parsedStorage.getAssetUrl({
+      documentId: input.source.knowhereDocumentId,
+      revisionKey: input.source.knowhereJobId,
+      sourcePath: input.sourcePath,
+    })
+    if (existingUrl) return existingUrl
+
+    const sourceUrl = getTrimmedString(input.assetUrl)
+    if (!sourceUrl) return null
+
+    const fetchedAsset = await fetchChatAsset({
+      assetUrl: sourceUrl,
+      fallbackContentType:
+        getTrimmedString(input.contentType) ??
+        inferContentTypeFromPath(input.sourcePath),
+    })
+    const writtenAsset = await input.parsedStorage.writeAsset({
+      documentId: input.source.knowhereDocumentId,
+      revisionKey: input.source.knowhereJobId,
+      sourcePath: input.sourcePath,
+      body: fetchedAsset.body,
+      contentType: fetchedAsset.contentType,
+    })
+
+    return (
+      writtenAsset.url ??
+      (await input.parsedStorage.getAssetUrl({
+        documentId: input.source.knowhereDocumentId,
+        revisionKey: input.source.knowhereJobId,
+        sourcePath: input.sourcePath,
+      }))
+    )
+  } catch (error) {
+    logger.warn("chat: single parsed asset hardening failed", {
+      workspaceId: input.workspaceId,
+      sourceId: input.source.id,
+      documentId: input.source.knowhereDocumentId,
+      sourcePath: input.sourcePath,
+      error: summarizeUnknownError(error),
+    })
+    return null
+  }
+}
+
+async function fetchChatAsset(input: {
+  readonly assetUrl: string
+  readonly fallbackContentType: string
+}): Promise<{
+  readonly body: Uint8Array
+  readonly contentType: string
+}> {
+  const response = await fetch(input.assetUrl)
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch chat asset (${response.status} ${response.statusText})`,
+    )
+  }
+
+  return {
+    body: new Uint8Array(await response.arrayBuffer()),
+    contentType:
+      getTrimmedString(response.headers.get("content-type")) ??
+      input.fallbackContentType,
+  }
+}
+
+function inferContentTypeFromPath(sourcePath: string): string {
+  const pathname = sourcePath.toLowerCase().split("?")[0] ?? sourcePath
+  if (pathname.endsWith(".png")) return "image/png"
+  if (pathname.endsWith(".jpg") || pathname.endsWith(".jpeg")) {
+    return "image/jpeg"
+  }
+  if (pathname.endsWith(".gif")) return "image/gif"
+  if (pathname.endsWith(".webp")) return "image/webp"
+  if (pathname.endsWith(".svg")) return "image/svg+xml"
+  if (pathname.endsWith(".html") || pathname.endsWith(".htm")) {
+    return "text/html; charset=utf-8"
+  }
+  return "application/octet-stream"
 }
 
 function triggerBackgroundReconciliationForParsingSources(input: {
@@ -245,4 +336,9 @@ function isMeaningfulSummary(value: string): boolean {
     normalized.length > 0 &&
     normalized !== "An unknown error occurred in Effect.tryPromise"
   )
+}
+
+function getTrimmedString(value: string | null | undefined): string | null {
+  const trimmedValue = value?.trim() ?? ""
+  return trimmedValue.length > 0 ? trimmedValue : null
 }

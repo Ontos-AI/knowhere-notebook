@@ -12,24 +12,30 @@ const internalMetadataKeys = new Set([
   "chunk_id",
 ])
 
-export type LoadSourceAssetUrls = (
-  source: Source,
-) => Promise<Readonly<Record<string, string>>>
+export type HardenChatAssetUrlInput = {
+  readonly source: Source
+  readonly sourcePath: string
+  readonly assetUrl?: string | null
+  readonly contentType?: string | null
+}
+
+export type HardenChatAssetUrl = (
+  input: HardenChatAssetUrlInput,
+) => Promise<string | null>
 
 export type RetrievalResultAssetInput = {
   readonly results: readonly RetrievalResult[]
   readonly sources: readonly Source[]
-  readonly loadSourceAssetUrls?: LoadSourceAssetUrls
+  readonly hardenChatAssetUrl?: HardenChatAssetUrl
   readonly evidenceText?: string
 }
 
 export async function enrichRetrievalResultsWithAssetUrls({
   results,
   sources,
-  loadSourceAssetUrls,
-  evidenceText,
+  hardenChatAssetUrl,
 }: RetrievalResultAssetInput): Promise<RetrievalResult[]> {
-  if (!loadSourceAssetUrls || results.length === 0) {
+  if (!hardenChatAssetUrl || results.length === 0) {
     return dedupeMediaCitationResults(results)
   }
 
@@ -38,23 +44,13 @@ export async function enrichRetrievalResultsWithAssetUrls({
       source.knowhereDocumentId ? [[source.knowhereDocumentId, source]] : [],
     ),
   )
-  const assetUrlsBySourceId = new Map<
-    string,
-    Promise<Readonly<Record<string, string>>>
-  >()
-
   const enrichedResults = await Promise.all(
     results.map(async (result): Promise<readonly RetrievalResult[]> => {
       const documentId = getTrimmedString(result.source.documentId)
       const source = documentId ? sourcesByDocumentId.get(documentId) : undefined
       if (!source) return [result]
 
-      const assetUrls = await getCachedSourceAssetUrls(
-        source,
-        loadSourceAssetUrls,
-        assetUrlsBySourceId,
-      )
-      return addAssetCitationResults(result, assetUrls, evidenceText)
+      return addAssetCitationResults(result, source, hardenChatAssetUrl)
     }),
   )
 
@@ -234,56 +230,33 @@ function isNotebookParsedAssetUrl(assetUrl: string): boolean {
   ) === true
 }
 
-async function getCachedSourceAssetUrls(
-  source: Source,
-  loadSourceAssetUrls: LoadSourceAssetUrls,
-  cache: Map<string, Promise<Readonly<Record<string, string>>>>,
-): Promise<Readonly<Record<string, string>>> {
-  let cached = cache.get(source.id)
-  if (!cached) {
-    cached = loadSourceAssetUrls(source).catch(() => ({}))
-    cache.set(source.id, cached)
-  }
-  return cached
-}
-
-function addAssetCitationResults(
+async function addAssetCitationResults(
   result: RetrievalResult,
-  assetUrlsByFilePath: Readonly<Record<string, string>>,
-  evidenceText: string | undefined,
-): readonly RetrievalResult[] {
+  source: Source,
+  hardenChatAssetUrl: HardenChatAssetUrl,
+): Promise<readonly RetrievalResult[]> {
+  if (result.chunkType.toLowerCase() === "page") return [result]
+
   const existingAssetUrl = getTrimmedString(result.assetUrl)
-  const resultMatches = resolveAssetReferenceMatches(result, assetUrlsByFilePath)
-  const evidenceMatches = resolveAssetReferenceMatchesFromText(
-    evidenceText,
-    assetUrlsByFilePath,
-  )
-  const seenAssetUrls = new Set<string>()
-  const output: RetrievalResult[] = []
+  if (existingAssetUrl && isNotebookOwnedAssetUrl(existingAssetUrl)) return [result]
 
-  if (resultMatches.length > 0) {
-    const [firstMatch, ...remainingMatches] = resultMatches
-    seenAssetUrls.add(firstMatch.assetUrl)
-    output.push(toAssetResult(result, firstMatch))
-    for (const match of remainingMatches) {
-      if (seenAssetUrls.has(match.assetUrl)) continue
-      seenAssetUrls.add(match.assetUrl)
-      output.push(toAssetResult(result, match))
-    }
-  } else if (existingAssetUrl) {
-    seenAssetUrls.add(existingAssetUrl)
-    output.push(result)
-  } else {
-    output.push(result)
-  }
+  const sourcePath = getAssetSourcePathFromResult(result, existingAssetUrl)
+  if (!sourcePath) return [result]
 
-  for (const match of evidenceMatches) {
-    if (seenAssetUrls.has(match.assetUrl)) continue
-    seenAssetUrls.add(match.assetUrl)
-    output.push(toAssetResult(result, match))
-  }
+  const assetUrl = await hardenChatAssetUrl({
+    source,
+    sourcePath,
+    assetUrl: existingAssetUrl,
+  }).catch(() => null)
+  if (!assetUrl) return [result]
 
-  return output
+  return [
+    toAssetResult(result, {
+      assetPath: sourcePath,
+      assetUrl,
+      index: 0,
+    }),
+  ]
 }
 
 function toAssetResult(
@@ -346,126 +319,10 @@ function isAssetFilePath(value: string): boolean {
   return normalizedPath ? /^(images|tables)\//.test(normalizedPath) : false
 }
 
-function resolveAssetReferenceMatches(
-  result: RetrievalResult,
-  assetUrlsByFilePath: Readonly<Record<string, string>>,
-): readonly AssetReferenceMatch[] {
-  const normalizedHaystacks = [
-    result.source.sectionPath,
-    result.content,
-  ].flatMap((value): string[] => {
-    const normalized = normalizeAssetLookupText(value)
-    return normalized ? [normalized] : []
-  })
-  if (normalizedHaystacks.length === 0) return []
-
-  return resolveAssetReferenceMatchesFromHaystacks(
-    normalizedHaystacks,
-    assetUrlsByFilePath,
-  )
-}
-
-function resolveAssetReferenceMatchesFromText(
-  value: string | null | undefined,
-  assetUrlsByFilePath: Readonly<Record<string, string>>,
-): readonly AssetReferenceMatch[] {
-  const normalized = normalizeAssetLookupText(value)
-  if (!normalized) return []
-
-  return resolveAssetReferenceMatchesFromHaystacks(
-    [normalized],
-    assetUrlsByFilePath,
-  )
-}
-
-export function resolveAssetUrlFromReferenceText(input: {
-  readonly values: readonly (string | null | undefined)[]
-  readonly assetUrlsByFilePath: Readonly<Record<string, string>>
-}): string | null {
-  const normalizedHaystacks = input.values.flatMap((value): string[] => {
-    const normalized = normalizeAssetLookupText(value)
-    return normalized ? [normalized] : []
-  })
-  if (normalizedHaystacks.length === 0) return null
-
-  const [match] = resolveAssetReferenceMatchesFromHaystacks(
-    normalizedHaystacks,
-    input.assetUrlsByFilePath,
-  )
-  return match?.assetUrl ?? null
-}
-
-function resolveAssetReferenceMatchesFromHaystacks(
-  normalizedHaystacks: readonly string[],
-  assetUrlsByFilePath: Readonly<Record<string, string>>,
-): readonly AssetReferenceMatch[] {
-  const basenameCounts = getNormalizedBasenameCounts(assetUrlsByFilePath)
-  return Object.entries(assetUrlsByFilePath)
-    .flatMap(([assetPath, assetUrl]): readonly AssetReferenceMatch[] => {
-      const trimmedUrl = getTrimmedString(assetUrl)
-      if (!trimmedUrl || !isSupportedAssetPath(assetPath)) return []
-
-      const index = getAssetReferenceIndex(
-        normalizedHaystacks,
-        assetPath,
-        basenameCounts,
-      )
-      return index === null ? [] : [{ assetPath, assetUrl: trimmedUrl, index }]
-    })
-    .sort(compareAssetReferenceMatches)
-}
-
 type AssetReferenceMatch = {
   readonly assetPath: string
   readonly assetUrl: string
   readonly index: number
-}
-
-function compareAssetReferenceMatches(
-  left: AssetReferenceMatch,
-  right: AssetReferenceMatch,
-): number {
-  return left.index - right.index || left.assetPath.localeCompare(right.assetPath)
-}
-
-function getAssetReferenceIndex(
-  normalizedHaystacks: readonly string[],
-  assetPath: string,
-  basenameCounts: ReadonlyMap<string, number>,
-): number | null {
-  const normalizedPath = normalizeAssetLookupText(assetPath)
-  if (!normalizedPath) return null
-
-  const directIndex = getFirstIndex(normalizedHaystacks, normalizedPath)
-  if (directIndex !== null) return directIndex
-
-  const basename = getNormalizedBasename(assetPath)
-  if (!basename || basenameCounts.get(basename) !== 1) return null
-
-  return getFirstIndex(normalizedHaystacks, basename)
-}
-
-function getFirstIndex(
-  normalizedHaystacks: readonly string[],
-  needle: string,
-): number | null {
-  const indexes = normalizedHaystacks
-    .map((haystack): number => haystack.indexOf(needle))
-    .filter((index): index is number => index >= 0)
-
-  return indexes.length > 0 ? Math.min(...indexes) : null
-}
-
-function getNormalizedBasenameCounts(
-  assetUrlsByFilePath: Readonly<Record<string, string>>,
-): ReadonlyMap<string, number> {
-  const counts = new Map<string, number>()
-  for (const assetPath of Object.keys(assetUrlsByFilePath)) {
-    const basename = getNormalizedBasename(assetPath)
-    if (!basename) continue
-    counts.set(basename, (counts.get(basename) ?? 0) + 1)
-  }
-  return counts
 }
 
 function getNormalizedBasename(assetPath: string): string | null {
@@ -495,12 +352,82 @@ function decodeUrlText(value: string): string {
   }
 }
 
+function getAssetSourcePathFromResult(
+  result: RetrievalResult,
+  assetUrl: string | null,
+): string | null {
+  const candidates = [
+    result.filePath,
+    result.sourceChunkPath,
+    result.source.sectionPath,
+    assetUrl ? getUrlPathname(assetUrl) : null,
+    result.content,
+  ]
+
+  for (const candidate of candidates) {
+    const sourcePath = getSupportedAssetPath(candidate)
+    if (sourcePath) return sourcePath
+  }
+
+  return null
+}
+
+function getSupportedAssetPath(value: string | null | undefined): string | null {
+  const normalizedText = normalizeSourcePathCandidate(value)
+  if (!normalizedText) return null
+
+  const match =
+    /(?:^|\/)((?:images|tables|pages|page_citation_assets)\/[^?#]+)/i.exec(
+      normalizedText,
+    )
+  const matchedPath = match?.[1]
+  return matchedPath ? matchedPath.trim() : null
+}
+
+function normalizeSourcePathCandidate(
+  value: string | null | undefined,
+): string | null {
+  const trimmedValue = getTrimmedString(value)
+  if (!trimmedValue) return null
+
+  const normalized = decodeUrlText(trimmedValue)
+    .replaceAll("\\", "/")
+    .replace(/\s*\/\s*/g, "/")
+    .replace(/\s+/g, " ")
+    .trim()
+
+  return normalized.length > 0 ? normalized : null
+}
+
 function isSupportedAssetPath(assetPath: string): boolean {
-  const normalizedPath = normalizeAssetLookupText(assetPath)
+  return getSupportedAssetPath(assetPath) !== null
+}
+
+function isNotebookOwnedAssetUrl(assetUrl: string): boolean {
+  const pathname = getUrlPathname(assetUrl).toLowerCase()
+  if (
+    pathname.includes("/parsed-result/") ||
+    pathname.includes("/chat-assets/") ||
+    pathname.includes("/parsed-documents/")
+  ) {
+    return true
+  }
+
+  const absoluteUrl = parseAbsoluteHttpUrl(assetUrl)
   return (
-    normalizedPath?.startsWith("images/") === true ||
-    normalizedPath?.startsWith("tables/") === true
+    absoluteUrl?.hostname
+      .toLowerCase()
+      .endsWith(".blob.vercel-storage.com") === true
   )
+}
+
+function parseAbsoluteHttpUrl(assetUrl: string): URL | null {
+  try {
+    const url = new URL(assetUrl)
+    return url.protocol === "http:" || url.protocol === "https:" ? url : null
+  } catch {
+    return null
+  }
 }
 
 function isRenderableMediaAsset(

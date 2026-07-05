@@ -452,10 +452,11 @@ describe("answerQuestionWithRetrieval", () => {
       });
       return makeHarnessRunResult(`Use this launch photo. ${upstreamAssetUrl}`);
     });
-    const loadSourceAssetUrls = vi.fn().mockResolvedValue({
-      "images/image-9-Night Rocket Launch.jpg":
+    const hardenChatAssetUrl = vi
+      .fn()
+      .mockResolvedValue(
         "https://blob.example/images/image-9-Night%20Rocket%20Launch.jpg",
-    });
+      );
 
     const answer = await Effect.runPromise(
       answerQuestionWithRetrieval({
@@ -471,14 +472,16 @@ describe("answerQuestionWithRetrieval", () => {
         excludedSourceIds: [],
         retrieval,
         generateAnswer,
-        loadSourceAssetUrls,
+        hardenChatAssetUrl,
         messages: [],
       }),
     );
 
-    expect(loadSourceAssetUrls).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "source_spacex" }),
-    );
+    expect(hardenChatAssetUrl).toHaveBeenCalledWith({
+      source: expect.objectContaining({ id: "source_spacex" }),
+      sourcePath: "images/image-9-Night Rocket Launch.jpg",
+      assetUrl: upstreamAssetUrl,
+    });
     expect(retrieval.query).toHaveBeenCalledWith({
       namespace: "notebook-workspace",
       query: "SpaceX rocket photos",
@@ -731,6 +734,7 @@ describe("answerQuestionWithRetrieval", () => {
         ...(artifacts ? { artifacts: [...artifacts] } : {}),
       }),
     );
+    const hardenChatAssetUrl = vi.fn().mockResolvedValue(storedPageAssetUrl);
 
     const answer = await Effect.runPromise(
       answerQuestionWithRetrieval({
@@ -747,13 +751,17 @@ describe("answerQuestionWithRetrieval", () => {
         retrieval,
         generateAnswer,
         hardenMediaAssetUrls,
-        loadSourceAssetUrls: vi.fn(async () => ({
-          "page_citation_assets/page-4.png": storedPageAssetUrl,
-        })),
+        hardenChatAssetUrl,
         messages: [],
       }),
     );
 
+    expect(hardenChatAssetUrl).toHaveBeenCalledWith({
+      source: expect.objectContaining({ id: "source_pages" }),
+      sourcePath: "page_citation_assets/page-4.png",
+      assetUrl: rawPageAssetUrl,
+      contentType: "image/png",
+    });
     expect(hardenMediaAssetUrls).toHaveBeenCalledWith({
       results: [
         expect.objectContaining({
@@ -844,6 +852,7 @@ describe("answerQuestionWithRetrieval", () => {
         ...(artifacts ? { artifacts: [...artifacts] } : {}),
       }),
     );
+    const hardenChatAssetUrl = vi.fn().mockResolvedValue(storedPageAssetUrl);
 
     const answer = await Effect.runPromise(
       answerQuestionWithRetrieval({
@@ -860,13 +869,17 @@ describe("answerQuestionWithRetrieval", () => {
         retrieval,
         generateAnswer,
         hardenMediaAssetUrls,
-        loadSourceAssetUrls: vi.fn(async () => ({
-          "page_citation_assets/page-6.png": storedPageAssetUrl,
-        })),
+        hardenChatAssetUrl,
         messages: [],
       }),
     );
 
+    expect(hardenChatAssetUrl).toHaveBeenCalledWith({
+      source: expect.objectContaining({ id: "source_pages" }),
+      sourcePath: "page_citation_assets/page-6.png",
+      assetUrl: rawPageAssetUrl,
+      contentType: "image/png",
+    });
     expect(hardenMediaAssetUrls).toHaveBeenCalledWith({
       results: [
         expect.objectContaining({
@@ -1406,7 +1419,7 @@ describe("answerQuestionWithRetrieval", () => {
     );
   });
 
-  it("turns retrieved evidence image filenames into image citations", async () => {
+  it("does not turn evidence-only image filenames into image citations", async () => {
     const result = makeRetrievalResult({
       content: "This section contains identity proof attachments.",
       source: {
@@ -1434,12 +1447,7 @@ describe("answerQuestionWithRetrieval", () => {
       });
       return makeHarnessRunResult("这里是相关身份证明图片。");
     });
-    const loadSourceAssetUrls = vi.fn().mockResolvedValue({
-      "images/image-6-中华人民共和国居民身份证.jpg":
-        "https://blob.example/images/image-6-id-front.jpg",
-      "images/image-7-中国居民身份证.jpg":
-        "https://blob.example/images/image-7-id-back.jpg",
-    });
+    const hardenChatAssetUrl = vi.fn().mockResolvedValue(null);
     const sources = [
       makeSource({
         id: "source_identity",
@@ -1456,7 +1464,7 @@ describe("answerQuestionWithRetrieval", () => {
         excludedSourceIds: [],
         retrieval,
         generateAnswer,
-        loadSourceAssetUrls,
+        hardenChatAssetUrl,
         messages: [],
       }),
     );
@@ -1478,14 +1486,8 @@ describe("answerQuestionWithRetrieval", () => {
     const imageCitations = answer.citations.filter(
       (citation) => citation.assetUrl,
     )
-    expect(imageCitations.map((citation) => citation.assetUrl)).toEqual([
-      "https://blob.example/images/image-6-id-front.jpg",
-      "https://blob.example/images/image-7-id-back.jpg",
-    ]);
-    expect(imageCitations.map((citation) => citation.chunkType)).toEqual([
-      "image",
-      "image",
-    ]);
+    expect(imageCitations).toEqual([]);
+    expect(hardenChatAssetUrl).not.toHaveBeenCalled();
   });
 
   it("returns the agent answer without citations when retrieval has no results", async () => {

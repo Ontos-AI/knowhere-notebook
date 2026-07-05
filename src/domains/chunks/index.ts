@@ -181,8 +181,8 @@ export function toParsedChunkView(
 
 /**
  * Map an SDK `KnowledgeReadChunk` (from `knowledge.readChunks`) to the view
- * model. Asset URLs on durable reads are already hardened SDK-side, so no
- * `assetUrlsByFilePath` remap is needed here.
+ * model. Display reads do not request durable asset URL hardening; chat
+ * hardens the specific assets it returns separately.
  */
 export function toParsedChunkViewFromReadChunk(
   chunk: KnowledgeReadChunk,
