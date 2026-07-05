@@ -5,6 +5,7 @@ import {
   buildHarnessMessages,
   buildHarnessSystemPrompt,
   createHarnessTools,
+  prepareHarnessStep,
   sanitizeHarnessModelMessagesForStep,
 } from "./runtime"
 import { createEvidenceLedger } from "./ledger"
@@ -390,6 +391,88 @@ describe("agent harness runtime", () => {
             },
           },
         ],
+      },
+    ])
+  })
+
+  it("keeps normal steps unconstrained before the finalization step", () => {
+    const result = prepareHarnessStep({
+      stepNumber: 11,
+      messages: [
+        {
+          role: "user",
+          content: "Find the penalty amount.",
+        },
+      ],
+    })
+
+    expect(result).toEqual({
+      messages: [
+        {
+          role: "user",
+          content: "Find the penalty amount.",
+        },
+      ],
+    })
+  })
+
+  it("forces finalize at step 12 using existing tool results", () => {
+    const result = prepareHarnessStep({
+      stepNumber: 12,
+      messages: [
+        {
+          role: "tool",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "call_1",
+              toolName: "retrieve",
+              output: {
+                type: "json",
+                value: {
+                  ok: true,
+                  chunks: [{ ref: "r1:result:1" }],
+                },
+              },
+              providerOptions: {
+                google: {
+                  thoughtSignature: "signature-1",
+                },
+              },
+            },
+          ],
+        },
+      ],
+    })
+
+    expect(result.activeTools).toEqual(["finalize"])
+    expect(result.toolChoice).toEqual({
+      type: "tool",
+      toolName: "finalize",
+    })
+    expect(result.messages).toEqual([
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call_1",
+            toolName: "retrieve",
+            output: {
+              type: "json",
+              value: {
+                ok: true,
+                chunks: [{ ref: "r1:result:1" }],
+              },
+            },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: expect.stringContaining(
+          "Use only the evidence and tool results already available",
+        ),
       },
     ])
   })

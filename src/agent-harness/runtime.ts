@@ -1,4 +1,5 @@
 import {
+  hasToolCall,
   stepCountIs,
   ToolLoopAgent,
   tool,
@@ -22,8 +23,9 @@ import type {
 } from "./types"
 import { validateOutputManifest } from "./validator"
 
-const defaultMaxSteps = 10
+const defaultMaxSteps = 13
 const defaultMaxRevisions = 1
+const forcedFinalizationStepNumber = 12
 
 type ToolLoopAgentSettings = ConstructorParameters<typeof ToolLoopAgent>[0]
 
@@ -48,6 +50,17 @@ type HarnessToolState = {
   finalized?: boolean
   priorTurnReads?: string[]
   toolCalls?: HarnessToolCallTrace[]
+}
+
+type HarnessTools = ReturnType<typeof createHarnessTools>
+
+type HarnessStepPreparation = {
+  messages: ModelMessage[]
+  activeTools?: Array<Extract<keyof HarnessTools, string>>
+  toolChoice?: {
+    type: "tool"
+    toolName: Extract<keyof HarnessTools, string>
+  }
 }
 
 const targetModalitySchema = z.enum(["text", "image", "table"])
@@ -153,10 +166,15 @@ export async function runAgentHarness(
     model: input.model,
     instructions: buildHarnessSystemPrompt(input.turn),
     tools,
-    prepareStep: ({ messages: stepMessages }) => ({
-      messages: sanitizeHarnessModelMessagesForStep(stepMessages),
-    }),
-    stopWhen: stepCountIs(input.maxSteps ?? defaultMaxSteps),
+    prepareStep: ({ messages: stepMessages, stepNumber }) =>
+      prepareHarnessStep({
+        messages: stepMessages,
+        stepNumber,
+      }),
+    stopWhen: [
+      hasToolCall("finalize"),
+      stepCountIs(input.maxSteps ?? defaultMaxSteps),
+    ],
   })
 
   const maxRevisions = input.maxRevisions ?? defaultMaxRevisions
@@ -210,6 +228,32 @@ export async function runAgentHarness(
       toolCalls: [...(state.toolCalls ?? [])],
       validationErrors,
       revisionsUsed,
+    },
+  }
+}
+
+export function prepareHarnessStep(input: {
+  readonly stepNumber: number
+  readonly messages: readonly ModelMessage[]
+}): HarnessStepPreparation {
+  const messages = sanitizeHarnessModelMessagesForStep(input.messages)
+
+  if (input.stepNumber < forcedFinalizationStepNumber) {
+    return { messages }
+  }
+
+  return {
+    messages: [
+      ...messages,
+      {
+        role: "user",
+        content: buildForcedFinalizationFeedback(),
+      },
+    ],
+    activeTools: ["finalize"],
+    toolChoice: {
+      type: "tool",
+      toolName: "finalize",
     },
   }
 }
@@ -281,6 +325,17 @@ function buildRevisionFeedback(errors: readonly string[]): string {
     "Do not exceed the user's requested artifact count, only cite or display",
     "evidence refs that exist in the evidence ledger, and do not fabricate",
     "facts when evidence is missing.",
+  ].join("\n")
+}
+
+function buildForcedFinalizationFeedback(): string {
+  return [
+    "The retrieval step budget has been reached.",
+    "Do not search again or call any evidence-reading tools.",
+    "Use only the evidence and tool results already available in this turn.",
+    "Call finalize now with the best supported answer.",
+    "If the existing evidence is insufficient, explain the gap in unresolved",
+    "instead of making unsupported claims.",
   ].join("\n")
 }
 
