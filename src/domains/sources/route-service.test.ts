@@ -834,6 +834,118 @@ describe("source route service", () => {
     expect(onUploadFinished).toHaveBeenCalledOnce();
   });
 
+  it("soft-deletes a source when Knowhere says its document is already missing", async () => {
+    const readySource: Source = {
+      ...source,
+      status: "ready",
+      knowhereJobId: null,
+      knowhereDocumentId: "doc_missing",
+    };
+    const archiveDocument = vi.fn(async () => {
+      throw new Error("Document not found");
+    });
+    const softDelete = vi.fn(async () => true);
+    const service = createSourceRouteService({
+      ensureApiKeyForWorkspace: vi.fn(async () => "jwt_123"),
+      ensureWorkspace: vi.fn(async () => workspace),
+      makeKnowhereClient: vi.fn(() => ({
+        documents: {
+          archive: archiveDocument,
+          listChunks: vi.fn(async () => ({
+            chunks: [],
+            pagination: {
+              page: 1,
+              pageSize: 1,
+              total: 0,
+              totalPages: 0,
+            },
+          })),
+        },
+        jobs: {
+          create: vi.fn(),
+          get: vi.fn(),
+          upload: vi.fn(),
+        },
+      })),
+      requireUser: vi.fn(async () => ({
+        id: "user_1",
+        email: null,
+        name: null,
+      })),
+      sourceService: {
+        findInWorkspace: vi.fn(async () => readySource),
+        softDelete,
+      },
+    });
+
+    const result = await service.archiveSource({
+      cookieHeader: "session=abc",
+      sourceId: "source_1",
+    });
+
+    expect(result).toEqual({
+      status: 200,
+      body: {
+        id: "source_1",
+        archived: true,
+      },
+    });
+    expect(archiveDocument).toHaveBeenCalledWith("doc_missing");
+    expect(softDelete).toHaveBeenCalledWith(workspace.id, "source_1");
+  });
+
+  it("does not soft-delete a source when Knowhere archive fails unexpectedly", async () => {
+    const readySource: Source = {
+      ...source,
+      status: "ready",
+      knowhereJobId: null,
+      knowhereDocumentId: "doc_unavailable",
+    };
+    const softDelete = vi.fn(async () => true);
+    const service = createSourceRouteService({
+      ensureApiKeyForWorkspace: vi.fn(async () => "jwt_123"),
+      ensureWorkspace: vi.fn(async () => workspace),
+      makeKnowhereClient: vi.fn(() => ({
+        documents: {
+          archive: vi.fn(async () => {
+            throw new Error("Knowhere unavailable");
+          }),
+          listChunks: vi.fn(async () => ({
+            chunks: [],
+            pagination: {
+              page: 1,
+              pageSize: 1,
+              total: 0,
+              totalPages: 0,
+            },
+          })),
+        },
+        jobs: {
+          create: vi.fn(),
+          get: vi.fn(),
+          upload: vi.fn(),
+        },
+      })),
+      requireUser: vi.fn(async () => ({
+        id: "user_1",
+        email: null,
+        name: null,
+      })),
+      sourceService: {
+        findInWorkspace: vi.fn(async () => readySource),
+        softDelete,
+      },
+    });
+
+    await expect(
+      service.archiveSource({
+        cookieHeader: "session=abc",
+        sourceId: "source_1",
+      }),
+    ).rejects.toThrow();
+    expect(softDelete).not.toHaveBeenCalled();
+  });
+
   it("retries a failed source from its saved original Blob", async () => {
     const failedSource: Source = {
       ...source,

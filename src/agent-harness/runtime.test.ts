@@ -5,6 +5,7 @@ import {
   buildHarnessMessages,
   buildHarnessSystemPrompt,
   createHarnessTools,
+  sanitizeHarnessModelMessagesForStep,
 } from "./runtime"
 import { createEvidenceLedger } from "./ledger"
 import type {
@@ -250,6 +251,80 @@ describe("agent harness runtime", () => {
     ])
     expect(JSON.stringify(messages)).toContain("id=turn_1 role=assistant")
     expect(JSON.stringify(messages)).not.toContain("searchSources.query")
+  })
+
+  it("removes provider metadata from tool-result parts while preserving tool-call metadata", () => {
+    const messages = sanitizeHarnessModelMessagesForStep([
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "call_1",
+            toolName: "retrieve",
+            input: { query: "q4" },
+            providerOptions: {
+              google: {
+                thoughtSignature: "signature-1",
+              },
+            },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call_1",
+            toolName: "retrieve",
+            output: {
+              type: "json",
+              value: {
+                ok: true,
+              },
+            },
+            providerOptions: {
+              google: {
+                thoughtSignature: "signature-1",
+              },
+            },
+          },
+        ],
+      },
+    ])
+
+    expect(messages).toEqual([
+      {
+        role: "assistant",
+        content: [
+          expect.objectContaining({
+            type: "tool-call",
+            providerOptions: {
+              google: {
+                thoughtSignature: "signature-1",
+              },
+            },
+          }),
+        ],
+      },
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call_1",
+            toolName: "retrieve",
+            output: {
+              type: "json",
+              value: {
+                ok: true,
+              },
+            },
+          },
+        ],
+      },
+    ])
   })
 })
 

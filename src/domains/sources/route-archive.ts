@@ -72,6 +72,8 @@ const archiveSourceEffect = (
       )
       yield* Effect.tryPromise(() =>
         client.documents.archive(source.knowhereDocumentId!),
+      ).pipe(
+        Effect.catchIf(isKnowhereDocumentNotFoundError, () => Effect.void),
       )
     }
 
@@ -91,5 +93,53 @@ const archiveSourceEffect = (
 
     return routeResult.ok({ id: input.sourceId, archived: true as const })
   })
+
+function isKnowhereDocumentNotFoundError(error: unknown): boolean {
+  return readErrorMessages(error).some(isDocumentNotFoundMessage)
+}
+
+function readErrorMessages(error: unknown): readonly string[] {
+  if (error instanceof Error) {
+    return [
+      error.message,
+      ...readNestedErrorMessages(error),
+    ].filter(isNonEmptyString)
+  }
+
+  if (typeof error === "string") return [error]
+
+  if (!isRecord(error)) return []
+
+  const messages: string[] = []
+  if (typeof error.message === "string") messages.push(error.message)
+  messages.push(...readNestedErrorMessages(error))
+  return messages
+}
+
+function readNestedErrorMessages(error: unknown): readonly string[] {
+  if (!isRecord(error)) return []
+
+  const nested = [
+    error.error,
+    error.cause,
+    isRecord(error.body) ? error.body.error : undefined,
+  ]
+
+  return nested.flatMap((value) =>
+    value === undefined || value === error ? [] : readErrorMessages(value),
+  )
+}
+
+function isDocumentNotFoundMessage(message: string): boolean {
+  return /\bdocument\s+not\s+found\b/iu.test(message)
+}
+
+function isNonEmptyString(value: string): boolean {
+  return value.trim().length > 0
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null
+}
 
 export { createRouteArchive }

@@ -104,6 +104,53 @@ describe("workspaceSourceState", () => {
     ).toBe("source_localized");
   });
 
+  it("keeps an explicit non-ready Source selected instead of falling back", () => {
+    const sources: readonly SourceView[] = [
+      {
+        id: "source_pending",
+        title: "pending.pdf",
+        status: "parsing",
+        mimeType: "application/pdf",
+        excludedFromQuery: false,
+      },
+      {
+        id: "source_ready",
+        title: "ready.pdf",
+        status: "ready",
+        mimeType: "application/pdf",
+        excludedFromQuery: false,
+      },
+    ];
+
+    expect(
+      workspaceSourceState.getResolvedSelectedSourceId(
+        sources,
+        "source_pending",
+      ),
+    ).toBe("source_pending");
+  });
+
+  it("does not resolve a stale selected Source to an unrelated ready Source", () => {
+    const sources: readonly SourceView[] = [
+      {
+        id: "demo_ready",
+        kind: "demo",
+        demoSourceId: "demo_ready",
+        title: "demo.pdf",
+        status: "ready",
+        mimeType: "application/pdf",
+        excludedFromQuery: false,
+      },
+    ];
+
+    expect(
+      workspaceSourceState.getResolvedSelectedSourceId(
+        sources,
+        "source_stale",
+      ),
+    ).toBeNull();
+  });
+
   it("applies source query exclusions without mutating the source list", () => {
     const sources: readonly SourceView[] = [
       {
