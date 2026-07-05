@@ -209,6 +209,61 @@ export type SourceParseResult = typeof sourceParseResults.$inferSelect;
 export type NewSourceParseResult = typeof sourceParseResults.$inferInsert;
 
 /**
+ * Durable active-work leases for Notebook-owned parsed-document Blob sync.
+ *
+ * The sync workers acquire one row before calling the Knowhere SDK's
+ * Vercel-Blob mirror. Active rows (`released_at IS NULL`) are counted globally,
+ * per workspace, and per document so Vercel can scale route invocations without
+ * allowing one user or one document to consume all sync capacity. Expired rows
+ * are released during the next acquire attempt; normal workers release in a
+ * `finally` block after their bounded sync segment exits.
+ */
+export const parsedDocumentSyncLeases = pgTable(
+  "parsed_document_sync_leases",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    sourceId: uuid("source_id")
+      .notNull()
+      .references(() => sources.id, { onDelete: "cascade" }),
+    documentId: text("document_id").notNull(),
+    revisionKey: text("revision_key"),
+    leaseToken: text("lease_token").notNull(),
+    acquiredAt: timestamp("acquired_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    releasedAt: timestamp("released_at", { withTimezone: true }),
+    releaseReason: text("release_reason"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("parsed_document_sync_leases_token_idx").on(t.leaseToken),
+    index("parsed_document_sync_leases_active_idx")
+      .on(t.expiresAt)
+      .where(sql`released_at IS NULL`),
+    index("parsed_document_sync_leases_workspace_active_idx")
+      .on(t.workspaceId)
+      .where(sql`released_at IS NULL`),
+    index("parsed_document_sync_leases_document_active_idx")
+      .on(t.documentId)
+      .where(sql`released_at IS NULL`),
+  ],
+);
+
+export type ParsedDocumentSyncLease =
+  typeof parsedDocumentSyncLeases.$inferSelect;
+export type NewParsedDocumentSyncLease =
+  typeof parsedDocumentSyncLeases.$inferInsert;
+
+/**
  * A chat thread is a conversation within a workspace. `demo_key` is retained
  * for legacy seeded demo conversations.
  */

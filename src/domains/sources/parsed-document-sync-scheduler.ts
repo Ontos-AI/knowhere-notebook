@@ -24,6 +24,7 @@ export type ParsedSyncTrigger = (input: {
   readonly url: string
   readonly body: ParsedSyncPayload
   readonly workflowRunId: string
+  readonly delaySeconds?: number
 }) => Promise<void>
 
 export type ParsedSyncPayload = {
@@ -72,6 +73,7 @@ const defaultTrigger: ParsedSyncTrigger = async (input) => {
     body: input.body,
     workflowRunId: input.workflowRunId,
     retries: 3,
+    delay: input.delaySeconds,
   })
 }
 
@@ -91,6 +93,7 @@ export async function enqueueParsedDocumentSync(
     readonly documentId: string
     readonly apiKey: string
     readonly revisionKey?: string
+    readonly delaySeconds?: number
   },
   trigger: ParsedSyncTrigger = defaultTrigger,
 ): Promise<void> {
@@ -102,6 +105,7 @@ export async function enqueueParsedDocumentSync(
       revisionKey: input.revisionKey ?? "initial",
       segmentIndex: 0,
     }),
+    delaySeconds: input.delaySeconds,
   })
 }
 

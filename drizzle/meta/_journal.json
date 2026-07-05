@@ -85,6 +85,13 @@
       "when": 1783175614191,
       "tag": "0011_rare_deadpool",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1783231408481,
+      "tag": "0012_lazy_wendell_rand",
+      "breakpoints": true
     }
   ]
 }

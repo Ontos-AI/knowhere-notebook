@@ -9,6 +9,7 @@ import {
   getParsedSyncWorkflowRunId,
   type ParsedSyncPayload,
 } from "./parsed-document-sync-scheduler"
+import { parsedDocumentSyncCapacityGuard } from "./parsed-document-sync-capacity"
 import { markSourceReadyAfterReconciliation } from "./source-reconcile-workflow"
 import { sourceWorkflowRuntime } from "./workflow-runtime"
 
@@ -30,7 +31,10 @@ type ContinuationTriggerInput = {
   readonly url: string
   readonly payload: ParsedSyncPayload
   readonly workflowRunId: string
+  readonly delaySeconds?: number
 }
+
+type SyncLeaseReleaseReason = "completed" | "incomplete" | "failed"
 
 // Sync steps per workflow segment. Each `syncParsedDocument` call is bounded by
 // the SDK limits (pages + deadline); this caps how many bounded steps we run in
@@ -68,37 +72,45 @@ async function runParsedSyncWorkflow(input: {
     workspaceId,
   })
 
+  const preSyncReady = await context.run(
+    `source-ready-before-sync-${payload.segmentIndex}`,
+    async () =>
+      markSourceReadyAfterReconciliation({
+        workspaceId,
+        sourceId,
+        documentId,
+      }),
+  )
+  if (preSyncReady.status === "gone") return
+
   let revisionKey = payload.revisionKey
   let completed = false
+  let releaseReason: SyncLeaseReleaseReason = "incomplete"
 
-  for (let step = 0; step < maxSyncStepsPerSegment; step++) {
-    const result: KnowledgeSyncParsedDocumentResponse = await context.run(
-      `sync-${payload.segmentIndex}-${step}`,
+  const capacity = await context.run(
+    `acquire-sync-capacity-${payload.segmentIndex}`,
+    async () =>
+      parsedDocumentSyncCapacityGuard.acquire({
+        workspaceId,
+        sourceId,
+        documentId,
+        revisionKey,
+      }),
+  )
+  if (capacity.kind === "source-missing") return
+  if (capacity.kind === "capacity-full") {
+    await context.run(
+      `record-capacity-wait-${payload.segmentIndex}`,
       async () =>
-        knowledge.syncParsedDocument({
-          documentId,
-          ...(revisionKey ? { revisionKey } : {}),
+        sourceWorkflowRuntime.updateSyncStatus(workspaceId, sourceId, {
+          revisionKey,
+          syncStatus: "pending",
+          syncError: null,
         }),
     )
-    revisionKey = result.revisionKey
-
-    await context.run(`record-progress-${payload.segmentIndex}-${step}`, () =>
-      sourceWorkflowRuntime.updateSyncStatus(workspaceId, sourceId, {
-        revisionKey,
-        syncStatus: result.completed ? "completed" : "running",
-      }),
-    )
-
-    if (result.completed) {
-      completed = true
-      break
-    }
-  }
-
-  if (!completed) {
     const nextSegmentIndex = payload.segmentIndex + 1
     await context.run(
-      `trigger-sync-continuation-${nextSegmentIndex}`,
+      `trigger-sync-capacity-retry-${nextSegmentIndex}`,
       async () =>
         triggerContinuation({
           url: context.url,
@@ -115,31 +127,114 @@ async function runParsedSyncWorkflow(input: {
             revisionKey: revisionKey ?? "initial",
             segmentIndex: nextSegmentIndex,
           }),
+          delaySeconds: capacity.waitSeconds,
         }),
     )
-    logger.info("parsed-sync: continuation triggered", {
+    logger.info("parsed-sync: capacity full; retry scheduled", {
       sourceId,
       documentId,
-      segmentIndex: nextSegmentIndex,
+      reason: capacity.reason,
+      waitSeconds: capacity.waitSeconds,
+      activeCounts: capacity.activeCounts,
     })
     return
   }
 
-  // A parsing source is only readied once its parsed snapshot is fully synced.
-  // For an already-ready source (read-miss backfill) markReady is a no-op guard.
-  const ready = await context.run("source-ready", async () =>
-    markSourceReadyAfterReconciliation({
-      workspaceId,
-      sourceId,
-      documentId,
-    }),
-  )
+  try {
+    for (let step = 0; step < maxSyncStepsPerSegment; step++) {
+      const result: KnowledgeSyncParsedDocumentResponse = await context.run(
+        `sync-${payload.segmentIndex}-${step}`,
+        async () =>
+          knowledge.syncParsedDocument({
+            documentId,
+            ...(revisionKey ? { revisionKey } : {}),
+          }),
+      )
+      revisionKey = result.revisionKey
+
+      await context.run(`record-progress-${payload.segmentIndex}-${step}`, () =>
+        sourceWorkflowRuntime.updateSyncStatus(workspaceId, sourceId, {
+          revisionKey,
+          syncStatus: result.completed ? "completed" : "running",
+        }),
+      )
+
+      if (result.completed) {
+        completed = true
+        releaseReason = "completed"
+        break
+      }
+    }
+
+    if (!completed) {
+      const nextSegmentIndex = payload.segmentIndex + 1
+      await context.run(
+        `trigger-sync-continuation-${nextSegmentIndex}`,
+        async () =>
+          triggerContinuation({
+            url: context.url,
+            payload: {
+              workspaceId,
+              sourceId,
+              documentId,
+              apiKey,
+              revisionKey,
+              segmentIndex: nextSegmentIndex,
+            },
+            workflowRunId: getParsedSyncWorkflowRunId({
+              documentId,
+              revisionKey: revisionKey ?? "initial",
+              segmentIndex: nextSegmentIndex,
+            }),
+          }),
+      )
+      logger.info("parsed-sync: continuation triggered", {
+        sourceId,
+        documentId,
+        segmentIndex: nextSegmentIndex,
+      })
+      return
+    }
+  } catch (error) {
+    releaseReason = "failed"
+    throw error
+  } finally {
+    await context.run(`release-sync-capacity-${payload.segmentIndex}`, async () =>
+      releaseCapacityLease({
+        leaseToken: capacity.leaseToken,
+        releaseReason,
+        sourceId,
+        documentId,
+      }),
+    )
+  }
+
   logger.info("parsed-sync: parsed document sync finished", {
     sourceId,
     documentId,
     revisionKey,
-    status: ready.status,
+    status: preSyncReady.status,
   })
+}
+
+async function releaseCapacityLease(input: {
+  readonly leaseToken: string
+  readonly releaseReason: SyncLeaseReleaseReason
+  readonly sourceId: string
+  readonly documentId: string
+}): Promise<void> {
+  try {
+    await parsedDocumentSyncCapacityGuard.release({
+      leaseToken: input.leaseToken,
+      releaseReason: input.releaseReason,
+    })
+  } catch (error) {
+    logger.error("parsed-sync: failed to release capacity lease", {
+      sourceId: input.sourceId,
+      documentId: input.documentId,
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
 }
 
 async function triggerParsedSyncContinuation(
@@ -155,6 +250,7 @@ async function triggerParsedSyncContinuation(
     body: input.payload,
     workflowRunId: input.workflowRunId,
     retries: 3,
+    delay: input.delaySeconds,
   })
 }
 

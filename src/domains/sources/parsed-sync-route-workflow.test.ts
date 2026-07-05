@@ -1,7 +1,9 @@
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
+  acquireSyncCapacity: vi.fn(),
   makeKnowhereClientWithParsedStorage: vi.fn(),
+  releaseSyncCapacity: vi.fn(),
   updateSyncStatus: vi.fn(),
   findInWorkspace: vi.fn(),
   markFailed: vi.fn(),
@@ -26,6 +28,13 @@ vi.mock("./workflow-runtime", () => ({
 
 vi.mock("./source-reconcile-workflow", () => ({
   markSourceReadyAfterReconciliation: mocks.markSourceReadyAfterReconciliation,
+}))
+
+vi.mock("./parsed-document-sync-capacity", () => ({
+  parsedDocumentSyncCapacityGuard: {
+    acquire: mocks.acquireSyncCapacity,
+    release: mocks.releaseSyncCapacity,
+  },
 }))
 
 vi.mock("@/lib/logger", () => ({
@@ -53,6 +62,22 @@ const basePayload = {
 }
 
 describe("parsedSyncRouteWorkflow.runParsedSyncWorkflow", () => {
+  beforeEach(() => {
+    mocks.acquireSyncCapacity.mockResolvedValue({
+      kind: "acquired",
+      leaseToken: "lease_1",
+      activeCounts: {
+        globalActive: 0,
+        workspaceActive: 0,
+        documentActive: 0,
+      },
+    })
+    mocks.releaseSyncCapacity.mockResolvedValue(undefined)
+    mocks.markSourceReadyAfterReconciliation.mockResolvedValue({
+      status: "ready",
+    })
+  })
+
   afterEach(() => {
     vi.clearAllMocks()
   })
@@ -66,9 +91,6 @@ describe("parsedSyncRouteWorkflow.runParsedSyncWorkflow", () => {
     mocks.makeKnowhereClientWithParsedStorage.mockReturnValue({
       client: {},
       knowledge: { syncParsedDocument },
-    })
-    mocks.markSourceReadyAfterReconciliation.mockResolvedValue({
-      status: "ready",
     })
 
     await parsedSyncRouteWorkflow.runParsedSyncWorkflow({
@@ -88,9 +110,13 @@ describe("parsedSyncRouteWorkflow.runParsedSyncWorkflow", () => {
       sourceId: "source_1",
       documentId: "doc_1",
     })
+    expect(mocks.releaseSyncCapacity).toHaveBeenCalledWith({
+      leaseToken: "lease_1",
+      releaseReason: "completed",
+    })
   })
 
-  it("triggers a continuation and does not mark ready when sync is incomplete", async () => {
+  it("marks ready and triggers a continuation when sync is incomplete", async () => {
     const syncParsedDocument = vi.fn(async () => ({
       documentId: "doc_1",
       revisionKey: "rev_1",
@@ -119,7 +145,11 @@ describe("parsedSyncRouteWorkflow.runParsedSyncWorkflow", () => {
       restore()
     }
 
-    expect(mocks.markSourceReadyAfterReconciliation).not.toHaveBeenCalled()
+    expect(mocks.markSourceReadyAfterReconciliation).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      sourceId: "source_1",
+      documentId: "doc_1",
+    })
     expect(triggered).toHaveLength(1)
     expect(triggered[0]?.segmentIndex).toBe(1)
     expect(triggered[0]?.workflowRunId).toBe("doc_1-sync-rev_1-1")
@@ -128,6 +158,10 @@ describe("parsedSyncRouteWorkflow.runParsedSyncWorkflow", () => {
       "source_1",
       { revisionKey: "rev_1", syncStatus: "running" },
     )
+    expect(mocks.releaseSyncCapacity).toHaveBeenCalledWith({
+      leaseToken: "lease_1",
+      releaseReason: "incomplete",
+    })
   })
 
   it("passes an explicit revisionKey into syncParsedDocument when provided", async () => {
@@ -140,9 +174,6 @@ describe("parsedSyncRouteWorkflow.runParsedSyncWorkflow", () => {
       client: {},
       knowledge: { syncParsedDocument },
     })
-    mocks.markSourceReadyAfterReconciliation.mockResolvedValue({
-      status: "ready",
-    })
 
     await parsedSyncRouteWorkflow.runParsedSyncWorkflow({
       context: createContext(),
@@ -153,6 +184,70 @@ describe("parsedSyncRouteWorkflow.runParsedSyncWorkflow", () => {
       documentId: "doc_1",
       revisionKey: "rev_9",
     })
+  })
+
+  it("schedules a delayed retry when capacity is full", async () => {
+    const syncParsedDocument = vi.fn(async () => ({
+      documentId: "doc_1",
+      revisionKey: "rev_1",
+      completed: true,
+    }))
+    mocks.makeKnowhereClientWithParsedStorage.mockReturnValue({
+      client: {},
+      knowledge: { syncParsedDocument },
+    })
+    mocks.acquireSyncCapacity.mockResolvedValue({
+      kind: "capacity-full",
+      reason: "workspace",
+      waitSeconds: 60,
+      activeCounts: {
+        globalActive: 10,
+        workspaceActive: 5,
+        documentActive: 0,
+      },
+    })
+    const triggered: Array<{
+      readonly workflowRunId: string
+      readonly segmentIndex?: number
+      readonly delaySeconds?: number
+    }> = []
+    const restore = parsedSyncRouteWorkflow.setContinuationTriggerForTesting(
+      async (input) => {
+        triggered.push({
+          workflowRunId: input.workflowRunId,
+          segmentIndex: input.payload.segmentIndex,
+          delaySeconds: input.delaySeconds,
+        })
+      },
+    )
+
+    try {
+      await parsedSyncRouteWorkflow.runParsedSyncWorkflow({
+        context: createContext(),
+        payload: { ...basePayload, revisionKey: "rev_1" },
+      })
+    } finally {
+      restore()
+    }
+
+    expect(syncParsedDocument).not.toHaveBeenCalled()
+    expect(mocks.updateSyncStatus).toHaveBeenCalledWith(
+      "workspace_1",
+      "source_1",
+      {
+        revisionKey: "rev_1",
+        syncStatus: "pending",
+        syncError: null,
+      },
+    )
+    expect(triggered).toEqual([
+      {
+        workflowRunId: "doc_1-sync-rev_1-1",
+        segmentIndex: 1,
+        delaySeconds: 60,
+      },
+    ])
+    expect(mocks.releaseSyncCapacity).not.toHaveBeenCalled()
   })
 })
 
