@@ -4,9 +4,6 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
-overrides:
-  '@ontos-ai/knowhere-sdk': file:../knowhere-node-sdk
-
 importers:
 
   .:
@@ -27,8 +24,8 @@ importers:
         specifier: ^1.1.0
         version: 1.1.0
       '@ontos-ai/knowhere-sdk':
-        specifier: file:../knowhere-node-sdk
-        version: file:../knowhere-node-sdk
+        specifier: ^2.1.1
+        version: 2.1.1
       '@radix-ui/react-alert-dialog':
         specifier: ^1.1.15
         version: 1.1.15(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -1606,8 +1603,8 @@ packages:
     resolution: {integrity: sha512-nn5ozdjYQpUCZlWGuxcJY/KpxkWQs4DcbMCmKojjyrYDEAGy4Ce19NN4v5MduafTwJlbKc99UA8YhSVqq9yPZA==}
     engines: {node: '>=12.4.0'}
 
-  '@ontos-ai/knowhere-sdk@file:../knowhere-node-sdk':
-    resolution: {directory: ../knowhere-node-sdk, type: directory}
+  '@ontos-ai/knowhere-sdk@2.1.1':
+    resolution: {integrity: sha512-K33ylB/QjVYlLgow+/Hw+uNhQbWWrMTIqZ3IAlx5buHSI2EHPVP9+kDsfslwpfffYSn85j9Ab0/E9qTG0QotTw==}
     engines: {node: '>=22.13.0', npm: '>=10.0.0', pnpm: '>=9.0.0'}
 
   '@open-draft/deferred-promise@2.2.0':
@@ -6734,7 +6731,7 @@ snapshots:
 
   '@nolyfill/is-core-module@1.0.39': {}
 
-  '@ontos-ai/knowhere-sdk@file:../knowhere-node-sdk':
+  '@ontos-ai/knowhere-sdk@2.1.1':
     dependencies:
       axios: 1.18.1
       jszip: 3.10.1

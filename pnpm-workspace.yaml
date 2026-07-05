@@ -3,7 +3,4 @@ ignoredBuiltDependencies:
   - unrs-resolver
 
 minimumReleaseAgeExclude:
-  - '@ontos-ai/knowhere-sdk@2.0.0'
-
-overrides:
-  '@ontos-ai/knowhere-sdk': file:../knowhere-node-sdk
+  - '@ontos-ai/knowhere-sdk@2.1.1'
