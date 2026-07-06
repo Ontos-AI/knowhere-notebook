@@ -22,6 +22,20 @@ type MutableLedger = {
   decisionTraces: unknown[]
 }
 
+type EvidenceAssetCandidate = {
+  readonly type: EvidenceAsset["type"]
+  readonly assetUrl?: string
+  readonly sourcePath?: string
+  readonly label: string
+}
+
+type PageCitationAssetCandidate = {
+  readonly pageNum: number
+  readonly artifactRef?: string
+  readonly assetUrl?: string
+  readonly contentType?: string
+}
+
 export type EvidenceLedger = ReturnType<typeof createEvidenceLedger>
 
 export function createEvidenceLedger() {
@@ -81,6 +95,7 @@ export function createEvidenceLedger() {
               sourceFileName: null,
               sectionPath: chunk.sectionPath,
             },
+            ...(chunk.jobId ? { revisionKey: chunk.jobId } : {}),
             ...(chunk.assetUrl ? { assetUrl: chunk.assetUrl } : {}),
           },
         })
@@ -168,13 +183,12 @@ function addChunk(input: {
   readonly ledger: MutableLedger
   readonly chunk: Omit<EvidenceChunk, "assetRef">
 }): void {
-  const assetUrl = input.chunk.assetUrl?.trim()
-  if (!assetUrl || !isRenderableAsset(input.chunk.chunkType, assetUrl)) {
+  const asset = getEvidenceAssetCandidate(input.chunk)
+  if (!asset) {
     input.ledger.chunks.push(input.chunk)
     return
   }
 
-  const type = getAssetType(input.chunk.chunkType, assetUrl)
   const assetRef = `asset:${input.chunk.ref}`
   const chunk: EvidenceChunk = {
     ...input.chunk,
@@ -184,10 +198,12 @@ function addChunk(input: {
   input.ledger.assets.push({
     ref: assetRef,
     chunkRef: chunk.ref,
-    type,
-    assetUrl,
+    type: asset.type,
+    ...(asset.assetUrl ? { assetUrl: asset.assetUrl } : {}),
+    ...(asset.sourcePath ? { sourcePath: asset.sourcePath } : {}),
+    ...(chunk.revisionKey ? { revisionKey: chunk.revisionKey } : {}),
     source: chunk.source,
-    label: formatAssetLabel(chunk),
+    label: asset.label,
   })
 }
 
@@ -206,6 +222,56 @@ function isRenderableAsset(chunkType: string, assetUrl: string): boolean {
   )
 }
 
+function getEvidenceAssetCandidate(
+  chunk: Omit<EvidenceChunk, "assetRef">,
+): EvidenceAssetCandidate | null {
+  const pageAsset = getPageCitationAssetCandidate(chunk)
+  if (pageAsset) {
+    return pageAsset
+  }
+
+  const assetUrl = getTrimmedString(chunk.assetUrl)
+  if (!assetUrl || !isRenderableAsset(chunk.chunkType, assetUrl)) return null
+
+  const sourcePath = getAssetSourcePath(chunk, assetUrl)
+  return {
+    type: getAssetType(chunk.chunkType, assetUrl),
+    assetUrl,
+    ...(sourcePath ? { sourcePath } : {}),
+    label: formatAssetLabel(chunk, sourcePath),
+  }
+}
+
+function getPageCitationAssetCandidate(
+  chunk: Omit<EvidenceChunk, "assetRef">,
+): EvidenceAssetCandidate | null {
+  if (chunk.chunkType.toLowerCase() !== "page") return null
+
+  const candidates = parsePageCitationAssetCandidates(chunk.metadata?.pageAssets)
+    .filter(isSupportedPageCitationAsset)
+  if (candidates.length === 0) return null
+
+  const pageNumbers = getPageNumbers(chunk.metadata)
+  const candidate =
+    pageNumbers.length > 0
+      ? candidates.find((item) => pageNumbers.includes(item.pageNum)) ??
+        candidates[0]
+      : candidates[0]
+  if (!candidate) return null
+
+  const sourcePath = getTrimmedString(candidate.artifactRef)
+  const assetUrl =
+    getTrimmedString(candidate.assetUrl) ?? getTrimmedString(chunk.assetUrl)
+  if (!sourcePath && !assetUrl) return null
+
+  return {
+    type: "image",
+    ...(assetUrl ? { assetUrl } : {}),
+    ...(sourcePath ? { sourcePath } : {}),
+    label: formatAssetLabel(chunk, sourcePath),
+  }
+}
+
 function getAssetType(chunkType: string, assetUrl: string): "image" | "table" {
   return chunkType.toLowerCase() === "table" && !isImageAssetUrl(assetUrl)
     ? "table"
@@ -217,6 +283,37 @@ function isImageAssetUrl(assetUrl: string): boolean {
   return imageExtensions.some((extension) => pathname.endsWith(extension))
 }
 
+function getAssetSourcePath(
+  chunk: Omit<EvidenceChunk, "assetRef">,
+  assetUrl: string,
+): string | null {
+  const candidates = [
+    chunk.filePath,
+    chunk.sourceChunkPath,
+    chunk.source.sectionPath,
+    getUrlPathname(assetUrl),
+  ]
+
+  for (const candidate of candidates) {
+    const sourcePath = getSupportedAssetPath(candidate)
+    if (sourcePath) return sourcePath
+  }
+
+  return null
+}
+
+function getSupportedAssetPath(value: string | null | undefined): string | null {
+  const normalizedText = normalizeSourcePathCandidate(value)
+  if (!normalizedText) return null
+
+  const match =
+    /(?:^|\/)((?:images|tables|pages|page_citation_assets)\/[^?#]+)(?:[?#]|$)?/i.exec(
+      normalizedText,
+    )
+  const matchedPath = match?.[1]
+  return matchedPath ? matchedPath.trim() : null
+}
+
 function getUrlPathname(assetUrl: string): string {
   try {
     return new URL(assetUrl).pathname
@@ -225,14 +322,136 @@ function getUrlPathname(assetUrl: string): string {
   }
 }
 
-function formatAssetLabel(chunk: EvidenceChunk): string {
-  return [
+function parsePageCitationAssetCandidates(
+  value: unknown,
+): readonly PageCitationAssetCandidate[] {
+  if (!Array.isArray(value)) return []
+
+  return value.flatMap((item): PageCitationAssetCandidate[] => {
+    if (!isRecord(item)) return []
+    const pageNum = getPositiveInteger(item.pageNum)
+    if (!pageNum) return []
+
+    return [
+      {
+        pageNum,
+        ...(getTrimmedString(item.artifactRef)
+          ? { artifactRef: getTrimmedString(item.artifactRef) ?? undefined }
+          : {}),
+        ...(getTrimmedString(item.assetUrl)
+          ? { assetUrl: getTrimmedString(item.assetUrl) ?? undefined }
+          : {}),
+        ...(getTrimmedString(item.contentType)
+          ? { contentType: getTrimmedString(item.contentType) ?? undefined }
+          : {}),
+      },
+    ]
+  })
+}
+
+function isSupportedPageCitationAsset(
+  candidate: PageCitationAssetCandidate,
+): boolean {
+  const contentType = candidate.contentType?.toLowerCase()
+  return (
+    contentType?.startsWith("image/") === true ||
+    hasImageExtension(candidate.artifactRef) ||
+    hasImageExtension(candidate.assetUrl)
+  )
+}
+
+function hasImageExtension(value: string | null | undefined): boolean {
+  const normalized = normalizeSourcePathCandidate(value)?.toLowerCase()
+  return (
+    normalized !== undefined &&
+    imageExtensions.some((extension) => normalized.endsWith(extension))
+  )
+}
+
+function getPageNumbers(
+  metadata: Readonly<Record<string, unknown>> | undefined,
+): readonly number[] {
+  if (!metadata) return []
+
+  const values = [metadata.pageNums, metadata.page_nums, metadata.pageNum]
+  const pageNumbers = new Set<number>()
+
+  for (const value of values) {
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const pageNum = getPositiveInteger(item)
+        if (pageNum) pageNumbers.add(pageNum)
+      }
+      continue
+    }
+
+    const pageNum = getPositiveInteger(value)
+    if (pageNum) pageNumbers.add(pageNum)
+  }
+
+  return [...pageNumbers].sort((left, right) => left - right)
+}
+
+function getTrimmedString(value: unknown): string | null {
+  if (typeof value !== "string") return null
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+function getPositiveInteger(value: unknown): number | null {
+  return typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value > 0
+    ? value
+    : null
+}
+
+function normalizeSourcePathCandidate(
+  value: string | null | undefined,
+): string | null {
+  const trimmedValue = getTrimmedString(value)
+  if (!trimmedValue) return null
+
+  const normalized = decodeUrlText(trimmedValue)
+    .replaceAll("\\", "/")
+    .replace(/\s*\/\s*/g, "/")
+    .replace(/\s+/g, " ")
+    .trim()
+
+  return normalized.length > 0 ? normalized : null
+}
+
+function decodeUrlText(value: string): string {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null
+}
+
+function formatAssetLabel(
+  chunk: EvidenceChunk,
+  sourcePath?: string | null,
+): string {
+  const labels = [
     chunk.source.sourceFileName,
     chunk.source.sectionPath,
+    sourcePath,
     chunk.chunkType,
   ]
-    .filter((value): value is string => Boolean(value?.trim()))
-    .join(" / ")
+  const uniqueLabels: string[] = []
+
+  for (const label of labels) {
+    const normalized = label?.trim()
+    if (!normalized || uniqueLabels.includes(normalized)) continue
+    uniqueLabels.push(normalized)
+  }
+
+  return uniqueLabels.join(" / ")
 }
 
 function snapshot(ledger: MutableLedger): EvidenceLedgerSnapshot {

@@ -1930,6 +1930,297 @@ describe("generateAgenticOutputManifest", () => {
     expect(JSON.stringify(capturedGenerateInput)).toContain("tax.pdf / deadline");
   });
 
+  it("lets the agent inspect retrieved image assets before finalizing cited image output", async () => {
+    process.env.AI_GATEWAY_API_KEY = "test_gateway_key";
+    vi.spyOn(ToolLoopAgent.prototype, "generate").mockImplementation(
+      async function mockGenerate(
+        this: ToolLoopAgent,
+      ): ReturnType<ToolLoopAgent["generate"]> {
+        const tools = this.tools as unknown as Record<
+          string,
+          { execute: (input: unknown) => Promise<unknown> }
+        >;
+
+        await tools.declareIntent?.execute({
+          task: "show_media",
+          dependsOnPreviousTurn: false,
+          retrievalNeeded: "yes",
+          targetModalities: ["image"],
+          constraints: { desiredCount: 1, maxCount: 1 },
+          groundingPolicy: "must_use_sources",
+        });
+        await tools.setContextPolicy?.execute({
+          carryHistory: "none",
+          reason: "The current request is self-contained.",
+          activePriorTurnIds: [],
+        });
+        await tools.retrieve?.execute({
+          query: "identity card front image",
+          modalities: ["image"],
+          topK: 1,
+          purpose: "Find the ID card image to inspect.",
+        });
+        await tools.inspectImage?.execute({
+          refs: ["asset:r1:result:1"],
+          question: "What text is visible on the ID card?",
+        });
+        await tools.finalize?.execute({
+          text: "The inspected image appears to show the requested ID card.",
+          citations: [
+            {
+              ref: "asset:r1:result:1",
+              label: "identity.pdf / images/id-front.png",
+              source: {
+                documentId: "doc_identity",
+                sourceFileName: "identity.pdf",
+                sectionPath: "images/id-front.png",
+              },
+            },
+          ],
+          artifacts: [
+            {
+              type: "image",
+              ref: "asset:r1:result:1",
+              display: true,
+              reason: "Requested inspected ID card image.",
+            },
+          ],
+          unresolved: [],
+        });
+
+        return {
+          text: "ignored",
+        } as Awaited<ReturnType<ToolLoopAgent["generate"]>>;
+      },
+    );
+    const searchSources = vi.fn().mockResolvedValue({
+      results: [
+        makeRetrievalResult({
+          chunkType: "image",
+          assetUrl: "https://blob.example/images/id-front.png",
+          source: {
+            documentId: "doc_identity",
+            sourceFileName: "generated.pdf",
+            sectionPath: "images/id-front.png",
+          },
+        }),
+      ],
+      evidenceText: "Identity image evidence.",
+      referencedChunks: [],
+      namespace: "notebook-workspace",
+      query: "identity card front image",
+      routerUsed: "workflow_single_step",
+      answerText: null,
+      stopReason: "answer_done",
+      failureReason: null,
+    });
+    const inspectImages = vi.fn().mockResolvedValue({
+      analysis: "The image contains a visible identity card number.",
+      inspected: [
+        {
+          ref: "asset:r1:result:1",
+          label: "generated.pdf / images/id-front.png / image",
+        },
+      ],
+      skipped: [],
+    });
+
+    const result = await generateAgenticOutputManifest({
+      question: "Inspect and show the ID card image.",
+      messages: [],
+      sources: [
+        makeSource({ title: "identity.pdf", knowhereDocumentId: "doc_identity" }),
+      ],
+      excludedSourceIds: [],
+      searchSources,
+      inspectImages,
+    });
+
+    expect(inspectImages).toHaveBeenCalledWith({
+      question: "What text is visible on the ID card?",
+      assets: [
+        {
+          ref: "asset:r1:result:1",
+          label: "generated.pdf / images/id-front.png / image",
+          assetUrl: "https://blob.example/images/id-front.png",
+          sourcePath: "images/id-front.png",
+          source: {
+            documentId: "doc_identity",
+            sourceFileName: "generated.pdf",
+            sectionPath: "images/id-front.png",
+          },
+        },
+      ],
+    });
+    expect(result.manifest.citations.map((citation) => citation.ref)).toEqual([
+      "asset:r1:result:1",
+    ]);
+    expect(result.manifest.artifacts).toEqual([
+      {
+        type: "image",
+        ref: "asset:r1:result:1",
+        display: true,
+        reason: "Requested inspected ID card image.",
+      },
+    ]);
+    expect(result.trace.toolCalls.map((call) => call.tool)).toContain(
+      "inspectImage",
+    );
+    expect(result.trace.validationErrors).toEqual([]);
+  });
+
+  it("lets the agent inspect retrieved page assets before finalizing an OCR answer", async () => {
+    process.env.AI_GATEWAY_API_KEY = "test_gateway_key";
+    vi.spyOn(ToolLoopAgent.prototype, "generate").mockImplementation(
+      async function mockGenerate(
+        this: ToolLoopAgent,
+      ): ReturnType<ToolLoopAgent["generate"]> {
+        const tools = this.tools as unknown as Record<
+          string,
+          { execute: (input: unknown) => Promise<unknown> }
+        >;
+
+        await tools.declareIntent?.execute({
+          task: "answer",
+          dependsOnPreviousTurn: false,
+          retrievalNeeded: "yes",
+          targetModalities: ["text"],
+          constraints: { citationRequired: true, language: "zh-CN" },
+          groundingPolicy: "must_use_sources",
+        });
+        await tools.setContextPolicy?.execute({
+          carryHistory: "none",
+          reason: "The current request is self-contained.",
+          activePriorTurnIds: [],
+        });
+        await tools.retrieve?.execute({
+          query: "进度计划 违约金 承包人",
+          modalities: ["text"],
+          topK: 6,
+          purpose: "Find the contract clause and page for the liquidated damages amount.",
+        });
+        await tools.inspectImage?.execute({
+          refs: ["asset:r1:referenced:1"],
+          question:
+            "OCR this clause and identify the liquidated damages amount for unauthorized schedule changes.",
+        });
+        await tools.finalize?.execute({
+          text: "承包人自行修改发包人审批的进度计划，应按每次 5000 元赔偿违约金。",
+          citations: [
+            {
+              ref: "asset:r1:referenced:1",
+              label: "投标书 / （6）现场工期进度管理方面的违约责任",
+              source: {
+                documentId: "doc_contract",
+                sourceFileName: "投标书.pdf",
+                sectionPath: "Root / （6）现场工期进度管理方面的违约责任",
+              },
+            },
+          ],
+          artifacts: [],
+          unresolved: [],
+        });
+
+        return {
+          text: "ignored",
+        } as Awaited<ReturnType<ToolLoopAgent["generate"]>>;
+      },
+    );
+    const searchSources = vi.fn().mockResolvedValue({
+      results: [],
+      evidenceText: "Root / （6）现场工期进度管理方面的违约责任",
+      referencedChunks: [
+        {
+          chunkId: "chunk_page_8",
+          documentId: "doc_contract",
+          chunkType: "page",
+          sectionPath: "Root / （6）现场工期进度管理方面的违约责任",
+          filePath: null,
+          jobId: "job_contract",
+          metadata: {
+            pageNums: [8],
+            pageAssets: [
+              {
+                pageNum: 8,
+                artifactRef: "page_citation_assets/page-8.png",
+                assetUrl: "https://blob.example/page-8.png",
+                contentType: "image/png",
+              },
+            ],
+          },
+        },
+      ],
+      namespace: "notebook-workspace",
+      query: "进度计划 违约金 承包人",
+      routerUsed: "workflow_single_step",
+      answerText: null,
+      stopReason: "answer_done",
+      failureReason: null,
+    });
+    const inspectImages = vi.fn().mockResolvedValue({
+      analysis: "The clause states 5000 yuan per occurrence.",
+      inspected: [
+        {
+          ref: "asset:r1:referenced:1",
+          label:
+            "Root / （6）现场工期进度管理方面的违约责任 / page_citation_assets/page-8.png / page",
+        },
+      ],
+      skipped: [],
+    });
+
+    const result = await generateAgenticOutputManifest({
+      question: "承包人自行修改发包人审批的进度时需要赔偿多少违约金？",
+      messages: [],
+      sources: [
+        makeSource({
+          title: "投标书.pdf",
+          knowhereDocumentId: "doc_contract",
+        }),
+      ],
+      excludedSourceIds: [],
+      searchSources,
+      inspectImages,
+    });
+
+    expect(searchSources).toHaveBeenCalledWith({
+      query: "进度计划 违约金 承包人",
+      targetContent: "text",
+      purpose: "Find the contract clause and page for the liquidated damages amount.",
+      topK: 6,
+      signalPaths: undefined,
+      filterMode: undefined,
+      threshold: undefined,
+    });
+    expect(inspectImages).toHaveBeenCalledWith({
+      question:
+        "OCR this clause and identify the liquidated damages amount for unauthorized schedule changes.",
+      assets: [
+        {
+          ref: "asset:r1:referenced:1",
+          label:
+            "Root / （6）现场工期进度管理方面的违约责任 / page_citation_assets/page-8.png / page",
+          assetUrl: "https://blob.example/page-8.png",
+          sourcePath: "page_citation_assets/page-8.png",
+          revisionKey: "job_contract",
+          source: {
+            documentId: "doc_contract",
+            sourceFileName: null,
+            sectionPath: "Root / （6）现场工期进度管理方面的违约责任",
+          },
+        },
+      ],
+    });
+    expect(result.manifest.text).toContain("5000 元");
+    expect(result.manifest.citations.map((citation) => citation.ref)).toEqual([
+      "asset:r1:referenced:1",
+    ]);
+    expect(result.trace.toolCalls.map((call) => call.tool)).toContain(
+      "inspectImage",
+    );
+    expect(result.trace.validationErrors).toEqual([]);
+  });
+
   it("self-corrects an over-budget manifest via a validation-feedback revision", async () => {
     process.env.AI_GATEWAY_API_KEY = "test_gateway_key";
     let generateCallCount = 0;

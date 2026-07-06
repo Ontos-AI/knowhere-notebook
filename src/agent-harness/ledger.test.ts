@@ -43,6 +43,26 @@ describe("createEvidenceLedger", () => {
       contentSlice: "",
     })
   })
+
+  it("creates page image assets from live page citation asset URLs without metadata", () => {
+    const ledger = createEvidenceLedger()
+
+    const snapshot = ledger.addRetrievalResponse(
+      makePageAssetUrlRetrievalResponse(),
+    )
+
+    expect(snapshot.assets).toContainEqual(
+      expect.objectContaining({
+        ref: "asset:r1:referenced:1",
+        chunkRef: "r1:referenced:1",
+        type: "image",
+        assetUrl:
+          "https://knowhere-storage.example/results/job_1/page_citation_assets/page-8.png?AWSAccessKeyId=test",
+        sourcePath: "page_citation_assets/page-8.png",
+        revisionKey: "job_1",
+      }),
+    )
+  })
 })
 
 function makeRetrievalResponse(): RetrievalQueryResponse {
@@ -85,6 +105,32 @@ function makeRetrievalResponse(): RetrievalQueryResponse {
         chunkType: "image",
         sectionPath: "images/photo.jpg",
         assetUrl: "https://assets.example/images/photo.jpg",
+      },
+    ],
+  }
+}
+
+function makePageAssetUrlRetrievalResponse(): RetrievalQueryResponse {
+  return {
+    namespace: "notebook",
+    query: "承包人 进度计划 修改 违约金",
+    routerUsed: "workflow_single_step",
+    answerText: null,
+    evidenceText:
+      "Root / （6）现场工期进度管理方面的违约责任 [Page PDF (page 8)]",
+    stopReason: "answer_done",
+    failureReason: null,
+    results: [],
+    referencedChunks: [
+      {
+        chunkId: "node_3a513cf7-77d7-5c62-a9bd-6a1109123e2c",
+        documentId: "doc_contract",
+        chunkType: "page",
+        sectionPath: "Root / （6）现场工期进度管理方面的违约责任",
+        filePath: null,
+        jobId: "job_1",
+        assetUrl:
+          "https://knowhere-storage.example/results/job_1/page_citation_assets/page-8.png?AWSAccessKeyId=test",
       },
     ],
   }

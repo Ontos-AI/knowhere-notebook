@@ -107,6 +107,7 @@ export type EvidenceChunk = {
     readonly sourceFileName?: string | null
     readonly sectionPath?: string | null
   }
+  readonly revisionKey?: string | null
   readonly assetRef?: string
   readonly assetUrl?: string
 }
@@ -115,10 +116,46 @@ export type EvidenceAsset = {
   readonly ref: string
   readonly chunkRef: string
   readonly type: "image" | "table"
-  readonly assetUrl: string
+  readonly assetUrl?: string
+  readonly sourcePath?: string
+  readonly revisionKey?: string | null
   readonly source: EvidenceChunk["source"]
   readonly label: string
 }
+
+export type ImageInspectionAsset = {
+  readonly ref: string
+  readonly label: string
+  readonly assetUrl?: string | null
+  readonly sourcePath?: string | null
+  readonly revisionKey?: string | null
+  readonly source: EvidenceChunk["source"]
+}
+
+export type ImageInspectionSkippedAsset = {
+  readonly ref: string
+  readonly reason: string
+}
+
+export type ImageInspectionInspectedAsset = {
+  readonly ref: string
+  readonly label: string
+}
+
+export type ImageInspectionRequest = {
+  readonly question: string
+  readonly assets: readonly ImageInspectionAsset[]
+}
+
+export type ImageInspectionResponse = {
+  readonly analysis: string
+  readonly inspected: readonly ImageInspectionInspectedAsset[]
+  readonly skipped: readonly ImageInspectionSkippedAsset[]
+}
+
+export type InspectImages = (
+  input: ImageInspectionRequest,
+) => Promise<ImageInspectionResponse>
 
 export type EvidenceLedgerSnapshot = {
   readonly retrievalCount: number

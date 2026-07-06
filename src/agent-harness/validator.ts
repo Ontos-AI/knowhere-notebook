@@ -1,6 +1,7 @@
 import type {
   ContextPolicy,
   EvidenceLedgerSnapshot,
+  HarnessToolCallTrace,
   IntentFrame,
   OutputManifest,
 } from "./types"
@@ -11,6 +12,7 @@ export type ManifestValidationInput = {
   readonly contextPolicy?: ContextPolicy
   readonly finalized?: boolean
   readonly ledger: EvidenceLedgerSnapshot
+  readonly toolCalls?: readonly HarnessToolCallTrace[]
   readonly surface: "notebook_chat" | "typing_compose" | "typing_quick_ask"
 }
 
@@ -34,6 +36,8 @@ export function validateOutputManifest(
   validateArtifactCounts(input, errors)
   validateGrounding(input, errors)
   validateTaskEvidence(input, errors)
+  validateImageInspectionClaims(input, errors)
+  validateUnavailableImageContentClaims(input, errors)
   validateTypingText(input, errors)
 
   return {
@@ -200,4 +204,81 @@ function validateTypingText(
   if (/```|^\s*#{1,6}\s|^\s*[-*]\s/m.test(text)) {
     errors.push("Typing compose output must be insertion-ready plain text.")
   }
+}
+
+function validateImageInspectionClaims(
+  input: ManifestValidationInput,
+  errors: string[],
+): void {
+  const claimText = [input.manifest.text, ...input.manifest.unresolved].join("\n")
+  if (!mentionsImageInspectionResult(claimText)) return
+
+  if (hasImageInspectionToolCall(input)) return
+
+  errors.push(
+    "Final output must not claim image/OCR inspection succeeded or failed unless inspectImage was called.",
+  )
+}
+
+function validateUnavailableImageContentClaims(
+  input: ManifestValidationInput,
+  errors: string[],
+): void {
+  const hasImageAssets = input.ledger.assets.some((asset) => asset.type === "image")
+  if (!hasImageAssets) return
+  if (hasImageInspectionToolCall(input)) return
+
+  const claimText = [input.manifest.text, ...input.manifest.unresolved].join("\n")
+  if (!mentionsUnavailableImageContent(claimText)) return
+
+  errors.push(
+    "Final output must inspect available image assets before claiming retrieved page/image content cannot be read.",
+  )
+}
+
+function hasImageInspectionToolCall(input: ManifestValidationInput): boolean {
+  return input.toolCalls?.some((call) => call.tool === "inspectImage") === true
+}
+
+function mentionsImageInspectionResult(value: string): boolean {
+  const normalized = value.replace(/\s+/g, " ").trim()
+  if (!normalized) return false
+
+  return (
+    /\b(?:image|visual)\s+(?:inspection|recognition|analysis)\s+(?:failed|did not|could not|was unable|found|showed|confirmed)/iu.test(
+      normalized,
+    ) ||
+    /\bOCR\s+(?:failed|did not|could not|was unable|found|showed|confirmed|extracted)/iu.test(
+      normalized,
+    ) ||
+    /(?:图像|图片|视觉).{0,8}(?:识别|检查|检视|查看|分析).{0,12}(?:未|没|无法|不能|不成功|失败|成功|显示|发现|提取|读取)/u.test(
+      normalized,
+    ) ||
+    /(?:图像|图片|视觉).{0,12}(?:未|没|无法|不能|不成功|失败).{0,16}(?:识别|检查|检视|查看|分析|检测|提取|读取|获取)/u.test(
+      normalized,
+    ) ||
+    /(?:未|没|无法|不能|不成功|失败).{0,12}(?:图像|图片|视觉|OCR).{0,12}(?:识别|检查|检视|查看|分析|检测|提取|读取|获取)/u.test(
+      normalized,
+    )
+  )
+}
+
+function mentionsUnavailableImageContent(value: string): boolean {
+  const normalized = value.replace(/\s+/g, " ").trim()
+  if (!normalized) return false
+
+  return (
+    /\b(?:cannot|can't|could not|unable to|was unable to|did not)\s+(?:directly\s+)?(?:read|inspect|access|extract|see|view)\b.{0,48}\b(?:page|image|visual|OCR|content|clause|details|text)\b/iu.test(
+      normalized,
+    ) ||
+    /\b(?:page|image|visual|OCR|content|clause|details|text)\b.{0,48}\b(?:cannot|can't|could not|unable to|was unable to|did not)\s+(?:directly\s+)?(?:read|inspect|access|extract|see|view)\b/iu.test(
+      normalized,
+    ) ||
+    /(?:无法|不能|未能|没法|没有办法).{0,8}(?:直接)?(?:读取|查看|识别|检测|提取|看清|访问|获取).{0,16}(?:页面|页|图片|图像|条款|内容|细节|文字)/u.test(
+      normalized,
+    ) ||
+    /(?:页面|页|图片|图像|条款|内容|细节|文字).{0,16}(?:无法|不能|未能|没法|没有办法).{0,16}(?:直接)?(?:读取|查看|识别|检测|提取|看清|访问|获取)/u.test(
+      normalized,
+    )
+  )
 }

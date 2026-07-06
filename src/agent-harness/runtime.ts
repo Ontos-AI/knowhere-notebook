@@ -16,6 +16,9 @@ import type {
   HarnessRunResult,
   HarnessToolCallTrace,
   HarnessTrace,
+  ImageInspectionAsset,
+  ImageInspectionResponse,
+  InspectImages,
   IntentFrame,
   OutputManifest,
   RetrievalCapability,
@@ -23,9 +26,11 @@ import type {
 } from "./types"
 import { validateOutputManifest } from "./validator"
 
-const defaultMaxSteps = 13
+const defaultMaxSteps = 14
 const defaultMaxRevisions = 1
-const forcedFinalizationStepNumber = 12
+const imageInspectionReminderStepNumber = 12
+const forcedFinalizationStepNumber = 13
+const imageInspectionRefLimit = 6
 
 type ToolLoopAgentSettings = ConstructorParameters<typeof ToolLoopAgent>[0]
 
@@ -35,6 +40,7 @@ export type RunAgentHarnessInput = {
   readonly model: AgentHarnessModel
   readonly turn: AgentTurnInput
   readonly retrieval: RetrievalCapability
+  readonly inspectImages?: InspectImages
   readonly maxSteps?: number
   /**
    * How many times the agent may revise after a failed validation pass before
@@ -49,6 +55,7 @@ type HarnessToolState = {
   finalizedManifest?: OutputManifest
   finalized?: boolean
   priorTurnReads?: string[]
+  inspectedImageRefs?: string[]
   toolCalls?: HarnessToolCallTrace[]
 }
 
@@ -160,6 +167,7 @@ export async function runAgentHarness(
     state,
     ledger,
     retrieval: input.retrieval,
+    inspectImages: input.inspectImages,
     recentTurns: input.turn.recentTurns,
   })
   const agent = new ToolLoopAgent({
@@ -170,6 +178,9 @@ export async function runAgentHarness(
       prepareHarnessStep({
         messages: stepMessages,
         stepNumber,
+        hasUninspectedImageAssets:
+          input.inspectImages !== undefined &&
+          hasUninspectedImageAssets({ state, ledger }),
       }),
     stopWhen: [
       hasToolCall("finalize"),
@@ -194,6 +205,7 @@ export async function runAgentHarness(
       contextPolicy: state.contextPolicy,
       finalized: state.finalized === true,
       ledger: ledger.snapshot(),
+      toolCalls: state.toolCalls,
       surface: input.turn.surface,
     })
     validationErrors = validation.errors
@@ -235,8 +247,29 @@ export async function runAgentHarness(
 export function prepareHarnessStep(input: {
   readonly stepNumber: number
   readonly messages: readonly ModelMessage[]
+  readonly hasUninspectedImageAssets?: boolean
 }): HarnessStepPreparation {
   const messages = sanitizeHarnessModelMessagesForStep(input.messages)
+
+  if (
+    input.stepNumber === imageInspectionReminderStepNumber &&
+    input.hasUninspectedImageAssets === true
+  ) {
+    return {
+      messages: [
+        ...messages,
+        {
+          role: "user",
+          content: buildImageInspectionReminderFeedback(),
+        },
+      ],
+      activeTools: ["inspectImage"],
+      toolChoice: {
+        type: "tool",
+        toolName: "inspectImage",
+      },
+    }
+  }
 
   if (input.stepNumber < forcedFinalizationStepNumber) {
     return { messages }
@@ -339,10 +372,32 @@ function buildForcedFinalizationFeedback(): string {
   ].join("\n")
 }
 
+function buildImageInspectionReminderFeedback(): string {
+  return [
+    "The retrieval step budget is nearly reached and retrieved image assets are available.",
+    "If the exact answer depends on OCR, page-image text, visual details, or image verification, call inspectImage now with the most relevant retrieved image asset refs.",
+    "If image inspection is not needed for this answer, call finalize using the evidence already available.",
+    "Do not search again.",
+  ].join("\n")
+}
+
+function hasUninspectedImageAssets(input: {
+  readonly state: HarnessToolState
+  readonly ledger: ReturnType<typeof createEvidenceLedger>
+}): boolean {
+  const inspectedRefs = new Set(input.state.inspectedImageRefs ?? [])
+  return input.ledger
+    .snapshot()
+    .assets.some(
+      (asset) => asset.type === "image" && !inspectedRefs.has(asset.ref),
+    )
+}
+
 export function createHarnessTools(input: {
   readonly state: HarnessToolState
   readonly ledger: ReturnType<typeof createEvidenceLedger>
   readonly retrieval: RetrievalCapability
+  readonly inspectImages?: InspectImages
   readonly recentTurns: readonly AgentTurn[]
 }) {
   return {
@@ -448,6 +503,29 @@ export function createHarnessTools(input: {
             }
           },
           summarizeOutput: summarizeRetrieveOutput,
+        }),
+    }),
+
+    inspectImage: tool({
+      description:
+        "Inspect retrieved image asset refs visually for OCR, visual details, comparisons, or verification. Use only after retrieve has returned image assets.",
+      inputSchema: z.object({
+        refs: z.array(z.string().min(1)).min(1).max(imageInspectionRefLimit),
+        question: z.string().min(1),
+      }),
+      execute: async (request) =>
+        traceToolCall(input.state, {
+          toolName: "inspectImage",
+          inputSummary: summarizeInspectImageRequest(request),
+          execute: async () =>
+            inspectRetrievedImages({
+              state: input.state,
+              ledger: input.ledger,
+              inspectImages: input.inspectImages,
+              refs: request.refs,
+              question: request.question,
+            }),
+          summarizeOutput: summarizeInspectImageOutput,
         }),
     }),
 
@@ -569,6 +647,173 @@ export function createHarnessTools(input: {
   } as const
 }
 
+async function inspectRetrievedImages(input: {
+  readonly state: HarnessToolState
+  readonly ledger: ReturnType<typeof createEvidenceLedger>
+  readonly inspectImages?: InspectImages
+  readonly refs: readonly string[]
+  readonly question: string
+}): Promise<
+  | ({ readonly ok: true } & ImageInspectionResponse)
+  | {
+      readonly ok: false
+      readonly message: string
+      readonly inspected: readonly []
+      readonly skipped: readonly {
+        readonly ref: string
+        readonly reason: string
+      }[]
+    }
+> {
+  const refs = getUniqueTrimmedRefs(input.refs)
+  const question = input.question.trim()
+
+  if (refs.length === 0 || question.length === 0) {
+    return {
+      ok: false,
+      message: "At least one image asset ref and a question are required.",
+      inspected: [],
+      skipped: [],
+    }
+  }
+  if (refs.length > imageInspectionRefLimit) {
+    return {
+      ok: false,
+      message: `inspectImage accepts at most ${imageInspectionRefLimit} refs per call.`,
+      inspected: [],
+      skipped: refs.map((ref) => ({
+        ref,
+        reason: "Too many refs were requested in one inspectImage call.",
+      })),
+    }
+  }
+
+  const snapshot = input.ledger.snapshot()
+  if (snapshot.retrievalCount === 0) {
+    return {
+      ok: false,
+      message: "retrieve must be called before inspectImage.",
+      inspected: [],
+      skipped: refs.map((ref) => ({
+        ref,
+        reason: "No retrieval evidence is available yet.",
+      })),
+    }
+  }
+  if (!input.inspectImages) {
+    return {
+      ok: false,
+      message: "Image inspection is not available for this turn.",
+      inspected: [],
+      skipped: refs.map((ref) => ({
+        ref,
+        reason: "No image inspection capability is configured.",
+      })),
+    }
+  }
+
+  const assetsByRef = new Map(
+    snapshot.assets.map((asset) => [asset.ref, asset] as const),
+  )
+  const skipped: {
+    readonly ref: string
+    readonly reason: string
+  }[] = []
+  const selectedAssets: ImageInspectionAsset[] = []
+
+  for (const ref of refs) {
+    const asset = assetsByRef.get(ref)
+    if (!asset) {
+      skipped.push({
+        ref,
+        reason: "Ref was not returned by retrieve as an asset.",
+      })
+      continue
+    }
+    if (asset.type !== "image") {
+      skipped.push({
+        ref,
+        reason: "Ref is not an image asset.",
+      })
+      continue
+    }
+
+    selectedAssets.push({
+      ref: asset.ref,
+      label: asset.label,
+      ...(asset.assetUrl ? { assetUrl: asset.assetUrl } : {}),
+      ...(asset.sourcePath ? { sourcePath: asset.sourcePath } : {}),
+      ...(asset.revisionKey ? { revisionKey: asset.revisionKey } : {}),
+      source: asset.source,
+    })
+  }
+
+  if (selectedAssets.length === 0) {
+    return {
+      ok: false,
+      message: "No inspectable image asset refs were provided.",
+      inspected: [],
+      skipped,
+    }
+  }
+
+  const inspectedImageRefs = input.state.inspectedImageRefs ?? []
+  const inspectedCountAfterCall =
+    inspectedImageRefs.length + selectedAssets.length
+  if (inspectedCountAfterCall > imageInspectionRefLimit) {
+    return {
+      ok: false,
+      message: `inspectImage accepts at most ${imageInspectionRefLimit} image refs per turn.`,
+      inspected: [],
+      skipped: selectedAssets.map((asset) => ({
+        ref: asset.ref,
+        reason: "The per-turn image inspection limit would be exceeded.",
+      })),
+    }
+  }
+
+  input.state.inspectedImageRefs = [
+    ...inspectedImageRefs,
+    ...selectedAssets.map((asset) => asset.ref),
+  ]
+
+  try {
+    const response = await input.inspectImages({
+      question,
+      assets: selectedAssets,
+    })
+    return {
+      ok: true,
+      analysis: response.analysis,
+      inspected: response.inspected,
+      skipped: [...skipped, ...response.skipped],
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      message:
+        error instanceof Error
+          ? `Image inspection failed: ${error.message}`
+          : "Image inspection failed.",
+      inspected: [],
+      skipped: selectedAssets.map((asset) => ({
+        ref: asset.ref,
+        reason: "The image inspection request failed.",
+      })),
+    }
+  }
+}
+
+function getUniqueTrimmedRefs(refs: readonly string[]): string[] {
+  const normalizedRefs: string[] = []
+  for (const ref of refs) {
+    const normalizedRef = ref.trim()
+    if (!normalizedRef || normalizedRefs.includes(normalizedRef)) continue
+    normalizedRefs.push(normalizedRef)
+  }
+  return normalizedRefs
+}
+
 async function traceToolCall<T>(input: {
   readonly toolCalls?: HarnessToolCallTrace[]
 }, call: {
@@ -683,6 +928,30 @@ function summarizeReadEvidenceOutput(output: unknown): unknown {
   }
 }
 
+function summarizeInspectImageRequest(request: {
+  readonly refs: readonly string[]
+  readonly question: string
+}): unknown {
+  return {
+    refs: getUniqueTrimmedRefs(request.refs),
+    questionLength: request.question.trim().length,
+  }
+}
+
+function summarizeInspectImageOutput(output: unknown): unknown {
+  if (!isRecord(output)) return output
+  return {
+    ok: output.ok,
+    analysisLength:
+      typeof output.analysis === "string" ? output.analysis.length : 0,
+    inspectedCount: Array.isArray(output.inspected)
+      ? output.inspected.length
+      : 0,
+    skippedCount: Array.isArray(output.skipped) ? output.skipped.length : 0,
+    message: output.message,
+  }
+}
+
 function summarizeReadPriorTurnOutput(output: unknown): unknown {
   if (!isRecord(output)) return output
   return {
@@ -739,8 +1008,10 @@ export function buildHarnessSystemPrompt(turn: AgentTurnInput): string {
     "2. Call setContextPolicy next, deciding how prior turns should influence this turn.",
     "3. When the policy needs prior-turn detail (references or corrections), call readPriorTurn for the relevant ids.",
     "4. Call retrieve only when evidence is needed. The query must be concise and self-contained.",
-    "5. Use readEvidence only for chunk refs already in the evidence ledger.",
-    "6. Call finalize with text, citations, artifacts, and unresolved issues. finalize requires declareIntent and setContextPolicy first.",
+    "5. For pixel-level details, OCR, visual comparison, image verification, or when the likely answer is only visible on a retrieved page/image asset, call inspectImage only after retrieve returned image asset refs.",
+    `6. inspectImage accepts at most ${imageInspectionRefLimit} image asset refs per call and per turn.`,
+    "7. Use readEvidence only for chunk refs already in the evidence ledger.",
+    "8. Call finalize with text, citations, artifacts, and unresolved issues. finalize requires declareIntent and setContextPolicy first.",
     "",
     "Context rules:",
     "- If the current user request is unrelated to prior turns, set carryHistory to none and do not reuse prior topics.",
@@ -752,6 +1023,8 @@ export function buildHarnessSystemPrompt(turn: AgentTurnInput): string {
     "- artifacts with display=true are the exact images/tables shown. Never display every candidate; honor constraints.desiredCount / maxCount.",
     "- Use type=derived_table only for tables you create from evidence; every derived_table.sourceRefs entry must reference evidence in the ledger.",
     "- citations and selected image/table artifact refs may only reference refs returned by retrieve (in the evidence ledger).",
+    "- inspectImage observations are inspection notes, not new source refs. Final citations and displayed image artifacts must use the original retrieved image asset refs.",
+    "- If text evidence identifies a relevant page/image but does not include the exact fact, inspect the returned image asset for OCR/detail before saying the answer is unavailable.",
     "- If evidence is insufficient, list it in unresolved instead of fabricating facts.",
     "- After a validation-feedback message, fix all listed issues and call finalize again.",
     `Surface: ${turn.surface}`,

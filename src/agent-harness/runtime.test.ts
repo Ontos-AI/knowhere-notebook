@@ -166,6 +166,198 @@ describe("agent harness runtime", () => {
     ])
   })
 
+  it("rejects image inspection before retrieval has returned image assets", async () => {
+    const inspectImages = vi.fn()
+    const tools = createHarnessTools({
+      state: {},
+      ledger: createEvidenceLedger(),
+      retrieval: { query: vi.fn<RetrievalCapability["query"]>() },
+      inspectImages,
+      recentTurns: [],
+    })
+
+    const result = await executeTool(tools.inspectImage, {
+      refs: ["asset:r1:result:1"],
+      question: "What text is visible?",
+    })
+
+    expect(result).toEqual({
+      ok: false,
+      message: "retrieve must be called before inspectImage.",
+      inspected: [],
+      skipped: [
+        {
+          ref: "asset:r1:result:1",
+          reason: "No retrieval evidence is available yet.",
+        },
+      ],
+    })
+    expect(inspectImages).not.toHaveBeenCalled()
+  })
+
+  it("rejects image inspection refs that are unknown or not image assets", async () => {
+    const ledger = createEvidenceLedger()
+    ledger.addRetrievalResponse(makeTableRetrievalResponse())
+    const inspectImages = vi.fn()
+    const tools = createHarnessTools({
+      state: {},
+      ledger,
+      retrieval: { query: vi.fn<RetrievalCapability["query"]>() },
+      inspectImages,
+      recentTurns: [],
+    })
+
+    const result = await executeTool(tools.inspectImage, {
+      refs: ["asset:r1:result:1", "missing"],
+      question: "What is in these images?",
+    })
+
+    expect(result).toEqual({
+      ok: false,
+      message: "No inspectable image asset refs were provided.",
+      inspected: [],
+      skipped: [
+        {
+          ref: "asset:r1:result:1",
+          reason: "Ref is not an image asset.",
+        },
+        {
+          ref: "missing",
+          reason: "Ref was not returned by retrieve as an asset.",
+        },
+      ],
+    })
+    expect(inspectImages).not.toHaveBeenCalled()
+  })
+
+  it("enforces the inspectImage six-ref limit", async () => {
+    const ledger = createEvidenceLedger()
+    ledger.addRetrievalResponse(makeImageRetrievalResponse(7))
+    const tools = createHarnessTools({
+      state: {},
+      ledger,
+      retrieval: { query: vi.fn<RetrievalCapability["query"]>() },
+      inspectImages: vi.fn(),
+      recentTurns: [],
+    })
+
+    const result = await executeTool(tools.inspectImage, {
+      refs: Array.from({ length: 7 }, (_, index) => `asset:r1:result:${index + 1}`),
+      question: "Compare these images.",
+    })
+
+    expect(result).toMatchObject({
+      ok: false,
+      message: "inspectImage accepts at most 6 refs per call.",
+    })
+  })
+
+  it("calls the visual inspection capability with retrieved image ledger assets", async () => {
+    const ledger = createEvidenceLedger()
+    ledger.addRetrievalResponse(makeRetrievalResponse())
+    const inspectImages = vi.fn().mockResolvedValue({
+      analysis: "The image shows a Q4 revenue chart with a rising line.",
+      inspected: [
+        {
+          ref: "asset:r1:result:1",
+          label: "report.pdf / images/chart.png / image",
+        },
+      ],
+      skipped: [],
+    })
+    const tools = createHarnessTools({
+      state: {},
+      ledger,
+      retrieval: { query: vi.fn<RetrievalCapability["query"]>() },
+      inspectImages,
+      recentTurns: [],
+    })
+
+    const result = await executeTool(tools.inspectImage, {
+      refs: ["asset:r1:result:1"],
+      question: "What does the chart show?",
+    })
+
+    expect(inspectImages).toHaveBeenCalledWith({
+      question: "What does the chart show?",
+      assets: [
+        {
+          ref: "asset:r1:result:1",
+          label: "report.pdf / images/chart.png / image",
+          assetUrl: "https://assets.example/chart.png",
+          sourcePath: "images/chart.png",
+          source: {
+            documentId: "doc_1",
+            sourceFileName: "report.pdf",
+            sectionPath: "images/chart.png",
+          },
+        },
+      ],
+    })
+    expect(result).toEqual({
+      ok: true,
+      analysis: "The image shows a Q4 revenue chart with a rising line.",
+      inspected: [
+        {
+          ref: "asset:r1:result:1",
+          label: "report.pdf / images/chart.png / image",
+        },
+      ],
+      skipped: [],
+    })
+  })
+
+  it("calls the visual inspection capability with retrieved page citation assets", async () => {
+    const ledger = createEvidenceLedger()
+    ledger.addRetrievalResponse(makePageCitationRetrievalResponse())
+    const inspectImages = vi.fn().mockResolvedValue({
+      analysis: "The clause says the contractor pays 5000 yuan per occurrence.",
+      inspected: [
+        {
+          ref: "asset:r1:referenced:1",
+          label:
+            "Root / （6）现场工期进度管理方面的违约责任 / page_citation_assets/page-8.png / page",
+        },
+      ],
+      skipped: [],
+    })
+    const tools = createHarnessTools({
+      state: {},
+      ledger,
+      retrieval: { query: vi.fn<RetrievalCapability["query"]>() },
+      inspectImages,
+      recentTurns: [],
+    })
+
+    const result = await executeTool(tools.inspectImage, {
+      refs: ["asset:r1:referenced:1"],
+      question: "What liquidated damages amount is visible in this clause?",
+    })
+
+    expect(inspectImages).toHaveBeenCalledWith({
+      question: "What liquidated damages amount is visible in this clause?",
+      assets: [
+        {
+          ref: "asset:r1:referenced:1",
+          label:
+            "Root / （6）现场工期进度管理方面的违约责任 / page_citation_assets/page-8.png / page",
+          assetUrl: "https://assets.example/page-8.png",
+          sourcePath: "page_citation_assets/page-8.png",
+          revisionKey: "job_contract",
+          source: {
+            documentId: "doc_contract",
+            sourceFileName: null,
+            sectionPath: "Root / （6）现场工期进度管理方面的违约责任",
+          },
+        },
+      ],
+    })
+    expect(result).toMatchObject({
+      ok: true,
+      analysis: "The clause says the contractor pays 5000 yuan per occurrence.",
+    })
+  })
+
   it("blocks finalize until intent and context policy are declared", async () => {
     const state: {
       intent?: IntentFrame
@@ -416,9 +608,64 @@ describe("agent harness runtime", () => {
     })
   })
 
-  it("forces finalize at step 12 using existing tool results", () => {
+  it("forces image inspection before forced finalization when image assets are available", () => {
     const result = prepareHarnessStep({
       stepNumber: 12,
+      hasUninspectedImageAssets: true,
+      messages: [
+        {
+          role: "tool",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "call_1",
+              toolName: "retrieve",
+              output: {
+                type: "json",
+                value: {
+                  ok: true,
+                  assets: [{ ref: "asset:r1:referenced:1", type: "image" }],
+                },
+              },
+            },
+          ],
+        },
+      ],
+    })
+
+    expect(result.activeTools).toEqual(["inspectImage"])
+    expect(result.toolChoice).toEqual({
+      type: "tool",
+      toolName: "inspectImage",
+    })
+    expect(result.messages).toEqual([
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call_1",
+            toolName: "retrieve",
+            output: {
+              type: "json",
+              value: {
+                ok: true,
+                assets: [{ ref: "asset:r1:referenced:1", type: "image" }],
+              },
+            },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: expect.stringContaining("call inspectImage now"),
+      },
+    ])
+  })
+
+  it("forces finalize at step 13 using existing tool results", () => {
+    const result = prepareHarnessStep({
+      stepNumber: 13,
       messages: [
         {
           role: "tool",
@@ -519,5 +766,90 @@ function makeRetrievalResponse(): RetrievalQueryResponse {
       },
     ],
     referencedChunks: [],
+  }
+}
+
+function makeTableRetrievalResponse(): RetrievalQueryResponse {
+  return {
+    namespace: "notebook",
+    query: "q4 table",
+    routerUsed: "workflow_single_step",
+    answerText: null,
+    evidenceText: "Table evidence",
+    stopReason: "answer_done",
+    failureReason: null,
+    results: [
+      {
+        content: "",
+        chunkType: "table",
+        score: 0.8,
+        assetUrl: "https://assets.example/tables/revenue.html",
+        source: {
+          documentId: "doc_1",
+          sourceFileName: "report.pdf",
+          sectionPath: "tables/revenue.html",
+        },
+      },
+    ],
+    referencedChunks: [],
+  }
+}
+
+function makeImageRetrievalResponse(count: number): RetrievalQueryResponse {
+  return {
+    namespace: "notebook",
+    query: "q4 images",
+    routerUsed: "workflow_single_step",
+    answerText: null,
+    evidenceText: "Image evidence",
+    stopReason: "answer_done",
+    failureReason: null,
+    results: Array.from({ length: count }, (_, index) => ({
+      content: "",
+      chunkType: "image",
+      score: 0.8,
+      assetUrl: `https://assets.example/images/chart-${index + 1}.png`,
+      source: {
+        documentId: "doc_1",
+        sourceFileName: "report.pdf",
+        sectionPath: `images/chart-${index + 1}.png`,
+      },
+    })),
+    referencedChunks: [],
+  }
+}
+
+function makePageCitationRetrievalResponse(): RetrievalQueryResponse {
+  return {
+    namespace: "notebook",
+    query: "进度计划",
+    routerUsed: "workflow_single_step",
+    answerText: null,
+    evidenceText: "Root / （6）现场工期进度管理方面的违约责任",
+    stopReason: "answer_done",
+    failureReason: null,
+    results: [],
+    referencedChunks: [
+      {
+        chunkId: "chunk_page_8",
+        documentId: "doc_contract",
+        chunkType: "page",
+        sectionPath: "Root / （6）现场工期进度管理方面的违约责任",
+        filePath: null,
+        jobId: "job_contract",
+        assetUrl: "https://assets.example/page-8.png",
+        metadata: {
+          pageNums: [8],
+          pageAssets: [
+            {
+              pageNum: 8,
+              artifactRef: "page_citation_assets/page-8.png",
+              assetUrl: "https://assets.example/page-8.png",
+              contentType: "image/png",
+            },
+          ],
+        },
+      },
+    ],
   }
 }
