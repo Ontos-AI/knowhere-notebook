@@ -53,7 +53,8 @@ function getInitialSelectedSourceId(
   if (preferredDocumentId) {
     const preferredSource = sources.find(
       (source) =>
-        source.documentId === preferredDocumentId && isReadySource(source),
+        source.documentId === preferredDocumentId &&
+        isReadyVisibleSource(source),
     )
     if (preferredSource) return preferredSource.id
   }
@@ -62,7 +63,7 @@ function getInitialSelectedSourceId(
 }
 
 function getFirstReadySourceId(sources: readonly SourceView[]): string | null {
-  return sources.find(isReadySource)?.id ?? null
+  return sources.find(isReadyVisibleSource)?.id ?? null
 }
 
 function getResolvedSelectedSourceId(
@@ -73,14 +74,15 @@ function getResolvedSelectedSourceId(
 
   const selectedSource = sources.find((source) => source.id === selectedSourceId)
   if (selectedSource) {
-    return selectedSource.id
+    return isVisibleSource(selectedSource) ? selectedSource.id : null
   }
 
   const selectedDocumentId = getRemoteSourceDocumentId(selectedSourceId)
   if (selectedDocumentId) {
     const localizedSource = sources.find(
       (source) =>
-        source.documentId === selectedDocumentId && isReadySource(source),
+        source.documentId === selectedDocumentId &&
+        isReadyVisibleSource(source),
     )
     if (localizedSource) return localizedSource.id
   }
@@ -90,6 +92,14 @@ function getResolvedSelectedSourceId(
 
 function isReadySource(source: SourceView): boolean {
   return source.status === "ready"
+}
+
+function isReadyVisibleSource(source: SourceView): boolean {
+  return isReadySource(source) && isVisibleSource(source)
+}
+
+function isVisibleSource(source: SourceView): boolean {
+  return source.officialLibrary === undefined
 }
 
 function applyQueryExclusions(

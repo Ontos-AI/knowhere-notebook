@@ -28,7 +28,7 @@ describe("workspaceSourceState", () => {
     );
   });
 
-  it("can select an unmaterialized Official Library row for preview", () => {
+  it("skips unmaterialized Official Library rows when choosing the initial Source", () => {
     const sources: readonly SourceView[] = [
       {
         id: "demo-spacex-s1",
@@ -54,8 +54,41 @@ describe("workspaceSourceState", () => {
     ];
 
     expect(workspaceSourceState.getInitialSelectedSourceId(sources)).toBe(
-      "demo-spacex-s1",
+      "source_ready",
     );
+  });
+
+  it("does not resolve an unmaterialized Official Library row as the selected Source", () => {
+    const sources: readonly SourceView[] = [
+      {
+        id: "demo-spacex-s1",
+        kind: "demo",
+        demoSourceId: "demo-spacex-s1",
+        title: "spacex-s1.pdf",
+        status: "ready",
+        mimeType: "application/pdf",
+        excludedFromQuery: false,
+        officialLibrary: {
+          librarySourceId: "financial-spacex-s1",
+          categoryId: "financial-reports",
+          sourceUrl: "https://example.com/spacex-s1.pdf",
+        },
+      },
+      {
+        id: "source_ready",
+        title: "ready.pdf",
+        status: "ready",
+        mimeType: "application/pdf",
+        excludedFromQuery: false,
+      },
+    ];
+
+    expect(
+      workspaceSourceState.getResolvedSelectedSourceId(
+        sources,
+        "demo-spacex-s1",
+      ),
+    ).toBeNull();
   });
 
   it("selects a preferred document source when opening a chunk-tree link", () => {
