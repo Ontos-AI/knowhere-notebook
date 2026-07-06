@@ -232,6 +232,149 @@ describe("validateOutputManifest", () => {
       "Typing compose output must be insertion-ready plain text.",
     )
   })
+
+  it("rejects image inspection failure claims when inspectImage was not called", () => {
+    const validation = validateOutputManifest({
+      manifest: makeManifest({
+        text: "图像检查工具未能成功读取该页面的具体条款内容。",
+        citations: [
+          {
+            ref: "r1:referenced:1",
+            label: "contract.pdf / page 8",
+            source: {
+              documentId: "doc_contract",
+              sourceFileName: "contract.pdf",
+              sectionPath: "Root / （6）现场工期进度管理方面的违约责任",
+            },
+          },
+        ],
+      }),
+      intent: makeIntent({}),
+      contextPolicy: unrelatedContextPolicy,
+      ledger: {
+        ...emptyLedger,
+        chunks: [
+          {
+            ref: "r1:referenced:1",
+            kind: "referenced_chunk",
+            content: "",
+            contentPreview: "",
+            chunkType: "page",
+            score: null,
+            source: {
+              documentId: "doc_contract",
+              sourceFileName: "contract.pdf",
+              sectionPath: "Root / （6）现场工期进度管理方面的违约责任",
+            },
+            assetRef: "asset:r1:referenced:1",
+          },
+        ],
+        assets: [makeAsset("asset:r1:referenced:1")],
+      },
+      toolCalls: [],
+      surface: "notebook_chat",
+    })
+
+    expect(validation.errors).toContain(
+      "Final output must not claim image/OCR inspection succeeded or failed unless inspectImage was called.",
+    )
+  })
+
+  it("allows image inspection failure claims after inspectImage was called", () => {
+    const validation = validateOutputManifest({
+      manifest: makeManifest({
+        text: "对该页面的图像识别未成功提取具体数值。",
+        citations: [
+          {
+            ref: "r1:referenced:1",
+            label: "contract.pdf / page 8",
+            source: {
+              documentId: "doc_contract",
+              sourceFileName: "contract.pdf",
+              sectionPath: "Root / （6）现场工期进度管理方面的违约责任",
+            },
+          },
+        ],
+      }),
+      intent: makeIntent({}),
+      contextPolicy: unrelatedContextPolicy,
+      ledger: {
+        ...emptyLedger,
+        chunks: [
+          {
+            ref: "r1:referenced:1",
+            kind: "referenced_chunk",
+            content: "",
+            contentPreview: "",
+            chunkType: "page",
+            score: null,
+            source: {
+              documentId: "doc_contract",
+              sourceFileName: "contract.pdf",
+              sectionPath: "Root / （6）现场工期进度管理方面的违约责任",
+            },
+            assetRef: "asset:r1:referenced:1",
+          },
+        ],
+        assets: [makeAsset("asset:r1:referenced:1")],
+      },
+      toolCalls: [
+        {
+          tool: "inspectImage",
+          ok: false,
+          inputSummary: { refs: ["asset:r1:referenced:1"] },
+          outputSummary: { inspectedCount: 0 },
+          startedAt: "2026-07-06T00:00:00.000Z",
+          durationMs: 1,
+        },
+      ],
+      surface: "notebook_chat",
+    })
+
+    expect(validation.errors).not.toContain(
+      "Final output must not claim image/OCR inspection succeeded or failed unless inspectImage was called.",
+    )
+  })
+
+  it("rejects unreadable page claims when image assets are available but uninspected", () => {
+    const validation = validateOutputManifest({
+      manifest: makeManifest({
+        text: "相关的页面图像无法通过目前的检测工具获取。",
+        unresolved: ["由于无法直接读取该页面的详细条款内容，目前无法给出确切的赔偿金额。"],
+      }),
+      intent: makeIntent({}),
+      contextPolicy: unrelatedContextPolicy,
+      ledger: {
+        ...emptyLedger,
+        chunks: [
+          {
+            ref: "r1:referenced:1",
+            kind: "referenced_chunk",
+            content: "",
+            contentPreview: "",
+            chunkType: "page",
+            score: null,
+            source: {
+              documentId: "doc_contract",
+              sourceFileName: "contract.pdf",
+              sectionPath: "Root / （6）现场工期进度管理方面的违约责任",
+            },
+            assetRef: "asset:r1:referenced:1",
+          },
+        ],
+        assets: [makeAsset("asset:r1:referenced:1")],
+      },
+      toolCalls: [],
+      surface: "notebook_chat",
+    })
+
+    expect(validation.errors).toContain(
+      "Final output must inspect available image assets before claiming retrieved page/image content cannot be read.",
+    )
+    expect(validation.errors).toContain(
+      "Final output must not claim image/OCR inspection succeeded or failed unless inspectImage was called.",
+    )
+  })
 })
 
 const emptyLedger: EvidenceLedgerSnapshot = {

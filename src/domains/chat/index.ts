@@ -214,6 +214,7 @@ export const answerQuestionWithRetrieval = (
         sources: input.sources,
         excludedSourceIds: input.excludedSourceIds,
         searchSources,
+        ...(input.inspectImages ? { inspectImages: input.inspectImages } : {}),
       }),
     )
 
@@ -414,12 +415,12 @@ function toChatArtifactView(input: {
     ref: input.artifact.ref,
     display: input.artifact.display,
     reason: input.artifact.reason,
-    assetUrl: input.asset.assetUrl,
+    ...(input.asset.assetUrl ? { assetUrl: input.asset.assetUrl } : {}),
     label: input.asset.label,
     citation: {
       chunkType: input.asset.type,
       score: null,
-      assetUrl: input.asset.assetUrl,
+      ...(input.asset.assetUrl ? { assetUrl: input.asset.assetUrl } : {}),
       source,
     },
   }

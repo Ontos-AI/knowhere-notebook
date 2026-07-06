@@ -4,7 +4,7 @@ import type {
 } from "@ontos-ai/knowhere-sdk"
 
 import type { Source } from "@/infrastructure/db/schema"
-import type { HarnessRunResult } from "@/agent-harness"
+import type { HarnessRunResult, InspectImages } from "@/agent-harness"
 import type {
   ChatArtifactView,
   ChatCitationView,
@@ -57,6 +57,7 @@ export type GenerateAnswer = (input: {
   sources: readonly Source[]
   excludedSourceIds: readonly string[]
   searchSources: SearchSources
+  inspectImages?: InspectImages
 }) => Promise<HarnessRunResult>
 
 export type AnswerQuestionInput = {
@@ -69,6 +70,7 @@ export type AnswerQuestionInput = {
   generateAnswer: GenerateAnswer
   hardenChatAssetUrl?: HardenChatAssetUrl
   hardenMediaAssetUrls?: HardenMediaAssetUrls
+  inspectImages?: InspectImages
   messages: readonly ChatHistoryMessage[]
 }
 

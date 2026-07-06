@@ -10,6 +10,7 @@ import {
   type AgentTurnInput,
   type HarnessRetrievalRequest,
   type HarnessRunResult,
+  type InspectImages,
   type TargetModality,
 } from "@/agent-harness"
 import type {
@@ -29,6 +30,7 @@ type GenerateAgenticOutputManifestInput = {
   sources: readonly Source[]
   excludedSourceIds: readonly string[]
   searchSources: SearchSources
+  inspectImages?: InspectImages
 }
 
 export const generateAgenticOutputManifestEffect = (
@@ -61,6 +63,7 @@ export const generateAgenticOutputManifestEffect = (
           query: (request) =>
             input.searchSources(toAgenticRetrievalQuery(request)),
         },
+        ...(input.inspectImages ? { inspectImages: input.inspectImages } : {}),
       }),
     )
 
