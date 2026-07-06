@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   enqueueParsedDocumentSync: vi.fn(),
   releaseSyncCapacity: vi.fn(),
   updateSyncStatus: vi.fn(),
+  updateRevisionKey: vi.fn(),
   markFailed: vi.fn(),
   loggerError: vi.fn(),
   loggerInfo: vi.fn(),
@@ -23,6 +24,7 @@ vi.mock("@/domains/sources/workflow-runtime", () => ({
   sourceWorkflowRuntime: {
     markFailed: mocks.markFailed,
     updateSyncStatus: mocks.updateSyncStatus,
+    updateRevisionKey: mocks.updateRevisionKey,
   },
 }))
 
@@ -90,9 +92,11 @@ describe("sourceReconcileRouteWorkflow", () => {
       activeCounts,
     })
     mocks.releaseSyncCapacity.mockResolvedValue(undefined)
+    mocks.enqueueParsedDocumentSync.mockResolvedValue(undefined)
     mocks.markSourceReadyAfterReconciliation.mockResolvedValue({
       status: "ready",
     })
+    mocks.updateRevisionKey.mockResolvedValue({ id: "source_1" })
   })
 
   afterEach(() => {
@@ -116,7 +120,7 @@ describe("sourceReconcileRouteWorkflow", () => {
     })
   })
 
-  it("marks the source ready then syncs the parsed document", async () => {
+  it("marks the source ready, records pending sync, and enqueues parsed-sync", async () => {
     const context = createWorkflowContext()
     const continuations: ContinuationTriggerInput[] = []
     const restore =
@@ -149,66 +153,22 @@ describe("sourceReconcileRouteWorkflow", () => {
       restore()
     }
 
-    expect(wired.knowledge.syncParsedDocument).toHaveBeenCalledWith({
+    expect(wired.knowledge.syncParsedDocument).not.toHaveBeenCalled()
+    expect(mocks.markSourceReadyAfterReconciliation).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      sourceId: "source_1",
       documentId: "doc_1",
-      revisionKey: "rev_1",
     })
+    expect(mocks.updateRevisionKey).toHaveBeenCalledWith(
+      "workspace_1",
+      "source_1",
+      "rev_1",
+    )
     expect(mocks.updateSyncStatus).toHaveBeenCalledWith(
       "workspace_1",
       "source_1",
-      { revisionKey: "rev_1", syncStatus: "completed" },
+      { revisionKey: "rev_1", syncStatus: "pending", syncError: null },
     )
-    expect(mocks.markSourceReadyAfterReconciliation).toHaveBeenCalledWith({
-      workspaceId: "workspace_1",
-      sourceId: "source_1",
-      documentId: "doc_1",
-    })
-    expect(mocks.acquireSyncCapacity).toHaveBeenCalledWith({
-      workspaceId: "workspace_1",
-      sourceId: "source_1",
-      documentId: "doc_1",
-      revisionKey: "rev_1",
-    })
-    expect(mocks.releaseSyncCapacity).toHaveBeenCalledWith({
-      leaseToken: "lease_1",
-      releaseReason: "completed",
-    })
-    expect(mocks.enqueueParsedDocumentSync).not.toHaveBeenCalled()
-    expect(continuations).toEqual([])
-  })
-
-  it("hands off to parsed-sync when sync is incomplete", async () => {
-    const context = createWorkflowContext()
-    const syncParsedDocument = vi.fn(async () => ({
-      documentId: "doc_1",
-      revisionKey: "rev_1",
-      completed: false,
-    }))
-    const wired = createClient({ syncParsedDocument })
-    mocks.makeKnowhereClientWithParsedStorage.mockReturnValue({
-      client: wired.client,
-      knowledge: wired.knowledge,
-    })
-    mocks.pollSourceReconciliation.mockResolvedValue({
-      kind: "ready-to-prepare",
-      jobId: "job_1",
-      documentId: "doc_1",
-    })
-
-    await sourceReconcileRouteWorkflow.runPollAndMirrorWorkflow({
-      context,
-      payload: sourceReconcileRouteWorkflow.normalizeReconcilePayload({
-        workspaceId: "workspace_1",
-        sourceId: "source_1",
-        apiKey: "jwt_1",
-      }),
-    })
-
-    expect(mocks.markSourceReadyAfterReconciliation).toHaveBeenCalledWith({
-      workspaceId: "workspace_1",
-      sourceId: "source_1",
-      documentId: "doc_1",
-    })
     expect(mocks.enqueueParsedDocumentSync).toHaveBeenCalledWith({
       workspaceId: "workspace_1",
       sourceId: "source_1",
@@ -216,79 +176,21 @@ describe("sourceReconcileRouteWorkflow", () => {
       apiKey: "jwt_1",
       revisionKey: "rev_1",
     })
-    expect(mocks.releaseSyncCapacity).toHaveBeenCalledWith({
-      leaseToken: "lease_1",
-      releaseReason: "incomplete",
-    })
+    expect(mocks.acquireSyncCapacity).not.toHaveBeenCalled()
+    expect(mocks.releaseSyncCapacity).not.toHaveBeenCalled()
+    expect(continuations).toEqual([])
   })
 
-  it("records sync failure when Blob sync throws", async () => {
-    const context = createWorkflowContext()
-    const syncParsedDocument = vi.fn(async () => {
-      throw new Error("blob write failed")
-    })
-    const wired = createClient({ syncParsedDocument })
-    mocks.makeKnowhereClientWithParsedStorage.mockReturnValue({
-      client: wired.client,
-      knowledge: wired.knowledge,
-    })
-    mocks.pollSourceReconciliation.mockResolvedValue({
-      kind: "ready-to-prepare",
-      jobId: "job_1",
-      documentId: "doc_1",
-    })
-
-    await expect(
-      sourceReconcileRouteWorkflow.runPollAndMirrorWorkflow({
-        context,
-        payload: sourceReconcileRouteWorkflow.normalizeReconcilePayload({
-          workspaceId: "workspace_1",
-          sourceId: "source_1",
-          apiKey: "jwt_1",
-        }),
-      }),
-    ).rejects.toThrow("blob write failed")
-
-    expect(mocks.updateSyncStatus).toHaveBeenCalledWith(
-      "workspace_1",
-      "source_1",
-      {
-        revisionKey: "rev_1",
-        syncStatus: "failed",
-        syncError: "blob write failed",
-      },
-    )
-    expect(mocks.markFailed).not.toHaveBeenCalled()
-    expect(mocks.markSourceReadyAfterReconciliation).toHaveBeenCalledWith({
-      workspaceId: "workspace_1",
-      sourceId: "source_1",
-      documentId: "doc_1",
-    })
-    expect(mocks.releaseSyncCapacity).toHaveBeenCalledWith(
-      {
-        leaseToken: "lease_1",
-        releaseReason: "failed",
-      },
-    )
-  })
-
-  it("marks the source ready and schedules delayed sync when capacity is full", async () => {
+  it("keeps the source ready when parsed-sync enqueue fails", async () => {
     const context = createWorkflowContext()
     const wired = createClient({})
     mocks.makeKnowhereClientWithParsedStorage.mockReturnValue({
       client: wired.client,
       knowledge: wired.knowledge,
     })
-    mocks.acquireSyncCapacity.mockResolvedValue({
-      kind: "capacity-full",
-      reason: "document",
-      waitSeconds: 60,
-      activeCounts: {
-        globalActive: 10,
-        workspaceActive: 1,
-        documentActive: 1,
-      },
-    })
+    mocks.enqueueParsedDocumentSync.mockRejectedValue(
+      new Error("qstash unavailable"),
+    )
     mocks.pollSourceReconciliation.mockResolvedValue({
       kind: "ready-to-prepare",
       jobId: "job_1",
@@ -304,20 +206,18 @@ describe("sourceReconcileRouteWorkflow", () => {
       }),
     })
 
+    expect(wired.knowledge.syncParsedDocument).not.toHaveBeenCalled()
     expect(mocks.markSourceReadyAfterReconciliation).toHaveBeenCalledWith({
       workspaceId: "workspace_1",
       sourceId: "source_1",
       documentId: "doc_1",
     })
-    expect(wired.knowledge.syncParsedDocument).not.toHaveBeenCalled()
-    expect(mocks.enqueueParsedDocumentSync).toHaveBeenCalledWith({
-      workspaceId: "workspace_1",
-      sourceId: "source_1",
-      documentId: "doc_1",
-      apiKey: "jwt_1",
-      revisionKey: "rev_1",
-      delaySeconds: 60,
-    })
+    expect(mocks.updateSyncStatus).toHaveBeenCalledWith(
+      "workspace_1",
+      "source_1",
+      { revisionKey: "rev_1", syncStatus: "pending", syncError: null },
+    )
+    expect(mocks.markFailed).not.toHaveBeenCalled()
     expect(mocks.releaseSyncCapacity).not.toHaveBeenCalled()
   })
 

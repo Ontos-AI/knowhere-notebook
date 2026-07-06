@@ -16,8 +16,8 @@ type ReadableSource = {
 /**
  * Read a single display page of parsed chunks through the SDK. The SDK serves
  * from configured Blob storage when fresh and falls back to Knowhere remote
- * otherwise. Display reads intentionally do not request durable asset URLs:
- * chat hardens only the specific assets it sends back to the user.
+ * otherwise. Display reads request durable asset URLs so media chunks remain
+ * usable whether the page came from Blob or the remote Knowhere fallback.
  */
 export async function readSourceChunkPage(input: {
   readonly knowledge: Knowledge
@@ -29,6 +29,7 @@ export async function readSourceChunkPage(input: {
     ...(input.source.revisionKey ? { revisionKey: input.source.revisionKey } : {}),
     page: input.params.page,
     pageSize: input.params.pageSize,
+    assetUrlPolicy: "durable",
   })
 
   const chunks = response.chunks.map((chunk) =>
@@ -68,6 +69,7 @@ export async function readAllSourceChunks(input: {
         : {}),
       page,
       pageSize: loadAllPageSize,
+      assetUrlPolicy: "durable",
     })
     for (const chunk of response.chunks) {
       chunks.push(

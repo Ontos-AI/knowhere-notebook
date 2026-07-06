@@ -20,7 +20,7 @@ function makeReadChunk(overrides: Record<string, unknown> = {}) {
 }
 
 describe("readSourceChunkPage", () => {
-  it("reads a page without durable asset hardening and maps chunks to the view model", async () => {
+  it("reads a page with durable asset URLs and maps chunks to the view model", async () => {
     const readChunks = vi.fn(async () => ({
       document: { localDocumentId: "doc_1" },
       chunks: [
@@ -48,6 +48,7 @@ describe("readSourceChunkPage", () => {
       revisionKey: "rev_1",
       page: 2,
       pageSize: 50,
+      assetUrlPolicy: "durable",
     })
     expect(result.pagination).toEqual({
       page: 2,
@@ -84,6 +85,7 @@ describe("readSourceChunkPage", () => {
       documentId: "doc_1",
       page: 1,
       pageSize: 50,
+      assetUrlPolicy: "durable",
     })
   })
 })
@@ -116,6 +118,13 @@ describe("readAllSourceChunks", () => {
     })
 
     expect(readChunks).toHaveBeenCalledTimes(2)
+    expect(readChunks).toHaveBeenNthCalledWith(1, {
+      documentId: "doc_1",
+      revisionKey: "rev_1",
+      page: 1,
+      pageSize: 200,
+      assetUrlPolicy: "durable",
+    })
     expect(chunks.map((chunk) => chunk.parserChunkId)).toEqual(["c1", "c2"])
   })
 })

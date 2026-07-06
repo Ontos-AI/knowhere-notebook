@@ -1,6 +1,6 @@
 import "server-only"
 
-import { Client, type WorkflowContext } from "@upstash/workflow"
+import { Client, WorkflowAbort, type WorkflowContext } from "@upstash/workflow"
 import type { KnowledgeSyncParsedDocumentResponse } from "@ontos-ai/knowhere-sdk"
 
 import { makeKnowhereClientWithParsedStorage } from "@/integrations/knowhere"
@@ -10,7 +10,6 @@ import {
   type ParsedSyncPayload,
 } from "./parsed-document-sync-scheduler"
 import { parsedDocumentSyncCapacityGuard } from "./parsed-document-sync-capacity"
-import { markSourceReadyAfterReconciliation } from "./source-reconcile-workflow"
 import { sourceWorkflowRuntime } from "./workflow-runtime"
 
 type ParsedSyncWorkflowContext = Pick<
@@ -72,20 +71,10 @@ async function runParsedSyncWorkflow(input: {
     workspaceId,
   })
 
-  const preSyncReady = await context.run(
-    `source-ready-before-sync-${payload.segmentIndex}`,
-    async () =>
-      markSourceReadyAfterReconciliation({
-        workspaceId,
-        sourceId,
-        documentId,
-      }),
-  )
-  if (preSyncReady.status === "gone") return
-
   let revisionKey = payload.revisionKey
   let completed = false
   let releaseReason: SyncLeaseReleaseReason = "incomplete"
+  let shouldReleaseLease = true
 
   const capacity = await context.run(
     `acquire-sync-capacity-${payload.segmentIndex}`,
@@ -196,24 +185,29 @@ async function runParsedSyncWorkflow(input: {
       return
     }
   } catch (error) {
+    if (isWorkflowControlAbort(error)) {
+      shouldReleaseLease = false
+      throw error
+    }
     releaseReason = "failed"
     throw error
   } finally {
-    await context.run(`release-sync-capacity-${payload.segmentIndex}`, async () =>
-      releaseCapacityLease({
-        leaseToken: capacity.leaseToken,
-        releaseReason,
-        sourceId,
-        documentId,
-      }),
-    )
+    if (shouldReleaseLease) {
+      await context.run(`release-sync-capacity-${payload.segmentIndex}`, async () =>
+        releaseCapacityLease({
+          leaseToken: capacity.leaseToken,
+          releaseReason,
+          sourceId,
+          documentId,
+        }),
+      )
+    }
   }
 
   logger.info("parsed-sync: parsed document sync finished", {
     sourceId,
     documentId,
     revisionKey,
-    status: preSyncReady.status,
   })
 }
 
@@ -261,10 +255,9 @@ async function markSyncFailedAfterWorkflowFailure(
   const normalized = normalizeParsedSyncPayload(payload)
   const reason = getSafeFailureReason(failResponse)
 
-  // Record the storage-sync failure. A source still `parsing` is failed with
-  // failure_stage=storage_sync so a retry resumes sync without reparsing; an
-  // already-ready source is left ready (it still serves via remote fallback),
-  // only its sync_status is marked failed for observability.
+  // Parsed storage is a cache/read model. Exhausted sync failure is recorded for
+  // observability, but the source remains ready and SDK reads can fall back to
+  // Knowhere remote.
   await sourceWorkflowRuntime.updateSyncStatus(
     normalized.workspaceId,
     normalized.sourceId,
@@ -275,26 +268,11 @@ async function markSyncFailedAfterWorkflowFailure(
     },
   )
 
-  const source = await sourceWorkflowRuntime.findInWorkspace(
-    normalized.workspaceId,
-    normalized.sourceId,
-  )
-  if (source?.status === "parsing") {
-    await sourceWorkflowRuntime.markFailed(
-      normalized.workspaceId,
-      normalized.sourceId,
-      `Parsed document storage sync failed: ${reason}`,
-      "parsing",
-      "storage_sync",
-    )
-  }
-
   logger.error("parsed-sync: marked sync failed after workflow failure", {
     workspaceId: normalized.workspaceId,
     sourceId: normalized.sourceId,
     documentId: normalized.documentId,
     segmentIndex: normalized.segmentIndex,
-    sourceStatus: source?.status,
   })
 }
 
@@ -312,6 +290,13 @@ function setContinuationTriggerForTesting(
   return () => {
     triggerContinuation = previous
   }
+}
+
+function isWorkflowControlAbort(error: unknown): boolean {
+  return (
+    (error instanceof WorkflowAbort && error.constructor === WorkflowAbort) ||
+    (error instanceof Error && error.name === "WorkflowAbort")
+  )
 }
 
 export const parsedSyncRouteWorkflow = {

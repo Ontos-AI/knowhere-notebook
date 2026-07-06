@@ -63,6 +63,16 @@ describe("proxy", () => {
     );
   });
 
+  it("allows anonymous parsed-sync workflow callbacks", () => {
+    const response = proxy(
+      new NextRequest("http://localhost:3001/api/sources/parsed-sync", {
+        method: "POST",
+      }),
+    );
+
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+  });
+
   it("allows protected app routes without a session when KNOWHERE_API_KEY is configured", () => {
     process.env.KNOWHERE_API_KEY = "sk_dev_key";
 
