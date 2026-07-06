@@ -498,6 +498,7 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
       revisionKey: "job_1",
       page: 1,
       pageSize: 1,
+      assetUrlPolicy: "durable",
     })
   })
 
@@ -659,6 +660,7 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
       revisionKey: "job_result_1",
       page: 1,
       pageSize: 1,
+      assetUrlPolicy: "durable",
     })
   })
 })

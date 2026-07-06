@@ -181,8 +181,8 @@ export function toParsedChunkView(
 
 /**
  * Map an SDK `KnowledgeReadChunk` (from `knowledge.readChunks`) to the view
- * model. Display reads do not request durable asset URL hardening; chat
- * hardens the specific assets it returns separately.
+ * model. Display reads request durable asset URLs from the SDK; chat still
+ * hardens only the specific assets it returns separately.
  */
 export function toParsedChunkViewFromReadChunk(
   chunk: KnowledgeReadChunk,

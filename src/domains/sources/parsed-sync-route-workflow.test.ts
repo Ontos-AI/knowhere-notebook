@@ -5,10 +5,6 @@ const mocks = vi.hoisted(() => ({
   makeKnowhereClientWithParsedStorage: vi.fn(),
   releaseSyncCapacity: vi.fn(),
   updateSyncStatus: vi.fn(),
-  findInWorkspace: vi.fn(),
-  markFailed: vi.fn(),
-  markReady: vi.fn(),
-  markSourceReadyAfterReconciliation: vi.fn(),
   loggerInfo: vi.fn(),
   loggerError: vi.fn(),
 }))
@@ -20,14 +16,7 @@ vi.mock("@/integrations/knowhere", () => ({
 vi.mock("./workflow-runtime", () => ({
   sourceWorkflowRuntime: {
     updateSyncStatus: mocks.updateSyncStatus,
-    findInWorkspace: mocks.findInWorkspace,
-    markFailed: mocks.markFailed,
-    markReady: mocks.markReady,
   },
-}))
-
-vi.mock("./source-reconcile-workflow", () => ({
-  markSourceReadyAfterReconciliation: mocks.markSourceReadyAfterReconciliation,
 }))
 
 vi.mock("./parsed-document-sync-capacity", () => ({
@@ -73,16 +62,13 @@ describe("parsedSyncRouteWorkflow.runParsedSyncWorkflow", () => {
       },
     })
     mocks.releaseSyncCapacity.mockResolvedValue(undefined)
-    mocks.markSourceReadyAfterReconciliation.mockResolvedValue({
-      status: "ready",
-    })
   })
 
   afterEach(() => {
     vi.clearAllMocks()
   })
 
-  it("marks the source ready when sync completes in one segment", async () => {
+  it("records completion when sync completes in one segment", async () => {
     const syncParsedDocument = vi.fn(async () => ({
       documentId: "doc_1",
       revisionKey: "rev_1",
@@ -105,18 +91,13 @@ describe("parsedSyncRouteWorkflow.runParsedSyncWorkflow", () => {
       "source_1",
       { revisionKey: "rev_1", syncStatus: "completed" },
     )
-    expect(mocks.markSourceReadyAfterReconciliation).toHaveBeenCalledWith({
-      workspaceId: "workspace_1",
-      sourceId: "source_1",
-      documentId: "doc_1",
-    })
     expect(mocks.releaseSyncCapacity).toHaveBeenCalledWith({
       leaseToken: "lease_1",
       releaseReason: "completed",
     })
   })
 
-  it("marks ready and triggers a continuation when sync is incomplete", async () => {
+  it("triggers a continuation when sync is incomplete", async () => {
     const syncParsedDocument = vi.fn(async () => ({
       documentId: "doc_1",
       revisionKey: "rev_1",
@@ -145,11 +126,6 @@ describe("parsedSyncRouteWorkflow.runParsedSyncWorkflow", () => {
       restore()
     }
 
-    expect(mocks.markSourceReadyAfterReconciliation).toHaveBeenCalledWith({
-      workspaceId: "workspace_1",
-      sourceId: "source_1",
-      documentId: "doc_1",
-    })
     expect(triggered).toHaveLength(1)
     expect(triggered[0]?.segmentIndex).toBe(1)
     expect(triggered[0]?.workflowRunId).toBe("doc_1-sync-rev_1-1")
@@ -249,6 +225,37 @@ describe("parsedSyncRouteWorkflow.runParsedSyncWorkflow", () => {
     ])
     expect(mocks.releaseSyncCapacity).not.toHaveBeenCalled()
   })
+
+  it("does not release capacity when Upstash aborts during a planned step", async () => {
+    const workflowAbort = new Error("planned workflow step")
+    workflowAbort.name = "WorkflowAbort"
+    const syncParsedDocument = vi.fn(async () => ({
+      documentId: "doc_1",
+      revisionKey: "rev_1",
+      completed: true,
+    }))
+    mocks.makeKnowhereClientWithParsedStorage.mockReturnValue({
+      client: {},
+      knowledge: { syncParsedDocument },
+    })
+    const run: RunStep = async (id, task) => {
+      if (id === "sync-0-0") throw workflowAbort
+      return task()
+    }
+
+    await expect(
+      parsedSyncRouteWorkflow.runParsedSyncWorkflow({
+        context: {
+          run,
+          url: "https://notebook.example/api/sources/parsed-sync",
+        },
+        payload: basePayload,
+      }),
+    ).rejects.toThrow("planned workflow step")
+
+    expect(mocks.releaseSyncCapacity).not.toHaveBeenCalled()
+    expect(mocks.updateSyncStatus).not.toHaveBeenCalled()
+  })
 })
 
 describe("parsedSyncRouteWorkflow.markSyncFailedAfterWorkflowFailure", () => {
@@ -256,9 +263,7 @@ describe("parsedSyncRouteWorkflow.markSyncFailedAfterWorkflowFailure", () => {
     vi.clearAllMocks()
   })
 
-  it("fails a parsing source with failure_stage storage_sync", async () => {
-    mocks.findInWorkspace.mockResolvedValue({ id: "source_1", status: "parsing" })
-
+  it("records failed sync metadata without failing the source", async () => {
     await parsedSyncRouteWorkflow.markSyncFailedAfterWorkflowFailure(
       { ...basePayload, revisionKey: "rev_1" },
       "boom",
@@ -269,28 +274,5 @@ describe("parsedSyncRouteWorkflow.markSyncFailedAfterWorkflowFailure", () => {
       "source_1",
       { revisionKey: "rev_1", syncStatus: "failed", syncError: "boom" },
     )
-    expect(mocks.markFailed).toHaveBeenCalledWith(
-      "workspace_1",
-      "source_1",
-      expect.stringContaining("storage sync failed"),
-      "parsing",
-      "storage_sync",
-    )
-  })
-
-  it("does not fail an already-ready source, only records sync_status", async () => {
-    mocks.findInWorkspace.mockResolvedValue({ id: "source_1", status: "ready" })
-
-    await parsedSyncRouteWorkflow.markSyncFailedAfterWorkflowFailure(
-      basePayload,
-      "boom",
-    )
-
-    expect(mocks.updateSyncStatus).toHaveBeenCalledWith(
-      "workspace_1",
-      "source_1",
-      { revisionKey: undefined, syncStatus: "failed", syncError: "boom" },
-    )
-    expect(mocks.markFailed).not.toHaveBeenCalled()
   })
 })
