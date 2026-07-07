@@ -27,6 +27,11 @@ type WorkspaceCitationStateModule = {
   readonly hasExactCitationTargetHint: (
     citation: ChatCitationView,
   ) => boolean
+  readonly isPageAssetCitationTarget: (
+    source: SourceView,
+    citation: ChatCitationView,
+  ) => boolean
+  readonly getCitationPageNumber: (citation: ChatCitationView) => number | null
   readonly upsertPrefetchedChunks: (
     current: PrefetchedChunksBySourceId,
     sourceId: string,
@@ -79,6 +84,36 @@ function hasExactCitationTargetHint(citation: ChatCitationView): boolean {
   return true
 }
 
+function isPageAssetCitationTarget(
+  source: SourceView,
+  citation: ChatCitationView,
+): boolean {
+  return (
+    source.documentPresentation?.kind === "page-assets" &&
+    (getCitationPageNumber(citation) !== null ||
+      typeof citation.pageCitationAssetUrl === "string")
+  )
+}
+
+function getCitationPageNumber(citation: ChatCitationView): number | null {
+  if (
+    typeof citation.pageCitationPageNumber === "number" &&
+    Number.isSafeInteger(citation.pageCitationPageNumber) &&
+    citation.pageCitationPageNumber > 0
+  ) {
+    return citation.pageCitationPageNumber
+  }
+
+  const sectionPath = citation.source.sectionPath
+  if (typeof sectionPath !== "string") return null
+
+  const match = /\bpage\s+(\d+)\b/i.exec(sectionPath)
+  if (!match) return null
+
+  const pageNumber = Number.parseInt(match[1]!, 10)
+  return Number.isSafeInteger(pageNumber) && pageNumber > 0 ? pageNumber : null
+}
+
 function upsertPrefetchedChunks(
   current: PrefetchedChunksBySourceId,
   sourceId: string,
@@ -120,7 +155,9 @@ function removePrefetchedChunks(
 export const workspaceCitationState: WorkspaceCitationStateModule = {
   findCitationSource,
   getLoadedCitationChunkId,
+  getCitationPageNumber,
   hasExactCitationTargetHint,
+  isPageAssetCitationTarget,
   upsertPrefetchedChunks,
   removePrefetchedChunks,
 }

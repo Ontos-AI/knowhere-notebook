@@ -20,6 +20,9 @@ export function toChatCitationViews(
       ...(result.pageCitationAssetUrl
         ? { pageCitationAssetUrl: result.pageCitationAssetUrl }
         : {}),
+      ...(result.pageCitationPageNumber
+        ? { pageCitationPageNumber: result.pageCitationPageNumber }
+        : {}),
       ...(description ? { description } : {}),
       source: {
         documentId: result.source.documentId,

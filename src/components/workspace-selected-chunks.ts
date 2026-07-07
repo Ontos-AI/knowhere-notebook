@@ -42,7 +42,9 @@ export function useWorkspaceSelectedChunks({
     ? prefetchedChunksBySourceId[selectedSourceId]
     : undefined
   const selectedChunkSourceId =
-    selectedSource && selectedSource.status === "ready"
+    selectedSource &&
+    selectedSource.status === "ready" &&
+    selectedSource.documentPresentation?.kind !== "page-assets"
       ? selectedSource.id
       : null
   const {

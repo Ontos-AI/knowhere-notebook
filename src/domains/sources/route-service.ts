@@ -4,12 +4,14 @@ import { createRouteArchive } from "./route-archive"
 import { createRouteChunks } from "./route-chunks"
 import { createSourceRouteDependencies } from "./route-dependencies"
 import { createRouteListing } from "./route-listing"
+import { createRoutePageAssets } from "./route-page-assets"
 import { createRouteRetry } from "./route-retry"
 import { createRouteUpload } from "./route-upload"
 import type {
   ArchiveSourceInput,
   ListSourcesInput,
   LoadSourceChunksInput,
+  LoadSourcePageAssetsInput,
   RetrySourceInput,
   SourceRouteService,
   SourceRouteServiceOverrides,
@@ -25,6 +27,7 @@ export function createSourceRouteService(
   const archive = createRouteArchive(deps)
   const retry = createRouteRetry(deps)
   const chunks = createRouteChunks(deps)
+  const pageAssets = createRoutePageAssets(deps)
 
   return {
     listSources: (input: ListSourcesInput) => listing.listSources(input),
@@ -33,5 +36,7 @@ export function createSourceRouteService(
     retrySource: (input: RetrySourceInput) => retry.retrySource(input),
     loadSourceChunks: (input: LoadSourceChunksInput) =>
       chunks.loadSourceChunks(input),
+    loadSourcePageAssets: (input: LoadSourcePageAssetsInput) =>
+      pageAssets.loadSourcePageAssets(input),
   }
 }

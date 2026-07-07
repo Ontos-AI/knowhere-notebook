@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChunksPanel } from "./chunks-panel";
 import { sourceOriginalPreviewRequest } from "./source-original-preview-request";
 
+const fetchPageAssetPageMock = vi.hoisted(() => vi.fn());
 const C = ChunksPanel as React.FC<Record<string, unknown>>;
 const virtualizerScrollResetDelayMs = 150;
 
@@ -29,14 +30,31 @@ vi.mock("react-pdf", () => ({
   Page: () => React.createElement("div", { "data-testid": "pdf-page" }),
 }));
 
+vi.mock("@/domains/workspace/client", () => ({
+  workspaceClient: {
+    fetchPageAssetPage: fetchPageAssetPageMock,
+  },
+}));
+
 describe("ChunksPanel", () => {
   beforeEach(() => {
     shouldFlushVirtualizerTimers = false;
+    fetchPageAssetPageMock.mockReset();
+    fetchPageAssetPageMock.mockResolvedValue({
+      pages: [],
+      pagination: {
+        page: 1,
+        pageSize: 50,
+        total: 0,
+        totalPages: 1,
+      },
+    });
     globalThis.ResizeObserver = class ResizeObserver {
       observe() {}
       unobserve() {}
       disconnect() {}
     };
+    Element.prototype.scrollIntoView = vi.fn();
   });
 
   afterEach(async () => {
@@ -69,6 +87,98 @@ describe("ChunksPanel", () => {
       screen.getByRole("heading", { name: "Parsed Chunks" }),
     ).toBeTruthy();
     expect(screen.getByText(/Showing all parsed chunks from/)).toBeTruthy();
+  });
+
+  it("renders page assets instead of parsed chunk controls for page-mode documents", async () => {
+    fetchPageAssetPageMock.mockResolvedValue({
+      pages: [
+        {
+          pageNumber: 4,
+          assetUrl: "https://assets.example/page-000004.png",
+          contentType: "image/png",
+          width: 1200,
+          height: 1600,
+        },
+      ],
+      pagination: {
+        page: 1,
+        pageSize: 50,
+        total: 4,
+        totalPages: 1,
+      },
+    });
+
+    render(
+      React.createElement(C, {
+        chunks: [],
+        selectedSource: "report.pdf",
+        selectedSourceView: {
+          id: "source_1",
+          title: "report.pdf",
+          mimeType: "application/pdf",
+          status: "ready",
+          documentPresentation: { kind: "page-assets", pageCount: 4 },
+        },
+      }),
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("page-asset-document-viewer"),
+      ).toBeTruthy(),
+    );
+    expect(screen.getByRole("heading", { name: "Original File" })).toBeTruthy();
+    expect(screen.getByText("Page 4")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Parsed" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Tree" })).toBeNull();
+    expect(fetchPageAssetPageMock).toHaveBeenCalledWith("source_1", 1);
+  });
+
+  it("loads missing page buckets after focusing a later page asset", async () => {
+    const user = userEvent.setup();
+    fetchPageAssetPageMock.mockImplementation(
+      async (_sourceId: string, page: number) => ({
+        pages: [
+          {
+            pageNumber: page === 3 ? 101 : page,
+            assetUrl: `https://assets.example/page-${page}.png`,
+            contentType: "image/png",
+          },
+        ],
+        pagination: {
+          page,
+          pageSize: 50,
+          total: 120,
+          totalPages: 3,
+        },
+      }),
+    );
+
+    render(
+      React.createElement(C, {
+        chunks: [],
+        selectedSource: "report.pdf",
+        selectedSourceView: {
+          id: "source_1",
+          title: "report.pdf",
+          mimeType: "application/pdf",
+          status: "ready",
+          documentPresentation: { kind: "page-assets", pageCount: 120 },
+        },
+        focusedPageNumber: 101,
+        focusedPageRequestId: 1,
+      }),
+    );
+
+    await waitFor(() =>
+      expect(fetchPageAssetPageMock).toHaveBeenCalledWith("source_1", 3),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Load more pages" }));
+
+    await waitFor(() =>
+      expect(fetchPageAssetPageMock).toHaveBeenCalledWith("source_1", 2),
+    );
   });
 
   it("defaults parsed chunks into a section tree view", () => {

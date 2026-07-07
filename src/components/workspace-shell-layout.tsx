@@ -40,6 +40,11 @@ type FocusedChunkState = {
   readonly requestId: number
 }
 
+type FocusedPageState = {
+  readonly pageNumber: number | null
+  readonly requestId: number
+}
+
 type WorkspaceShellUser = {
   readonly id: string
   readonly name: string | null
@@ -66,6 +71,7 @@ export type WorkspaceShellLayoutProps = {
   readonly dashboardUrl?: string
   readonly desktopPanelWidths: Readonly<DesktopPanelWidths>
   readonly focusedChunk: FocusedChunkState
+  readonly focusedPage?: FocusedPageState
   readonly hasMessages: boolean
   readonly hasMoreSelectedChunks: boolean
   readonly contentView: ContentView
@@ -146,6 +152,10 @@ export function WorkspaceShellLayout(
     props.desktopPanelWidths.chat <=
     workspaceShellState.desktopSidePanelCompactThreshold
   const isSourcesPanelNarrow = props.desktopPanelWidths.sources < 220
+  const selectedSource = props.sources.find(
+    (source) => source.id === props.selectedSourceId,
+  )
+  const focusedPage = props.focusedPage ?? { pageNumber: null, requestId: 0 }
   const handleDesktopLayoutRef = useCallback(
     (element: HTMLDivElement | null): void => {
       onDesktopLayoutElementChange(element)
@@ -265,10 +275,13 @@ export function WorkspaceShellLayout(
               <ChunksPanel
                 chunks={[...props.selectedChunks]}
                 selectedSource={props.selectedSourceTitle}
+                selectedSourceView={selectedSource}
                 selectedSourceFile={props.selectedSourceFile}
                 citationListViewRequestId={props.citationListViewRequestId}
                 focusedChunkId={props.focusedChunk.chunkId}
                 focusedChunkRequestId={props.focusedChunk.requestId}
+                focusedPageNumber={focusedPage.pageNumber}
+                focusedPageRequestId={focusedPage.requestId}
                 isLoading={props.isSelectedChunksLoading}
                 isLoadingAllChunks={props.isSelectedAllChunksLoading}
                 isLoadingMore={props.isSelectedChunksLoadingMore}
@@ -407,10 +420,13 @@ export function WorkspaceShellLayout(
           <ChunksPanel
             chunks={[...props.selectedChunks]}
             selectedSource={props.selectedSourceTitle}
+            selectedSourceView={selectedSource}
             selectedSourceFile={props.selectedSourceFile}
             citationListViewRequestId={props.citationListViewRequestId}
             focusedChunkId={props.focusedChunk.chunkId}
             focusedChunkRequestId={props.focusedChunk.requestId}
+            focusedPageNumber={focusedPage.pageNumber}
+            focusedPageRequestId={focusedPage.requestId}
             isLoading={props.isSelectedChunksLoading}
             isLoadingAllChunks={props.isSelectedAllChunksLoading}
             isLoadingMore={props.isSelectedChunksLoadingMore}

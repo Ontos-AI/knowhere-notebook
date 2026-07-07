@@ -161,6 +161,28 @@ describe("useWorkspaceSelectedChunks", () => {
     expect(result.current.selectedChunks).toEqual([]);
   });
 
+  it("does not fetch chunk pages for page-asset sources", () => {
+    const pageAssetSource: SourceView = {
+      ...readySource,
+      documentPresentation: { kind: "page-assets", pageCount: 4 },
+    };
+
+    const { result } = renderHook(
+      () =>
+        useWorkspaceSelectedChunks({
+          selectedSourceId: "source_1",
+          sources: [pageAssetSource],
+          prefetchedChunksBySourceId: {},
+        }),
+      { wrapper: createSWRWrapper },
+    );
+
+    expect(result.current.selectedSource?.id).toBe("source_1");
+    expect(result.current.selectedChunks).toEqual([]);
+    expect(result.current.isSelectedChunksLoading).toBe(false);
+    expect(fetchChunkPageMock).not.toHaveBeenCalled();
+  });
+
   it("requests a source refresh after loading an unlocalized remote source", async () => {
     const onRemoteSourceChunksLoaded = vi.fn();
     const remoteSource: SourceView = {

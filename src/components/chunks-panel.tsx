@@ -41,17 +41,25 @@ import { chunksPanelState } from "@/components/chunks-panel-state";
 import { MAX_UPLOAD_MB } from "@/domains/sources/validation";
 import { useSourceOriginalPreviewWarmup } from "@/components/source-original-preview-warmup";
 import { sourceOriginalPreviewModel } from "@/components/source-original-preview-model";
+import { workspaceClient } from "@/domains/workspace/client";
 import type { ParsedChunkView } from "@/domains/chunks/types";
-import type { SourceOriginalFileView, SourceView } from "@/domains/sources/types";
+import type {
+  SourceOriginalFileView,
+  SourcePageAssetView,
+  SourceView,
+} from "@/domains/sources/types";
 import type { AnalyticsContext } from "@/lib/posthog";
 import { cn } from "@/lib/utils";
 
 export type ChunksPanelProps = {
   chunks: ParsedChunkView[];
   selectedSource?: string | null;
+  selectedSourceView?: SourceView | null;
   selectedSourceFile?: SourceOriginalFileView | null;
   focusedChunkId?: string | null;
   focusedChunkRequestId?: number;
+  focusedPageNumber?: number | null;
+  focusedPageRequestId?: number;
   citationListViewRequestId?: number;
   isLoading?: boolean;
   isLoadingMore?: boolean;
@@ -77,9 +85,12 @@ type ChunkDisplayModeState = {
 export function ChunksPanel({
   chunks = [],
   selectedSource = null,
+  selectedSourceView = null,
   selectedSourceFile = null,
   focusedChunkId = null,
   focusedChunkRequestId = 0,
+  focusedPageNumber = null,
+  focusedPageRequestId = 0,
   citationListViewRequestId = 0,
   isLoading = false,
   isLoadingMore = false,
@@ -93,6 +104,8 @@ export function ChunksPanel({
   analyticsContext,
   sourceCountSnapshot = 0,
 }: Partial<ChunksPanelProps> = {}) {
+  const isPageAssetSource =
+    selectedSourceView?.documentPresentation?.kind === "page-assets";
   const originalPreviewCacheKey = selectedSourceFile?.url ?? null;
   const isOriginalPreviewAvailable =
     sourceOriginalPreviewModel.canPreviewOriginalFile(
@@ -240,14 +253,29 @@ export function ChunksPanel({
       citationListViewRequestId
       ? "list"
       : chunkDisplayModeState.mode;
-  const headerTitle = focusedChunkId ? "Referenced Chunks" : "Parsed Chunks";
+  const headerTitle = isPageAssetSource || visibleView === "original"
+    ? "Original File"
+    : focusedChunkId
+      ? "Referenced Chunks"
+      : "Parsed Chunks";
   const shouldMountOriginalPreview =
     visibleView === "original" ||
     (originalPreviewCacheKey !== null &&
       mountedOriginalPreviewKey === originalPreviewCacheKey);
   const isTreeModeVisible =
-    visibleView === "parsed" && chunkDisplayMode === "tree";
-  const headerSubtitle = visibleView === "original" ? (
+    !isPageAssetSource && visibleView === "parsed" && chunkDisplayMode === "tree";
+  const headerSubtitle = isPageAssetSource ? (
+    selectedSource ? (
+      <>
+        Showing page images for{" "}
+        <span className="font-semibold italic text-foreground">
+          {selectedSource}
+        </span>
+      </>
+    ) : (
+      "Select a source to preview its page images."
+    )
+  ) : visibleView === "original" ? (
     selectedSource ? (
       <>
         Showing the original file for{" "}
@@ -299,14 +327,14 @@ export function ChunksPanel({
       <header className="flex shrink-0 flex-col gap-3 border-b border-border/70 px-4 py-3 sm:px-6 sm:py-4 xl:flex-row xl:items-start xl:justify-between">
         <div className="min-w-0">
           <h2 className="text-sm font-bold text-foreground">
-            {visibleView === "original" ? "Original File" : headerTitle}
+            {headerTitle}
           </h2>
           <p className="mt-1 text-xs leading-5 text-muted-foreground sm:truncate">
             {headerSubtitle}
           </p>
         </div>
         <div className="flex min-w-0 shrink-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
-          {visibleView === "parsed" && chunks.length > 0 ? (
+          {!isPageAssetSource && visibleView === "parsed" && chunks.length > 0 ? (
             <div
               role="group"
               aria-label="Chunk display"
@@ -328,7 +356,7 @@ export function ChunksPanel({
               </button>
             </div>
           ) : null}
-          {hasOriginalView ? (
+          {!isPageAssetSource && hasOriginalView ? (
             <div className="flex shrink-0 rounded-lg border border-border bg-muted/40 p-0.5">
               <button
                 type="button"
@@ -350,7 +378,7 @@ export function ChunksPanel({
       </header>
 
       <div className="relative min-h-0 flex-1">
-        <ViewPanel isActive={visibleView === "parsed"}>
+        <ViewPanel isActive={isPageAssetSource || visibleView === "parsed"}>
           <ScrollArea
             className="h-full"
             viewportRef={viewportRef}
@@ -361,7 +389,13 @@ export function ChunksPanel({
               data-testid="chunks-scroll-content"
               className="mx-auto flex w-[90%] min-w-0 max-w-[1600px] flex-col items-center p-3 sm:p-6"
             >
-              {isLoading ? (
+              {isPageAssetSource && selectedSourceView ? (
+                <PageAssetDocumentViewer
+                  source={selectedSourceView}
+                  focusedPageNumber={focusedPageNumber}
+                  focusedPageRequestId={focusedPageRequestId}
+                />
+              ) : isLoading ? (
                 <LoadingChunks message={processingMessage} />
               ) : chunks.length === 0 ? (
                 selectedSource ? (
@@ -415,7 +449,7 @@ export function ChunksPanel({
               )}
             </div>
           </ScrollArea>
-          {isTreeModeVisible ? (
+          {!isPageAssetSource && isTreeModeVisible ? (
             <div
               data-testid="chunk-section-tree-zoom-overlay"
               className="pointer-events-none absolute left-3 top-3 z-20 sm:left-6 sm:top-6"
@@ -996,6 +1030,238 @@ function getChunkTypeLabel(type: ParsedChunkView["type"]): string {
 
 function formatChunkCount(chunkCount: number): string {
   return `${chunkCount} ${chunkCount === 1 ? "chunk" : "chunks"}`;
+}
+
+type PageAssetPageState = {
+  readonly pages: readonly SourcePageAssetView[];
+  readonly loadedPageIndexes: ReadonlySet<number>;
+  readonly isLoading: boolean;
+  readonly totalPages: number;
+};
+
+const pageAssetPageSize = 50;
+
+function PageAssetDocumentViewer({
+  focusedPageNumber,
+  focusedPageRequestId,
+  source,
+}: {
+  readonly focusedPageNumber: number | null;
+  readonly focusedPageRequestId: number;
+  readonly source: SourceView;
+}): ReactNode {
+  const [pageState, setPageState] = useState<PageAssetPageState>(() => ({
+    pages: [],
+    loadedPageIndexes: new Set(),
+    isLoading: false,
+    totalPages: Math.max(
+      1,
+      Math.ceil(
+        (source.documentPresentation?.kind === "page-assets"
+          ? source.documentPresentation.pageCount
+          : 0) / pageAssetPageSize,
+      ),
+    ),
+  }));
+  const requestedPageIndexesRef = useRef<Set<number>>(new Set());
+  const pageElementsRef = useRef<Map<number, HTMLDivElement>>(new Map());
+  const sourceIdRef = useRef(source.id);
+
+  const loadPageIndex = useCallback(
+    (pageIndex: number): void => {
+      if (requestedPageIndexesRef.current.has(pageIndex)) return;
+      requestedPageIndexesRef.current.add(pageIndex);
+      setPageState((current) => ({ ...current, isLoading: true }));
+
+      void workspaceClient
+        .fetchPageAssetPage(source.id, pageIndex)
+        .then((response) => {
+          setPageState((current) => {
+            const pagesByPageNumber = new Map(
+              current.pages.map((page) => [page.pageNumber, page]),
+            );
+            for (const page of response.pages ?? []) {
+              pagesByPageNumber.set(page.pageNumber, page);
+            }
+            const loadedPageIndexes = new Set(current.loadedPageIndexes);
+            loadedPageIndexes.add(pageIndex);
+
+            return {
+              pages: [...pagesByPageNumber.values()].sort(
+                (left, right) => left.pageNumber - right.pageNumber,
+              ),
+              loadedPageIndexes,
+              isLoading: false,
+              totalPages:
+                response.pagination?.totalPages ?? current.totalPages,
+            };
+          });
+        })
+        .catch(() => {
+          requestedPageIndexesRef.current.delete(pageIndex);
+          setPageState((current) => ({ ...current, isLoading: false }));
+        });
+    },
+    [source.id],
+  );
+
+  useEffect(() => {
+    if (sourceIdRef.current === source.id) return;
+
+    sourceIdRef.current = source.id;
+    requestedPageIndexesRef.current = new Set();
+    pageElementsRef.current = new Map();
+    setPageState({
+      pages: [],
+      loadedPageIndexes: new Set(),
+      isLoading: false,
+      totalPages: Math.max(
+        1,
+        Math.ceil(
+          (source.documentPresentation?.kind === "page-assets"
+            ? source.documentPresentation.pageCount
+            : 0) / pageAssetPageSize,
+        ),
+      ),
+    });
+  }, [source.documentPresentation, source.id]);
+
+  useEffect(() => {
+    loadPageIndex(1);
+  }, [loadPageIndex]);
+
+  useEffect(() => {
+    if (!focusedPageNumber) return;
+
+    loadPageIndex(Math.max(1, Math.ceil(focusedPageNumber / pageAssetPageSize)));
+  }, [focusedPageNumber, focusedPageRequestId, loadPageIndex]);
+
+  useEffect(() => {
+    if (!focusedPageNumber) return;
+
+    const element = pageElementsRef.current.get(focusedPageNumber);
+    if (!element) return;
+
+    element.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [focusedPageNumber, focusedPageRequestId, pageState.pages]);
+
+  const nextPageIndex = getNextPageAssetPageIndex(
+    pageState.loadedPageIndexes,
+    pageState.totalPages,
+  );
+  const canLoadMore =
+    nextPageIndex !== null &&
+    nextPageIndex <= pageState.totalPages &&
+    !pageState.isLoading;
+
+  if (pageState.pages.length === 0 && pageState.isLoading) {
+    return <LoadingChunks message="Loading page images..." />;
+  }
+
+  if (pageState.pages.length === 0) {
+    return <EmptyPageAssets />;
+  }
+
+  return (
+    <div
+      data-testid="page-asset-document-viewer"
+      className="flex w-full max-w-5xl flex-col gap-4"
+    >
+      {pageState.pages.map((page) => (
+        <PageAssetImage
+          key={page.pageNumber}
+          page={page}
+          isFocused={page.pageNumber === focusedPageNumber}
+          refCallback={(element) => {
+            if (element) {
+              pageElementsRef.current.set(page.pageNumber, element);
+              return;
+            }
+            pageElementsRef.current.delete(page.pageNumber);
+          }}
+        />
+      ))}
+      {canLoadMore ? (
+        <div className="flex justify-center py-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => loadPageIndex(nextPageIndex)}
+          >
+            Load more pages
+          </Button>
+        </div>
+      ) : null}
+      {pageState.isLoading ? (
+        <div className="py-2 text-center text-xs text-muted-foreground">
+          Loading page images...
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function PageAssetImage({
+  isFocused,
+  page,
+  refCallback,
+}: {
+  readonly isFocused: boolean;
+  readonly page: SourcePageAssetView;
+  readonly refCallback: (element: HTMLDivElement | null) => void;
+}): ReactNode {
+  const aspectRatio =
+    page.width && page.height ? `${page.width} / ${page.height}` : undefined;
+
+  return (
+    <div
+      ref={refCallback}
+      data-page-number={page.pageNumber}
+      className={cn(
+        "w-full min-w-0 rounded-lg border bg-background p-2 shadow-xs",
+        isFocused ? "border-primary ring-2 ring-primary/20" : "border-border",
+      )}
+    >
+      <div className="mb-2 flex items-center justify-between gap-3 px-1 text-xs font-semibold text-muted-foreground">
+        <span>Page {page.pageNumber}</span>
+        <span>{page.contentType}</span>
+      </div>
+      <div
+        className="overflow-hidden rounded-md bg-muted/30"
+        style={aspectRatio ? { aspectRatio } : undefined}
+      >
+        <img
+          src={page.assetUrl}
+          alt={`Page ${page.pageNumber}`}
+          className="h-full w-full object-contain"
+          loading="lazy"
+        />
+      </div>
+    </div>
+  );
+}
+
+function getNextPageAssetPageIndex(
+  loadedPageIndexes: ReadonlySet<number>,
+  totalPages: number,
+): number | null {
+  for (let pageIndex = 1; pageIndex <= totalPages; pageIndex += 1) {
+    if (!loadedPageIndexes.has(pageIndex)) return pageIndex;
+  }
+
+  return null;
+}
+
+function EmptyPageAssets(): ReactNode {
+  return (
+    <div className="flex min-h-[240px] w-full flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 px-6 text-center">
+      <FilePlus2 className="mb-3 size-8 text-muted-foreground" />
+      <p className="text-sm font-semibold text-foreground">
+        No page images available.
+      </p>
+    </div>
+  );
 }
 
 function truncateTreeLabel(value: string): string {

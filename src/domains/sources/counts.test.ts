@@ -32,8 +32,13 @@ function makeSource(overrides: Partial<Source> = {}): Source {
 describe("countChunksBySourceId", () => {
   it("counts ready source chunks from the document total", async () => {
     const listChunks = vi.fn(async () => ({ pagination: { total: 12 } }))
+    const readChunks = vi.fn(async () => ({
+      chunks: [],
+      totalChunks: 0,
+    }))
     const mockClient = {
       documents: { listChunks },
+      knowledge: { readChunks },
     } as unknown as Knowhere
 
     const { countChunksBySourceId } = await import("./counts")
@@ -54,6 +59,14 @@ describe("countChunksBySourceId", () => {
     )
 
     expect(listChunks).toHaveBeenCalledTimes(1)
+    expect(readChunks).toHaveBeenCalledWith({
+      documentId: "doc_ready",
+      revisionKey: "job_1",
+      chunkType: "page",
+      page: 1,
+      pageSize: 1,
+      assetUrlPolicy: "durable",
+    })
     expect(listChunks).toHaveBeenCalledWith("doc_ready", {
       page: 1,
       pageSize: 1,
@@ -65,8 +78,10 @@ describe("countChunksBySourceId", () => {
     const listChunks = vi.fn(async () => {
       throw new Error("temporary outage")
     })
+    const readChunks = vi.fn(async () => ({ chunks: [], totalChunks: 0 }))
     const mockClient = {
       documents: { listChunks },
+      knowledge: { readChunks },
     } as unknown as Knowhere
 
     const { countChunksBySourceId } = await import("./counts")
@@ -86,8 +101,10 @@ describe("countChunksBySourceId", () => {
     const listChunks = vi.fn().mockResolvedValue({
       pagination: { total: 70 },
     })
+    const readChunks = vi.fn(async () => ({ chunks: [], totalChunks: 0 }))
     const mockClient = {
       documents: { listChunks },
+      knowledge: { readChunks },
     } as unknown as Knowhere
 
     const { countChunksBySourceId } = await import("./counts")
@@ -106,6 +123,50 @@ describe("countChunksBySourceId", () => {
     )
 
     expect(listChunks).not.toHaveBeenCalled()
+    expect(readChunks).not.toHaveBeenCalled()
     expect(counts.size).toBe(0)
+  })
+})
+
+describe("sourceViewOptionsBySourceId", () => {
+  it("detects page-asset documents from SDK page chunks", async () => {
+    const listChunks = vi.fn(async () => ({ pagination: { total: 12 } }))
+    const readChunks = vi.fn(async () => ({
+      chunks: [
+        {
+          chunkId: "page_1",
+          chunkType: "page",
+          metadata: {
+            pageAssets: [
+              {
+                pageNum: 1,
+                artifactRef: "pages/page-000001.png",
+                assetUrl: "https://assets.example/page-000001.png",
+              },
+            ],
+          },
+        },
+      ],
+      totalChunks: 4,
+    }))
+    const mockClient = {
+      documents: { listChunks },
+      knowledge: { readChunks },
+    } as unknown as Knowhere
+
+    const { sourceViewOptionsBySourceId } = await import("./counts")
+
+    const options = await Effect.runPromise(
+      sourceViewOptionsBySourceId(
+        [makeSource({ id: "ready", knowhereDocumentId: "doc_ready" })],
+        mockClient,
+      ),
+    )
+
+    expect(options.get("ready")).toEqual({
+      chunkCount: 4,
+      documentPresentation: { kind: "page-assets", pageCount: 4 },
+    })
+    expect(listChunks).not.toHaveBeenCalled()
   })
 })

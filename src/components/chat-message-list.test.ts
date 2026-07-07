@@ -146,6 +146,7 @@ describe("ChatMessageList", () => {
                 score: 0.9,
                 pageCitationAssetUrl:
                   "https://blob.example/pages/page-000004.png",
+                pageCitationPageNumber: 4,
                 source: {
                   documentId: "doc_1",
                   sourceFileName: "report.pdf",
@@ -162,18 +163,17 @@ describe("ChatMessageList", () => {
     const citationButton = screen.getByRole("button", {
       name: "Open source report.pdf",
     });
-    const pageImageLink = screen.getByRole("link", {
-      name: "Open page image for report.pdf",
-    });
-
-    expect(pageImageLink.getAttribute("href")).toBe(
-      "https://blob.example/pages/page-000004.png",
-    );
+    expect(
+      screen.queryByRole("link", {
+        name: "Open page image for report.pdf",
+      }),
+    ).toBeNull();
 
     await user.click(citationButton);
     expect(onCitationClick).toHaveBeenCalledWith(
       expect.objectContaining({
         pageCitationAssetUrl: "https://blob.example/pages/page-000004.png",
+        pageCitationPageNumber: 4,
       }),
       "assistant_1:0",
     );

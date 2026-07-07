@@ -223,6 +223,7 @@ function WorkspaceShellContent({
       dashboardUrl={dashboardUrl}
       citationListViewRequestId={citationFocus.citationListViewRequestId}
       focusedChunk={citationFocus.focusedChunk}
+      focusedPage={citationFocus.focusedPage}
       hasMessages={hasMessages}
       hasMoreSelectedChunks={citationFocus.hasMoreSelectedChunks}
       contentView={contentView}

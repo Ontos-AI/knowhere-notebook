@@ -197,6 +197,9 @@ function getReadySourceLabel(source: SourceView): string {
 
 function getReadySourceStatusText(source: SourceView): string {
   if (source.kind === "remote") return getReadySourceLabel(source);
+  if (source.documentPresentation?.kind === "page-assets") {
+    return `${getReadySourceLabel(source)} · ${source.documentPresentation.pageCount} pages`;
+  }
   if (typeof source.chunkCount !== "number") return getReadySourceLabel(source);
   return `${getReadySourceLabel(source)} · ${source.chunkCount} chunks`;
 }
