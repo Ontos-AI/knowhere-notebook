@@ -107,6 +107,17 @@ type SourceChunksBody =
     }
   | ChunkPage
   | {
+      readonly chunks: readonly []
+      readonly pagination?: {
+        readonly page: number
+        readonly pageSize: number
+        readonly total: 0
+        readonly totalPages: 0
+      }
+      readonly message: string
+      readonly isUnavailable: true
+    }
+  | {
       readonly message: string
     }
 
@@ -119,6 +130,17 @@ type SourcePageAssetsBody =
         readonly total: number
         readonly totalPages: number
       }
+    }
+  | {
+      readonly pages: readonly []
+      readonly pagination: {
+        readonly page: number
+        readonly pageSize: number
+        readonly total: 0
+        readonly totalPages: 0
+      }
+      readonly message: string
+      readonly isUnavailable: true
     }
   | {
       readonly message: string

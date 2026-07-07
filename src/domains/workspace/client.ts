@@ -28,6 +28,7 @@ const workspaceClientConfig = {
 type SourceChunksResponse = {
   chunks?: ParsedChunkView[]
   isProcessing?: boolean
+  isUnavailable?: boolean
   message?: string
   pagination?: {
     page: number
@@ -39,6 +40,7 @@ type SourceChunksResponse = {
 
 type SourcePageAssetsResponse = {
   pages?: SourcePageAssetView[]
+  isUnavailable?: boolean
   message?: string
   pagination?: {
     page: number
@@ -146,7 +148,10 @@ async function fetchChunkPage(
   return {
     chunks: Array.isArray(body.chunks) ? body.chunks : [],
     ...(typeof body.message === "string" ? { message: body.message } : {}),
-    ...(typeof body.message === "string" ? { isProcessing: true } : {}),
+    ...(body.isUnavailable === true ? { isUnavailable: true } : {}),
+    ...(typeof body.message === "string" && body.isUnavailable !== true
+      ? { isProcessing: true }
+      : {}),
     pagination: body.pagination,
   }
 }
@@ -165,6 +170,7 @@ async function fetchPageAssetPage(
 
   return {
     pages: Array.isArray(body.pages) ? body.pages : [],
+    ...(body.isUnavailable === true ? { isUnavailable: true } : {}),
     ...(typeof body.message === "string" ? { message: body.message } : {}),
     pagination: body.pagination,
   }

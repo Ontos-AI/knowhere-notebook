@@ -161,6 +161,39 @@ describe("useWorkspaceSelectedChunks", () => {
     expect(result.current.selectedChunks).toEqual([]);
   });
 
+  it("surfaces unavailable chunk messages without a loading state", async () => {
+    fetchChunkPageMock.mockResolvedValue({
+      chunks: [],
+      isUnavailable: true,
+      message:
+        "Source is unavailable. The parsed document is not available locally and could not be loaded from Knowhere.",
+      pagination: {
+        page: 1,
+        pageSize: 50,
+        total: 0,
+        totalPages: 0,
+      },
+    });
+
+    const { result } = renderHook(
+      () =>
+        useWorkspaceSelectedChunks({
+          selectedSourceId: "source_1",
+          sources: [readySource],
+          prefetchedChunksBySourceId: {},
+        }),
+      { wrapper: createSWRWrapper },
+    );
+
+    await waitFor(() =>
+      expect(result.current.selectedChunksMessage).toBe(
+        "Source is unavailable. The parsed document is not available locally and could not be loaded from Knowhere.",
+      ),
+    );
+    expect(result.current.isSelectedChunksLoading).toBe(false);
+    expect(result.current.selectedChunks).toEqual([]);
+  });
+
   it("does not fetch chunk pages for page-asset sources", () => {
     const pageAssetSource: SourceView = {
       ...readySource,

@@ -397,6 +397,8 @@ export function ChunksPanel({
                 />
               ) : isLoading ? (
                 <LoadingChunks message={processingMessage} />
+              ) : chunks.length === 0 && processingMessage ? (
+                <UnavailableSourceMessage message={processingMessage} />
               ) : chunks.length === 0 ? (
                 selectedSource ? (
                   <EmptyChunks />
@@ -1036,6 +1038,7 @@ type PageAssetPageState = {
   readonly pages: readonly SourcePageAssetView[];
   readonly loadedPageIndexes: ReadonlySet<number>;
   readonly isLoading: boolean;
+  readonly message: string | null;
   readonly totalPages: number;
 };
 
@@ -1054,6 +1057,7 @@ function PageAssetDocumentViewer({
     pages: [],
     loadedPageIndexes: new Set(),
     isLoading: false,
+    message: null,
     totalPages: Math.max(
       1,
       Math.ceil(
@@ -1092,6 +1096,7 @@ function PageAssetDocumentViewer({
               ),
               loadedPageIndexes,
               isLoading: false,
+              message: response.message ?? null,
               totalPages:
                 response.pagination?.totalPages ?? current.totalPages,
             };
@@ -1115,6 +1120,7 @@ function PageAssetDocumentViewer({
       pages: [],
       loadedPageIndexes: new Set(),
       isLoading: false,
+      message: null,
       totalPages: Math.max(
         1,
         Math.ceil(
@@ -1156,6 +1162,10 @@ function PageAssetDocumentViewer({
 
   if (pageState.pages.length === 0 && pageState.isLoading) {
     return <LoadingChunks message="Loading page images..." />;
+  }
+
+  if (pageState.pages.length === 0 && pageState.message) {
+    return <UnavailableSourceMessage message={pageState.message} />;
   }
 
   if (pageState.pages.length === 0) {
@@ -1259,6 +1269,21 @@ function EmptyPageAssets(): ReactNode {
       <FilePlus2 className="mb-3 size-8 text-muted-foreground" />
       <p className="text-sm font-semibold text-foreground">
         No page images available.
+      </p>
+    </div>
+  );
+}
+
+function UnavailableSourceMessage({
+  message,
+}: {
+  readonly message: string;
+}): ReactNode {
+  return (
+    <div className="flex min-h-[240px] w-full flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 px-6 text-center">
+      <FilePlus2 className="mb-3 size-8 text-muted-foreground" />
+      <p className="max-w-md text-sm font-medium leading-6 text-muted-foreground">
+        {message}
       </p>
     </div>
   );

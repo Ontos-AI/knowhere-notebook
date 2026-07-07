@@ -6,6 +6,7 @@ import { resolveChunkConnectionTargets } from "@/domains/chunks"
 import type { DemoChunkPage } from "@/integrations/knowhere-demo"
 import { logger } from "@/lib/logger"
 import { routeResult } from "@/lib/route-result"
+import { displayReadUnavailable } from "./display-read-unavailable"
 import {
   decodeRemoteSourceId,
   findRemoteLibraryDocumentBySourceId,
@@ -112,20 +113,26 @@ const loadSourceChunksEffect = (
     }
 
     if (input.shouldLoadAll) {
-      const chunks = yield* Effect.tryPromise(() =>
+      return yield* Effect.tryPromise(() =>
         readAllSourceChunks({ knowledge, source: readableSource }),
+      ).pipe(
+        Effect.map((chunks) =>
+          routeResult.ok({ chunks: resolveChunkConnectionTargets(chunks) }),
+        ),
+        Effect.catchAll((error) => recoverUnavailableChunks(input, error)),
       )
-      return routeResult.ok({ chunks: resolveChunkConnectionTargets(chunks) })
     }
 
-    const chunkPage = yield* Effect.tryPromise(() =>
+    return yield* Effect.tryPromise(() =>
       readSourceChunkPage({
         knowledge,
         source: readableSource,
         params: input.pageParams,
       }),
+    ).pipe(
+      Effect.map((chunkPage) => routeResult.ok(chunkPage)),
+      Effect.catchAll((error) => recoverUnavailableChunks(input, error)),
     )
-    return routeResult.ok(chunkPage)
   })
 
 const loadRemoteChunkPageEffect = (
@@ -182,20 +189,26 @@ const loadRemoteChunkPageEffect = (
     }
 
     if (input.shouldLoadAll) {
-      const chunks = yield* Effect.tryPromise(() =>
+      return yield* Effect.tryPromise(() =>
         readAllSourceChunks({ knowledge, source: readableSource }),
+      ).pipe(
+        Effect.map((chunks) =>
+          routeResult.ok({ chunks: resolveChunkConnectionTargets(chunks) }),
+        ),
+        Effect.catchAll((error) => recoverUnavailableChunks(input, error)),
       )
-      return routeResult.ok({ chunks: resolveChunkConnectionTargets(chunks) })
     }
 
-    const chunkPage = yield* Effect.tryPromise(() =>
+    return yield* Effect.tryPromise(() =>
       readSourceChunkPage({
         knowledge,
         source: readableSource,
         params: input.pageParams,
       }),
+    ).pipe(
+      Effect.map((chunkPage) => routeResult.ok(chunkPage)),
+      Effect.catchAll((error) => recoverUnavailableChunks(input, error)),
     )
-    return routeResult.ok(chunkPage)
   })
 
 const loadDemoChunkPageEffect = (
@@ -335,6 +348,49 @@ function sourceSnapshotProcessing(
     },
     202,
   )
+}
+
+function sourceChunksUnavailable(
+  input: LoadSourceChunksInput,
+): JsonRouteResult<{
+  readonly chunks: []
+  readonly pagination?: {
+    readonly page: number
+    readonly pageSize: number
+    readonly total: 0
+    readonly totalPages: 0
+  }
+  readonly message: string
+  readonly isUnavailable: true
+}> {
+  if (input.shouldLoadAll) {
+    return routeResult.ok({
+      chunks: [],
+      message: displayReadUnavailable.message,
+      isUnavailable: true,
+    })
+  }
+
+  return routeResult.ok({
+    chunks: [],
+    pagination: {
+      page: input.pageParams.page,
+      pageSize: input.pageParams.pageSize,
+      total: 0,
+      totalPages: 0,
+    },
+    message: displayReadUnavailable.message,
+    isUnavailable: true,
+  })
+}
+
+function recoverUnavailableChunks(
+  input: LoadSourceChunksInput,
+  error: unknown,
+): Effect.Effect<ReturnType<typeof sourceChunksUnavailable>, unknown> {
+  return displayReadUnavailable.isError(error)
+    ? Effect.succeed(sourceChunksUnavailable(input))
+    : Effect.fail(error)
 }
 
 export { createRouteChunks }

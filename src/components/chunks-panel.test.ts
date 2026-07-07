@@ -181,6 +181,44 @@ describe("ChunksPanel", () => {
     );
   });
 
+  it("shows page asset unavailable messages", async () => {
+    fetchPageAssetPageMock.mockResolvedValue({
+      pages: [],
+      isUnavailable: true,
+      message:
+        "Source is unavailable. The parsed document is not available locally and could not be loaded from Knowhere.",
+      pagination: {
+        page: 1,
+        pageSize: 50,
+        total: 0,
+        totalPages: 0,
+      },
+    });
+
+    render(
+      React.createElement(C, {
+        chunks: [],
+        selectedSource: "report.pdf",
+        selectedSourceView: {
+          id: "source_1",
+          title: "report.pdf",
+          mimeType: "application/pdf",
+          status: "ready",
+          documentPresentation: { kind: "page-assets", pageCount: 4 },
+        },
+      }),
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "Source is unavailable. The parsed document is not available locally and could not be loaded from Knowhere.",
+        ),
+      ).toBeTruthy(),
+    );
+    expect(screen.queryByText("No page images available.")).toBeNull();
+  });
+
   it("defaults parsed chunks into a section tree view", () => {
     render(
       React.createElement(C, {

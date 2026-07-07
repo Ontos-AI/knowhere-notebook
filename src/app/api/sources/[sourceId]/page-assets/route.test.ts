@@ -244,6 +244,55 @@ describe("GET /api/sources/[sourceId]/page-assets", () => {
     })
     expect(response.status).toBe(200)
   })
+
+  it("marks page assets unavailable when the parsed document is missing remotely", async () => {
+    const notFoundError = new Error("Document not found")
+    notFoundError.name = "NotFoundError"
+    mocks.getCurrentUser.mockResolvedValue({
+      id: "user_1",
+      email: null,
+      name: null,
+    })
+    mocks.ensureWorkspace.mockResolvedValue({
+      id: "workspace_1",
+      userId: "user_1",
+      namespace: "notebook-workspace_1",
+      createdAt: new Date("2026-05-10T00:00:00.000Z"),
+    })
+    mocks.findSourceInWorkspace.mockResolvedValue(
+      makeReadySource({
+        id: "00000000-0000-0000-0000-000000000002",
+        knowhereDocumentId: "doc_missing",
+      }),
+    )
+    mocks.ensureApiKeyForWorkspace.mockResolvedValue("jwt_123")
+    mocks.readChunks.mockRejectedValue(notFoundError)
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost:3001/api/sources/00000000-0000-0000-0000-000000000002/page-assets?page=1&pageSize=1",
+      ),
+      {
+        params: Promise.resolve({
+          sourceId: "00000000-0000-0000-0000-000000000002",
+        }),
+      },
+    )
+
+    await expect(response.json()).resolves.toEqual({
+      pages: [],
+      pagination: {
+        page: 1,
+        pageSize: 1,
+        total: 0,
+        totalPages: 0,
+      },
+      message:
+        "Source is unavailable. The parsed document is not available locally and could not be loaded from Knowhere.",
+      isUnavailable: true,
+    })
+    expect(response.status).toBe(200)
+  })
 })
 
 function makeReadySource(overrides: Record<string, unknown>) {

@@ -2,6 +2,7 @@ import { Effect } from "effect"
 
 import { readSourcePageAssets } from "./page-assets"
 import { routeResult } from "@/lib/route-result"
+import { displayReadUnavailable } from "./display-read-unavailable"
 import {
   decodeRemoteSourceId,
   findRemoteLibraryDocumentBySourceId,
@@ -77,7 +78,7 @@ const loadSourcePageAssetsEffect = (
       documentId,
       revisionKey: source.knowhereJobId,
     })
-    const pageAssets = yield* Effect.tryPromise(() =>
+    return yield* Effect.tryPromise(() =>
       readSourcePageAssets({
         knowledge,
         source: {
@@ -86,9 +87,12 @@ const loadSourcePageAssetsEffect = (
         },
         params: input.pageParams,
       }),
+    ).pipe(
+      Effect.map((pageAssets) => routeResult.ok(pageAssets)),
+      Effect.catchAll((error) =>
+        recoverUnavailablePageAssets(input, error),
+      ),
     )
-
-    return routeResult.ok(pageAssets)
   })
 
 const loadRemotePageAssetsEffect = (
@@ -139,15 +143,18 @@ const loadRemotePageAssetsEffect = (
       documentId,
       revisionKey,
     })
-    const pageAssets = yield* Effect.tryPromise(() =>
+    return yield* Effect.tryPromise(() =>
       readSourcePageAssets({
         knowledge,
         source: { documentId, revisionKey },
         params: input.pageParams,
       }),
+    ).pipe(
+      Effect.map((pageAssets) => routeResult.ok(pageAssets)),
+      Effect.catchAll((error) =>
+        recoverUnavailablePageAssets(input, error),
+      ),
     )
-
-    return routeResult.ok(pageAssets)
   })
 
 function sourceNotFound(): JsonRouteResult<{ readonly message: string }> {
@@ -156,6 +163,44 @@ function sourceNotFound(): JsonRouteResult<{ readonly message: string }> {
 
 function sourceNotReady(): JsonRouteResult<{ readonly message: string }> {
   return routeResult.error(409, "Source is not ready.")
+}
+
+function sourcePageAssetsUnavailable(
+  input: LoadSourcePageAssetsInput,
+): {
+  readonly pages: []
+  readonly pagination: {
+    readonly page: number
+    readonly pageSize: number
+    readonly total: 0
+    readonly totalPages: 0
+  }
+  readonly message: string
+  readonly isUnavailable: true
+} {
+  return {
+    pages: [],
+    pagination: {
+      page: input.pageParams.page,
+      pageSize: input.pageParams.pageSize,
+      total: 0,
+      totalPages: 0,
+    },
+    message: displayReadUnavailable.message,
+    isUnavailable: true,
+  }
+}
+
+function recoverUnavailablePageAssets(
+  input: LoadSourcePageAssetsInput,
+  error: unknown,
+): Effect.Effect<
+  JsonRouteResult<ReturnType<typeof sourcePageAssetsUnavailable>>,
+  unknown
+> {
+  return displayReadUnavailable.isError(error)
+    ? Effect.succeed(routeResult.ok(sourcePageAssetsUnavailable(input)))
+    : Effect.fail(error)
 }
 
 export { createRoutePageAssets }

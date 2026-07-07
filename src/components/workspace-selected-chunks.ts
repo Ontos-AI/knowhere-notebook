@@ -68,6 +68,8 @@ export function useWorkspaceSelectedChunks({
     },
   )
   const selectedChunksMessage = getSelectedChunksMessage(selectedChunkPages)
+  const hasProcessingSelectedChunkPage =
+    hasProcessingChunkPage(selectedChunkPages)
   const pagedSelectedChunks = useMemo(
     () =>
       resolveChunkConnectionTargets(
@@ -99,7 +101,7 @@ export function useWorkspaceSelectedChunks({
         typeof selectedChunkPages[selectedChunkPageCount - 1] === "undefined",
     )
   const isSelectedChunksLoading =
-    Boolean(selectedChunksMessage) ||
+    hasProcessingSelectedChunkPage ||
     (selectedChunkSourceId !== null &&
       !prefetchedSelectedChunks &&
       !selectedChunkPages &&
@@ -150,7 +152,8 @@ function getSelectedChunksMessage(
 ): string | null {
   const page = pages?.find(
     (candidate) =>
-      candidate.isProcessing && typeof candidate.message === "string",
+      (candidate.isProcessing || candidate.isUnavailable) &&
+      typeof candidate.message === "string",
   )
   return page?.message ?? null
 }
