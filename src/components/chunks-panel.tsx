@@ -106,6 +106,13 @@ export function ChunksPanel({
   const isPageAssetSource =
     selectedSourceView?.documentPresentation?.kind === "page-assets" ||
     hasPageAssetChunks;
+  const displayChunks = useMemo(
+    () =>
+      isPageAssetSource
+        ? chunksPanelState.getPageAssetChunksWithoutDuplicatePages(chunks)
+        : chunks,
+    [chunks, isPageAssetSource],
+  );
   const effectiveVisibleView = isPageAssetSource ? "parsed" : undefined;
   const originalPreviewCacheKey = selectedSourceFile?.url ?? null;
   const isOriginalPreviewAvailable =
@@ -144,7 +151,7 @@ export function ChunksPanel({
     visibleChunks,
     visibleView,
   } = useChunksPanelWorkflow({
-    chunks,
+    chunks: displayChunks,
     selectedSource,
     selectedSourceFile,
     focusedChunkId,
@@ -331,7 +338,7 @@ export function ChunksPanel({
         <div className="flex min-w-0 shrink-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
           {!isPageAssetSource &&
           activeVisibleView === "parsed" &&
-          chunks.length > 0 ? (
+          displayChunks.length > 0 ? (
             <div
               role="group"
               aria-label="Chunk display"
@@ -388,9 +395,9 @@ export function ChunksPanel({
             >
               {isLoading ? (
                 <LoadingChunks message={processingMessage} />
-              ) : chunks.length === 0 && processingMessage ? (
+              ) : displayChunks.length === 0 && processingMessage ? (
                 <UnavailableSourceMessage message={processingMessage} />
-              ) : chunks.length === 0 ? (
+              ) : displayChunks.length === 0 ? (
                 selectedSource ? (
                   <EmptyChunks />
                 ) : (
@@ -404,7 +411,7 @@ export function ChunksPanel({
               ) : isTreeModeVisible ? (
                 <ChunkSectionTree
                   key={selectedSource ?? "parsed-chunks"}
-                  chunks={chunks}
+                  chunks={displayChunks}
                   focusedChunkId={activeFocusedChunkId}
                   isLoadingAllChunks={isLoadingAllChunks}
                   sourceTitle={selectedSource ?? "Parsed Chunks"}

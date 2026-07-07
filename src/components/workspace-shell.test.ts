@@ -274,6 +274,91 @@ describe("WorkspaceShell", () => {
     expect(countFetches(fetch, "/api/sources/source_2/chunks")).toBe(0);
   });
 
+  it("keeps a remote document open without refreshing sources after chunks load", async () => {
+    const remoteSourceId = "knowhere-doc:default:doc_remote";
+    const encodedRemoteSourceId = encodeURIComponent(remoteSourceId);
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
+      const url = getRequestURL(input);
+
+      if (
+        url.pathname === `/api/sources/${encodedRemoteSourceId}/chunks`
+      ) {
+        return Response.json({
+          chunks: [
+            {
+              chunkId: "remote_page_1",
+              documentId: "doc_remote",
+              sectionPath: "Page 1",
+              type: "page",
+              content: "Remote page summary.",
+              sourceTitle: "remote.pdf",
+              pageNums: [1],
+              pageAssets: [
+                {
+                  pageNumber: 1,
+                  assetUrl: "https://assets.example/page-1.png",
+                  contentType: "image/png",
+                },
+              ],
+            },
+          ],
+          pagination: {
+            page: Number(url.searchParams.get("page") ?? "1"),
+            pageSize: 50,
+            total: 1,
+            totalPages: 1,
+          },
+        });
+      }
+
+      if (url.pathname === "/api/sources") {
+        return Response.json({
+          sources: [
+            {
+              id: "source_localized",
+              kind: "workspace",
+              title: "remote.pdf",
+              status: "ready",
+              documentId: "doc_remote",
+            },
+          ],
+        });
+      }
+
+      return Response.json({ message: "Unexpected request" }, { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    render(
+      React.createElement(C, {
+        sources: [
+          {
+            id: remoteSourceId,
+            kind: "remote",
+            title: "remote.pdf",
+            status: "ready",
+            documentId: "doc_remote",
+            excludedFromQuery: false,
+          },
+        ],
+      }),
+    );
+
+    const desktopChunksPanel = within(screen.getByTestId("desktop-chunks-panel"));
+    await waitFor(() => {
+      expect(desktopChunksPanel.getByRole("img", { name: "Page 1" }))
+        .toBeTruthy();
+    });
+
+    expect(countFetches(fetch, "/api/sources")).toBe(0);
+    expect(
+      countFetches(
+        fetch,
+        `/api/sources/${encodedRemoteSourceId}/chunks`,
+      ),
+    ).toBe(1);
+  });
+
   it("focuses guest citations on desktop using loaded demo chunks", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
       const url = getRequestURL(input);

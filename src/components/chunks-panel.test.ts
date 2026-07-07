@@ -127,6 +127,73 @@ describe("ChunksPanel", () => {
     ).toBeNull();
   });
 
+  it("renders only the first page-asset chunk for each page number", async () => {
+    mockVisibleVirtualViewport();
+
+    render(
+      React.createElement(C, {
+        chunks: [
+          {
+            chunkId: "page_4_first",
+            type: "page",
+            content: "First page 4 summary",
+            sourceTitle: "report.pdf",
+            pageNums: [4],
+            pageAssets: [
+              {
+                pageNumber: 4,
+                assetUrl: "https://assets.example/page-000004-a.png",
+                contentType: "image/png",
+              },
+            ],
+          },
+          {
+            chunkId: "page_4_duplicate",
+            type: "page",
+            content: "Duplicate page 4 summary",
+            sourceTitle: "report.pdf",
+            pageNums: [4],
+            pageAssets: [
+              {
+                pageNumber: 4,
+                assetUrl: "https://assets.example/page-000004-b.png",
+                contentType: "image/png",
+              },
+            ],
+          },
+          {
+            chunkId: "page_5",
+            type: "page",
+            content: "Page 5 summary",
+            sourceTitle: "report.pdf",
+            pageNums: [5],
+            pageAssets: [
+              {
+                pageNumber: 5,
+                assetUrl: "https://assets.example/page-000005.png",
+                contentType: "image/png",
+              },
+            ],
+          },
+        ],
+        selectedSource: "report.pdf",
+        selectedSourceView: {
+          id: "source_1",
+          title: "report.pdf",
+          mimeType: "application/pdf",
+          status: "ready",
+          documentPresentation: { kind: "page-assets", pageCount: 5 },
+        },
+      }),
+    );
+
+    expect(await screen.findAllByRole("img", { name: "Page 4" }))
+      .toHaveLength(1);
+    expect(screen.getByRole("img", { name: "Page 5" })).toBeTruthy();
+    expect(screen.queryByTestId("chunk-card-shell-page_4_duplicate"))
+      .toBeNull();
+  });
+
   it("renders page chunks normally when no page assets exist", async () => {
     mockVisibleVirtualViewport();
 

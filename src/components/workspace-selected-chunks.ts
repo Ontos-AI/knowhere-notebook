@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef } from "react"
+import { useMemo } from "react"
 import useSWRInfinite from "swr/infinite"
 
 import { workspaceClient } from "@/domains/workspace/client"
@@ -17,7 +17,6 @@ type WorkspaceSelectedChunksInput = {
   readonly selectedSourceId: string | null
   readonly sources: readonly SourceView[]
   readonly prefetchedChunksBySourceId: Readonly<Record<string, ParsedChunkView[]>>
-  readonly onRemoteSourceChunksLoaded?: (sourceId: string) => void
 }
 
 type WorkspaceSelectedChunks = {
@@ -34,12 +33,10 @@ export function useWorkspaceSelectedChunks({
   selectedSourceId,
   sources,
   prefetchedChunksBySourceId,
-  onRemoteSourceChunksLoaded,
 }: WorkspaceSelectedChunksInput): WorkspaceSelectedChunks {
   const rawSelectedSource = sources.find(
     (source) => source.id === selectedSourceId,
   )
-  const remoteSourceRefreshRequestedIdsRef = useRef<Set<string>>(new Set())
   const selectedSource = rawSelectedSource
   const prefetchedSelectedChunks = selectedSourceId
     ? prefetchedChunksBySourceId[selectedSourceId]
@@ -115,16 +112,6 @@ export function useWorkspaceSelectedChunks({
       !prefetchedSelectedChunks &&
       !selectedChunkPages &&
       isChunksLoading)
-
-  useEffect(() => {
-    const sourceId = selectedSource?.id
-    if (!sourceId || selectedSource.kind !== "remote") return
-    if (!selectedChunkPages || selectedChunkPages.length === 0) return
-    if (remoteSourceRefreshRequestedIdsRef.current.has(sourceId)) return
-
-    remoteSourceRefreshRequestedIdsRef.current.add(sourceId)
-    onRemoteSourceChunksLoaded?.(sourceId)
-  }, [onRemoteSourceChunksLoaded, selectedChunkPages, selectedSource])
 
   function handleLoadMoreChunks(): void {
     if (!hasMoreSelectedChunks || isSelectedChunksLoadingMore) return

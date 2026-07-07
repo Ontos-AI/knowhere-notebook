@@ -294,8 +294,7 @@ describe("useWorkspaceSelectedChunks", () => {
     expect(fetchChunkPageMock).toHaveBeenCalledWith("source_1", 1);
   });
 
-  it("requests a source refresh after loading an unlocalized remote source", async () => {
-    const onRemoteSourceChunksLoaded = vi.fn();
+  it("loads an unlocalized remote source without requesting a source refresh", async () => {
     const remoteSource: SourceView = {
       ...readySource,
       id: "knowhere-doc:default:doc_remote",
@@ -320,30 +319,24 @@ describe("useWorkspaceSelectedChunks", () => {
       },
     });
 
-    const { rerender } = renderHook(
-      (input: {
-        readonly onRemoteSourceChunksLoaded: (sourceId: string) => void;
-      }) =>
+    const { result } = renderHook(
+      () =>
         useWorkspaceSelectedChunks({
           selectedSourceId: "knowhere-doc:default:doc_remote",
           sources: [remoteSource],
           prefetchedChunksBySourceId: {},
-          onRemoteSourceChunksLoaded: input.onRemoteSourceChunksLoaded,
         }),
-      {
-        initialProps: { onRemoteSourceChunksLoaded },
-        wrapper: createSWRWrapper,
-      },
+      { wrapper: createSWRWrapper },
     );
 
     await waitFor(() =>
-      expect(onRemoteSourceChunksLoaded).toHaveBeenCalledWith(
-        "knowhere-doc:default:doc_remote",
-      ),
+      expect(result.current.selectedChunks.map((chunk) => chunk.chunkId)).toEqual([
+        "chunk_1",
+      ]),
     );
-
-    rerender({ onRemoteSourceChunksLoaded });
-    expect(onRemoteSourceChunksLoaded).toHaveBeenCalledTimes(1);
+    expect(result.current.selectedSource?.id).toBe(
+      "knowhere-doc:default:doc_remote",
+    );
   });
 
   it("returns an empty chunk list when no source is selected", () => {
