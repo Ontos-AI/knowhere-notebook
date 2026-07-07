@@ -14,7 +14,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChunksPanel } from "./chunks-panel";
 import { sourceOriginalPreviewRequest } from "./source-original-preview-request";
 
-const fetchPageAssetPageMock = vi.hoisted(() => vi.fn());
 const C = ChunksPanel as React.FC<Record<string, unknown>>;
 const virtualizerScrollResetDelayMs = 150;
 
@@ -30,25 +29,9 @@ vi.mock("react-pdf", () => ({
   Page: () => React.createElement("div", { "data-testid": "pdf-page" }),
 }));
 
-vi.mock("@/domains/workspace/client", () => ({
-  workspaceClient: {
-    fetchPageAssetPage: fetchPageAssetPageMock,
-  },
-}));
-
 describe("ChunksPanel", () => {
   beforeEach(() => {
     shouldFlushVirtualizerTimers = false;
-    fetchPageAssetPageMock.mockReset();
-    fetchPageAssetPageMock.mockResolvedValue({
-      pages: [],
-      pagination: {
-        page: 1,
-        pageSize: 50,
-        total: 0,
-        totalPages: 1,
-      },
-    });
     globalThis.ResizeObserver = class ResizeObserver {
       observe() {}
       unobserve() {}
@@ -89,28 +72,35 @@ describe("ChunksPanel", () => {
     expect(screen.getByText(/Showing all parsed chunks from/)).toBeTruthy();
   });
 
-  it("renders page assets instead of parsed chunk controls for page-mode documents", async () => {
-    fetchPageAssetPageMock.mockResolvedValue({
-      pages: [
-        {
-          pageNumber: 4,
-          assetUrl: "https://assets.example/page-000004.png",
-          contentType: "image/png",
-          width: 1200,
-          height: 1600,
-        },
-      ],
-      pagination: {
-        page: 1,
-        pageSize: 50,
-        total: 4,
-        totalPages: 1,
-      },
-    });
+  it("renders page chunk assets inside the normal chunk list", async () => {
+    mockVisibleVirtualViewport();
 
     render(
       React.createElement(C, {
-        chunks: [],
+        chunks: [
+          {
+            chunkId: "page_4",
+            type: "page",
+            content: "Page 4 summary",
+            sourceTitle: "report.pdf",
+            pageNums: [4],
+            pageAssets: [
+              {
+                pageNumber: 4,
+                assetUrl: "https://assets.example/page-000004.png",
+                contentType: "image/png",
+                width: 1200,
+                height: 1600,
+              },
+            ],
+          },
+          {
+            chunkId: "table_1",
+            type: "table",
+            content: "<table><tbody><tr><td>Budget</td></tr></tbody></table>",
+            sourceTitle: "report.pdf",
+          },
+        ],
         selectedSource: "report.pdf",
         selectedSourceView: {
           id: "source_1",
@@ -122,40 +112,74 @@ describe("ChunksPanel", () => {
       }),
     );
 
-    await waitFor(() =>
-      expect(
-        screen.getByTestId("page-asset-document-viewer"),
-      ).toBeTruthy(),
-    );
-    expect(screen.getByRole("heading", { name: "Original File" })).toBeTruthy();
-    expect(screen.getByText("Page 4")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Parsed" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "Parsed Chunks" })).toBeTruthy();
+    expect(
+      await screen.findByRole("img", { name: "Page 4" }),
+    ).toBeTruthy();
+    expect(screen.getByText("image/png")).toBeTruthy();
+    expect(screen.getByText("Budget")).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Original" }),
+    ).toBeNull();
     expect(screen.queryByRole("button", { name: "Tree" })).toBeNull();
-    expect(fetchPageAssetPageMock).toHaveBeenCalledWith("source_1", 1);
+    expect(
+      screen.queryByRole("button", { name: /original file/i }),
+    ).toBeNull();
   });
 
-  it("shows a page-level placeholder when a page asset image fails to load", async () => {
-    fetchPageAssetPageMock.mockResolvedValue({
-      pages: [
-        {
-          pageNumber: 4,
-          assetUrl: "https://assets.example/page-000004.png",
-          contentType: "image/png",
-          width: 1200,
-          height: 1600,
-        },
-      ],
-      pagination: {
-        page: 1,
-        pageSize: 50,
-        total: 4,
-        totalPages: 1,
-      },
-    });
+  it("renders page chunks normally when no page assets exist", async () => {
+    mockVisibleVirtualViewport();
 
     render(
       React.createElement(C, {
-        chunks: [],
+        chunks: [
+          {
+            chunkId: "page_4",
+            type: "page",
+            content: "Page 4 summary",
+            readableContent: "Page 4 summary",
+            sourceTitle: "report.pdf",
+            pageNums: [4],
+          },
+        ],
+        selectedSource: "report.pdf",
+        selectedSourceView: {
+          id: "source_1",
+          title: "report.pdf",
+          mimeType: "application/pdf",
+          status: "ready",
+          documentPresentation: { kind: "page-assets", pageCount: 4 },
+        },
+      }),
+    );
+
+    expect(await screen.findByText("Page 4 summary")).toBeTruthy();
+    expect(screen.queryByRole("img", { name: "Page 4" })).toBeNull();
+  });
+
+  it("shows a page-level placeholder when a page asset image fails to load", async () => {
+    mockVisibleVirtualViewport();
+
+    render(
+      React.createElement(C, {
+        chunks: [
+          {
+            chunkId: "page_4",
+            type: "page",
+            content: "Page 4 summary",
+            sourceTitle: "report.pdf",
+            pageNums: [4],
+            pageAssets: [
+              {
+                pageNumber: 4,
+                assetUrl: "https://assets.example/page-000004.png",
+                contentType: "image/png",
+                width: 1200,
+                height: 1600,
+              },
+            ],
+          },
+        ],
         selectedSource: "report.pdf",
         selectedSourceView: {
           id: "source_1",
@@ -174,91 +198,6 @@ describe("ChunksPanel", () => {
       screen.getByTestId("page-asset-image-unavailable-4"),
     ).toBeTruthy();
     expect(screen.getByText("Page image unavailable.")).toBeTruthy();
-  });
-
-  it("loads missing page buckets after focusing a later page asset", async () => {
-    const user = userEvent.setup();
-    fetchPageAssetPageMock.mockImplementation(
-      async (_sourceId: string, page: number) => ({
-        pages: [
-          {
-            pageNumber: page === 3 ? 101 : page,
-            assetUrl: `https://assets.example/page-${page}.png`,
-            contentType: "image/png",
-          },
-        ],
-        pagination: {
-          page,
-          pageSize: 50,
-          total: 120,
-          totalPages: 3,
-        },
-      }),
-    );
-
-    render(
-      React.createElement(C, {
-        chunks: [],
-        selectedSource: "report.pdf",
-        selectedSourceView: {
-          id: "source_1",
-          title: "report.pdf",
-          mimeType: "application/pdf",
-          status: "ready",
-          documentPresentation: { kind: "page-assets", pageCount: 120 },
-        },
-        focusedPageNumber: 101,
-        focusedPageRequestId: 1,
-      }),
-    );
-
-    await waitFor(() =>
-      expect(fetchPageAssetPageMock).toHaveBeenCalledWith("source_1", 3),
-    );
-
-    await user.click(screen.getByRole("button", { name: "Load more pages" }));
-
-    await waitFor(() =>
-      expect(fetchPageAssetPageMock).toHaveBeenCalledWith("source_1", 2),
-    );
-  });
-
-  it("shows page asset unavailable messages", async () => {
-    fetchPageAssetPageMock.mockResolvedValue({
-      pages: [],
-      isUnavailable: true,
-      message:
-        "Source is unavailable. The parsed document is not available locally and could not be loaded from Knowhere.",
-      pagination: {
-        page: 1,
-        pageSize: 50,
-        total: 0,
-        totalPages: 0,
-      },
-    });
-
-    render(
-      React.createElement(C, {
-        chunks: [],
-        selectedSource: "report.pdf",
-        selectedSourceView: {
-          id: "source_1",
-          title: "report.pdf",
-          mimeType: "application/pdf",
-          status: "ready",
-          documentPresentation: { kind: "page-assets", pageCount: 4 },
-        },
-      }),
-    );
-
-    await waitFor(() =>
-      expect(
-        screen.getByText(
-          "Source is unavailable. The parsed document is not available locally and could not be loaded from Knowhere.",
-        ),
-      ).toBeTruthy(),
-    );
-    expect(screen.queryByText("No page images available.")).toBeNull();
   });
 
   it("defaults parsed chunks into a section tree view", () => {

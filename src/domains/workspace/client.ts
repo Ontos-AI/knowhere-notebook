@@ -5,7 +5,6 @@ import type {
 } from "@/domains/chat/types"
 import type { ParsedChunkView } from "@/domains/chunks/types"
 import type {
-  SourcePageAssetView,
   SourceView,
 } from "@/domains/sources/types"
 import { workspaceRouteClient } from "./route-client"
@@ -28,18 +27,6 @@ const workspaceClientConfig = {
 type SourceChunksResponse = {
   chunks?: ParsedChunkView[]
   isProcessing?: boolean
-  isUnavailable?: boolean
-  message?: string
-  pagination?: {
-    page: number
-    pageSize: number
-    total: number
-    totalPages: number
-  }
-}
-
-type SourcePageAssetsResponse = {
-  pages?: SourcePageAssetView[]
   isUnavailable?: boolean
   message?: string
   pagination?: {
@@ -107,7 +94,6 @@ export const workspaceClient = {
   keys: workspaceClientKeys,
   fetchChunks,
   fetchChunkPage,
-  fetchPageAssetPage,
   fetchSources,
   fetchChatThreads,
   fetchChatThread,
@@ -152,26 +138,6 @@ async function fetchChunkPage(
     ...(typeof body.message === "string" && body.isUnavailable !== true
       ? { isProcessing: true }
       : {}),
-    pagination: body.pagination,
-  }
-}
-
-async function fetchPageAssetPage(
-  sourceId: string,
-  page: number,
-): Promise<SourcePageAssetsResponse> {
-  const searchParams = new URLSearchParams({
-    page: String(page),
-    pageSize: String(workspaceClientConfig.sourceChunkPageSize),
-  })
-  const body = await workspaceRouteClient.getJson<SourcePageAssetsResponse>(
-    `/api/sources/${encodeURIComponent(sourceId)}/page-assets?${searchParams.toString()}`,
-  )
-
-  return {
-    pages: Array.isArray(body.pages) ? body.pages : [],
-    ...(body.isUnavailable === true ? { isUnavailable: true } : {}),
-    ...(typeof body.message === "string" ? { message: body.message } : {}),
     pagination: body.pagination,
   }
 }

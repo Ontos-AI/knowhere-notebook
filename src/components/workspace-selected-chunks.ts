@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef } from "react"
 import useSWRInfinite from "swr/infinite"
 
 import { workspaceClient } from "@/domains/workspace/client"
@@ -8,7 +8,6 @@ import {
   workspaceClientCache,
   type SourceChunksKey,
   type SourceChunksResponse,
-  type SourcePageAssetsResponse,
 } from "@/domains/workspace/client-cache"
 import { resolveChunkConnectionTargets } from "@/domains/chunks"
 import type { ParsedChunkView } from "@/domains/chunks/types"
@@ -31,10 +30,6 @@ type WorkspaceSelectedChunks = {
   readonly selectedSource: SourceView | undefined
 }
 
-type PageAssetProbeState =
-  | { readonly status: "page-assets"; readonly pageCount: number }
-  | { readonly status: "parsed-chunks" }
-
 export function useWorkspaceSelectedChunks({
   selectedSourceId,
   sources,
@@ -45,37 +40,12 @@ export function useWorkspaceSelectedChunks({
     (source) => source.id === selectedSourceId,
   )
   const remoteSourceRefreshRequestedIdsRef = useRef<Set<string>>(new Set())
-  const requestedPageAssetProbeIdsRef = useRef<Set<string>>(new Set())
-  const [pageAssetProbeBySourceId, setPageAssetProbeBySourceId] = useState<
-    Readonly<Record<string, PageAssetProbeState>>
-  >({})
-  const pageAssetProbeState = rawSelectedSource
-    ? pageAssetProbeBySourceId[rawSelectedSource.id]
-    : undefined
-  const selectedSource =
-    rawSelectedSource && pageAssetProbeState?.status === "page-assets"
-      ? {
-          ...rawSelectedSource,
-          chunkCount: pageAssetProbeState.pageCount,
-          documentPresentation: {
-            kind: "page-assets" as const,
-            pageCount: pageAssetProbeState.pageCount,
-          },
-        }
-      : rawSelectedSource
+  const selectedSource = rawSelectedSource
   const prefetchedSelectedChunks = selectedSourceId
     ? prefetchedChunksBySourceId[selectedSourceId]
     : undefined
-  const shouldProbePageAssets =
-    rawSelectedSource !== undefined &&
-    rawSelectedSource.status === "ready" &&
-    rawSelectedSource.documentPresentation === undefined &&
-    pageAssetProbeState === undefined
   const selectedChunkSourceId =
-    selectedSource &&
-    selectedSource.status === "ready" &&
-    selectedSource.documentPresentation?.kind !== "page-assets" &&
-    !shouldProbePageAssets
+    selectedSource && selectedSource.status === "ready"
       ? selectedSource.id
       : null
   const {
@@ -118,9 +88,17 @@ export function useWorkspaceSelectedChunks({
         : undefined,
     [pagedSelectedChunks, prefetchedSelectedChunks],
   )
-  const selectedChunks = selectedSourceId
-    ? (resolvedPrefetchedChunks ?? pagedSelectedChunks)
-    : []
+  const selectedChunks = useMemo(
+    () =>
+      selectedSourceId
+        ? (resolvedPrefetchedChunks ?? pagedSelectedChunks)
+        : [],
+    [pagedSelectedChunks, resolvedPrefetchedChunks, selectedSourceId],
+  )
+  const resolvedSelectedSource = useMemo(
+    () => getResolvedSelectedSource(selectedSource, selectedChunks),
+    [selectedChunks, selectedSource],
+  )
   const hasMoreSelectedChunks =
     !prefetchedSelectedChunks &&
     workspaceClientCache.hasMoreChunkPages(selectedChunkPages)
@@ -132,39 +110,11 @@ export function useWorkspaceSelectedChunks({
         typeof selectedChunkPages[selectedChunkPageCount - 1] === "undefined",
     )
   const isSelectedChunksLoading =
-    shouldProbePageAssets ||
     hasProcessingSelectedChunkPage ||
     (selectedChunkSourceId !== null &&
       !prefetchedSelectedChunks &&
       !selectedChunkPages &&
       isChunksLoading)
-
-  useEffect(() => {
-    const source = rawSelectedSource
-    if (!source || !shouldProbePageAssets) return
-    if (requestedPageAssetProbeIdsRef.current.has(source.id)) return
-
-    requestedPageAssetProbeIdsRef.current.add(source.id)
-    void workspaceClient
-      .fetchPageAssetPage(source.id, 1)
-      .then((response) => {
-        setPageAssetProbeBySourceId((current) => ({
-          ...current,
-          [source.id]: getPageAssetProbeState(response),
-        }))
-
-        if (source.kind === "remote" && (response.pages?.length ?? 0) > 0) {
-          onRemoteSourceChunksLoaded?.(source.id)
-        }
-      })
-      .catch(() => {
-        requestedPageAssetProbeIdsRef.current.delete(source.id)
-        setPageAssetProbeBySourceId((current) => ({
-          ...current,
-          [source.id]: { status: "parsed-chunks" },
-        }))
-      })
-  }, [onRemoteSourceChunksLoaded, rawSelectedSource, shouldProbePageAssets])
 
   useEffect(() => {
     const sourceId = selectedSource?.id
@@ -188,21 +138,8 @@ export function useWorkspaceSelectedChunks({
     isSelectedChunksLoadingMore,
     selectedChunksMessage,
     selectedChunks,
-    selectedSource,
+    selectedSource: resolvedSelectedSource,
   }
-}
-
-function getPageAssetProbeState(
-  response: SourcePageAssetsResponse,
-): PageAssetProbeState {
-  const pages = response.pages ?? []
-  if (pages.length === 0) return { status: "parsed-chunks" }
-
-  const maxPageNumber = Math.max(
-    ...pages.map((page) => page.pageNumber),
-  )
-  const pageCount = Math.max(response.pagination?.total ?? 0, maxPageNumber)
-  return { status: "page-assets", pageCount }
 }
 
 function fetchChunksByKey([
@@ -211,6 +148,36 @@ function fetchChunksByKey([
   page,
 ]: SourceChunksKey): Promise<SourceChunksResponse> {
   return workspaceClient.fetchChunkPage(sourceId, page)
+}
+
+function getResolvedSelectedSource(
+  source: SourceView | undefined,
+  chunks: readonly ParsedChunkView[],
+): SourceView | undefined {
+  if (!source) return undefined
+  if (source.documentPresentation?.kind === "page-assets") return source
+
+  const pageCount = getLoadedPageAssetCount(chunks)
+  if (!pageCount) return source
+
+  return {
+    ...source,
+    documentPresentation: {
+      kind: "page-assets",
+      pageCount,
+    },
+  }
+}
+
+function getLoadedPageAssetCount(
+  chunks: readonly ParsedChunkView[],
+): number | null {
+  const pageNumbers = chunks.flatMap((chunk) =>
+    (chunk.pageAssets ?? []).map((pageAsset) => pageAsset.pageNumber),
+  )
+  if (pageNumbers.length === 0) return null
+
+  return Math.max(...pageNumbers)
 }
 
 function hasProcessingChunkPage(

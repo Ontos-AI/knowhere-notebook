@@ -169,8 +169,22 @@ describe("useWorkspaceCitationFocus", () => {
     expect(result.current.pendingCitationId).toBeNull();
   });
 
-  it("focuses page-asset citations without fetching full chunks", async () => {
-    const fetchChunks = vi.fn(async () => [prefetchedChunk]);
+  it("focuses page-asset citations through the loaded page chunk", async () => {
+    const pageChunk: ParsedChunkView = {
+      chunkId: "page_4",
+      documentId: "document_1",
+      type: "page",
+      content: "Page 4 summary",
+      sourceTitle: "Contract.pdf",
+      pageAssets: [
+        {
+          pageNumber: 4,
+          assetUrl: "https://assets.example/page-000004.png",
+          contentType: "image/png",
+        },
+      ],
+    };
+    const fetchChunks = vi.fn(async () => [pageChunk]);
     const selectSource = vi.fn();
     const pageAssetSource: SourceView = {
       ...readySource,
@@ -202,14 +216,14 @@ describe("useWorkspaceCitationFocus", () => {
       await result.current.handleCitationClick(pageCitation, "message_1:0");
     });
 
-    expect(fetchChunks).not.toHaveBeenCalled();
+    expect(fetchChunks).toHaveBeenCalledWith("source_1");
     expect(selectSource).toHaveBeenCalledWith("source_1");
-    expect(result.current.focusedChunk.chunkId).toBeNull();
+    expect(result.current.focusedChunk.chunkId).toBe("page_4");
     expect(result.current.focusedPage).toEqual({
-      pageNumber: 4,
-      requestId: 1,
+      pageNumber: null,
+      requestId: 0,
     });
-    expect(result.current.citationListViewRequestId).toBe(0);
+    expect(result.current.citationListViewRequestId).toBe(1);
   });
 
   it("reuses cached chunks for a different source without refetching", async () => {

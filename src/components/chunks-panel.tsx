@@ -19,7 +19,6 @@ import {
 } from "d3-hierarchy";
 import {
   FilePlus2,
-  ImageOff,
   Layers,
   RotateCcw,
   UploadCloud,
@@ -42,11 +41,9 @@ import { chunksPanelState } from "@/components/chunks-panel-state";
 import { MAX_UPLOAD_MB } from "@/domains/sources/validation";
 import { useSourceOriginalPreviewWarmup } from "@/components/source-original-preview-warmup";
 import { sourceOriginalPreviewModel } from "@/components/source-original-preview-model";
-import { workspaceClient } from "@/domains/workspace/client";
 import type { ParsedChunkView } from "@/domains/chunks/types";
 import type {
   SourceOriginalFileView,
-  SourcePageAssetView,
   SourceView,
 } from "@/domains/sources/types";
 import type { AnalyticsContext } from "@/lib/posthog";
@@ -90,8 +87,6 @@ export function ChunksPanel({
   selectedSourceFile = null,
   focusedChunkId = null,
   focusedChunkRequestId = 0,
-  focusedPageNumber = null,
-  focusedPageRequestId = 0,
   citationListViewRequestId = 0,
   isLoading = false,
   isLoadingMore = false,
@@ -105,10 +100,16 @@ export function ChunksPanel({
   analyticsContext,
   sourceCountSnapshot = 0,
 }: Partial<ChunksPanelProps> = {}) {
+  const hasPageAssetChunks = chunks.some(
+    (chunk) => (chunk.pageAssets?.length ?? 0) > 0,
+  );
   const isPageAssetSource =
-    selectedSourceView?.documentPresentation?.kind === "page-assets";
+    selectedSourceView?.documentPresentation?.kind === "page-assets" ||
+    hasPageAssetChunks;
+  const effectiveVisibleView = isPageAssetSource ? "parsed" : undefined;
   const originalPreviewCacheKey = selectedSourceFile?.url ?? null;
   const isOriginalPreviewAvailable =
+    !isPageAssetSource &&
     sourceOriginalPreviewModel.canPreviewOriginalFile(
       selectedSource,
       selectedSourceFile,
@@ -153,6 +154,7 @@ export function ChunksPanel({
     isLoadingMore,
     onLoadMore,
   });
+  const activeVisibleView = effectiveVisibleView ?? visibleView;
 
   useSourceOriginalPreviewWarmup({
     sourceTitle: selectedSource,
@@ -254,29 +256,21 @@ export function ChunksPanel({
       citationListViewRequestId
       ? "list"
       : chunkDisplayModeState.mode;
-  const headerTitle = isPageAssetSource || visibleView === "original"
+  const headerTitle = activeVisibleView === "original"
     ? "Original File"
     : focusedChunkId
       ? "Referenced Chunks"
       : "Parsed Chunks";
   const shouldMountOriginalPreview =
-    visibleView === "original" ||
-    (originalPreviewCacheKey !== null &&
-      mountedOriginalPreviewKey === originalPreviewCacheKey);
+    !isPageAssetSource &&
+    (activeVisibleView === "original" ||
+      (originalPreviewCacheKey !== null &&
+        mountedOriginalPreviewKey === originalPreviewCacheKey));
   const isTreeModeVisible =
-    !isPageAssetSource && visibleView === "parsed" && chunkDisplayMode === "tree";
-  const headerSubtitle = isPageAssetSource ? (
-    selectedSource ? (
-      <>
-        Showing page images for{" "}
-        <span className="font-semibold italic text-foreground">
-          {selectedSource}
-        </span>
-      </>
-    ) : (
-      "Select a source to preview its page images."
-    )
-  ) : visibleView === "original" ? (
+    !isPageAssetSource &&
+    activeVisibleView === "parsed" &&
+    chunkDisplayMode === "tree";
+  const headerSubtitle = activeVisibleView === "original" ? (
     selectedSource ? (
       <>
         Showing the original file for{" "}
@@ -335,7 +329,9 @@ export function ChunksPanel({
           </p>
         </div>
         <div className="flex min-w-0 shrink-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
-          {!isPageAssetSource && visibleView === "parsed" && chunks.length > 0 ? (
+          {!isPageAssetSource &&
+          activeVisibleView === "parsed" &&
+          chunks.length > 0 ? (
             <div
               role="group"
               aria-label="Chunk display"
@@ -362,14 +358,14 @@ export function ChunksPanel({
               <button
                 type="button"
                 onClick={handleParsedViewSelected}
-                className={viewToggleClassName(visibleView === "parsed")}
+                className={viewToggleClassName(activeVisibleView === "parsed")}
               >
                 Parsed
               </button>
               <button
                 type="button"
                 onClick={handleOriginalViewSelected}
-                className={viewToggleClassName(visibleView === "original")}
+                className={viewToggleClassName(activeVisibleView === "original")}
               >
                 Original
               </button>
@@ -379,7 +375,7 @@ export function ChunksPanel({
       </header>
 
       <div className="relative min-h-0 flex-1">
-        <ViewPanel isActive={isPageAssetSource || visibleView === "parsed"}>
+        <ViewPanel isActive={activeVisibleView === "parsed"}>
           <ScrollArea
             className="h-full"
             viewportRef={viewportRef}
@@ -390,13 +386,7 @@ export function ChunksPanel({
               data-testid="chunks-scroll-content"
               className="mx-auto flex w-[90%] min-w-0 max-w-[1600px] flex-col items-center p-3 sm:p-6"
             >
-              {isPageAssetSource && selectedSourceView ? (
-                <PageAssetDocumentViewer
-                  source={selectedSourceView}
-                  focusedPageNumber={focusedPageNumber}
-                  focusedPageRequestId={focusedPageRequestId}
-                />
-              ) : isLoading ? (
+              {isLoading ? (
                 <LoadingChunks message={processingMessage} />
               ) : chunks.length === 0 && processingMessage ? (
                 <UnavailableSourceMessage message={processingMessage} />
@@ -437,7 +427,9 @@ export function ChunksPanel({
                       isOriginalPreviewAvailable={isOriginalPreviewAvailable}
                       measureElement={measureVirtualChunkElement}
                       onChunkClick={
-                        hasOriginalFile ? handleChunkSelected : undefined
+                        hasOriginalFile && !isPageAssetSource
+                          ? handleChunkSelected
+                          : undefined
                       }
                       onReferenceClick={requestChunkFocus}
                       selectedSourceFile={selectedSourceFile}
@@ -472,7 +464,7 @@ export function ChunksPanel({
           ) : null}
         </ViewPanel>
         {shouldMountOriginalPreview ? (
-          <ViewPanel isActive={visibleView === "original"}>
+          <ViewPanel isActive={activeVisibleView === "original"}>
             <ScrollArea className="h-full" scrollbars="both">
               <SourceOriginalPreview
                 sourceTitle={selectedSource ?? "Original file"}
@@ -1033,274 +1025,6 @@ function getChunkTypeLabel(type: ParsedChunkView["type"]): string {
 
 function formatChunkCount(chunkCount: number): string {
   return `${chunkCount} ${chunkCount === 1 ? "chunk" : "chunks"}`;
-}
-
-type PageAssetPageState = {
-  readonly pages: readonly SourcePageAssetView[];
-  readonly loadedPageIndexes: ReadonlySet<number>;
-  readonly isLoading: boolean;
-  readonly message: string | null;
-  readonly totalPages: number;
-};
-
-const pageAssetPageSize = 50;
-
-function PageAssetDocumentViewer({
-  focusedPageNumber,
-  focusedPageRequestId,
-  source,
-}: {
-  readonly focusedPageNumber: number | null;
-  readonly focusedPageRequestId: number;
-  readonly source: SourceView;
-}): ReactNode {
-  const [pageState, setPageState] = useState<PageAssetPageState>(() => ({
-    pages: [],
-    loadedPageIndexes: new Set(),
-    isLoading: false,
-    message: null,
-    totalPages: Math.max(
-      1,
-      Math.ceil(
-        (source.documentPresentation?.kind === "page-assets"
-          ? source.documentPresentation.pageCount
-          : 0) / pageAssetPageSize,
-      ),
-    ),
-  }));
-  const requestedPageIndexesRef = useRef<Set<number>>(new Set());
-  const pageElementsRef = useRef<Map<number, HTMLDivElement>>(new Map());
-  const sourceIdRef = useRef(source.id);
-
-  const loadPageIndex = useCallback(
-    (pageIndex: number): void => {
-      if (requestedPageIndexesRef.current.has(pageIndex)) return;
-      requestedPageIndexesRef.current.add(pageIndex);
-      setPageState((current) => ({ ...current, isLoading: true }));
-
-      void workspaceClient
-        .fetchPageAssetPage(source.id, pageIndex)
-        .then((response) => {
-          setPageState((current) => {
-            const pagesByPageNumber = new Map(
-              current.pages.map((page) => [page.pageNumber, page]),
-            );
-            for (const page of response.pages ?? []) {
-              pagesByPageNumber.set(page.pageNumber, page);
-            }
-            const loadedPageIndexes = new Set(current.loadedPageIndexes);
-            loadedPageIndexes.add(pageIndex);
-
-            return {
-              pages: [...pagesByPageNumber.values()].sort(
-                (left, right) => left.pageNumber - right.pageNumber,
-              ),
-              loadedPageIndexes,
-              isLoading: false,
-              message: response.message ?? null,
-              totalPages:
-                response.pagination?.totalPages ?? current.totalPages,
-            };
-          });
-        })
-        .catch(() => {
-          requestedPageIndexesRef.current.delete(pageIndex);
-          setPageState((current) => ({ ...current, isLoading: false }));
-        });
-    },
-    [source.id],
-  );
-
-  useEffect(() => {
-    if (sourceIdRef.current === source.id) return;
-
-    sourceIdRef.current = source.id;
-    requestedPageIndexesRef.current = new Set();
-    pageElementsRef.current = new Map();
-    setPageState({
-      pages: [],
-      loadedPageIndexes: new Set(),
-      isLoading: false,
-      message: null,
-      totalPages: Math.max(
-        1,
-        Math.ceil(
-          (source.documentPresentation?.kind === "page-assets"
-            ? source.documentPresentation.pageCount
-            : 0) / pageAssetPageSize,
-        ),
-      ),
-    });
-  }, [source.documentPresentation, source.id]);
-
-  useEffect(() => {
-    loadPageIndex(1);
-  }, [loadPageIndex]);
-
-  useEffect(() => {
-    if (!focusedPageNumber) return;
-
-    loadPageIndex(Math.max(1, Math.ceil(focusedPageNumber / pageAssetPageSize)));
-  }, [focusedPageNumber, focusedPageRequestId, loadPageIndex]);
-
-  useEffect(() => {
-    if (!focusedPageNumber) return;
-
-    const element = pageElementsRef.current.get(focusedPageNumber);
-    if (!element) return;
-
-    element.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [focusedPageNumber, focusedPageRequestId, pageState.pages]);
-
-  const nextPageIndex = getNextPageAssetPageIndex(
-    pageState.loadedPageIndexes,
-    pageState.totalPages,
-  );
-  const canLoadMore =
-    nextPageIndex !== null &&
-    nextPageIndex <= pageState.totalPages &&
-    !pageState.isLoading;
-
-  if (pageState.pages.length === 0 && pageState.isLoading) {
-    return <LoadingChunks message="Loading page images..." />;
-  }
-
-  if (pageState.pages.length === 0 && pageState.message) {
-    return <UnavailableSourceMessage message={pageState.message} />;
-  }
-
-  if (pageState.pages.length === 0) {
-    return <EmptyPageAssets />;
-  }
-
-  return (
-    <div
-      data-testid="page-asset-document-viewer"
-      className="flex w-full max-w-5xl flex-col gap-4"
-    >
-      {pageState.pages.map((page) => (
-        <PageAssetImage
-          key={page.pageNumber}
-          page={page}
-          isFocused={page.pageNumber === focusedPageNumber}
-          refCallback={(element) => {
-            if (element) {
-              pageElementsRef.current.set(page.pageNumber, element);
-              return;
-            }
-            pageElementsRef.current.delete(page.pageNumber);
-          }}
-        />
-      ))}
-      {canLoadMore ? (
-        <div className="flex justify-center py-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => loadPageIndex(nextPageIndex)}
-          >
-            Load more pages
-          </Button>
-        </div>
-      ) : null}
-      {pageState.isLoading ? (
-        <div className="py-2 text-center text-xs text-muted-foreground">
-          Loading page images...
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function PageAssetImage({
-  isFocused,
-  page,
-  refCallback,
-}: {
-  readonly isFocused: boolean;
-  readonly page: SourcePageAssetView;
-  readonly refCallback: (element: HTMLDivElement | null) => void;
-}): ReactNode {
-  const [failedAssetUrl, setFailedAssetUrl] = useState<string | null>(null);
-  const hasImageError = failedAssetUrl === page.assetUrl;
-  const aspectRatio =
-    page.width && page.height ? `${page.width} / ${page.height}` : undefined;
-
-  return (
-    <div
-      ref={refCallback}
-      data-page-number={page.pageNumber}
-      className={cn(
-        "w-full min-w-0 rounded-lg border bg-background p-2 shadow-xs",
-        isFocused ? "border-primary ring-2 ring-primary/20" : "border-border",
-      )}
-    >
-      <div className="mb-2 flex items-center justify-between gap-3 px-1 text-xs font-semibold text-muted-foreground">
-        <span>Page {page.pageNumber}</span>
-        <span>{page.contentType}</span>
-      </div>
-      <div
-        className="overflow-hidden rounded-md bg-muted/30"
-        style={aspectRatio ? { aspectRatio } : undefined}
-      >
-        {hasImageError ? (
-          <PageAssetImageUnavailable pageNumber={page.pageNumber} />
-        ) : (
-          // eslint-disable-next-line @next/next/no-img-element -- Page assets can be short-lived Knowhere URLs outside Next image optimization.
-          <img
-            src={page.assetUrl}
-            alt={`Page ${page.pageNumber}`}
-            className="h-full w-full object-contain"
-            loading="lazy"
-            onError={() => setFailedAssetUrl(page.assetUrl)}
-          />
-        )}
-      </div>
-    </div>
-  );
-}
-
-function PageAssetImageUnavailable({
-  pageNumber,
-}: {
-  readonly pageNumber: number;
-}): ReactNode {
-  return (
-    <div
-      data-testid={`page-asset-image-unavailable-${pageNumber}`}
-      className="flex min-h-[220px] h-full w-full flex-col items-center justify-center gap-3 px-6 py-10 text-center"
-    >
-      <div className="flex size-11 items-center justify-center rounded-full bg-background/80 text-muted-foreground">
-        <ImageOff className="size-5" />
-      </div>
-      <p className="text-sm font-medium text-muted-foreground">
-        Page image unavailable.
-      </p>
-    </div>
-  );
-}
-
-function getNextPageAssetPageIndex(
-  loadedPageIndexes: ReadonlySet<number>,
-  totalPages: number,
-): number | null {
-  for (let pageIndex = 1; pageIndex <= totalPages; pageIndex += 1) {
-    if (!loadedPageIndexes.has(pageIndex)) return pageIndex;
-  }
-
-  return null;
-}
-
-function EmptyPageAssets(): ReactNode {
-  return (
-    <div className="flex min-h-[240px] w-full flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 px-6 text-center">
-      <FilePlus2 className="mb-3 size-8 text-muted-foreground" />
-      <p className="text-sm font-semibold text-foreground">
-        No page images available.
-      </p>
-    </div>
-  );
 }
 
 function UnavailableSourceMessage({

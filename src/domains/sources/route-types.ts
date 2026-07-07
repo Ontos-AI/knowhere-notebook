@@ -5,7 +5,6 @@ import type {
 } from "@/domains/chunks"
 import type { ParsedChunkView } from "@/domains/chunks/types"
 import type {
-  SourcePageAssetView,
   SourceStatus,
   SourceView,
 } from "@/domains/sources/types"
@@ -124,31 +123,6 @@ type SourceChunksBody =
       readonly message: string
     }
 
-type SourcePageAssetsBody =
-  | {
-      readonly pages: readonly SourcePageAssetView[]
-      readonly pagination: {
-        readonly page: number
-        readonly pageSize: number
-        readonly total: number
-        readonly totalPages: number
-      }
-    }
-  | {
-      readonly pages: readonly []
-      readonly pagination: {
-        readonly page: number
-        readonly pageSize: number
-        readonly total: 0
-        readonly totalPages: 0
-      }
-      readonly message: string
-      readonly isUnavailable: true
-    }
-  | {
-      readonly message: string
-    }
-
 type ListSourcesInput = {
   readonly cookieHeader: string
 }
@@ -176,12 +150,6 @@ type LoadSourceChunksInput = {
   readonly pageParams: ChunkPageParams
 }
 
-type LoadSourcePageAssetsInput = {
-  readonly cookieHeader: string
-  readonly sourceId: string
-  readonly pageParams: ChunkPageParams
-}
-
 type SourceRouteService = {
   readonly listSources: (
     input: ListSourcesInput,
@@ -198,9 +166,6 @@ type SourceRouteService = {
   readonly loadSourceChunks: (
     input: LoadSourceChunksInput,
   ) => Promise<JsonRouteResult<SourceChunksBody>>
-  readonly loadSourcePageAssets: (
-    input: LoadSourcePageAssetsInput,
-  ) => Promise<JsonRouteResult<SourcePageAssetsBody>>
 }
 
 type SourceWorkflowService = {
@@ -304,12 +269,9 @@ export type {
   ListSourcesBody,
   ListSourcesInput,
   LoadSourceChunksInput,
-  LoadSourcePageAssetsInput,
   RetrySourceBody,
   RetrySourceInput,
   SourceChunksBody,
-  SourcePageAssetsBody,
-  SourcePageAssetView,
   SourceRouteDemoApi,
   SourceRouteKnowhereClient,
   SourceRouteService,

@@ -211,17 +211,6 @@ export function useWorkspaceCitationFocus({
         )
         if (!source) return
 
-        if (
-          workspaceCitationState.isPageAssetCitationTarget(source, citation)
-        ) {
-          if (selectedSourceId !== source.id) onSelectSource(source.id)
-          requestChunkFocus(null)
-          requestPageFocus(
-            workspaceCitationState.getCitationPageNumber(citation),
-          )
-          return
-        }
-
         setCitationListViewRequestId((current) => current + 1)
 
         const loadedChunkId = workspaceCitationState.getLoadedCitationChunkId({
@@ -291,7 +280,6 @@ export function useWorkspaceCitationFocus({
       loadAllChunksForSource,
       onSelectSource,
       requestChunkFocus,
-      requestPageFocus,
       selectedChunks,
       selectedSourceId,
       sources,

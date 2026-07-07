@@ -120,36 +120,6 @@ describe("workspaceClient", () => {
     })
   })
 
-  it("preserves page asset unavailable messages", async () => {
-    mockRouteClient.getJson.mockResolvedValue({
-      pages: [],
-      message:
-        "Source is unavailable. The parsed document is not available locally and could not be loaded from Knowhere.",
-      isUnavailable: true,
-      pagination: {
-        page: 1,
-        pageSize: 50,
-        total: 0,
-        totalPages: 0,
-      },
-    })
-
-    const page = await workspaceClient.fetchPageAssetPage("source_1", 1)
-
-    expect(page).toEqual({
-      pages: [],
-      isUnavailable: true,
-      message:
-        "Source is unavailable. The parsed document is not available locally and could not be loaded from Knowhere.",
-      pagination: {
-        page: 1,
-        pageSize: 50,
-        total: 0,
-        totalPages: 0,
-      },
-    })
-  })
-
   it("throws materialization route errors instead of treating them as empty sources", async () => {
     mockRouteClient.postJsonWithStatus.mockResolvedValue({
       status: 502,

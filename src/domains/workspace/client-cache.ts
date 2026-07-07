@@ -11,9 +11,6 @@ import type { SourceView } from "@/domains/sources/types"
 type SourceChunksResponse = Awaited<
   ReturnType<typeof workspaceClient.fetchChunkPage>
 >
-type SourcePageAssetsResponse = Awaited<
-  ReturnType<typeof workspaceClient.fetchPageAssetPage>
->
 type ChatThreadDetailResponse = Awaited<
   ReturnType<typeof workspaceClient.fetchChatThread>
 >
@@ -117,5 +114,4 @@ export type {
   ChatThreadKey,
   SourceChunksKey,
   SourceChunksResponse,
-  SourcePageAssetsResponse,
 }

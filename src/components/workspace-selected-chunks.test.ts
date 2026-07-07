@@ -10,12 +10,10 @@ import type { ParsedChunkView } from "@/domains/chunks/types";
 import type { SourceView } from "@/domains/sources/types";
 
 const fetchChunkPageMock = vi.hoisted(() => vi.fn());
-const fetchPageAssetPageMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/domains/workspace/client", () => ({
   workspaceClient: {
     fetchChunkPage: fetchChunkPageMock,
-    fetchPageAssetPage: fetchPageAssetPageMock,
   },
 }));
 
@@ -30,7 +28,6 @@ const readySource: SourceView = {
 describe("useWorkspaceSelectedChunks", () => {
   beforeEach(() => {
     fetchChunkPageMock.mockReset();
-    fetchPageAssetPageMock.mockReset();
     fetchChunkPageMock.mockResolvedValue({
       chunks: [],
       pagination: {
@@ -40,18 +37,9 @@ describe("useWorkspaceSelectedChunks", () => {
         totalPages: 1,
       },
     });
-    fetchPageAssetPageMock.mockResolvedValue({
-      pages: [],
-      pagination: {
-        page: 1,
-        pageSize: 50,
-        total: 0,
-        totalPages: 0,
-      },
-    });
   });
 
-  it("returns prefetched chunks while checking the visible page for media", async () => {
+  it("returns prefetched chunks while loading the visible chunk page", async () => {
     const { result } = renderHook(
       () =>
         useWorkspaceSelectedChunks({
@@ -71,9 +59,6 @@ describe("useWorkspaceSelectedChunks", () => {
       { wrapper: createSWRWrapper },
     );
 
-    await waitFor(() =>
-      expect(fetchPageAssetPageMock).toHaveBeenCalledWith("source_1", 1),
-    );
     await waitFor(() =>
       expect(fetchChunkPageMock).toHaveBeenCalledWith("source_1", 1),
     );
@@ -209,11 +194,34 @@ describe("useWorkspaceSelectedChunks", () => {
     expect(result.current.selectedChunks).toEqual([]);
   });
 
-  it("does not fetch chunk pages for page-asset sources", () => {
+  it("loads chunk pages for page-asset sources", async () => {
     const pageAssetSource: SourceView = {
       ...readySource,
       documentPresentation: { kind: "page-assets", pageCount: 4 },
     };
+    fetchChunkPageMock.mockResolvedValue({
+      chunks: [
+        {
+          chunkId: "page_1",
+          type: "page",
+          content: "Page summary",
+          sourceTitle: "lecture.pdf",
+          pageAssets: [
+            {
+              pageNumber: 1,
+              assetUrl: "https://blob.example/page-1.png",
+              contentType: "image/png",
+            },
+          ],
+        },
+      ],
+      pagination: {
+        page: 1,
+        pageSize: 50,
+        total: 1,
+        totalPages: 1,
+      },
+    });
 
     const { result } = renderHook(
       () =>
@@ -225,25 +233,35 @@ describe("useWorkspaceSelectedChunks", () => {
       { wrapper: createSWRWrapper },
     );
 
-    expect(result.current.selectedSource?.id).toBe("source_1");
-    expect(result.current.selectedChunks).toEqual([]);
+    await waitFor(() =>
+      expect(result.current.selectedChunks.map((chunk) => chunk.chunkId)).toEqual([
+        "page_1",
+      ]),
+    );
     expect(result.current.isSelectedChunksLoading).toBe(false);
-    expect(fetchPageAssetPageMock).not.toHaveBeenCalled();
-    expect(fetchChunkPageMock).not.toHaveBeenCalled();
+    expect(fetchChunkPageMock).toHaveBeenCalledWith("source_1", 1);
   });
 
-  it("detects page assets for selected sources without presentation metadata", async () => {
-    fetchPageAssetPageMock.mockResolvedValue({
-      pages: [
+  it("detects page assets from selected source chunks without a second request", async () => {
+    fetchChunkPageMock.mockResolvedValue({
+      chunks: [
         {
-          pageNumber: 1,
-          assetUrl: "https://blob.example/page-1.png",
-          contentType: "image/png",
-        },
-        {
-          pageNumber: 20,
-          assetUrl: "https://blob.example/page-20.png",
-          contentType: "image/png",
+          chunkId: "page_1",
+          type: "page",
+          content: "Page summary",
+          sourceTitle: "lecture.pdf",
+          pageAssets: [
+            {
+              pageNumber: 1,
+              assetUrl: "https://blob.example/page-1.png",
+              contentType: "image/png",
+            },
+            {
+              pageNumber: 20,
+              assetUrl: "https://blob.example/page-20.png",
+              contentType: "image/png",
+            },
+          ],
         },
       ],
       pagination: {
@@ -270,9 +288,10 @@ describe("useWorkspaceSelectedChunks", () => {
         pageCount: 20,
       }),
     );
-    expect(result.current.selectedChunks).toEqual([]);
-    expect(fetchPageAssetPageMock).toHaveBeenCalledWith("source_1", 1);
-    expect(fetchChunkPageMock).not.toHaveBeenCalled();
+    expect(result.current.selectedChunks.map((chunk) => chunk.chunkId)).toEqual([
+      "page_1",
+    ]);
+    expect(fetchChunkPageMock).toHaveBeenCalledWith("source_1", 1);
   });
 
   it("requests a source refresh after loading an unlocalized remote source", async () => {

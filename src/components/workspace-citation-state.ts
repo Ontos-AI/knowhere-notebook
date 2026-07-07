@@ -27,10 +27,6 @@ type WorkspaceCitationStateModule = {
   readonly hasExactCitationTargetHint: (
     citation: ChatCitationView,
   ) => boolean
-  readonly isPageAssetCitationTarget: (
-    source: SourceView,
-    citation: ChatCitationView,
-  ) => boolean
   readonly getCitationPageNumber: (citation: ChatCitationView) => number | null
   readonly upsertPrefetchedChunks: (
     current: PrefetchedChunksBySourceId,
@@ -66,11 +62,21 @@ function getLoadedCitationChunkId(
     ? resolveCitationChunkByContent(input.citation, input.selectedChunks)
     : resolveCitationChunk(input.citation, input.selectedChunks)
 
-  return focusedChunk?.chunkId ?? null
+  return (
+    focusedChunk?.chunkId ??
+    resolveCitationPageChunkId(input.citation, input.selectedChunks)
+  )
 }
 
 function hasExactCitationTargetHint(citation: ChatCitationView): boolean {
   if (typeof citation.content === "string" && citation.content.trim().length > 0) {
+    return true
+  }
+
+  if (
+    getCitationPageNumber(citation) !== null ||
+    typeof citation.pageCitationAssetUrl === "string"
+  ) {
     return true
   }
 
@@ -82,17 +88,6 @@ function hasExactCitationTargetHint(citation: ChatCitationView): boolean {
   if (trimmed === "Root") return false
 
   return true
-}
-
-function isPageAssetCitationTarget(
-  source: SourceView,
-  citation: ChatCitationView,
-): boolean {
-  return (
-    source.documentPresentation?.kind === "page-assets" &&
-    (getCitationPageNumber(citation) !== null ||
-      typeof citation.pageCitationAssetUrl === "string")
-  )
 }
 
 function getCitationPageNumber(citation: ChatCitationView): number | null {
@@ -112,6 +107,43 @@ function getCitationPageNumber(citation: ChatCitationView): number | null {
 
   const pageNumber = Number.parseInt(match[1]!, 10)
   return Number.isSafeInteger(pageNumber) && pageNumber > 0 ? pageNumber : null
+}
+
+function resolveCitationPageChunkId(
+  citation: ChatCitationView,
+  chunks: readonly ParsedChunkView[],
+): string | null {
+  const pageNumber = getCitationPageNumber(citation)
+  if (pageNumber === null) return null
+
+  const documentChunks = citation.source.documentId
+    ? chunks.filter((chunk) => chunk.documentId === citation.source.documentId)
+    : chunks
+  const matches = documentChunks.filter((chunk) =>
+    isChunkForPageNumber(chunk, pageNumber),
+  )
+  if (matches.length === 0) return null
+
+  const pageAssetChunk = matches.find(
+    (chunk) =>
+      chunk.type === "page" &&
+      (chunk.pageAssets ?? []).some(
+        (pageAsset) => pageAsset.pageNumber === pageNumber,
+      ),
+  )
+
+  return pageAssetChunk?.chunkId ?? matches[0]?.chunkId ?? null
+}
+
+function isChunkForPageNumber(
+  chunk: ParsedChunkView,
+  pageNumber: number,
+): boolean {
+  return (
+    (chunk.pageAssets ?? []).some(
+      (pageAsset) => pageAsset.pageNumber === pageNumber,
+    ) || (chunk.pageNums ?? []).includes(pageNumber)
+  )
 }
 
 function upsertPrefetchedChunks(
@@ -157,7 +189,6 @@ export const workspaceCitationState: WorkspaceCitationStateModule = {
   getLoadedCitationChunkId,
   getCitationPageNumber,
   hasExactCitationTargetHint,
-  isPageAssetCitationTarget,
   upsertPrefetchedChunks,
   removePrefetchedChunks,
 }
