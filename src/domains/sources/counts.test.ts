@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import { Effect } from "effect"
 
 import type Knowhere from "@ontos-ai/knowhere-sdk"
+import type { Knowledge } from "@ontos-ai/knowhere-sdk"
 
 import type { Source } from "@/infrastructure/db/schema"
 
@@ -129,6 +130,45 @@ describe("countChunksBySourceId", () => {
 })
 
 describe("sourceViewOptionsBySourceId", () => {
+  it("detects page count from many page assets in a single SDK page chunk", async () => {
+    const listChunks = vi.fn(async () => ({ pagination: { total: 12 } }))
+    const readChunks = vi.fn(async () => ({
+      chunks: [
+        {
+          chunkId: "page_bundle",
+          chunkType: "page",
+          metadata: {
+            pageAssets: Array.from({ length: 20 }, (_, index) => ({
+              pageNum: index + 1,
+              artifactRef: `pages/page-${String(index + 1).padStart(6, "0")}.png`,
+              assetUrl: `https://assets.example/page-${index + 1}.png`,
+            })),
+          },
+        },
+      ],
+      totalChunks: 1,
+    }))
+    const mockClient = {
+      documents: { listChunks },
+      knowledge: { readChunks },
+    } as unknown as Knowhere
+
+    const { sourceViewOptionsBySourceId } = await import("./counts")
+
+    const options = await Effect.runPromise(
+      sourceViewOptionsBySourceId(
+        [makeSource({ id: "ready", knowhereDocumentId: "doc_ready" })],
+        mockClient,
+      ),
+    )
+
+    expect(options.get("ready")).toEqual({
+      chunkCount: 20,
+      documentPresentation: { kind: "page-assets", pageCount: 20 },
+    })
+    expect(listChunks).not.toHaveBeenCalled()
+  })
+
   it("detects page-asset documents from SDK page chunks", async () => {
     const listChunks = vi.fn(async () => ({ pagination: { total: 12 } }))
     const readChunks = vi.fn(async () => ({
@@ -168,5 +208,128 @@ describe("sourceViewOptionsBySourceId", () => {
       documentPresentation: { kind: "page-assets", pageCount: 4 },
     })
     expect(listChunks).not.toHaveBeenCalled()
+  })
+
+  it("uses a source-specific knowledge reader for presentation detection", async () => {
+    const defaultReadChunks = vi.fn(async () => ({ chunks: [], totalChunks: 0 }))
+    const parsedStorageReadChunks = vi.fn(async () => ({
+      chunks: [
+        {
+          chunkId: "page_1",
+          chunkType: "page",
+          metadata: {
+            pageAssets: [
+              {
+                pageNum: 1,
+                artifactRef: "pages/page-000001.png",
+                assetUrl: "https://assets.example/page-000001.png",
+              },
+            ],
+          },
+        },
+      ],
+      totalChunks: 1,
+    }))
+    const listChunks = vi.fn(async () => ({ pagination: { total: 12 } }))
+    const mockClient = {
+      documents: { listChunks },
+      knowledge: { readChunks: defaultReadChunks },
+    } as unknown as Knowhere
+
+    const { sourceViewOptionsBySourceId } = await import("./counts")
+
+    const options = await Effect.runPromise(
+      sourceViewOptionsBySourceId(
+        [makeSource({ id: "ready", knowhereDocumentId: "doc_ready" })],
+        mockClient,
+        {
+          getKnowledgeForSource: () =>
+            ({ readChunks: parsedStorageReadChunks }) as unknown as Knowledge,
+        },
+      ),
+    )
+
+    expect(options.get("ready")).toEqual({
+      chunkCount: 1,
+      documentPresentation: { kind: "page-assets", pageCount: 1 },
+    })
+    expect(parsedStorageReadChunks).toHaveBeenCalledWith({
+      documentId: "doc_ready",
+      revisionKey: "job_1",
+      chunkType: "page",
+      page: 1,
+      pageSize: 1,
+      assetUrlPolicy: "durable",
+    })
+    expect(defaultReadChunks).not.toHaveBeenCalled()
+  })
+
+  it("falls back to chunk counts when page presentation detection fails", async () => {
+    const listChunks = vi.fn(async () => ({ pagination: { total: 12 } }))
+    const readChunks = vi.fn(async () => {
+      throw new Error("parsed storage and remote unavailable")
+    })
+    const mockClient = {
+      documents: { listChunks },
+      knowledge: { readChunks },
+    } as unknown as Knowhere
+
+    const { sourceViewOptionsBySourceId } = await import("./counts")
+
+    const options = await Effect.runPromise(
+      sourceViewOptionsBySourceId(
+        [makeSource({ id: "ready", knowhereDocumentId: "doc_ready" })],
+        mockClient,
+      ),
+    )
+
+    expect(options.get("ready")).toEqual({ chunkCount: 12 })
+    expect(listChunks).toHaveBeenCalledWith("doc_ready", {
+      page: 1,
+      pageSize: 1,
+    })
+  })
+
+  it("skips page presentation reads when detection is disabled", async () => {
+    const listChunks = vi.fn(async () => ({ pagination: { total: 12 } }))
+    const readChunks = vi.fn(async () => ({
+      chunks: [
+        {
+          chunkId: "page_1",
+          chunkType: "page",
+          metadata: {
+            pageAssets: [
+              {
+                pageNum: 1,
+                artifactRef: "pages/page-000001.png",
+                assetUrl: "https://assets.example/page-000001.png",
+              },
+            ],
+          },
+        },
+      ],
+      totalChunks: 1,
+    }))
+    const mockClient = {
+      documents: { listChunks },
+      knowledge: { readChunks },
+    } as unknown as Knowhere
+
+    const { sourceViewOptionsBySourceId } = await import("./counts")
+
+    const options = await Effect.runPromise(
+      sourceViewOptionsBySourceId(
+        [makeSource({ id: "ready", knowhereDocumentId: "doc_ready" })],
+        mockClient,
+        { documentPresentationDetection: "disabled" },
+      ),
+    )
+
+    expect(readChunks).not.toHaveBeenCalled()
+    expect(listChunks).toHaveBeenCalledWith("doc_ready", {
+      page: 1,
+      pageSize: 1,
+    })
+    expect(options.get("ready")).toEqual({ chunkCount: 12 })
   })
 })

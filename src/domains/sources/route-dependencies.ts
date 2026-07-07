@@ -28,10 +28,11 @@ const defaultDependencies: SourceRouteServiceDependencies = {
   ensureApiKeyForWorkspace,
   ensureWorkspace: workspaceService.ensureWorkspace,
   getCurrentUser,
-  getSourceViewOptionsBySourceId: (sources, client) =>
+  getSourceViewOptionsBySourceId: (sources, client, options) =>
     getDefaultSourceViewOptionsBySourceId(
       sources,
       client as ReturnType<typeof makeDefaultKnowhereClient>,
+      options,
     ),
   makeKnowhereClient: (apiKey: string) =>
     makeDefaultKnowhereClient(apiKey) as SourceRouteKnowhereClient,

@@ -36,16 +36,22 @@ export async function readSourcePageAssets(input: {
   const pages = response.chunks.flatMap((chunk): SourcePageAssetView[] =>
     readPageAssetViews(chunk.metadata.pageAssets, chunk.assetUrl),
   )
+  const maxPageNumber = getMaxPageNumber(pages)
+  const total = Math.max(response.totalChunks ?? 0, maxPageNumber ?? 0)
+  const resolvedTotal = total > 0 ? total : pages.length
+  const computedTotalPages = Math.max(
+    1,
+    Math.ceil(resolvedTotal / input.params.pageSize),
+  )
+  const totalPages = Math.max(response.totalPages ?? 0, computedTotalPages)
 
   return {
     pages,
     pagination: {
       page: response.page ?? input.params.page,
       pageSize: response.pageSize ?? input.params.pageSize,
-      total: response.totalChunks ?? pages.length,
-      totalPages:
-        response.totalPages ??
-        Math.max(1, Math.ceil(pages.length / input.params.pageSize)),
+      total: resolvedTotal,
+      totalPages,
     },
   }
 }
@@ -97,6 +103,13 @@ function getPositiveNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value > 0
     ? value
     : undefined
+}
+
+function getMaxPageNumber(
+  pages: readonly SourcePageAssetView[],
+): number | undefined {
+  if (pages.length === 0) return undefined
+  return Math.max(...pages.map((page) => page.pageNumber))
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {

@@ -242,6 +242,7 @@ function WorkspaceShellContent({
       selectedSourceFile={citationFocus.selectedSource?.originalFile ?? null}
       selectedSourceId={sourceWorkflow.selectedSourceId}
       selectedSourceTitle={selectedSourceTitle}
+      selectedSourceView={citationFocus.selectedSource}
       sourceTitlesByDocumentId={sourceWorkflow.sourceTitlesByDocumentId}
       sources={sourceWorkflow.sources}
       officialLibrarySources={officialLibrarySources ?? []}

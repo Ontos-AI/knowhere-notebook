@@ -2,7 +2,7 @@ import "server-only"
 
 import { Effect } from "effect"
 import type Knowhere from "@ontos-ai/knowhere-sdk"
-import type { KnowledgeReadChunk } from "@ontos-ai/knowhere-sdk"
+import type { Knowledge, KnowledgeReadChunk } from "@ontos-ai/knowhere-sdk"
 
 import type { Source } from "@/infrastructure/db/schema"
 import type { SourceDocumentPresentation } from "./types"
@@ -36,6 +36,11 @@ type CountChunksClient = {
   }
 }
 
+export type SourceViewOptionsLoadOptions = {
+  readonly documentPresentationDetection?: "enabled" | "disabled"
+  readonly getKnowledgeForSource?: (source: Source) => Knowledge
+}
+
 export type SourceViewOptions = {
   readonly chunkCount?: number
   readonly documentPresentation?: SourceDocumentPresentation
@@ -44,6 +49,7 @@ export type SourceViewOptions = {
 export const sourceViewOptionsBySourceId = (
   sources: readonly Source[],
   client: Knowhere,
+  options: SourceViewOptionsLoadOptions = {},
 ) =>
   Effect.gen(function* () {
     const countClient = client as unknown as CountChunksClient
@@ -58,14 +64,14 @@ export const sourceViewOptionsBySourceId = (
     const entries = yield* Effect.all(
       readySources.map((source) =>
         Effect.gen(function* () {
-          const options = yield* Effect.tryPromise(() =>
-            loadSourceViewOptions(countClient, source),
+          const loadedOptions = yield* Effect.tryPromise(() =>
+            loadSourceViewOptions(countClient, source, options),
           ).pipe(
             Effect.catchAll(() =>
               Effect.sync((): SourceViewOptions | undefined => undefined),
             ),
           )
-          return [source.id, options] as const
+          return [source.id, loadedOptions] as const
         }),
       ),
       { concurrency: "unbounded" },
@@ -97,19 +103,22 @@ export const countChunksBySourceId = (
 async function loadSourceViewOptions(
   client: CountChunksClient,
   source: Source,
+  options: SourceViewOptionsLoadOptions,
 ): Promise<SourceViewOptions | undefined> {
   const documentId = source.knowhereDocumentId
   if (!documentId) return undefined
 
-  const pagePresentation = await loadPageAssetPresentation(
-    client,
-    documentId,
-    source.knowhereJobId,
-  )
-  if (pagePresentation) {
-    return {
-      chunkCount: pagePresentation.pageCount,
-      documentPresentation: pagePresentation,
+  if (options.documentPresentationDetection !== "disabled") {
+    const pagePresentation = await loadPageAssetPresentation(
+      client,
+      source,
+      options,
+    )
+    if (pagePresentation) {
+      return {
+        chunkCount: pagePresentation.pageCount,
+        documentPresentation: pagePresentation,
+      }
     }
   }
 
@@ -119,13 +128,17 @@ async function loadSourceViewOptions(
 
 async function loadPageAssetPresentation(
   client: CountChunksClient,
-  documentId: string,
-  revisionKey: string | null,
+  source: Source,
+  options: SourceViewOptionsLoadOptions,
 ): Promise<PageAssetDocumentPresentation | undefined> {
+  const documentId = source.knowhereDocumentId
+  if (!documentId) return undefined
+
   try {
-    const response = await client.knowledge.readChunks({
+    const knowledge = options.getKnowledgeForSource?.(source) ?? client.knowledge
+    const response = await knowledge.readChunks({
       documentId,
-      ...(revisionKey ? { revisionKey } : {}),
+      ...(source.knowhereJobId ? { revisionKey: source.knowhereJobId } : {}),
       chunkType: "page",
       page: 1,
       pageSize: 1,
@@ -133,14 +146,13 @@ async function loadPageAssetPresentation(
     })
     const firstChunk = response.chunks[0]
     if (!firstChunk || firstChunk.chunkType !== "page") return undefined
-    if (!hasUsablePageAssets(firstChunk.metadata.pageAssets)) return undefined
+    const maxPageAssetNumber = getMaxUsablePageAssetNumber(
+      firstChunk.metadata.pageAssets,
+    )
+    if (!maxPageAssetNumber) return undefined
 
-    const pageCount =
-      typeof response.totalChunks === "number" &&
-      Number.isFinite(response.totalChunks) &&
-      response.totalChunks > 0
-        ? response.totalChunks
-        : 1
+    const totalChunks = getPositiveFiniteNumber(response.totalChunks) ?? 0
+    const pageCount = Math.max(totalChunks, maxPageAssetNumber)
 
     return { kind: "page-assets", pageCount }
   } catch {
@@ -160,22 +172,30 @@ async function loadSourceChunkCount(
   return typeof total === "number" && Number.isFinite(total) ? total : undefined
 }
 
-function hasUsablePageAssets(value: unknown): boolean {
-  if (!Array.isArray(value)) return false
+function getMaxUsablePageAssetNumber(value: unknown): number | undefined {
+  if (!Array.isArray(value)) return undefined
 
-  return value.some((item) => {
-    if (!isRecord(item)) return false
+  const pageNumbers = value.flatMap((item): number[] => {
+    if (!isRecord(item)) return []
     const pageNum = item.pageNum
     const artifactRef = item.artifactRef
     const assetUrl = item.assetUrl
-    return (
+    const isUsable =
       typeof pageNum === "number" &&
       Number.isSafeInteger(pageNum) &&
       pageNum > 0 &&
       ((typeof artifactRef === "string" && artifactRef.trim().length > 0) ||
         (typeof assetUrl === "string" && assetUrl.trim().length > 0))
-    )
+    return isUsable ? [pageNum] : []
   })
+  if (pageNumbers.length === 0) return undefined
+  return Math.max(...pageNumbers)
+}
+
+function getPositiveFiniteNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? value
+    : undefined
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {

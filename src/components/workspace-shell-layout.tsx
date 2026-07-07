@@ -90,6 +90,7 @@ export type WorkspaceShellLayoutProps = {
   readonly selectedSourceFile: SourceOriginalFileView | null
   readonly selectedSourceId: string | null
   readonly selectedSourceTitle: string | null
+  readonly selectedSourceView?: SourceView
   readonly sourceTitlesByDocumentId: Readonly<Record<string, string>>
   readonly sources: readonly SourceView[]
   readonly officialLibrarySources: readonly OfficialLibrarySourceView[]
@@ -152,9 +153,9 @@ export function WorkspaceShellLayout(
     props.desktopPanelWidths.chat <=
     workspaceShellState.desktopSidePanelCompactThreshold
   const isSourcesPanelNarrow = props.desktopPanelWidths.sources < 220
-  const selectedSource = props.sources.find(
-    (source) => source.id === props.selectedSourceId,
-  )
+  const selectedSource =
+    props.selectedSourceView ??
+    props.sources.find((source) => source.id === props.selectedSourceId)
   const focusedPage = props.focusedPage ?? { pageNumber: null, requestId: 0 }
   const handleDesktopLayoutRef = useCallback(
     (element: HTMLDivElement | null): void => {

@@ -17,7 +17,10 @@ import type {
 } from "@/integrations/knowhere-demo"
 import type { RouteResult } from "@/lib/route-result"
 import type { SourceBlobUploadInput } from "./blob-upload"
-import type { sourceViewOptionsBySourceId } from "./counts"
+import type {
+  sourceViewOptionsBySourceId,
+  SourceViewOptionsLoadOptions,
+} from "./counts"
 import type { UploadKnowhereClient } from "./upload"
 
 type SourceRouteKnowhereClient = UploadKnowhereClient &
@@ -275,6 +278,7 @@ type SourceRouteServiceDependencies = {
   readonly getSourceViewOptionsBySourceId: (
     sources: readonly Source[],
     client: SourceRouteKnowhereClient,
+    options?: SourceViewOptionsLoadOptions,
   ) => ReturnType<typeof sourceViewOptionsBySourceId>
   readonly makeKnowhereClient: (apiKey: string) => SourceRouteKnowhereClient
   readonly listSourcesForWorkspace: (workspaceId: string) => Promise<Source[]>

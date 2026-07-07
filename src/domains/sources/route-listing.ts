@@ -113,6 +113,9 @@ const listSourcesEffect = (
     const sourceOptions = yield* deps.getSourceViewOptionsBySourceId(
       sourcesNeedingChunkCount,
       client,
+      {
+        documentPresentationDetection: "disabled",
+      },
     )
     const hiddenDemoSourceIds = new Set(
       yield* Effect.tryPromise(() =>
