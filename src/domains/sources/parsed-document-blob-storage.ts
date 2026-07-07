@@ -26,14 +26,17 @@ import type {
  */
 
 const parsedDocumentsDirectoryName = "parsed-documents"
-const manifestStoragePath = "manifest/current.json"
+const manifestStoragePath = "manifest.json"
+const legacyManifestStoragePath = "manifest/current.json"
 const syncProgressStoragePath = "sync-progress.json"
 const jsonContentType = "application/json; charset=utf-8"
+const binaryContentType = "application/octet-stream"
 
 type BlobGetResult =
   | {
       readonly statusCode: 200
       readonly stream: ReadableStream<Uint8Array>
+      readonly contentType?: string
     }
   | {
       readonly statusCode: 304
@@ -77,8 +80,34 @@ export type BlobParsedDocumentStorageInput = {
   readonly blobStore?: ParsedDocumentBlobStore
 }
 
+export type ParsedDocumentStorageObject = ParsedDocumentStorageDocument & {
+  readonly path: string
+}
+
+export type ParsedDocumentStorageWritableObject =
+  ParsedDocumentStorageObject & {
+    readonly body: string | Buffer | Uint8Array
+    readonly contentType?: string
+  }
+
+export type ParsedDocumentStorageReadableObject = {
+  readonly body: Buffer
+  readonly contentType?: string
+}
+
 const vercelBlobStore: ParsedDocumentBlobStore = {
-  get: (pathname, options) => get(pathname, options),
+  get: async (pathname, options) => {
+    const blob = await get(pathname, options)
+    if (!blob) return null
+    if (blob.statusCode === 304) {
+      return { statusCode: 304, stream: null }
+    }
+    return {
+      statusCode: 200,
+      stream: blob.stream,
+      contentType: blob.blob.contentType,
+    }
+  },
   put: async (pathname, body, options) => {
     const blob = await put(pathname, body, {
       access: options.access,
@@ -113,8 +142,21 @@ export class BlobParsedDocumentStorage implements ParsedDocumentStorage {
   async readManifest(
     params: ParsedDocumentStorageManifestParams,
   ): Promise<KnowhereParsedSnapshotManifest | null> {
+    const current = await this.readJson<KnowhereParsedSnapshotManifest>(
+      this.getObjectKey({
+        documentId: params.documentId,
+        revisionKey: params.revisionKey,
+        path: manifestStoragePath,
+      }),
+    )
+    if (current) return current
+
     return this.readJson<KnowhereParsedSnapshotManifest>(
-      this.getManifestKey(params.documentId, params.revisionKey),
+      this.getObjectKey({
+        documentId: params.documentId,
+        revisionKey: params.revisionKey,
+        path: legacyManifestStoragePath,
+      }),
     )
   }
 
@@ -124,7 +166,11 @@ export class BlobParsedDocumentStorage implements ParsedDocumentStorage {
     readonly manifest: KnowhereParsedSnapshotManifest
   }): Promise<void> {
     await this.writeJson(
-      this.getManifestKey(params.documentId, params.revisionKey),
+      this.getObjectKey({
+        documentId: params.documentId,
+        revisionKey: params.revisionKey,
+        path: manifestStoragePath,
+      }),
       params.manifest,
     )
   }
@@ -134,7 +180,11 @@ export class BlobParsedDocumentStorage implements ParsedDocumentStorage {
   ): Promise<KnowhereParsedSnapshotChunkPage | null> {
     // chunkType filtering happens SDK-side after read; storage returns the full page.
     return this.readJson<KnowhereParsedSnapshotChunkPage>(
-      this.getChunkPageKey(params.documentId, params.revisionKey, params.page),
+      this.getObjectKey({
+        documentId: params.documentId,
+        revisionKey: params.revisionKey,
+        path: getChunkPageStoragePath(params.page),
+      }),
     )
   }
 
@@ -144,11 +194,11 @@ export class BlobParsedDocumentStorage implements ParsedDocumentStorage {
     readonly page: KnowhereParsedSnapshotChunkPage
   }): Promise<void> {
     await this.writeJson(
-      this.getChunkPageKey(
-        params.documentId,
-        params.revisionKey,
-        params.page.page,
-      ),
+      this.getObjectKey({
+        documentId: params.documentId,
+        revisionKey: params.revisionKey,
+        path: getChunkPageStoragePath(params.page.page),
+      }),
       params.page,
     )
   }
@@ -157,7 +207,11 @@ export class BlobParsedDocumentStorage implements ParsedDocumentStorage {
     params: ParsedDocumentStorageDocument & ParsedDocumentStorageAsset,
   ): Promise<{ readonly sourcePath: string; readonly url?: string }> {
     const blob = await this.blobStore.put(
-      this.getAssetKey(params.documentId, params.revisionKey, params.sourcePath),
+      this.getObjectKey({
+        documentId: params.documentId,
+        revisionKey: params.revisionKey,
+        path: params.sourcePath,
+      }),
       Buffer.from(params.body),
       {
         access: "public",
@@ -173,24 +227,78 @@ export class BlobParsedDocumentStorage implements ParsedDocumentStorage {
     params: ParsedDocumentStorageAssetParams,
   ): Promise<string | null> {
     const result = await this.blobStore.head(
-      this.getAssetKey(params.documentId, params.revisionKey, params.sourcePath),
+      this.getObjectKey({
+        documentId: params.documentId,
+        revisionKey: params.revisionKey,
+        path: params.sourcePath,
+      }),
     )
-    return result?.url ?? null
+    if (result) return result.url
+
+    const legacyResult = await this.blobStore.head(
+      this.getObjectKey({
+        documentId: params.documentId,
+        revisionKey: params.revisionKey,
+        path: `assets/${params.sourcePath}`,
+      }),
+    )
+    return legacyResult?.url ?? null
   }
 
   async readSyncProgress(
     params: ParsedDocumentStorageDocument,
   ): Promise<ParsedDocumentSyncProgress | null> {
     return this.readJson<ParsedDocumentSyncProgress>(
-      this.getSyncProgressKey(params.documentId, params.revisionKey),
+      this.getObjectKey({
+        documentId: params.documentId,
+        revisionKey: params.revisionKey,
+        path: syncProgressStoragePath,
+      }),
     )
   }
 
   async writeSyncProgress(params: ParsedDocumentSyncProgress): Promise<void> {
     await this.writeJson(
-      this.getSyncProgressKey(params.documentId, params.revisionKey),
+      this.getObjectKey({
+        documentId: params.documentId,
+        revisionKey: params.revisionKey,
+        path: syncProgressStoragePath,
+      }),
       params,
     )
+  }
+
+  async readObject(
+    params: ParsedDocumentStorageObject,
+  ): Promise<ParsedDocumentStorageReadableObject | null> {
+    return this.readBlobObject(this.getObjectKey(params))
+  }
+
+  async writeObject(
+    params: ParsedDocumentStorageWritableObject,
+  ): Promise<{ readonly path: string; readonly url?: string }> {
+    const blob = await this.blobStore.put(
+      this.getObjectKey(params),
+      Buffer.from(params.body),
+      {
+        access: "public",
+        allowOverwrite: true,
+        contentType: params.contentType ?? binaryContentType,
+        multipart: true,
+      },
+    )
+    return { path: params.path, url: blob.url }
+  }
+
+  async getObjectUrl(
+    params: ParsedDocumentStorageObject,
+  ): Promise<string | null> {
+    const result = await this.blobStore.head(this.getObjectKey(params))
+    return result?.url ?? null
+  }
+
+  async deleteObject(params: ParsedDocumentStorageObject): Promise<void> {
+    await this.blobStore.del(this.getObjectKey(params))
   }
 
   private getRevisionPrefix(documentId: string, revisionKey: string): string {
@@ -203,28 +311,8 @@ export class BlobParsedDocumentStorage implements ParsedDocumentStorage {
     ].join("/")
   }
 
-  private getManifestKey(documentId: string, revisionKey: string): string {
-    return `${this.getRevisionPrefix(documentId, revisionKey)}/${manifestStoragePath}`
-  }
-
-  private getChunkPageKey(
-    documentId: string,
-    revisionKey: string,
-    page: number,
-  ): string {
-    return `${this.getRevisionPrefix(documentId, revisionKey)}/chunks/page-${page}.json`
-  }
-
-  private getSyncProgressKey(documentId: string, revisionKey: string): string {
-    return `${this.getRevisionPrefix(documentId, revisionKey)}/${syncProgressStoragePath}`
-  }
-
-  private getAssetKey(
-    documentId: string,
-    revisionKey: string,
-    sourcePath: string,
-  ): string {
-    return `${this.getRevisionPrefix(documentId, revisionKey)}/assets/${normalizeRelativeStoragePath(sourcePath)}`
+  private getObjectKey(params: ParsedDocumentStorageObject): string {
+    return `${this.getRevisionPrefix(params.documentId, params.revisionKey)}/${normalizeRelativeStoragePath(params.path)}`
   }
 
   private async readJson<T>(key: string): Promise<T | null> {
@@ -246,15 +334,30 @@ export class BlobParsedDocumentStorage implements ParsedDocumentStorage {
   }
 
   private async readBlobText(key: string): Promise<string | null> {
+    const object = await this.readBlobObject(key)
+    return object ? object.body.toString("utf8") : null
+  }
+
+  private async readBlobObject(
+    key: string,
+  ): Promise<ParsedDocumentStorageReadableObject | null> {
     try {
       const result = await this.blobStore.get(key, { access: "public" })
       if (!result || result.statusCode !== 200) return null
-      return await new Response(result.stream).text()
+      const body = Buffer.from(await new Response(result.stream).arrayBuffer())
+      return {
+        body,
+        ...(result.contentType ? { contentType: result.contentType } : {}),
+      }
     } catch (error) {
       if (error instanceof BlobNotFoundError) return null
       throw error
     }
   }
+}
+
+function getChunkPageStoragePath(page: number): string {
+  return `chunks/page-${page}.json`
 }
 
 /**

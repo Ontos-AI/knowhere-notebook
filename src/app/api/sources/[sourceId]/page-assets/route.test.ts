@@ -156,6 +156,93 @@ describe("GET /api/sources/[sourceId]/page-assets", () => {
     expect(mocks.listChunks).not.toHaveBeenCalled()
   })
 
+  it("uses SDK page asset URLs directly when the SDK remote fallback is usable", async () => {
+    mocks.getCurrentUser.mockResolvedValue({
+      id: "user_1",
+      email: null,
+      name: null,
+    })
+    mocks.ensureWorkspace.mockResolvedValue({
+      id: "workspace_1",
+      userId: "user_1",
+      namespace: "notebook-workspace_1",
+      createdAt: new Date("2026-05-10T00:00:00.000Z"),
+    })
+    mocks.findSourceInWorkspace.mockResolvedValue(
+      makeReadySource({
+        id: "00000000-0000-0000-0000-000000000002",
+        knowhereJobId: "job_1",
+        knowhereDocumentId: "doc_1",
+      }),
+    )
+    mocks.ensureApiKeyForWorkspace.mockResolvedValue("jwt_123")
+    mocks.readChunks.mockResolvedValue({
+      document: {
+        localDocumentId: "doc_1",
+        resultDirectoryPath: "remote:doc_1",
+      },
+      chunks: [
+        {
+          chunkId: "page_1",
+          chunkType: "page",
+          metadata: {
+            pageAssets: [
+              {
+                pageNum: 1,
+                assetUrl: "https://sdk.example/page-000001.png",
+                contentType: "image/png",
+                width: 1200,
+                height: 1600,
+              },
+            ],
+          },
+        },
+      ],
+      page: 1,
+      pageSize: 1,
+      totalChunks: 1,
+      totalPages: 1,
+    })
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost:3001/api/sources/00000000-0000-0000-0000-000000000002/page-assets?page=1&pageSize=1",
+      ),
+      {
+        params: Promise.resolve({
+          sourceId: "00000000-0000-0000-0000-000000000002",
+        }),
+      },
+    )
+
+    await expect(response.json()).resolves.toEqual({
+      pages: [
+        {
+          pageNumber: 1,
+          assetUrl: "https://sdk.example/page-000001.png",
+          contentType: "image/png",
+          width: 1200,
+          height: 1600,
+        },
+      ],
+      pagination: {
+        page: 1,
+        pageSize: 1,
+        total: 1,
+        totalPages: 1,
+      },
+    })
+    expect(response.status).toBe(200)
+    expect(mocks.readChunks).toHaveBeenCalledWith({
+      documentId: "doc_1",
+      revisionKey: "job_1",
+      chunkType: "page",
+      page: 1,
+      pageSize: 1,
+    })
+    expect(mocks.listChunks).not.toHaveBeenCalled()
+  })
+
   it("rejects non-ready workspace sources", async () => {
     mocks.getCurrentUser.mockResolvedValue({
       id: "user_1",

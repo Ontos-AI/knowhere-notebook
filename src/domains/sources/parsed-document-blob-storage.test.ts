@@ -34,6 +34,7 @@ function createFakeBlobStore(): {
       return {
         statusCode: 200,
         stream: new Response(body).body as ReadableStream<Uint8Array>,
+        contentType: object.contentType,
       }
     },
     put: async (pathname, body, options) => {
@@ -93,7 +94,7 @@ const chunkPage: KnowhereParsedSnapshotChunkPage = {
 }
 
 describe("BlobParsedDocumentStorage", () => {
-  it("round-trips a manifest keyed by workspace/document/revision", async () => {
+  it("round-trips a manifest at the result-relative manifest path", async () => {
     const { store, objects } = createFakeBlobStore()
     const storage = new BlobParsedDocumentStorage({
       workspaceId: "ws_1",
@@ -103,20 +104,23 @@ describe("BlobParsedDocumentStorage", () => {
     await storage.writeManifest({ documentId, revisionKey, manifest })
 
     expect([...objects.keys()]).toContain(
-      "workspaces/ws_1/parsed-documents/doc_123/job_result_1/manifest/current.json",
+      "workspaces/ws_1/parsed-documents/doc_123/job_result_1/manifest.json",
     )
     const read = await storage.readManifest({ documentId, revisionKey })
     expect(read).toEqual(manifest)
   })
 
-  it("round-trips a chunk page", async () => {
-    const { store } = createFakeBlobStore()
+  it("round-trips a chunk page at its result-relative chunk path", async () => {
+    const { store, objects } = createFakeBlobStore()
     const storage = new BlobParsedDocumentStorage({
       workspaceId: "ws_1",
       blobStore: store,
     })
 
     await storage.writeChunkPage({ documentId, revisionKey, page: chunkPage })
+    expect([...objects.keys()]).toContain(
+      "workspaces/ws_1/parsed-documents/doc_123/job_result_1/chunks/page-1.json",
+    )
     const read = await storage.readChunkPage({ documentId, revisionKey, page: 1 })
     expect(read).toEqual(chunkPage)
   })
@@ -141,7 +145,7 @@ describe("BlobParsedDocumentStorage", () => {
     expect(read).toEqual(progress)
   })
 
-  it("writes an asset and resolves a durable URL", async () => {
+  it("writes an asset without adding a Notebook logical assets prefix", async () => {
     const { store } = createFakeBlobStore()
     const storage = new BlobParsedDocumentStorage({
       workspaceId: "ws_1",
@@ -156,7 +160,7 @@ describe("BlobParsedDocumentStorage", () => {
       contentType: "image/png",
     })
     expect(written.url).toContain(
-      "workspaces/ws_1/parsed-documents/doc_123/job_result_1/assets/images/fig-1.png",
+      "workspaces/ws_1/parsed-documents/doc_123/job_result_1/images/fig-1.png",
     )
 
     const url = await storage.getAssetUrl({
@@ -165,6 +169,56 @@ describe("BlobParsedDocumentStorage", () => {
       sourcePath: "images/fig-1.png",
     })
     expect(url).toBe(written.url)
+  })
+
+  it("round-trips arbitrary result-relative objects", async () => {
+    const { store, objects } = createFakeBlobStore()
+    const storage = new BlobParsedDocumentStorage({
+      workspaceId: "ws_1",
+      blobStore: store,
+    })
+
+    await storage.writeObject({
+      documentId,
+      revisionKey,
+      path: "page_citation_assets/page-1.png",
+      body: new Uint8Array([4, 5, 6]),
+      contentType: "image/png",
+    })
+
+    expect([...objects.keys()]).toContain(
+      "workspaces/ws_1/parsed-documents/doc_123/job_result_1/page_citation_assets/page-1.png",
+    )
+    const read = await storage.readObject({
+      documentId,
+      revisionKey,
+      path: "page_citation_assets/page-1.png",
+    })
+    expect(read?.body).toEqual(Buffer.from([4, 5, 6]))
+    expect(read?.contentType).toBe("image/png")
+  })
+
+  it("resolves legacy asset-prefixed URLs without writing new assets there", async () => {
+    const { store, objects } = createFakeBlobStore()
+    const storage = new BlobParsedDocumentStorage({
+      workspaceId: "ws_1",
+      blobStore: store,
+    })
+    const legacyKey =
+      "workspaces/ws_1/parsed-documents/doc_123/job_result_1/assets/images/fig-1.png"
+    objects.set(legacyKey, {
+      body: Buffer.from([1]),
+      contentType: "image/png",
+    })
+
+    const url = await storage.getAssetUrl({
+      documentId,
+      revisionKey,
+      sourcePath: "images/fig-1.png",
+    })
+    expect(url).toBe(
+      "https://fake.public.blob.vercel-storage.com/workspaces/ws_1/parsed-documents/doc_123/job_result_1/assets/images/fig-1.png",
+    )
   })
 
   it("returns null for a missing manifest, chunk page, progress, and asset", async () => {
@@ -217,6 +271,13 @@ describe("BlobParsedDocumentStorage", () => {
         documentId,
         revisionKey,
         sourcePath: "../../etc/passwd",
+      }),
+    ).rejects.toThrow(/Invalid parsed storage path/)
+    await expect(
+      storage.readObject({
+        documentId,
+        revisionKey,
+        path: "images/../escape.png",
       }),
     ).rejects.toThrow(/Invalid parsed storage path/)
   })

@@ -24,7 +24,7 @@ afterEach(() => {
 describe("hardenChatMediaAssetUrls", () => {
   it("keeps an already Notebook-owned asset URL without calling the hardener", async () => {
     const ownedUrl =
-      "https://fake.public.blob.vercel-storage.com/workspaces/workspace_1/parsed-documents/doc_1/rev_1/assets/images/a.png"
+      "https://fake.public.blob.vercel-storage.com/workspaces/workspace_1/parsed-documents/doc_1/rev_1/images/a.png"
     const hardenChatAssetUrl = vi.fn(async () => null)
 
     const result = await hardenChatMediaAssetUrls({
@@ -52,7 +52,7 @@ describe("hardenChatMediaAssetUrls", () => {
     const rawAssetUrl =
       "https://knowhere-storage.example/results/job_1/images/id-front.jpg?AWSAccessKeyId=test"
     const durableUrl =
-      "https://fake.public.blob.vercel-storage.com/workspaces/workspace_1/parsed-documents/doc_identity/rev_1/assets/images/id-front.jpg"
+      "https://fake.public.blob.vercel-storage.com/workspaces/workspace_1/parsed-documents/doc_identity/rev_1/images/id-front.jpg"
     const hardenChatAssetUrl = vi.fn().mockResolvedValue(durableUrl)
 
     const result = await hardenChatMediaAssetUrls({
@@ -116,7 +116,7 @@ describe("hardenChatMediaAssetUrls", () => {
     const rawAssetUrl =
       "https://knowhere-storage.example/results/job_1/images/front.jpg?AWSAccessKeyId=test"
     const durableUrl =
-      "https://fake.public.blob.vercel-storage.com/workspaces/workspace_1/parsed-documents/doc_identity/rev_1/assets/images/front.jpg"
+      "https://fake.public.blob.vercel-storage.com/workspaces/workspace_1/parsed-documents/doc_identity/rev_1/images/front.jpg"
     const hardenChatAssetUrl = vi.fn().mockResolvedValue(durableUrl)
 
     const result = await hardenChatMediaAssetUrls({
@@ -164,7 +164,7 @@ describe("isNotebookOwnedAssetUrl", () => {
     ).toBe(true)
     expect(
       isNotebookOwnedAssetUrl(
-        "https://cdn.example/workspaces/w/parsed-documents/d/r/assets/a.png",
+        "https://cdn.example/workspaces/w/parsed-documents/d/r/images/a.png",
       ),
     ).toBe(true)
     expect(

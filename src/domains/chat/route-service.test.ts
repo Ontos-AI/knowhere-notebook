@@ -183,7 +183,7 @@ describe("chat route services", () => {
     })
     const rawUrl = "https://knowhere-storage.example/results/job_1/pages/page-1.png"
     const durableUrl =
-      "https://fake.public.blob.vercel-storage.com/workspaces/workspace_1/parsed-documents/doc_legacy/job_1/assets/pages/page-1.png"
+      "https://fake.public.blob.vercel-storage.com/workspaces/workspace_1/parsed-documents/doc_legacy/job_1/pages/page-1.png"
     mocks.parsedStorageWriteAsset.mockResolvedValue({ url: durableUrl })
     mocks.getAuthenticatedWithClient.mockResolvedValue({
       user: { id: "user_1" },
@@ -249,7 +249,7 @@ describe("chat route services", () => {
     const rawUrl =
       "https://knowhere-storage.example/results/job_1/images/id-front.png?AWSAccessKeyId=test"
     const durableUrl =
-      "https://fake.public.blob.vercel-storage.com/workspaces/workspace_1/parsed-documents/doc_identity/job_1/assets/images/id-front.png"
+      "https://fake.public.blob.vercel-storage.com/workspaces/workspace_1/parsed-documents/doc_identity/job_1/images/id-front.png"
     mocks.parsedStorageWriteAsset.mockResolvedValue({ url: durableUrl })
     mocks.generateText.mockResolvedValue({
       text: `The card number is visible. ${durableUrl} ${rawUrl}`,
@@ -364,7 +364,7 @@ describe("chat route services", () => {
       knowhereJobId: "job_1",
     })
     const durableUrl =
-      "https://fake.public.blob.vercel-storage.com/workspaces/workspace_1/parsed-documents/doc_contract/job_1/assets/page_citation_assets/page-8.png"
+      "https://fake.public.blob.vercel-storage.com/workspaces/workspace_1/parsed-documents/doc_contract/job_1/page_citation_assets/page-8.png"
     mocks.parsedStorageGetAssetUrl.mockResolvedValue(durableUrl)
     mocks.generateText.mockResolvedValue({
       text: "The page states 5000 yuan per occurrence.",
@@ -467,7 +467,7 @@ describe("chat route services", () => {
     const rawUrl =
       "https://knowhere-storage.example/results/job_remote/page_citation_assets/page-8.png?AWSAccessKeyId=test"
     const durableUrl =
-      "https://fake.public.blob.vercel-storage.com/workspaces/workspace_1/parsed-documents/doc_remote/job_remote/assets/page_citation_assets/page-8.png"
+      "https://fake.public.blob.vercel-storage.com/workspaces/workspace_1/parsed-documents/doc_remote/job_remote/page_citation_assets/page-8.png"
     mocks.parsedStorageWriteAsset.mockResolvedValue({ url: durableUrl })
     mocks.generateText.mockResolvedValue({
       text: "The page states 5000 yuan per occurrence.",

@@ -124,6 +124,38 @@ describe("readSourceChunkPage", () => {
     )
   })
 
+  it("uses SDK remote chunks directly when the SDK returns usable asset URLs", async () => {
+    const listChunks = vi.fn()
+    const readChunks = vi.fn(async () => ({
+      document: {
+        localDocumentId: "doc_1",
+        resultDirectoryPath: "remote:doc_1",
+      },
+      chunks: [
+        makeReadChunk({
+          chunkType: "image",
+          filePath: "images/a.png",
+          assetUrl: "https://sdk.example/assets/a.png",
+        }),
+      ],
+      page: 1,
+      pageSize: 50,
+      totalChunks: 1,
+      totalPages: 1,
+    }))
+    const knowledge = { readChunks } as unknown as Knowledge
+
+    const result = await readSourceChunkPage({
+      client: { documents: { listChunks } },
+      knowledge,
+      source: { documentId: "doc_1", title: "notes.pdf", revisionKey: "rev_1" },
+      params: { page: 1, pageSize: 50 },
+    })
+
+    expect(listChunks).not.toHaveBeenCalled()
+    expect(result.chunks[0]?.assetUrl).toBe("https://sdk.example/assets/a.png")
+  })
+
   it("omits revisionKey when the source has none", async () => {
     const listChunks = vi.fn()
     const readChunks = vi.fn(async () => ({
