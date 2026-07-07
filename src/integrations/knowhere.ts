@@ -14,10 +14,8 @@ import { BlobParsedDocumentStorage } from "@/domains/sources/parsed-document-blo
  * SDK returns `completed:false` and the caller re-enqueues to continue.
  */
 const defaultParsedStorageLimits: ParsedDocumentStorageLimits = {
-  chunkPageSize: 200,
   remotePageSize: 100,
   maxPagesPerSync: 10,
-  maxAssetsPerSync: 20,
   syncDeadlineMs: 8000,
   grepMaxPages: 50,
   grepDeadlineMs: 8000,

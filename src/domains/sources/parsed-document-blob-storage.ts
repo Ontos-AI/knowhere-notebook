@@ -2,15 +2,15 @@ import "server-only"
 
 import { del, get, head, put, BlobNotFoundError } from "@vercel/blob"
 import type {
-  KnowhereParsedSnapshotChunkPage,
-  KnowhereParsedSnapshotManifest,
+  ParsedDocumentObject,
+  ParsedDocumentObjectHead,
+  ParsedDocumentObjectParams,
+  ParsedDocumentRevisionParams,
   ParsedDocumentStorage,
-  ParsedDocumentStorageAsset,
-  ParsedDocumentStorageAssetParams,
-  ParsedDocumentStorageChunkPageParams,
   ParsedDocumentStorageDocument,
-  ParsedDocumentStorageManifestParams,
   ParsedDocumentSyncProgress,
+  ParsedDocumentWriteObjectParams,
+  ParsedDocumentWriteObjectResult,
 } from "@ontos-ai/knowhere-sdk"
 
 /**
@@ -26,8 +26,6 @@ import type {
  */
 
 const parsedDocumentsDirectoryName = "parsed-documents"
-const manifestStoragePath = "manifest.json"
-const legacyManifestStoragePath = "manifest/current.json"
 const syncProgressStoragePath = "sync-progress.json"
 const jsonContentType = "application/json; charset=utf-8"
 const binaryContentType = "application/octet-stream"
@@ -36,6 +34,7 @@ type BlobGetResult =
   | {
       readonly statusCode: 200
       readonly stream: ReadableStream<Uint8Array>
+      readonly url: string
       readonly contentType?: string
     }
   | {
@@ -80,19 +79,19 @@ export type BlobParsedDocumentStorageInput = {
   readonly blobStore?: ParsedDocumentBlobStore
 }
 
-export type ParsedDocumentStorageObject = ParsedDocumentStorageDocument & {
+type ParsedDocumentStorageObject = ParsedDocumentStorageDocument & {
   readonly path: string
 }
 
-export type ParsedDocumentStorageWritableObject =
-  ParsedDocumentStorageObject & {
-    readonly body: string | Buffer | Uint8Array
-    readonly contentType?: string
-  }
+type LegacyParsedDocumentStorageAsset = {
+  readonly sourcePath: string
+  readonly body: string | Buffer | Uint8Array
+  readonly contentType: string
+  readonly metadata?: Readonly<Record<string, string>>
+}
 
-export type ParsedDocumentStorageReadableObject = {
-  readonly body: Buffer
-  readonly contentType?: string
+type LegacyParsedDocumentStorageAssetParams = ParsedDocumentStorageDocument & {
+  readonly sourcePath: string
 }
 
 const vercelBlobStore: ParsedDocumentBlobStore = {
@@ -105,6 +104,7 @@ const vercelBlobStore: ParsedDocumentBlobStore = {
     return {
       statusCode: 200,
       stream: blob.stream,
+      url: blob.blob.url,
       contentType: blob.blob.contentType,
     }
   },
@@ -139,72 +139,8 @@ export class BlobParsedDocumentStorage implements ParsedDocumentStorage {
     this.blobStore = input.blobStore ?? vercelBlobStore
   }
 
-  async readManifest(
-    params: ParsedDocumentStorageManifestParams,
-  ): Promise<KnowhereParsedSnapshotManifest | null> {
-    const current = await this.readJson<KnowhereParsedSnapshotManifest>(
-      this.getObjectKey({
-        documentId: params.documentId,
-        revisionKey: params.revisionKey,
-        path: manifestStoragePath,
-      }),
-    )
-    if (current) return current
-
-    return this.readJson<KnowhereParsedSnapshotManifest>(
-      this.getObjectKey({
-        documentId: params.documentId,
-        revisionKey: params.revisionKey,
-        path: legacyManifestStoragePath,
-      }),
-    )
-  }
-
-  async writeManifest(params: {
-    readonly documentId: string
-    readonly revisionKey: string
-    readonly manifest: KnowhereParsedSnapshotManifest
-  }): Promise<void> {
-    await this.writeJson(
-      this.getObjectKey({
-        documentId: params.documentId,
-        revisionKey: params.revisionKey,
-        path: manifestStoragePath,
-      }),
-      params.manifest,
-    )
-  }
-
-  async readChunkPage(
-    params: ParsedDocumentStorageChunkPageParams,
-  ): Promise<KnowhereParsedSnapshotChunkPage | null> {
-    // chunkType filtering happens SDK-side after read; storage returns the full page.
-    return this.readJson<KnowhereParsedSnapshotChunkPage>(
-      this.getObjectKey({
-        documentId: params.documentId,
-        revisionKey: params.revisionKey,
-        path: getChunkPageStoragePath(params.page),
-      }),
-    )
-  }
-
-  async writeChunkPage(params: {
-    readonly documentId: string
-    readonly revisionKey: string
-    readonly page: KnowhereParsedSnapshotChunkPage
-  }): Promise<void> {
-    await this.writeJson(
-      this.getObjectKey({
-        documentId: params.documentId,
-        revisionKey: params.revisionKey,
-        path: getChunkPageStoragePath(params.page.page),
-      }),
-      params.page,
-    )
-  }
-
   async writeAsset(
-    params: ParsedDocumentStorageDocument & ParsedDocumentStorageAsset,
+    params: ParsedDocumentStorageDocument & LegacyParsedDocumentStorageAsset,
   ): Promise<{ readonly sourcePath: string; readonly url?: string }> {
     const blob = await this.blobStore.put(
       this.getObjectKey({
@@ -224,7 +160,7 @@ export class BlobParsedDocumentStorage implements ParsedDocumentStorage {
   }
 
   async getAssetUrl(
-    params: ParsedDocumentStorageAssetParams,
+    params: LegacyParsedDocumentStorageAssetParams,
   ): Promise<string | null> {
     const result = await this.blobStore.head(
       this.getObjectKey({
@@ -246,7 +182,7 @@ export class BlobParsedDocumentStorage implements ParsedDocumentStorage {
   }
 
   async readSyncProgress(
-    params: ParsedDocumentStorageDocument,
+    params: ParsedDocumentRevisionParams,
   ): Promise<ParsedDocumentSyncProgress | null> {
     return this.readJson<ParsedDocumentSyncProgress>(
       this.getObjectKey({
@@ -269,14 +205,25 @@ export class BlobParsedDocumentStorage implements ParsedDocumentStorage {
   }
 
   async readObject(
-    params: ParsedDocumentStorageObject,
-  ): Promise<ParsedDocumentStorageReadableObject | null> {
-    return this.readBlobObject(this.getObjectKey(params))
+    params: ParsedDocumentObjectParams,
+  ): Promise<ParsedDocumentObject | null> {
+    const object = await this.readBlobObject(this.getObjectKey(params))
+    if (!object) return null
+
+    return {
+      documentId: params.documentId,
+      revisionKey: params.revisionKey,
+      path: params.path,
+      body: object.body,
+      ...(object.contentType ? { contentType: object.contentType } : {}),
+      contentLength: object.body.byteLength,
+      url: object.url,
+    }
   }
 
   async writeObject(
-    params: ParsedDocumentStorageWritableObject,
-  ): Promise<{ readonly path: string; readonly url?: string }> {
+    params: ParsedDocumentWriteObjectParams,
+  ): Promise<ParsedDocumentWriteObjectResult> {
     const blob = await this.blobStore.put(
       this.getObjectKey(params),
       Buffer.from(params.body),
@@ -287,18 +234,33 @@ export class BlobParsedDocumentStorage implements ParsedDocumentStorage {
         multipart: true,
       },
     )
-    return { path: params.path, url: blob.url }
+    return {
+      documentId: params.documentId,
+      revisionKey: params.revisionKey,
+      path: params.path,
+      url: blob.url,
+    }
+  }
+
+  async headObject(
+    params: ParsedDocumentObjectParams,
+  ): Promise<ParsedDocumentObjectHead | null> {
+    const result = await this.blobStore.head(this.getObjectKey(params))
+    if (!result) return null
+
+    return {
+      documentId: params.documentId,
+      revisionKey: params.revisionKey,
+      path: params.path,
+      url: result.url,
+    }
   }
 
   async getObjectUrl(
-    params: ParsedDocumentStorageObject,
+    params: ParsedDocumentObjectParams,
   ): Promise<string | null> {
     const result = await this.blobStore.head(this.getObjectKey(params))
     return result?.url ?? null
-  }
-
-  async deleteObject(params: ParsedDocumentStorageObject): Promise<void> {
-    await this.blobStore.del(this.getObjectKey(params))
   }
 
   private getRevisionPrefix(documentId: string, revisionKey: string): string {
@@ -338,9 +300,11 @@ export class BlobParsedDocumentStorage implements ParsedDocumentStorage {
     return object ? object.body.toString("utf8") : null
   }
 
-  private async readBlobObject(
-    key: string,
-  ): Promise<ParsedDocumentStorageReadableObject | null> {
+  private async readBlobObject(key: string): Promise<{
+    readonly body: Buffer
+    readonly contentType?: string
+    readonly url?: string
+  } | null> {
     try {
       const result = await this.blobStore.get(key, { access: "public" })
       if (!result || result.statusCode !== 200) return null
@@ -348,16 +312,13 @@ export class BlobParsedDocumentStorage implements ParsedDocumentStorage {
       return {
         body,
         ...(result.contentType ? { contentType: result.contentType } : {}),
+        url: result.url,
       }
     } catch (error) {
       if (error instanceof BlobNotFoundError) return null
       throw error
     }
   }
-}
-
-function getChunkPageStoragePath(page: number): string {
-  return `chunks/page-${page}.json`
 }
 
 /**

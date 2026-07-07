@@ -57,7 +57,7 @@ describe("handleChatTurn", () => {
       namespace: "notebook-namespace",
       query: "What does the document say?",
       topK: 8,
-      useAgentic: true,
+      useAgentic: false,
       dataType: 1,
       excludeDocumentIds: ["doc_excluded"],
     });
@@ -221,7 +221,7 @@ describe("handleChatTurn", () => {
       namespace: "notebook-namespace",
       query: "Tesla Q4 2025 Update energy generation and storage deployments",
       topK: 8,
-      useAgentic: true,
+      useAgentic: false,
       dataType: 1,
     });
   });

@@ -78,7 +78,7 @@ describe("answerQuestionWithRetrieval", () => {
       namespace: "notebook-workspace",
       query: "What does the document say?",
       topK: 8,
-      useAgentic: true,
+      useAgentic: false,
       dataType: 1,
       excludeDocumentIds: ["doc_excluded", "doc_remote"],
     });
@@ -579,7 +579,7 @@ describe("answerQuestionWithRetrieval", () => {
       namespace: "notebook-workspace",
       query: "SpaceX rocket photos",
       topK: 8,
-      useAgentic: true,
+      useAgentic: false,
       dataType: 3,
     });
     expect(answer.answer).toBe("Use this launch photo.");
@@ -1573,7 +1573,7 @@ describe("answerQuestionWithRetrieval", () => {
       namespace: "notebook-workspace",
       query: "公民身份证明 图片",
       topK: 8,
-      useAgentic: true,
+      useAgentic: false,
       dataType: 3,
     });
     const imageCitations = answer.citations.filter(
@@ -1664,7 +1664,7 @@ describe("answerQuestionWithRetrieval", () => {
       namespace: "notebook-workspace",
       query: "Tesla Q4 2025 Update energy generation and storage deployments",
       topK: 8,
-      useAgentic: true,
+      useAgentic: false,
       dataType: 1,
     });
     expect(generateAnswer).toHaveBeenCalledWith({
@@ -1720,7 +1720,7 @@ describe("answerQuestionWithRetrieval", () => {
       namespace: "notebook-workspace",
       query: "Tesla energy storage deployments",
       topK: 8,
-      useAgentic: true,
+      useAgentic: false,
       dataType: 1,
     });
     expect(JSON.stringify(queryInput)).not.toContain(
