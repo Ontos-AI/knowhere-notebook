@@ -28,6 +28,17 @@ describe("agent harness runtime", () => {
     expect(prompt).not.toContain("navigation action")
   })
 
+  it("tells the agent to cite only refs with matching source metadata", () => {
+    const prompt = buildHarnessSystemPrompt(makeTurnInput())
+
+    expect(prompt).toContain(
+      "source.documentId, sourceFileName, and sectionPath must match the selected evidence ref exactly",
+    )
+    expect(prompt).toContain(
+      "Omit citations when you cannot identify a supporting evidence ref",
+    )
+  })
+
   it("passes only outer retrieval parameters to KNOWHERE after intent and context policy are declared", async () => {
     const query = vi.fn<KnowhereToolRuntime["search"]>().mockResolvedValue(
       makeRetrievalResponse(),

@@ -115,6 +115,142 @@ describe("validateOutputManifest", () => {
     )
   })
 
+  it("rejects citation source metadata that conflicts with the resolved evidence ref", () => {
+    const validation = validateOutputManifest({
+      manifest: makeManifest({
+        text: "The source discusses information hiding.",
+        citations: [
+          {
+            ref: "r1:result:1",
+            label: "wrong source",
+            source: {
+              documentId: "doc_claimed",
+              sourceFileName: "claimed-source.pdf",
+              sectionPath: "Claimed Section",
+            },
+          },
+        ],
+      }),
+      intent: makeIntent({}),
+      contextPolicy: unrelatedContextPolicy,
+      ledger: {
+        ...emptyLedger,
+        chunks: [
+          {
+            ref: "r1:result:1",
+            kind: "result",
+            content: "Information hiding is a module design principle.",
+            contentPreview: "Information hiding is a module design principle.",
+            chunkType: "text",
+            score: 0.9,
+            source: {
+              documentId: "doc_information_hiding",
+              sourceFileName: "information_hiding.pdf",
+              sectionPath: "Root / Module Design",
+            },
+          },
+        ],
+      },
+      surface: "notebook_chat",
+    })
+
+    expect(validation.errors).toContain(
+      "Citation ref 'r1:result:1' source.documentId must match resolved evidence source. Expected 'doc_information_hiding', received 'doc_claimed'.",
+    )
+    expect(validation.errors).toContain(
+      "Citation ref 'r1:result:1' source.sourceFileName must match resolved evidence source. Expected 'information_hiding.pdf', received 'claimed-source.pdf'.",
+    )
+    expect(validation.errors).toContain(
+      "Citation ref 'r1:result:1' source.sectionPath must match resolved evidence source. Expected 'Root / Module Design', received 'Claimed Section'.",
+    )
+  })
+
+  it("accepts citation source metadata that exactly matches the resolved evidence ref", () => {
+    const validation = validateOutputManifest({
+      manifest: makeManifest({
+        text: "Revenue increased.",
+        citations: [
+          {
+            ref: "r1:result:1",
+            label: "report.pdf / Q4",
+            source: {
+              documentId: "doc_1",
+              sourceFileName: "report.pdf",
+              sectionPath: "Q4",
+            },
+          },
+        ],
+      }),
+      intent: makeIntent({}),
+      contextPolicy: unrelatedContextPolicy,
+      ledger: {
+        ...emptyLedger,
+        chunks: [
+          {
+            ref: "r1:result:1",
+            kind: "result",
+            content: "Revenue increased.",
+            contentPreview: "Revenue increased.",
+            chunkType: "text",
+            score: 0.9,
+            source: {
+              documentId: "doc_1",
+              sourceFileName: "report.pdf",
+              sectionPath: "Q4",
+            },
+          },
+        ],
+      },
+      surface: "notebook_chat",
+    })
+
+    expect(validation.ok).toBe(true)
+    expect(validation.errors).toEqual([])
+  })
+
+  it("rejects missing citation documentId when the resolved evidence has one", () => {
+    const validation = validateOutputManifest({
+      manifest: makeManifest({
+        text: "Revenue increased.",
+        citations: [
+          {
+            ref: "r1:result:1",
+            label: "report.pdf / Q4",
+            source: {
+              sourceFileName: "report.pdf",
+              sectionPath: "Q4",
+            },
+          },
+        ],
+      }),
+      intent: makeIntent({}),
+      contextPolicy: unrelatedContextPolicy,
+      ledger: {
+        ...emptyLedger,
+        chunks: [
+          {
+            ref: "r1:result:1",
+            kind: "result",
+            content: "Revenue increased.",
+            contentPreview: "Revenue increased.",
+            chunkType: "text",
+            score: 0.9,
+            source: {
+              documentId: "doc_1",
+              sourceFileName: "report.pdf",
+              sectionPath: "Q4",
+            },
+          },
+        ],
+      },
+      surface: "notebook_chat",
+    })
+
+    expect(validation.errors).toContain(
+      "Citation ref 'r1:result:1' source.documentId must match resolved evidence source. Expected 'doc_1', received missing.",
+    )
+  })
+
   it("accepts source-backed derived tables and rejects missing source refs", () => {
     const validation = validateOutputManifest({
       manifest: makeManifest({

@@ -48,7 +48,7 @@ describe("handleChatTurn", () => {
           {
             role: "assistant",
             content: "Grounded answer.",
-            citations: [makeRetrievalResult()],
+            citations: undefined,
           },
         ],
       });
@@ -78,7 +78,7 @@ describe("handleChatTurn", () => {
       threadId: "thread_1",
       role: "assistant",
       content: "Grounded answer.",
-      citations: [makeRetrievalResult()],
+      citations: [],
       artifacts: [],
     });
   });

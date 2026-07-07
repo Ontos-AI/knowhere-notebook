@@ -21,7 +21,6 @@ import type {
   ImageInspectionResponse,
   InspectImages,
   IntentFrame,
-  KnowhereSearchRequest,
   KnowhereSearchTargetContent,
   KnowhereToolRuntime,
   OutputManifest,
@@ -406,7 +405,9 @@ function buildRevisionFeedback(errors: readonly string[]): string {
     "answer contract.",
     "Do not exceed the user's requested artifact count, only cite or display",
     "evidence refs that exist in the evidence ledger, and do not fabricate",
-    "facts when evidence is missing.",
+    "facts when evidence is missing. Citation source.documentId,",
+    "sourceFileName, and sectionPath must match the selected evidence ref",
+    "exactly.",
   ].join("\n")
 }
 
@@ -668,7 +669,8 @@ export function createHarnessTools(input: {
       description:
         "Finalize the user-facing output manifest. This is the only final answer " +
         "contract. Artifacts listed here with display=true are the exact set of " +
-        "images/tables shown to the user; cite only refs from the evidence ledger.",
+        "images/tables shown to the user; cite only refs from the evidence ledger " +
+        "and copy citation source metadata exactly from the selected ref.",
       inputSchema: outputManifestSchema,
       execute: async (manifest) =>
         traceToolCall(input.state, {
@@ -1275,6 +1277,8 @@ export function buildHarnessSystemPrompt(turn: AgentTurnInput): string {
     "- artifacts with display=true are the exact images/tables shown. Never display every candidate; honor constraints.desiredCount / maxCount.",
     "- Use type=derived_table only for tables you create from evidence; every derived_table.sourceRefs entry must reference evidence in the ledger.",
     "- citations and selected image/table artifact refs may only reference refs returned by Knowhere tools in the evidence ledger.",
+    "- For every citation, source.documentId, sourceFileName, and sectionPath must match the selected evidence ref exactly. Use null or omit the field only when the ref omits it.",
+    "- Omit citations when you cannot identify a supporting evidence ref with matching source metadata.",
     "- inspectImage observations are inspection notes, not new source refs. Final citations and displayed image artifacts must use the original retrieved image asset refs.",
     "- If text evidence identifies a relevant page/image but does not include the exact fact, inspect the returned image asset for OCR/detail before saying the answer is unavailable.",
     "- If evidence is insufficient, list it in unresolved instead of fabricating facts.",

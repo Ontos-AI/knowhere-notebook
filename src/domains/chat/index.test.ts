@@ -99,7 +99,51 @@ describe("answerQuestionWithRetrieval", () => {
     });
     expect(answer).toEqual({
       answer: "The answer is grounded.",
-      citations: [result],
+      citations: [],
+      artifacts: [],
+    });
+  });
+
+  it("does not create source chips from retrieval results when the manifest has no citations", async () => {
+    const unrelatedResult = makeRetrievalResult({
+      content: "Information hiding is unrelated to the requested source.",
+      source: {
+        documentId: "doc_information_hiding",
+        sourceFileName: "information_hiding.pdf",
+        sectionPath: "Root",
+      },
+    });
+    const retrieval = {
+      query: vi.fn().mockResolvedValue({
+        results: [unrelatedResult],
+        evidenceText: "Information hiding evidence.",
+        referencedChunks: [],
+        namespace: "notebook-workspace",
+        query: "requested fact",
+        routerUsed: "workflow_single_step",
+        answerText: null,
+      }),
+    };
+    const generateAnswer = vi.fn(async ({ searchSources }) => {
+      await searchSources({ query: "requested fact" });
+      return makeHarnessRunResult("The answer omits citations.");
+    });
+
+    const answer = await Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "What does the selected source say?",
+        namespace: "notebook-workspace",
+        sources: [makeSource()],
+        excludedSourceIds: [],
+        retrieval,
+        generateAnswer,
+        messages: [],
+      }),
+    );
+
+    expect(answer).toEqual({
+      answer: "The answer omits citations.",
+      citations: [],
       artifacts: [],
     });
   });
@@ -304,7 +348,7 @@ describe("answerQuestionWithRetrieval", () => {
     );
     expect(answer).toEqual({
       answer: "The legacy answer is grounded.",
-      citations: [legacyResult],
+      citations: [],
       artifacts: [],
     });
   });
@@ -562,8 +606,18 @@ describe("answerQuestionWithRetrieval", () => {
     };
     const generateAnswer = vi.fn(async ({ searchSources }) => {
       await searchSources({ query: "What improved?" });
-      return makeHarnessRunResult(
+      return makeHarnessRunResultWithLedger(
         "Revenue improved [Source 1: revenue growth]. Margins expanded [Source 2: margin expansion].",
+        {
+          citations: [
+            makeOutputCitation("r1:result:1", firstResult),
+            makeOutputCitation("r1:result:2", secondResult),
+          ],
+          chunks: [
+            makeEvidenceChunkFromRetrievalResult("r1:result:1", firstResult),
+            makeEvidenceChunkFromRetrievalResult("r1:result:2", secondResult),
+          ],
+        },
       );
     });
 
@@ -606,8 +660,9 @@ describe("answerQuestionWithRetrieval", () => {
     };
     const generateAnswer = vi.fn(async ({ searchSources }) => {
       await searchSources({ query: "Tesla xAI investment" });
-      return makeHarnessRunResult(
+      return makeCitedHarnessRunResult(
         "Tesla invested in xAI [Source 1: xAI investment].",
+        result,
       );
     });
     const sources = [
@@ -678,7 +733,10 @@ describe("answerQuestionWithRetrieval", () => {
         targetContent: "image",
         purpose: "Find visual rocket launch chunks.",
       });
-      return makeHarnessRunResult(`Use this launch photo. ${upstreamAssetUrl}`);
+      return makeCitedHarnessRunResult(
+        `Use this launch photo. ${upstreamAssetUrl}`,
+        result,
+      );
     });
     const hardenChatAssetUrl = vi
       .fn()
@@ -938,7 +996,10 @@ describe("answerQuestionWithRetrieval", () => {
     };
     const generateAnswer = vi.fn(async ({ searchSources }) => {
       await searchSources({ query: "page four evidence" });
-      return makeHarnessRunResult(`This page has the answer. ${storedPageAssetUrl}`);
+      return makeCitedHarnessRunResult(
+        `This page has the answer. ${storedPageAssetUrl}`,
+        result,
+      );
     });
     const hardenMediaAssetUrls = vi.fn(
       async ({
@@ -1022,6 +1083,35 @@ describe("answerQuestionWithRetrieval", () => {
       "https://blob.example/workspaces/workspace_1/sources/source_pages/parsed-result/page_citation_assets/page-6.png";
     const hardenedPageAssetUrl =
       "https://blob.example/workspaces/workspace_1/chat-assets/source-source_pages/page-6.png";
+    const pageMetadata = {
+      pageNums: [6],
+      pageAssets: [
+        {
+          pageNum: 6,
+          artifactRef: "page_citation_assets/page-6.png",
+          assetUrl: rawPageAssetUrl,
+          contentType: "image/png",
+        },
+      ],
+    };
+    const referencedPageChunk: HarnessRunResult["trace"]["ledger"]["chunks"][number] = {
+      ref: "r1:referenced:1",
+      kind: "referenced_chunk",
+      chunkId: "chunk_page_6",
+      content: "",
+      contentPreview: "",
+      chunkType: "page",
+      score: null,
+      filePath: null,
+      metadata: pageMetadata,
+      source: {
+        documentId: "doc_pages",
+        sourceFileName: null,
+        sectionPath: "Page 6",
+      },
+      revisionKey: "job_1",
+      assetUrl: rawPageAssetUrl,
+    };
     const retrieval = {
       query: vi.fn().mockResolvedValue({
         results: [],
@@ -1035,17 +1125,7 @@ describe("answerQuestionWithRetrieval", () => {
             filePath: null,
             jobId: "job_1",
             assetUrl: rawPageAssetUrl,
-            metadata: {
-              pageNums: [6],
-              pageAssets: [
-                {
-                  pageNum: 6,
-                  artifactRef: "page_citation_assets/page-6.png",
-                  assetUrl: rawPageAssetUrl,
-                  contentType: "image/png",
-                },
-              ],
-            },
+            metadata: pageMetadata,
           },
         ],
         namespace: "notebook-workspace",
@@ -1056,7 +1136,16 @@ describe("answerQuestionWithRetrieval", () => {
     };
     const generateAnswer = vi.fn(async ({ searchSources }) => {
       await searchSources({ query: "page six evidence" });
-      return makeHarnessRunResult("This page has referenced evidence.");
+      return makeHarnessRunResultWithLedger("This page has referenced evidence.", {
+        citations: [
+          {
+            ref: "r1:referenced:1",
+            label: "Page 6",
+            source: referencedPageChunk.source,
+          },
+        ],
+        chunks: [referencedPageChunk],
+      });
     });
     const hardenMediaAssetUrls = vi.fn(
       async ({
@@ -1395,6 +1484,103 @@ describe("answerQuestionWithRetrieval", () => {
       }),
     );
 
+    expect(answer).toEqual({
+      answer:
+        "I couldn't safely finish that response because the agent output did not pass Notebook's validation checks. Please try again.",
+      citations: [],
+      artifacts: [],
+    });
+  });
+
+  it("returns a safe fallback when a manifest citation ref declares the wrong source", async () => {
+    process.env.AI_GATEWAY_API_KEY = "test_gateway_key";
+    const result = makeRetrievalResult({
+      content: "Information hiding is a module design principle.",
+      source: {
+        documentId: "doc_information_hiding",
+        sourceFileName: "information_hiding.pdf",
+        sectionPath: "Root / Module Design",
+      },
+    });
+    const retrieval = {
+      query: vi.fn().mockResolvedValue({
+        results: [result],
+        evidenceText: "Information hiding evidence.",
+        referencedChunks: [],
+        namespace: "notebook-workspace",
+        query: "information hiding",
+        routerUsed: "workflow_single_step",
+        answerText: null,
+      }),
+    };
+    let generateCallCount = 0;
+    vi.spyOn(ToolLoopAgent.prototype, "generate").mockImplementation(
+      async function mockGenerate(
+        this: ToolLoopAgent,
+      ): ReturnType<ToolLoopAgent["generate"]> {
+        generateCallCount += 1;
+        const tools = this.tools as unknown as Record<
+          string,
+          { execute: (input: unknown) => Promise<unknown> }
+        >;
+
+        if (generateCallCount === 1) {
+          await tools.declareIntent?.execute({
+            task: "answer",
+            dependsOnPreviousTurn: false,
+            retrievalNeeded: "yes",
+            targetModalities: ["text"],
+            constraints: { citationRequired: true },
+            groundingPolicy: "must_use_sources",
+          });
+          await tools.setContextPolicy?.execute({
+            carryHistory: "none",
+            reason: "Self-contained request.",
+            activePriorTurnIds: [],
+          });
+          await tools.knowhere_search?.execute({
+            query: "information hiding",
+            targetContent: "text",
+          });
+        }
+
+        await tools.finalize?.execute({
+          text: "Information hiding is a module design principle.",
+          citations: [
+            {
+              ref: "r1:result:1",
+              label: "claimed-source.pdf / Claimed",
+              source: {
+                documentId: "doc_claimed",
+                sourceFileName: "claimed-source.pdf",
+                sectionPath: "Claimed",
+              },
+            },
+          ],
+          artifacts: [],
+          unresolved: [],
+        });
+
+        return {
+          text: "ignored",
+          response: { messages: [] },
+        } as unknown as Awaited<ReturnType<ToolLoopAgent["generate"]>>;
+      },
+    );
+
+    const answer = await Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "What is information hiding?",
+        namespace: "notebook-workspace",
+        sources: [makeSource()],
+        excludedSourceIds: [],
+        retrieval,
+        generateAnswer: generateAgenticOutputManifest,
+        messages: [],
+      }),
+    );
+
+    expect(generateCallCount).toBe(2);
     expect(answer).toEqual({
       answer:
         "I couldn't safely finish that response because the agent output did not pass Notebook's validation checks. Please try again.",
@@ -1866,6 +2052,23 @@ describe("answerQuestionWithRetrieval", () => {
   });
 
   it("uses structured referenced chunks from RetrievalQueryResponse as citations", async () => {
+    const referencedImageChunk: HarnessRunResult["trace"]["ledger"]["chunks"][number] = {
+      ref: "r1:referenced:1",
+      kind: "referenced_chunk",
+      chunkId: "chunk_1",
+      content: "",
+      contentPreview: "",
+      chunkType: "image",
+      score: null,
+      filePath: "images/launch.jpg",
+      source: {
+        documentId: "doc_spacex",
+        sourceFileName: null,
+        sectionPath: "Assets / images / launch.jpg",
+      },
+      revisionKey: "job_1",
+      assetUrl: "https://blob.example/images/launch.jpg",
+    };
     const retrieval = {
       query: vi.fn().mockResolvedValue({
         results: [],
@@ -1892,7 +2095,16 @@ describe("answerQuestionWithRetrieval", () => {
         query: "SpaceX launch image",
         targetContent: "image",
       });
-      return makeHarnessRunResult("Here is the launch image.");
+      return makeHarnessRunResultWithLedger("Here is the launch image.", {
+        citations: [
+          {
+            ref: "r1:referenced:1",
+            label: "launch image",
+            source: referencedImageChunk.source,
+          },
+        ],
+        chunks: [referencedImageChunk],
+      });
     });
 
     const answer = await Effect.runPromise(
@@ -1972,7 +2184,7 @@ describe("generateAgenticOutputManifest", () => {
               label: "商务标文件.pdf / 身份证正面",
               source: {
                 documentId: "doc_identity",
-                sourceFileName: "商务标文件.pdf",
+                sourceFileName: "document-generated.pdf",
                 sectionPath: "身份证正面",
               },
             },
@@ -2109,7 +2321,7 @@ describe("generateAgenticOutputManifest", () => {
               label: "identity.pdf / images/id-front.png",
               source: {
                 documentId: "doc_identity",
-                sourceFileName: "identity.pdf",
+                sourceFileName: "generated.pdf",
                 sectionPath: "images/id-front.png",
               },
             },
@@ -2249,7 +2461,7 @@ describe("generateAgenticOutputManifest", () => {
               label: "投标书 / （6）现场工期进度管理方面的违约责任",
               source: {
                 documentId: "doc_contract",
-                sourceFileName: "投标书.pdf",
+                sourceFileName: null,
                 sectionPath: "Root / （6）现场工期进度管理方面的违约责任",
               },
             },
@@ -2393,7 +2605,17 @@ describe("generateAgenticOutputManifest", () => {
           });
           await tools.finalize?.execute({
             text: "见下方图片。",
-            citations: [{ ref: "r1:result:1", label: "id" }],
+            citations: [
+              {
+                ref: "r1:result:1",
+                label: "ids.pdf / 身份证 1",
+                source: {
+                  documentId: "doc_identity",
+                  sourceFileName: "ids.pdf",
+                  sectionPath: "身份证 1",
+                },
+              },
+            ],
             artifacts: [1, 2, 3].map((index) => ({
               type: "image",
               ref: `asset:r1:result:${index}`,
@@ -2405,7 +2627,17 @@ describe("generateAgenticOutputManifest", () => {
         } else {
           await tools.finalize?.execute({
             text: "见下方图片。",
-            citations: [{ ref: "r1:result:1", label: "id" }],
+            citations: [
+              {
+                ref: "r1:result:1",
+                label: "ids.pdf / 身份证 1",
+                source: {
+                  documentId: "doc_identity",
+                  sourceFileName: "ids.pdf",
+                  sectionPath: "身份证 1",
+                },
+              },
+            ],
             artifacts: [1, 2].map((index) => ({
               type: "image",
               ref: `asset:r1:result:${index}`,
@@ -2555,6 +2787,90 @@ function makeHarnessRunResult(text: string): HarnessRunResult {
       validationErrors: [],
       revisionsUsed: 0,
     },
+  };
+}
+
+function makeCitedHarnessRunResult(
+  text: string,
+  result: RetrievalResult,
+  ref = "r1:result:1",
+): HarnessRunResult {
+  return makeHarnessRunResultWithLedger(text, {
+    citations: [makeOutputCitation(ref, result)],
+    chunks: [makeEvidenceChunkFromRetrievalResult(ref, result)],
+  });
+}
+
+function makeHarnessRunResultWithLedger(
+  text: string,
+  input: {
+    readonly citations?: HarnessRunResult["manifest"]["citations"]
+    readonly chunks?: HarnessRunResult["trace"]["ledger"]["chunks"]
+    readonly assets?: HarnessRunResult["trace"]["ledger"]["assets"]
+    readonly artifacts?: HarnessRunResult["manifest"]["artifacts"]
+  },
+): HarnessRunResult {
+  const chunks = input.chunks ?? [];
+  return {
+    manifest: {
+      text,
+      citations: input.citations ?? [],
+      artifacts: input.artifacts ?? [],
+      unresolved: [],
+    },
+    trace: {
+      ...makeHarnessRunResult("").trace,
+      ledger: {
+        retrievalCount: chunks.length > 0 ? 1 : 0,
+        chunks,
+        assets: input.assets ?? [],
+        evidenceText: [],
+        stopReasons: [],
+        failureReasons: [],
+        decisionTraces: [],
+      },
+    },
+  };
+}
+
+function makeOutputCitation(
+  ref: string,
+  result: RetrievalResult,
+): HarnessRunResult["manifest"]["citations"][number] {
+  return {
+    ref,
+    label: [result.source.sourceFileName, result.source.sectionPath]
+      .filter(Boolean)
+      .join(" / "),
+    source: {
+      documentId: result.source.documentId,
+      sourceFileName: result.source.sourceFileName,
+      sectionPath: result.source.sectionPath,
+    },
+  };
+}
+
+function makeEvidenceChunkFromRetrievalResult(
+  ref: string,
+  result: RetrievalResult,
+): HarnessRunResult["trace"]["ledger"]["chunks"][number] {
+  return {
+    ref,
+    kind: "result",
+    ...(result.chunkId ? { chunkId: result.chunkId } : {}),
+    content: result.content,
+    contentPreview: result.content,
+    chunkType: result.chunkType,
+    score: result.score,
+    ...(result.sourceChunkPath ? { sourceChunkPath: result.sourceChunkPath } : {}),
+    ...(result.filePath ? { filePath: result.filePath } : {}),
+    ...(result.metadata ? { metadata: result.metadata } : {}),
+    source: {
+      documentId: result.source.documentId,
+      sourceFileName: result.source.sourceFileName,
+      sectionPath: result.source.sectionPath,
+    },
+    ...(result.assetUrl ? { assetUrl: result.assetUrl } : {}),
   };
 }
 

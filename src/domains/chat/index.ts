@@ -254,8 +254,6 @@ export const answerQuestionWithRetrieval = (
 
     const rawResults = selectCitationRawResults({
       generatedAnswer,
-      retrievalResponses,
-      sources: input.sources,
     })
     if (
       rawResults.length === 0 &&
@@ -858,14 +856,12 @@ function normalizeTopK(value: number | undefined): number {
 
 /**
  * Display citations come from the agent-curated manifest (the refs it chose to
- * cite), resolved against the evidence ledger. Only when the agent cited
- * nothing do we fall back to the full set of retrieved results, so a grounded
- * answer still shows its sources instead of appearing unsupported.
+ * cite), resolved against the evidence ledger. If the manifest has no citations,
+ * only displayed artifacts produce citation chips; arbitrary retrieval results
+ * stay hidden so Notebook does not imply support from an unselected source.
  */
 function selectCitationRawResults(input: {
   readonly generatedAnswer: HarnessRunResult
-  readonly retrievalResponses: readonly RetrievalQueryResponse[]
-  readonly sources: readonly AnswerQuestionInput["sources"][number][]
 }): RetrievalResult[] {
   const curated = mapManifestCitationsToResults(input.generatedAnswer)
   if (curated.length > 0) return curated
@@ -873,7 +869,7 @@ function selectCitationRawResults(input: {
     input.generatedAnswer,
   )
   if (displayedArtifacts.length > 0) return displayedArtifacts
-  return collectRetrievalResults(input.retrievalResponses, input.sources)
+  return []
 }
 
 function mapManifestCitationsToResults(
@@ -1006,49 +1002,6 @@ function toRetrievalResultFromEvidenceChunk(
 
 function hasDisplayedManifestArtifacts(result: HarnessRunResult): boolean {
   return result.manifest.artifacts.some((artifact) => artifact.display)
-}
-
-function collectRetrievalResults(
-  responses: readonly RetrievalQueryResponse[],
-  sources: readonly AnswerQuestionInput["sources"][number][],
-): RetrievalResult[] {
-  const results: RetrievalResult[] = []
-  const seenKeys = new Set<string>()
-  const sourceTitlesByDocumentId = new Map(
-    sources.flatMap((source): readonly [string, string][] =>
-      source.knowhereDocumentId ? [[source.knowhereDocumentId, source.title]] : [],
-    ),
-  )
-
-  for (const response of responses) {
-    for (const result of [
-      ...response.results,
-      ...response.referencedChunks.map((chunk): RetrievalResult => ({
-        chunkId: chunk.chunkId,
-        content: "",
-        chunkType: chunk.chunkType,
-        score: null,
-        ...(chunk.assetUrl ? { assetUrl: chunk.assetUrl } : {}),
-        ...(chunk.sourceChunkPath ? { sourceChunkPath: chunk.sourceChunkPath } : {}),
-        ...(chunk.filePath ? { filePath: chunk.filePath } : {}),
-        ...(chunk.metadata ? { metadata: chunk.metadata } : {}),
-        source: {
-          documentId: chunk.documentId,
-          sourceFileName: sourceTitlesByDocumentId.get(chunk.documentId),
-          sectionPath: chunk.sectionPath,
-        },
-      })),
-    ]) {
-      const key = getRetrievalResultKey(result)
-      if (seenKeys.has(key)) continue
-
-      seenKeys.add(key)
-      results.push(result)
-      if (results.length >= MAX_CITATION_RESULTS) return results
-    }
-  }
-
-  return results
 }
 
 function formatRetrievalEvidenceText(

@@ -3,6 +3,7 @@ import type {
   EvidenceLedgerSnapshot,
   HarnessToolCallTrace,
   IntentFrame,
+  OutputCitation,
   OutputManifest,
 } from "./types"
 
@@ -20,6 +21,15 @@ export type ManifestValidationResult = {
   readonly ok: boolean
   readonly errors: readonly string[]
 }
+
+const citationSourceFields = [
+  "documentId",
+  "sourceFileName",
+  "sectionPath",
+] as const
+
+type CitationSourceField = (typeof citationSourceFields)[number]
+type EvidenceSource = EvidenceLedgerSnapshot["chunks"][number]["source"]
 
 export function validateOutputManifest(
   input: ManifestValidationInput,
@@ -71,6 +81,14 @@ function validateArtifactRefs(
     ...input.ledger.chunks.map((chunk) => chunk.ref),
     ...input.ledger.assets.map((asset) => asset.ref),
   ])
+  const sourcesByRef = new Map<string, EvidenceSource>([
+    ...input.ledger.chunks.map(
+      (chunk): readonly [string, EvidenceSource] => [chunk.ref, chunk.source],
+    ),
+    ...input.ledger.assets.map(
+      (asset): readonly [string, EvidenceSource] => [asset.ref, asset.source],
+    ),
+  ])
 
   for (const artifact of input.manifest.artifacts) {
     if (artifact.type === "derived_table") {
@@ -102,8 +120,69 @@ function validateArtifactRefs(
   for (const citation of input.manifest.citations) {
     if (!knownRefs.has(citation.ref)) {
       errors.push(`Citation ref '${citation.ref}' was not found in the evidence ledger.`)
+      continue
     }
+
+    const source = sourcesByRef.get(citation.ref)
+    if (!source) continue
+    validateCitationSource(
+      {
+        ref: citation.ref,
+        declared: citation.source,
+        resolved: source,
+      },
+      errors,
+    )
   }
+}
+
+function validateCitationSource(
+  input: {
+    readonly ref: string
+    readonly declared: OutputCitation["source"]
+    readonly resolved: EvidenceSource
+  },
+  errors: string[],
+): void {
+  for (const field of citationSourceFields) {
+    validateCitationSourceField(
+      {
+        ref: input.ref,
+        field,
+        declaredValue: input.declared[field],
+        resolvedValue: input.resolved[field],
+      },
+      errors,
+    )
+  }
+}
+
+function validateCitationSourceField(
+  input: {
+    readonly ref: string
+    readonly field: CitationSourceField
+    readonly declaredValue: string | null | undefined
+    readonly resolvedValue: string | null | undefined
+  },
+  errors: string[],
+): void {
+  const declaredValue = normalizeSourceValue(input.declaredValue)
+  const resolvedValue = normalizeSourceValue(input.resolvedValue)
+  if (declaredValue === resolvedValue) return
+
+  errors.push(
+    `Citation ref '${input.ref}' source.${input.field} must match resolved evidence source. Expected ${formatSourceValue(
+      resolvedValue,
+    )}, received ${formatSourceValue(declaredValue)}.`,
+  )
+}
+
+function normalizeSourceValue(value: string | null | undefined): string | null {
+  return value ?? null
+}
+
+function formatSourceValue(value: string | null): string {
+  return value === null ? "missing" : `'${value}'`
 }
 
 function validateArtifactCounts(

@@ -214,6 +214,7 @@ function formatEvidenceAssets(assets: readonly EvidenceAsset[]): string {
         label: asset.label,
         sourcePath: asset.sourcePath,
         documentId: asset.source.documentId ?? undefined,
+        sourceFileName: asset.source.sourceFileName ?? undefined,
         sectionPath: asset.source.sectionPath ?? undefined,
       }),
     ),
