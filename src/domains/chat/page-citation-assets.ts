@@ -7,6 +7,7 @@ import type { HardenChatAssetUrl } from "./media-assets"
 
 export type PageCitationAssetRetrievalResult = RetrievalResult & {
   readonly pageCitationAssetUrl?: string
+  readonly pageCitationPageNumber?: number
 }
 
 type EnrichRetrievalResultsWithPageCitationAssetUrlsInput = {
@@ -62,10 +63,13 @@ async function enrichRetrievalResultWithPageCitationAssetUrl(input: {
     sourcesByDocumentId: input.sourcesByDocumentId,
     hardenChatAssetUrl: input.hardenChatAssetUrl,
   })
-  if (sourceAssetUrl) {
+  if (sourceAssetUrl || directAsset?.pageNum) {
     return {
       ...input.result,
-      pageCitationAssetUrl: sourceAssetUrl,
+      ...(sourceAssetUrl ? { pageCitationAssetUrl: sourceAssetUrl } : {}),
+      ...(directAsset?.pageNum
+        ? { pageCitationPageNumber: directAsset.pageNum }
+        : {}),
     }
   }
 

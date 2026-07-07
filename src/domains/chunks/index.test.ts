@@ -169,6 +169,42 @@ describe("toParsedChunkView", () => {
     });
   });
 
+  it("maps usable page citation assets on page chunks", () => {
+    const chunk = makeDocumentChunk({
+      id: "document_page_1",
+      chunkId: "parser_page_1",
+      chunkType: "page" as DocumentChunk["chunkType"],
+      metadata: {
+        pageAssets: [
+          {
+            pageNum: 4,
+            assetUrl: "https://assets.example/page-4.png",
+            contentType: "image/png",
+            width: 1200,
+            height: 1600,
+          },
+          {
+            pageNum: 5,
+            assetUrl: "   ",
+            contentType: "image/png",
+          },
+        ],
+      },
+    });
+
+    expect(toParsedChunkView(chunk, "manual.pdf", "doc_123")).toMatchObject({
+      pageAssets: [
+        {
+          pageNumber: 4,
+          assetUrl: "https://assets.example/page-4.png",
+          contentType: "image/png",
+          width: 1200,
+          height: 1600,
+        },
+      ],
+    });
+  });
+
   it("maps SDK-normalized page number metadata", () => {
     const chunk = makeDocumentChunk({
       metadata: {

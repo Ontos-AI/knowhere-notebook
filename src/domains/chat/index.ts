@@ -16,7 +16,6 @@ import type {
   EvidenceChunk,
   HarnessRunResult,
   OutputArtifact,
-  OutputCitation,
 } from "@/agent-harness"
 import {
   toChatCitationViews,
@@ -40,8 +39,12 @@ import {
 } from "./media-assets"
 import { enrichRetrievalResultsWithPageCitationAssetUrls } from "./page-citation-assets"
 import type { HardenableRetrievalResult } from "./media-asset-hardening"
+import { notebookKnowhereTools } from "./knowhere-tools"
 
 const DEFAULT_TOP_K = 8
+const NOTEBOOK_USE_AGENTIC_RETRIEVAL: NonNullable<
+  RetrievalQueryParams["useAgentic"]
+> = false
 const MAX_AGENTIC_TOP_K = 12
 const MAX_AGENTIC_MERGED_RESULT_COUNT = 24
 const MAX_AGENTIC_MERGED_REFERENCED_CHUNK_COUNT = 24
@@ -51,8 +54,6 @@ const KNOWHERE_RESPONSE_TEXT_LOG_LIMIT = 200
 const KNOWHERE_CHUNK_LOG_LIMIT = 100
 const KNOWHERE_RESPONSE_LOG_ITEM_LIMIT = 20
 const NO_RESULTS_ANSWER = "I couldn't find that in your sources."
-const HARNESS_VALIDATION_FAILURE_ANSWER =
-  "I couldn't safely finish that response because the agent output did not pass Notebook's validation checks. Please try again."
 const RAW_URL_PATTERN = /https?:\/\/[^\s)\]}>"']+/g
 const REDACTED_MEDIA_URL = "[media asset URL hidden]"
 const RETRIEVAL_TARGET_CONTENT_DATA_TYPES: Readonly<
@@ -214,6 +215,14 @@ export const answerQuestionWithRetrieval = (
         sources: input.sources,
         excludedSourceIds: input.excludedSourceIds,
         searchSources,
+        knowhereTools: notebookKnowhereTools.createRuntime({
+          namespace: input.namespace,
+          sources: input.sources,
+          excludedSourceIds: input.excludedSourceIds,
+          searchSources,
+          knowledge: input.knowledge,
+          remoteDocumentClient: input.remoteDocumentClient,
+        }),
         ...(input.inspectImages ? { inspectImages: input.inspectImages } : {}),
       }),
     )
@@ -222,28 +231,11 @@ export const answerQuestionWithRetrieval = (
       answerLength: generatedAnswer.manifest.text.length,
       retrievalCallCount: retrievalResponses.length,
       citationCount: generatedAnswer.manifest.citations.length,
-      harnessValidationErrorCount: generatedAnswer.trace.validationErrors.length,
-      revisionsUsed: generatedAnswer.trace.revisionsUsed,
+      finalized: generatedAnswer.trace.finalized,
     })
-    if (generatedAnswer.trace.validationErrors.length > 0) {
-      logger.warn("chat-agent: validation failed; returning safe fallback", {
-        validationErrors: generatedAnswer.trace.validationErrors,
-        revisionsUsed: generatedAnswer.trace.revisionsUsed,
-        finalized: generatedAnswer.trace.finalized,
-        intentTask: generatedAnswer.trace.intent?.task ?? null,
-        retrievalCallCount: retrievalResponses.length,
-      })
-      return {
-        answer: HARNESS_VALIDATION_FAILURE_ANSWER,
-        citations: [] as ChatCitationView[],
-        artifacts: [] as ChatArtifactView[],
-      }
-    }
 
     const rawResults = selectCitationRawResults({
       generatedAnswer,
-      retrievalResponses,
-      sources: input.sources,
     })
     if (
       rawResults.length === 0 &&
@@ -427,7 +419,7 @@ function toChatArtifactView(input: {
 }
 
 function normalizeHarnessSource(
-  source: OutputCitation["source"],
+  source: EvidenceChunk["source"],
   sources: readonly AnswerQuestionInput["sources"][number][],
 ): ChatCitationView["source"] {
   const sourceTitle = source.documentId
@@ -795,7 +787,7 @@ function buildRetrievalQueryParams(input: {
     namespace: input.namespace,
     query,
     topK: normalizeTopK(input.input.topK),
-    useAgentic: true,
+    useAgentic: NOTEBOOK_USE_AGENTIC_RETRIEVAL,
     dataType,
     ...(input.input.signalPaths && input.input.signalPaths.length > 0
       ? { signalPaths: input.input.signalPaths }
@@ -846,14 +838,12 @@ function normalizeTopK(value: number | undefined): number {
 
 /**
  * Display citations come from the agent-curated manifest (the refs it chose to
- * cite), resolved against the evidence ledger. Only when the agent cited
- * nothing do we fall back to the full set of retrieved results, so a grounded
- * answer still shows its sources instead of appearing unsupported.
+ * cite), resolved against the evidence ledger. If the manifest has no citations,
+ * only displayed artifacts produce citation chips; arbitrary retrieval results
+ * stay hidden so Notebook does not imply support from an unselected source.
  */
 function selectCitationRawResults(input: {
   readonly generatedAnswer: HarnessRunResult
-  readonly retrievalResponses: readonly RetrievalQueryResponse[]
-  readonly sources: readonly AnswerQuestionInput["sources"][number][]
 }): RetrievalResult[] {
   const curated = mapManifestCitationsToResults(input.generatedAnswer)
   if (curated.length > 0) return curated
@@ -861,7 +851,7 @@ function selectCitationRawResults(input: {
     input.generatedAnswer,
   )
   if (displayedArtifacts.length > 0) return displayedArtifacts
-  return collectRetrievalResults(input.retrievalResponses, input.sources)
+  return []
 }
 
 function mapManifestCitationsToResults(
@@ -994,49 +984,6 @@ function toRetrievalResultFromEvidenceChunk(
 
 function hasDisplayedManifestArtifacts(result: HarnessRunResult): boolean {
   return result.manifest.artifacts.some((artifact) => artifact.display)
-}
-
-function collectRetrievalResults(
-  responses: readonly RetrievalQueryResponse[],
-  sources: readonly AnswerQuestionInput["sources"][number][],
-): RetrievalResult[] {
-  const results: RetrievalResult[] = []
-  const seenKeys = new Set<string>()
-  const sourceTitlesByDocumentId = new Map(
-    sources.flatMap((source): readonly [string, string][] =>
-      source.knowhereDocumentId ? [[source.knowhereDocumentId, source.title]] : [],
-    ),
-  )
-
-  for (const response of responses) {
-    for (const result of [
-      ...response.results,
-      ...response.referencedChunks.map((chunk): RetrievalResult => ({
-        chunkId: chunk.chunkId,
-        content: "",
-        chunkType: chunk.chunkType,
-        score: null,
-        ...(chunk.assetUrl ? { assetUrl: chunk.assetUrl } : {}),
-        ...(chunk.sourceChunkPath ? { sourceChunkPath: chunk.sourceChunkPath } : {}),
-        ...(chunk.filePath ? { filePath: chunk.filePath } : {}),
-        ...(chunk.metadata ? { metadata: chunk.metadata } : {}),
-        source: {
-          documentId: chunk.documentId,
-          sourceFileName: sourceTitlesByDocumentId.get(chunk.documentId),
-          sectionPath: chunk.sectionPath,
-        },
-      })),
-    ]) {
-      const key = getRetrievalResultKey(result)
-      if (seenKeys.has(key)) continue
-
-      seenKeys.add(key)
-      results.push(result)
-      if (results.length >= MAX_CITATION_RESULTS) return results
-    }
-  }
-
-  return results
 }
 
 function formatRetrievalEvidenceText(

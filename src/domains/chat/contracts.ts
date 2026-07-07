@@ -1,16 +1,22 @@
 import type {
+  Knowledge,
   RetrievalQueryParams,
   RetrievalQueryResponse,
 } from "@ontos-ai/knowhere-sdk"
 
 import type { Source } from "@/infrastructure/db/schema"
-import type { HarnessRunResult, InspectImages } from "@/agent-harness"
+import type {
+  HarnessRunResult,
+  InspectImages,
+  KnowhereToolRuntime,
+} from "@/agent-harness"
 import type {
   ChatArtifactView,
   ChatCitationView,
 } from "@/domains/chat/types"
 import type { HardenMediaAssetUrls } from "./media-asset-hardening"
 import type { HardenChatAssetUrl } from "./media-assets"
+import type { NotebookKnowhereRemoteDocumentClient } from "./knowhere-tools"
 
 export type RetrievalClient = {
   query(params: RetrievalQueryParams): Promise<RetrievalQueryResponse>
@@ -57,6 +63,7 @@ export type GenerateAnswer = (input: {
   sources: readonly Source[]
   excludedSourceIds: readonly string[]
   searchSources: SearchSources
+  knowhereTools?: KnowhereToolRuntime
   inspectImages?: InspectImages
 }) => Promise<HarnessRunResult>
 
@@ -67,6 +74,8 @@ export type AnswerQuestionInput = {
   sources: readonly Source[]
   excludedSourceIds: readonly string[]
   retrieval: RetrievalClient
+  knowledge?: Knowledge
+  remoteDocumentClient?: NotebookKnowhereRemoteDocumentClient
   generateAnswer: GenerateAnswer
   hardenChatAssetUrl?: HardenChatAssetUrl
   hardenMediaAssetUrls?: HardenMediaAssetUrls

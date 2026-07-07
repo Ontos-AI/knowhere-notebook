@@ -87,6 +87,27 @@ describe("SourceRow", () => {
     );
   });
 
+  it("labels page-asset documents with page counts", () => {
+    render(
+      React.createElement(SourceRow, {
+        isArchiving: false,
+        isSelected: false,
+        onSelect: vi.fn(),
+        source: {
+          id: "source_1",
+          mimeType: "application/pdf",
+          title: "scan.pdf",
+          status: "ready",
+          chunkCount: 4,
+          documentPresentation: { kind: "page-assets", pageCount: 4 },
+        },
+      }),
+    );
+
+    expect(screen.getByText("Processed · 4 pages")).toBeTruthy();
+    expect(screen.queryByText("Processed · 4 chunks")).toBeNull();
+  });
+
   it("shows source archive loading locally", () => {
     render(
       React.createElement(SourceRow, {

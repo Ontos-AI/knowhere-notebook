@@ -4,7 +4,10 @@ import type {
   ChunkPageParams,
 } from "@/domains/chunks"
 import type { ParsedChunkView } from "@/domains/chunks/types"
-import type { SourceStatus, SourceView } from "@/domains/sources/types"
+import type {
+  SourceStatus,
+  SourceView,
+} from "@/domains/sources/types"
 import type { AuthUser } from "@/infrastructure/auth"
 import type { Source, Workspace } from "@/infrastructure/db/schema"
 import type {
@@ -13,7 +16,10 @@ import type {
 } from "@/integrations/knowhere-demo"
 import type { RouteResult } from "@/lib/route-result"
 import type { SourceBlobUploadInput } from "./blob-upload"
-import type { sourceViewOptionsBySourceId } from "./counts"
+import type {
+  sourceViewOptionsBySourceId,
+  SourceViewOptionsLoadOptions,
+} from "./counts"
 import type { UploadKnowhereClient } from "./upload"
 
 type SourceRouteKnowhereClient = UploadKnowhereClient &
@@ -102,6 +108,17 @@ type SourceChunksBody =
       readonly chunks: readonly ParsedChunkView[]
     }
   | ChunkPage
+  | {
+      readonly chunks: readonly []
+      readonly pagination?: {
+        readonly page: number
+        readonly pageSize: number
+        readonly total: 0
+        readonly totalPages: 0
+      }
+      readonly message: string
+      readonly isUnavailable: true
+    }
   | {
       readonly message: string
     }
@@ -226,6 +243,7 @@ type SourceRouteServiceDependencies = {
   readonly getSourceViewOptionsBySourceId: (
     sources: readonly Source[],
     client: SourceRouteKnowhereClient,
+    options?: SourceViewOptionsLoadOptions,
   ) => ReturnType<typeof sourceViewOptionsBySourceId>
   readonly makeKnowhereClient: (apiKey: string) => SourceRouteKnowhereClient
   readonly listSourcesForWorkspace: (workspaceId: string) => Promise<Source[]>

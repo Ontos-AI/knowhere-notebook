@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef } from "react"
+import { useMemo } from "react"
 import useSWRInfinite from "swr/infinite"
 
 import { workspaceClient } from "@/domains/workspace/client"
@@ -17,7 +17,6 @@ type WorkspaceSelectedChunksInput = {
   readonly selectedSourceId: string | null
   readonly sources: readonly SourceView[]
   readonly prefetchedChunksBySourceId: Readonly<Record<string, ParsedChunkView[]>>
-  readonly onRemoteSourceChunksLoaded?: (sourceId: string) => void
 }
 
 type WorkspaceSelectedChunks = {
@@ -34,10 +33,11 @@ export function useWorkspaceSelectedChunks({
   selectedSourceId,
   sources,
   prefetchedChunksBySourceId,
-  onRemoteSourceChunksLoaded,
 }: WorkspaceSelectedChunksInput): WorkspaceSelectedChunks {
-  const selectedSource = sources.find((source) => source.id === selectedSourceId)
-  const remoteSourceRefreshRequestedIdsRef = useRef<Set<string>>(new Set())
+  const rawSelectedSource = sources.find(
+    (source) => source.id === selectedSourceId,
+  )
+  const selectedSource = rawSelectedSource
   const prefetchedSelectedChunks = selectedSourceId
     ? prefetchedChunksBySourceId[selectedSourceId]
     : undefined
@@ -66,6 +66,8 @@ export function useWorkspaceSelectedChunks({
     },
   )
   const selectedChunksMessage = getSelectedChunksMessage(selectedChunkPages)
+  const hasProcessingSelectedChunkPage =
+    hasProcessingChunkPage(selectedChunkPages)
   const pagedSelectedChunks = useMemo(
     () =>
       resolveChunkConnectionTargets(
@@ -83,9 +85,17 @@ export function useWorkspaceSelectedChunks({
         : undefined,
     [pagedSelectedChunks, prefetchedSelectedChunks],
   )
-  const selectedChunks = selectedSourceId
-    ? (resolvedPrefetchedChunks ?? pagedSelectedChunks)
-    : []
+  const selectedChunks = useMemo(
+    () =>
+      selectedSourceId
+        ? (resolvedPrefetchedChunks ?? pagedSelectedChunks)
+        : [],
+    [pagedSelectedChunks, resolvedPrefetchedChunks, selectedSourceId],
+  )
+  const resolvedSelectedSource = useMemo(
+    () => getResolvedSelectedSource(selectedSource, selectedChunks),
+    [selectedChunks, selectedSource],
+  )
   const hasMoreSelectedChunks =
     !prefetchedSelectedChunks &&
     workspaceClientCache.hasMoreChunkPages(selectedChunkPages)
@@ -97,21 +107,11 @@ export function useWorkspaceSelectedChunks({
         typeof selectedChunkPages[selectedChunkPageCount - 1] === "undefined",
     )
   const isSelectedChunksLoading =
-    Boolean(selectedChunksMessage) ||
+    hasProcessingSelectedChunkPage ||
     (selectedChunkSourceId !== null &&
       !prefetchedSelectedChunks &&
       !selectedChunkPages &&
       isChunksLoading)
-
-  useEffect(() => {
-    const sourceId = selectedSource?.id
-    if (!sourceId || selectedSource.kind !== "remote") return
-    if (!selectedChunkPages || selectedChunkPages.length === 0) return
-    if (remoteSourceRefreshRequestedIdsRef.current.has(sourceId)) return
-
-    remoteSourceRefreshRequestedIdsRef.current.add(sourceId)
-    onRemoteSourceChunksLoaded?.(sourceId)
-  }, [onRemoteSourceChunksLoaded, selectedChunkPages, selectedSource])
 
   function handleLoadMoreChunks(): void {
     if (!hasMoreSelectedChunks || isSelectedChunksLoadingMore) return
@@ -125,7 +125,7 @@ export function useWorkspaceSelectedChunks({
     isSelectedChunksLoadingMore,
     selectedChunksMessage,
     selectedChunks,
-    selectedSource,
+    selectedSource: resolvedSelectedSource,
   }
 }
 
@@ -135,6 +135,36 @@ function fetchChunksByKey([
   page,
 ]: SourceChunksKey): Promise<SourceChunksResponse> {
   return workspaceClient.fetchChunkPage(sourceId, page)
+}
+
+function getResolvedSelectedSource(
+  source: SourceView | undefined,
+  chunks: readonly ParsedChunkView[],
+): SourceView | undefined {
+  if (!source) return undefined
+  if (source.documentPresentation?.kind === "page-assets") return source
+
+  const pageCount = getLoadedPageAssetCount(chunks)
+  if (!pageCount) return source
+
+  return {
+    ...source,
+    documentPresentation: {
+      kind: "page-assets",
+      pageCount,
+    },
+  }
+}
+
+function getLoadedPageAssetCount(
+  chunks: readonly ParsedChunkView[],
+): number | null {
+  const pageNumbers = chunks.flatMap((chunk) =>
+    (chunk.pageAssets ?? []).map((pageAsset) => pageAsset.pageNumber),
+  )
+  if (pageNumbers.length === 0) return null
+
+  return Math.max(...pageNumbers)
 }
 
 function hasProcessingChunkPage(
@@ -148,7 +178,8 @@ function getSelectedChunksMessage(
 ): string | null {
   const page = pages?.find(
     (candidate) =>
-      candidate.isProcessing && typeof candidate.message === "string",
+      (candidate.isProcessing || candidate.isUnavailable) &&
+      typeof candidate.message === "string",
   )
   return page?.message ?? null
 }

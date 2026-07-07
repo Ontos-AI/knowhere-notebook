@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest"
-import type { RetrievalQueryResponse } from "@ontos-ai/knowhere-sdk"
+import type {
+  KnowledgeGrepResponse,
+  KnowledgeReadResponse,
+  RetrievalQueryResponse,
+} from "@ontos-ai/knowhere-sdk"
 
 import { createEvidenceLedger } from "./ledger"
 
@@ -62,6 +66,50 @@ describe("createEvidenceLedger", () => {
         revisionKey: "job_1",
       }),
     )
+  })
+
+  it("adds read chunk refs and page image assets", () => {
+    const ledger = createEvidenceLedger()
+
+    const snapshot = ledger.addReadChunksResponse(makeReadResponse())
+
+    expect(snapshot.chunks).toEqual([
+      expect.objectContaining({
+        ref: "read1:chunk:1",
+        kind: "read_chunk",
+        content: "Full page content.",
+        contentPreview: "Full page content.",
+        assetRef: "asset:read1:chunk:1",
+      }),
+    ])
+    expect(snapshot.assets).toEqual([
+      expect.objectContaining({
+        ref: "asset:read1:chunk:1",
+        chunkRef: "read1:chunk:1",
+        type: "image",
+        sourcePath: "page_citation_assets/page-1.png",
+      }),
+    ])
+  })
+
+  it("adds grep match refs", () => {
+    const ledger = createEvidenceLedger()
+
+    const snapshot = ledger.addGrepChunksResponse(makeGrepResponse())
+
+    expect(snapshot.chunks).toEqual([
+      expect.objectContaining({
+        ref: "grep1:match:1",
+        kind: "grep_match",
+        chunkId: "chunk_3",
+        content: "matched penalty snippet",
+        source: expect.objectContaining({
+          documentId: "doc_contract",
+          sourceFileName: "contract.pdf",
+          sectionPath: "Root / Penalties",
+        }),
+      }),
+    ])
   })
 })
 
@@ -133,5 +181,79 @@ function makePageAssetUrlRetrievalResponse(): RetrievalQueryResponse {
           "https://knowhere-storage.example/results/job_1/page_citation_assets/page-8.png?AWSAccessKeyId=test",
       },
     ],
+  }
+}
+
+function makeReadResponse(): KnowledgeReadResponse {
+  return {
+    document: {
+      localDocumentId: "doc_contract",
+      documentId: "doc_contract",
+      jobId: "job_contract",
+      namespace: "notebook",
+      sourceFileName: "contract.pdf",
+      chunkCount: 1,
+      typeCounts: { text: 0, image: 0, table: 0, page: 1 },
+      resultDirectoryPath: "parsed-storage:doc_contract/job_contract",
+      createdAt: new Date("2026-01-01T00:00:00Z"),
+      updatedAt: new Date("2026-01-01T00:00:00Z"),
+    },
+    chunks: [
+      {
+        position: 1,
+        chunkId: "chunk_page_1",
+        chunkType: "page",
+        content: "Full page content.",
+        readableContent: "Full page content.",
+        sectionPath: "Root / Page 1",
+        sourceChunkPath: "pages/page-1.md",
+        filePath: "pages/page-1.png",
+        assetUrl: "https://assets.example/page-1.png",
+        pageNumbers: [1],
+        metadata: {
+          pageNums: [1],
+          pageAssets: [
+            {
+              pageNum: 1,
+              artifactRef: "page_citation_assets/page-1.png",
+              assetUrl: "https://assets.example/page-1.png",
+              contentType: "image/png",
+            },
+          ],
+        },
+      },
+    ],
+  }
+}
+
+function makeGrepResponse(): KnowledgeGrepResponse {
+  return {
+    document: {
+      localDocumentId: "doc_contract",
+      documentId: "doc_contract",
+      jobId: "job_contract",
+      namespace: "notebook",
+      sourceFileName: "contract.pdf",
+      chunkCount: 4,
+      typeCounts: { text: 4, image: 0, table: 0, page: 0 },
+      resultDirectoryPath: "parsed-storage:doc_contract/job_contract",
+      createdAt: new Date("2026-01-01T00:00:00Z"),
+      updatedAt: new Date("2026-01-01T00:00:00Z"),
+    },
+    matches: [
+      {
+        position: 3,
+        chunkId: "chunk_3",
+        chunkType: "text",
+        sectionPath: "Root / Penalties",
+        sourceChunkPath: "chunks/chunk-3.md",
+        filePath: "contract.pdf",
+        startOffset: 10,
+        endOffset: 17,
+        snippet: "matched penalty snippet",
+      },
+    ],
+    scannedChunks: 4,
+    truncated: false,
   }
 }

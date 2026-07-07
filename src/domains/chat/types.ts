@@ -7,6 +7,7 @@ export type RetrievalResultView = {
   readonly score: number | null
   readonly assetUrl?: string
   readonly pageCitationAssetUrl?: string
+  readonly pageCitationPageNumber?: number
   readonly source: {
     readonly documentId?: string | null
     readonly sourceFileName?: string | null

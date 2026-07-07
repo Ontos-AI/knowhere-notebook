@@ -1,7 +1,15 @@
 "use client";
 
-import { useMemo, type MouseEvent, type ReactNode } from "react";
-import { FileSearch, FileText, ImageIcon, Table2, Tags, TextQuote } from "lucide-react";
+import { useMemo, useState, type MouseEvent, type ReactNode } from "react";
+import {
+  FileSearch,
+  FileText,
+  ImageIcon,
+  ImageOff,
+  Table2,
+  Tags,
+  TextQuote,
+} from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -185,7 +193,9 @@ function ChunkSourcePanel({
             ) : null}
           </div>
         </div>
-        {onChunkClick && firstPageNumber !== null ? (
+        {onChunkClick &&
+        firstPageNumber !== null &&
+        !hasPageCitationAssets(chunk) ? (
           <OpenOriginalButton
             chunk={chunk}
             firstPageNumber={firstPageNumber}
@@ -386,6 +396,8 @@ function PageChunkCard({
   readonly isOriginalPreviewAvailable: boolean;
   readonly onChunkClick?: (chunk: ParsedChunkView) => void;
 }): ReactNode {
+  const pageAssets = chunk.pageAssets ?? [];
+
   return (
     <ChunkCardFrame
       chunk={chunk}
@@ -393,13 +405,94 @@ function PageChunkCard({
       isOriginalPreviewAvailable={isOriginalPreviewAvailable}
       onChunkClick={onChunkClick}
     >
-      <ChunkContentPanel chunk={chunk} label="Page summary">
-        <p className="whitespace-pre-wrap break-words text-[13px] leading-relaxed text-foreground sm:text-sm">
-          {chunk.readableContent ?? chunk.content}
-        </p>
-      </ChunkContentPanel>
+      {pageAssets.length > 0 ? (
+        <ChunkContentPanel
+          chunk={chunk}
+          label={pageAssets.length === 1 ? "Page image" : "Page images"}
+        >
+          <PageCitationAssets assets={pageAssets} />
+        </ChunkContentPanel>
+      ) : (
+        <ChunkContentPanel chunk={chunk} label="Page summary">
+          <p className="whitespace-pre-wrap break-words text-[13px] leading-relaxed text-foreground sm:text-sm">
+            {chunk.readableContent ?? chunk.content}
+          </p>
+        </ChunkContentPanel>
+      )}
       <ChunkKeywords chunk={chunk} />
     </ChunkCardFrame>
+  );
+}
+
+function PageCitationAssets({
+  assets,
+}: {
+  readonly assets: NonNullable<ParsedChunkView["pageAssets"]>;
+}): ReactNode {
+  return (
+    <div className="flex flex-col gap-3">
+      {assets.map((asset) => (
+        <PageCitationAssetImage key={asset.pageNumber} asset={asset} />
+      ))}
+    </div>
+  );
+}
+
+function PageCitationAssetImage({
+  asset,
+}: {
+  readonly asset: NonNullable<ParsedChunkView["pageAssets"]>[number];
+}): ReactNode {
+  const [failedAssetUrl, setFailedAssetUrl] = useState<string | null>(null);
+  const imageAssetUrl = getInlineImageAssetUrl(asset.assetUrl);
+  const hasImageError = failedAssetUrl === imageAssetUrl;
+  const aspectRatio =
+    asset.width && asset.height ? `${asset.width} / ${asset.height}` : undefined;
+
+  return (
+    <figure className="overflow-hidden rounded-lg border border-border bg-muted/30">
+      <figcaption className="flex items-center justify-between gap-3 border-b border-border/70 px-3 py-2 text-xs font-semibold text-muted-foreground">
+        <span>Page {asset.pageNumber}</span>
+        <span>{asset.contentType}</span>
+      </figcaption>
+      <div
+        className="overflow-hidden bg-muted/20"
+        style={aspectRatio ? { aspectRatio } : undefined}
+      >
+        {hasImageError ? (
+          <PageCitationAssetUnavailable pageNumber={asset.pageNumber} />
+        ) : (
+          // eslint-disable-next-line @next/next/no-img-element -- Page assets can be short-lived Knowhere URLs outside Next image optimization.
+          <img
+            src={imageAssetUrl}
+            alt={`Page ${asset.pageNumber}`}
+            className="max-h-[680px] w-full object-contain"
+            loading="lazy"
+            onError={() => setFailedAssetUrl(imageAssetUrl)}
+          />
+        )}
+      </div>
+    </figure>
+  );
+}
+
+function PageCitationAssetUnavailable({
+  pageNumber,
+}: {
+  readonly pageNumber: number;
+}): ReactNode {
+  return (
+    <div
+      data-testid={`page-asset-image-unavailable-${pageNumber}`}
+      className="flex min-h-[220px] w-full flex-col items-center justify-center gap-3 px-6 py-10 text-center"
+    >
+      <div className="flex size-11 items-center justify-center rounded-full bg-background/80 text-muted-foreground">
+        <ImageOff className="size-5" />
+      </div>
+      <p className="text-sm font-medium text-muted-foreground">
+        Page image unavailable.
+      </p>
+    </div>
   );
 }
 
@@ -417,6 +510,9 @@ function ImageChunkCard({
   readonly sourceOriginalFile: SourceOriginalFileView | null;
 }): ReactNode {
   const imageAssetUrl = getImageChunkAssetUrl(chunk, sourceOriginalFile);
+  const inlineImageAssetUrl = imageAssetUrl
+    ? getInlineImageAssetUrl(imageAssetUrl)
+    : null;
 
   return (
     <ChunkCardFrame
@@ -427,11 +523,11 @@ function ImageChunkCard({
     >
       <ChunkSummaryPanel chunk={chunk} />
       <ChunkContentPanel chunk={chunk}>
-        {imageAssetUrl ? (
+        {inlineImageAssetUrl ? (
           <figure className="overflow-hidden rounded-lg border border-border bg-muted/30">
             {/* eslint-disable-next-line @next/next/no-img-element -- Parsed artifact dimensions are not known before render. */}
             <img
-              src={imageAssetUrl}
+              src={inlineImageAssetUrl}
               alt={chunk.summary ?? "Image chunk"}
               className="max-h-[520px] w-full object-contain"
             />
@@ -465,6 +561,33 @@ function getImageChunkAssetUrl(
   if (!sourceOriginalFile?.mimeType.startsWith("image/")) return null;
 
   return sourceOriginalFile.url;
+}
+
+function getInlineImageAssetUrl(assetUrl: string): string {
+  if (!isNotebookBlobAssetUrl(assetUrl)) return assetUrl;
+
+  return `/api/parsed-assets/inline?url=${encodeURIComponent(assetUrl)}`;
+}
+
+function isNotebookBlobAssetUrl(assetUrl: string): boolean {
+  try {
+    const url = new URL(assetUrl);
+    if (!url.hostname.toLowerCase().endsWith(".blob.vercel-storage.com")) {
+      return false;
+    }
+
+    const pathname = decodeURIComponent(url.pathname).toLowerCase();
+    return (
+      pathname.includes("/parsed-documents/") ||
+      pathname.includes("/parsed-result/")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function hasPageCitationAssets(chunk: ParsedChunkView): boolean {
+  return (chunk.pageAssets?.length ?? 0) > 0;
 }
 
 function renderTextChunkContent(

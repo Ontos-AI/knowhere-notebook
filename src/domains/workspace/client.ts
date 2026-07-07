@@ -4,7 +4,9 @@ import type {
   ChatThreadView,
 } from "@/domains/chat/types"
 import type { ParsedChunkView } from "@/domains/chunks/types"
-import type { SourceView } from "@/domains/sources/types"
+import type {
+  SourceView,
+} from "@/domains/sources/types"
 import { workspaceRouteClient } from "./route-client"
 
 const workspaceClientKeys = {
@@ -25,6 +27,7 @@ const workspaceClientConfig = {
 type SourceChunksResponse = {
   chunks?: ParsedChunkView[]
   isProcessing?: boolean
+  isUnavailable?: boolean
   message?: string
   pagination?: {
     page: number
@@ -131,7 +134,10 @@ async function fetchChunkPage(
   return {
     chunks: Array.isArray(body.chunks) ? body.chunks : [],
     ...(typeof body.message === "string" ? { message: body.message } : {}),
-    ...(typeof body.message === "string" ? { isProcessing: true } : {}),
+    ...(body.isUnavailable === true ? { isUnavailable: true } : {}),
+    ...(typeof body.message === "string" && body.isUnavailable !== true
+      ? { isProcessing: true }
+      : {}),
     pagination: body.pagination,
   }
 }

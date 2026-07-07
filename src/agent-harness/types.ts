@@ -1,4 +1,10 @@
 import type {
+  KnowledgeDocumentReference,
+  KnowledgeGrepParams,
+  KnowledgeGrepResponse,
+  KnowledgeOutline,
+  KnowledgeReadParams,
+  KnowledgeReadResponse,
   RetrievalQueryParams,
   RetrievalQueryResponse,
 } from "@ontos-ai/knowhere-sdk"
@@ -77,23 +83,57 @@ export type AgentTurnInput = {
   }
 }
 
-export type HarnessRetrievalRequest = Pick<
+export type KnowhereSearchTargetContent =
+  | "all"
+  | "text"
+  | "image"
+  | "table"
+  | "text_image"
+  | "text_table"
+
+export type KnowhereSearchRequest = Pick<
   RetrievalQueryParams,
   "query" | "topK" | "signalPaths" | "filterMode" | "threshold"
 > & {
-  readonly modalities: readonly TargetModality[]
+  readonly targetContent?: KnowhereSearchTargetContent
   readonly purpose?: string
 }
 
-export type RetrievalCapability = {
-  readonly query: (
-    input: HarnessRetrievalRequest,
+export type KnowhereDocumentSummary = {
+  readonly documentId?: string
+  readonly localDocumentId?: string
+  readonly revisionKey?: string
+  readonly namespace?: string
+  readonly sourceFileName: string
+  readonly title?: string
+  readonly status?: string
+  readonly chunkCount?: number
+  readonly typeCounts?: Readonly<Record<string, number>>
+}
+
+export type KnowhereListDocumentsResponse = {
+  readonly documents: readonly KnowhereDocumentSummary[]
+}
+
+export type KnowhereToolRuntime = {
+  readonly search: (
+    input: KnowhereSearchRequest,
   ) => Promise<RetrievalQueryResponse>
+  readonly listDocuments: () => Promise<KnowhereListDocumentsResponse>
+  readonly getDocumentOutline: (
+    input: KnowledgeDocumentReference,
+  ) => Promise<KnowledgeOutline>
+  readonly readChunks: (
+    input: KnowledgeReadParams,
+  ) => Promise<KnowledgeReadResponse>
+  readonly grepChunks: (
+    input: KnowledgeGrepParams,
+  ) => Promise<KnowledgeGrepResponse>
 }
 
 export type EvidenceChunk = {
   readonly ref: string
-  readonly kind: "result" | "referenced_chunk"
+  readonly kind: "result" | "referenced_chunk" | "read_chunk" | "grep_match"
   readonly chunkId?: string
   readonly content: string
   readonly contentPreview: string
@@ -169,8 +209,8 @@ export type EvidenceLedgerSnapshot = {
 
 export type OutputCitation = {
   readonly ref: string
-  readonly label: string
-  readonly source: EvidenceChunk["source"]
+  readonly label?: string
+  readonly source?: EvidenceChunk["source"]
 }
 
 export type OutputArtifact = {

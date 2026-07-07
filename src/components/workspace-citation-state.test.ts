@@ -91,6 +91,44 @@ describe("workspaceCitationState", () => {
     ).toBeNull()
   })
 
+  it("focuses loaded page chunks from page citation metadata", () => {
+    const citation: ChatCitationView = {
+      chunkType: "page",
+      score: 0.93,
+      pageCitationPageNumber: 4,
+      pageCitationAssetUrl: "https://assets.example/page-4.png",
+      source: {
+        documentId: "document_1",
+        sectionPath: "Page 4",
+      },
+    }
+
+    expect(
+      workspaceCitationState.getLoadedCitationChunkId({
+        citation,
+        selectedSourceId: "source_1",
+        sourceId: "source_1",
+        selectedChunks: [
+          {
+            chunkId: "page_4",
+            documentId: "document_1",
+            type: "page",
+            content: "Page 4 summary",
+            sourceTitle: "Contract.pdf",
+            pageAssets: [
+              {
+                pageNumber: 4,
+                assetUrl: "https://assets.example/page-4.png",
+                contentType: "image/png",
+              },
+            ],
+          },
+        ],
+        hasMoreSelectedChunks: true,
+      }),
+    ).toBe("page_4")
+  })
+
   describe("hasExactCitationTargetHint", () => {
     it("returns true when the citation has content text", () => {
       const citation: ChatCitationView = {
@@ -112,6 +150,22 @@ describe("workspaceCitationState", () => {
         source: {
           documentId: "document_1",
           sectionPath: "Revenue",
+        },
+      }
+
+      expect(
+        workspaceCitationState.hasExactCitationTargetHint(citation),
+      ).toBe(true)
+    })
+
+    it("returns true when the citation has page asset metadata", () => {
+      const citation: ChatCitationView = {
+        chunkType: "page",
+        score: 0.5,
+        pageCitationPageNumber: 4,
+        source: {
+          documentId: "document_1",
+          sectionPath: "Root",
         },
       }
 

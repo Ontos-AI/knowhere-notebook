@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -79,6 +79,105 @@ describe("ParsedChunkCard", () => {
     expect(
       screen.getByRole("button", { name: "Open page 4 in original file" }),
     ).toBeTruthy();
+  });
+
+  it("renders page citation assets instead of page summary content", () => {
+    render(
+      React.createElement(ParsedChunkCard, {
+        chunk: {
+          chunkId: "page_4",
+          type: "page",
+          content: "The summary should not be primary when an image exists.",
+          readableContent: "The summary should not be primary when an image exists.",
+          sourceTitle: "manual.pdf",
+          pageNums: [4],
+          pageAssets: [
+            {
+              pageNumber: 4,
+              assetUrl: "https://assets.example/page-4.png",
+              contentType: "image/png",
+              width: 1200,
+              height: 1600,
+            },
+          ],
+        },
+        isFocused: false,
+        isOriginalPreviewAvailable: true,
+        onChunkClick: vi.fn(),
+        onReferenceClick: vi.fn(),
+      }),
+    );
+
+    const pageImage = screen.getByRole("img", { name: "Page 4" });
+
+    expect(pageImage.getAttribute("src")).toBe(
+      "https://assets.example/page-4.png",
+    );
+    expect(screen.getByText("image/png")).toBeTruthy();
+    expect(screen.queryByText(/summary should not be primary/i)).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /original file/i }),
+    ).toBeNull();
+
+    fireEvent.error(pageImage);
+    expect(screen.getByTestId("page-asset-image-unavailable-4")).toBeTruthy();
+  });
+
+  it("routes Notebook Blob page assets through the inline image endpoint", () => {
+    const assetUrl =
+      "https://store.public.blob.vercel-storage.com/workspaces/workspace_1/parsed-documents/doc_1/rev_1/page_citation_assets/page-4.png";
+
+    render(
+      React.createElement(ParsedChunkCard, {
+        chunk: {
+          chunkId: "page_4",
+          type: "page",
+          content: "The summary should not be primary when an image exists.",
+          readableContent: "The summary should not be primary when an image exists.",
+          sourceTitle: "manual.pdf",
+          pageNums: [4],
+          pageAssets: [
+            {
+              pageNumber: 4,
+              assetUrl,
+              contentType: "image/png",
+            },
+          ],
+        },
+        isFocused: false,
+        onReferenceClick: vi.fn(),
+      }),
+    );
+
+    const pageImage = screen.getByRole("img", { name: "Page 4" });
+    expect(pageImage.getAttribute("src")).toBe(
+      `/api/parsed-assets/inline?url=${encodeURIComponent(assetUrl)}`,
+    );
+  });
+
+  it("routes Notebook Blob image chunks through the inline image endpoint", () => {
+    const assetUrl =
+      "https://store.public.blob.vercel-storage.com/workspaces/workspace_1/sources/source_1/parsed-result/images/image-1.jpg";
+
+    render(
+      React.createElement(ParsedChunkCard, {
+        chunk: {
+          chunkId: "image_1",
+          type: "image",
+          content: "",
+          sourceTitle: "manual.pdf",
+          assetUrl,
+          summary: "A scanned diagram",
+        },
+        isFocused: false,
+        onReferenceClick: vi.fn(),
+      }),
+    );
+
+    const image = screen.getByRole("img", { name: "A scanned diagram" });
+    expect(image.getAttribute("src")).toBe(
+      `/api/parsed-assets/inline?url=${encodeURIComponent(assetUrl)}`,
+    );
   });
 
   it("routes resolved artifact reference clicks to the target chunk", async () => {

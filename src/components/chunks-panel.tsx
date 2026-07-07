@@ -42,16 +42,22 @@ import { MAX_UPLOAD_MB } from "@/domains/sources/validation";
 import { useSourceOriginalPreviewWarmup } from "@/components/source-original-preview-warmup";
 import { sourceOriginalPreviewModel } from "@/components/source-original-preview-model";
 import type { ParsedChunkView } from "@/domains/chunks/types";
-import type { SourceOriginalFileView, SourceView } from "@/domains/sources/types";
+import type {
+  SourceOriginalFileView,
+  SourceView,
+} from "@/domains/sources/types";
 import type { AnalyticsContext } from "@/lib/posthog";
 import { cn } from "@/lib/utils";
 
 export type ChunksPanelProps = {
   chunks: ParsedChunkView[];
   selectedSource?: string | null;
+  selectedSourceView?: SourceView | null;
   selectedSourceFile?: SourceOriginalFileView | null;
   focusedChunkId?: string | null;
   focusedChunkRequestId?: number;
+  focusedPageNumber?: number | null;
+  focusedPageRequestId?: number;
   citationListViewRequestId?: number;
   isLoading?: boolean;
   isLoadingMore?: boolean;
@@ -77,6 +83,7 @@ type ChunkDisplayModeState = {
 export function ChunksPanel({
   chunks = [],
   selectedSource = null,
+  selectedSourceView = null,
   selectedSourceFile = null,
   focusedChunkId = null,
   focusedChunkRequestId = 0,
@@ -93,8 +100,23 @@ export function ChunksPanel({
   analyticsContext,
   sourceCountSnapshot = 0,
 }: Partial<ChunksPanelProps> = {}) {
+  const hasPageAssetChunks = chunks.some(
+    (chunk) => (chunk.pageAssets?.length ?? 0) > 0,
+  );
+  const isPageAssetSource =
+    selectedSourceView?.documentPresentation?.kind === "page-assets" ||
+    hasPageAssetChunks;
+  const displayChunks = useMemo(
+    () =>
+      isPageAssetSource
+        ? chunksPanelState.getPageAssetChunksWithoutDuplicatePages(chunks)
+        : chunks,
+    [chunks, isPageAssetSource],
+  );
+  const effectiveVisibleView = isPageAssetSource ? "parsed" : undefined;
   const originalPreviewCacheKey = selectedSourceFile?.url ?? null;
   const isOriginalPreviewAvailable =
+    !isPageAssetSource &&
     sourceOriginalPreviewModel.canPreviewOriginalFile(
       selectedSource,
       selectedSourceFile,
@@ -129,7 +151,7 @@ export function ChunksPanel({
     visibleChunks,
     visibleView,
   } = useChunksPanelWorkflow({
-    chunks,
+    chunks: displayChunks,
     selectedSource,
     selectedSourceFile,
     focusedChunkId,
@@ -139,6 +161,7 @@ export function ChunksPanel({
     isLoadingMore,
     onLoadMore,
   });
+  const activeVisibleView = effectiveVisibleView ?? visibleView;
 
   useSourceOriginalPreviewWarmup({
     sourceTitle: selectedSource,
@@ -240,14 +263,21 @@ export function ChunksPanel({
       citationListViewRequestId
       ? "list"
       : chunkDisplayModeState.mode;
-  const headerTitle = focusedChunkId ? "Referenced Chunks" : "Parsed Chunks";
+  const headerTitle = activeVisibleView === "original"
+    ? "Original File"
+    : focusedChunkId
+      ? "Referenced Chunks"
+      : "Parsed Chunks";
   const shouldMountOriginalPreview =
-    visibleView === "original" ||
-    (originalPreviewCacheKey !== null &&
-      mountedOriginalPreviewKey === originalPreviewCacheKey);
+    !isPageAssetSource &&
+    (activeVisibleView === "original" ||
+      (originalPreviewCacheKey !== null &&
+        mountedOriginalPreviewKey === originalPreviewCacheKey));
   const isTreeModeVisible =
-    visibleView === "parsed" && chunkDisplayMode === "tree";
-  const headerSubtitle = visibleView === "original" ? (
+    !isPageAssetSource &&
+    activeVisibleView === "parsed" &&
+    chunkDisplayMode === "tree";
+  const headerSubtitle = activeVisibleView === "original" ? (
     selectedSource ? (
       <>
         Showing the original file for{" "}
@@ -299,14 +329,16 @@ export function ChunksPanel({
       <header className="flex shrink-0 flex-col gap-3 border-b border-border/70 px-4 py-3 sm:px-6 sm:py-4 xl:flex-row xl:items-start xl:justify-between">
         <div className="min-w-0">
           <h2 className="text-sm font-bold text-foreground">
-            {visibleView === "original" ? "Original File" : headerTitle}
+            {headerTitle}
           </h2>
           <p className="mt-1 text-xs leading-5 text-muted-foreground sm:truncate">
             {headerSubtitle}
           </p>
         </div>
         <div className="flex min-w-0 shrink-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
-          {visibleView === "parsed" && chunks.length > 0 ? (
+          {!isPageAssetSource &&
+          activeVisibleView === "parsed" &&
+          displayChunks.length > 0 ? (
             <div
               role="group"
               aria-label="Chunk display"
@@ -328,19 +360,19 @@ export function ChunksPanel({
               </button>
             </div>
           ) : null}
-          {hasOriginalView ? (
+          {!isPageAssetSource && hasOriginalView ? (
             <div className="flex shrink-0 rounded-lg border border-border bg-muted/40 p-0.5">
               <button
                 type="button"
                 onClick={handleParsedViewSelected}
-                className={viewToggleClassName(visibleView === "parsed")}
+                className={viewToggleClassName(activeVisibleView === "parsed")}
               >
                 Parsed
               </button>
               <button
                 type="button"
                 onClick={handleOriginalViewSelected}
-                className={viewToggleClassName(visibleView === "original")}
+                className={viewToggleClassName(activeVisibleView === "original")}
               >
                 Original
               </button>
@@ -350,7 +382,7 @@ export function ChunksPanel({
       </header>
 
       <div className="relative min-h-0 flex-1">
-        <ViewPanel isActive={visibleView === "parsed"}>
+        <ViewPanel isActive={activeVisibleView === "parsed"}>
           <ScrollArea
             className="h-full"
             viewportRef={viewportRef}
@@ -363,7 +395,9 @@ export function ChunksPanel({
             >
               {isLoading ? (
                 <LoadingChunks message={processingMessage} />
-              ) : chunks.length === 0 ? (
+              ) : displayChunks.length === 0 && processingMessage ? (
+                <UnavailableSourceMessage message={processingMessage} />
+              ) : displayChunks.length === 0 ? (
                 selectedSource ? (
                   <EmptyChunks />
                 ) : (
@@ -377,7 +411,7 @@ export function ChunksPanel({
               ) : isTreeModeVisible ? (
                 <ChunkSectionTree
                   key={selectedSource ?? "parsed-chunks"}
-                  chunks={chunks}
+                  chunks={displayChunks}
                   focusedChunkId={activeFocusedChunkId}
                   isLoadingAllChunks={isLoadingAllChunks}
                   sourceTitle={selectedSource ?? "Parsed Chunks"}
@@ -400,7 +434,9 @@ export function ChunksPanel({
                       isOriginalPreviewAvailable={isOriginalPreviewAvailable}
                       measureElement={measureVirtualChunkElement}
                       onChunkClick={
-                        hasOriginalFile ? handleChunkSelected : undefined
+                        hasOriginalFile && !isPageAssetSource
+                          ? handleChunkSelected
+                          : undefined
                       }
                       onReferenceClick={requestChunkFocus}
                       selectedSourceFile={selectedSourceFile}
@@ -415,7 +451,7 @@ export function ChunksPanel({
               )}
             </div>
           </ScrollArea>
-          {isTreeModeVisible ? (
+          {!isPageAssetSource && isTreeModeVisible ? (
             <div
               data-testid="chunk-section-tree-zoom-overlay"
               className="pointer-events-none absolute left-3 top-3 z-20 sm:left-6 sm:top-6"
@@ -435,7 +471,7 @@ export function ChunksPanel({
           ) : null}
         </ViewPanel>
         {shouldMountOriginalPreview ? (
-          <ViewPanel isActive={visibleView === "original"}>
+          <ViewPanel isActive={activeVisibleView === "original"}>
             <ScrollArea className="h-full" scrollbars="both">
               <SourceOriginalPreview
                 sourceTitle={selectedSource ?? "Original file"}
@@ -996,6 +1032,21 @@ function getChunkTypeLabel(type: ParsedChunkView["type"]): string {
 
 function formatChunkCount(chunkCount: number): string {
   return `${chunkCount} ${chunkCount === 1 ? "chunk" : "chunks"}`;
+}
+
+function UnavailableSourceMessage({
+  message,
+}: {
+  readonly message: string;
+}): ReactNode {
+  return (
+    <div className="flex min-h-[240px] w-full flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 px-6 text-center">
+      <FilePlus2 className="mb-3 size-8 text-muted-foreground" />
+      <p className="max-w-md text-sm font-medium leading-6 text-muted-foreground">
+        {message}
+      </p>
+    </div>
+  );
 }
 
 function truncateTreeLabel(value: string): string {

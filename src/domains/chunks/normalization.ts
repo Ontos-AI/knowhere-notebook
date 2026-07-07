@@ -35,6 +35,10 @@ function createParsedChunkView(
     metadata: input.metadata,
   })
   const summary = getStringMetadata(input.metadata, "summary")
+  const pageAssets =
+    type === "page"
+      ? getPageAssetViews(input.metadata["pageAssets"], assetUrl)
+      : undefined
 
   return {
     chunkId: input.chunkId,
@@ -47,6 +51,7 @@ function createParsedChunkView(
     readableContent: getReadableContent({ type, content, summary }),
     filePath,
     assetUrl,
+    pageAssets,
     summary,
     keywords: getStringArrayMetadata(input.metadata, "keywords"),
     pageNums: getPageNumbers(
@@ -56,6 +61,38 @@ function createParsedChunkView(
     connections,
     sourceTitle: input.sourceTitle,
   }
+}
+
+function getPageAssetViews(
+  value: unknown,
+  fallbackAssetUrl?: string,
+): ParsedChunkView["pageAssets"] | undefined {
+  if (!Array.isArray(value)) return undefined
+
+  const pageAssets = value.flatMap((item): NonNullable<ParsedChunkView["pageAssets"]> => {
+    if (!isRecord(item)) return []
+    const pageNumber =
+      getPositiveInteger(item["pageNum"]) ?? getPositiveInteger(item["pageNumber"])
+    const assetUrl = getString(item["assetUrl"]) ?? fallbackAssetUrl
+    const contentType = getString(item["contentType"])
+    if (!pageNumber || !assetUrl || !contentType) return []
+
+    return [
+      {
+        pageNumber,
+        assetUrl,
+        contentType,
+        ...(getPositiveNumber(item["width"]) !== undefined
+          ? { width: getPositiveNumber(item["width"]) }
+          : {}),
+        ...(getPositiveNumber(item["height"]) !== undefined
+          ? { height: getPositiveNumber(item["height"]) }
+          : {}),
+      },
+    ]
+  })
+
+  return pageAssets.length > 0 ? pageAssets : undefined
 }
 
 function resolveConnectionTargets(
@@ -279,6 +316,20 @@ function getPageNumbers(value: unknown): number[] | undefined {
   )
 
   return uniquePageNumbers.length > 0 ? uniquePageNumbers : undefined
+}
+
+function getPositiveInteger(value: unknown): number | undefined {
+  return typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value > 0
+    ? value
+    : undefined
+}
+
+function getPositiveNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? value
+    : undefined
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {

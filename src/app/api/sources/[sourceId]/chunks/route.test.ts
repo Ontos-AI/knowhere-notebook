@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   fetchDemoChunkPage: vi.fn(),
   findSourceInWorkspace: vi.fn(),
   getCurrentUser: vi.fn(),
+  listChunks: vi.fn(),
   localizeRemoteDocument: vi.fn(),
   makeKnowhereClient: vi.fn(),
   makeKnowhereClientWithParsedStorage: vi.fn(),
@@ -64,7 +65,7 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.makeKnowhereClientWithParsedStorage.mockReturnValue({
-      client: { documents: { listChunks: vi.fn() } },
+      client: { documents: { listChunks: mocks.listChunks } },
       knowledge: { readChunks: mocks.readChunks },
     })
   })
@@ -421,7 +422,7 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
     }
   })
 
-  it("loads authenticated workspace chunks through the SDK durable read", async () => {
+  it("loads authenticated workspace chunks from parsed storage without durable hardening", async () => {
     mocks.getCurrentUser.mockResolvedValue({
       id: "user_1",
       email: null,
@@ -442,7 +443,10 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
     )
     mocks.ensureApiKeyForWorkspace.mockResolvedValue("jwt_123")
     mocks.readChunks.mockResolvedValue({
-      document: { localDocumentId: "doc_1" },
+      document: {
+        localDocumentId: "doc_1",
+        resultDirectoryPath: "parsed-storage:doc_1",
+      },
       chunks: [
         {
           position: 1,
@@ -498,7 +502,114 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
       revisionKey: "job_1",
       page: 1,
       pageSize: 1,
-      assetUrlPolicy: "durable",
+    })
+    expect(mocks.listChunks).not.toHaveBeenCalled()
+  })
+
+  it("falls back to raw Knowhere asset URLs for workspace chunk display when storage misses", async () => {
+    mocks.getCurrentUser.mockResolvedValue({
+      id: "user_1",
+      email: null,
+      name: null,
+    })
+    mocks.ensureWorkspace.mockResolvedValue({
+      id: "workspace_1",
+      userId: "user_1",
+      namespace: "notebook-workspace_1",
+      createdAt: new Date("2026-05-10T00:00:00.000Z"),
+    })
+    mocks.findSourceInWorkspace.mockResolvedValue(
+      makeReadySource({
+        id: "00000000-0000-0000-0000-000000000002",
+        knowhereJobId: "job_1",
+        knowhereDocumentId: "doc_1",
+      }),
+    )
+    mocks.ensureApiKeyForWorkspace.mockResolvedValue("jwt_123")
+    mocks.readChunks.mockResolvedValue({
+      document: {
+        localDocumentId: "doc_1",
+        resultDirectoryPath: "remote:doc_1",
+      },
+      chunks: [
+        {
+          position: 1,
+          chunkId: "parser_1",
+          chunkType: "image",
+          content: "Workspace chunk",
+          readableContent: "Workspace chunk",
+          sectionPath: "Summary",
+          sourceChunkPath: "Summary",
+          filePath: "images/chart.png",
+          metadata: {},
+        },
+      ],
+      page: 1,
+      pageSize: 1,
+      totalChunks: 1,
+      totalPages: 1,
+    })
+    mocks.listChunks.mockResolvedValue({
+      chunks: [
+        {
+          id: "document_chunk_1",
+          chunkId: "parser_1",
+          chunkType: "image",
+          content: "Workspace chunk",
+          sectionId: null,
+          sectionPath: "Summary",
+          sourceChunkPath: "Summary",
+          filePath: "images/chart.png",
+          sortOrder: 0,
+          metadata: {},
+          assetUrl: "https://knowhere.example/assets/chart.png",
+        },
+      ],
+      pagination: {
+        page: 1,
+        pageSize: 1,
+        total: 1,
+        totalPages: 1,
+      },
+    })
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost:3001/api/sources/00000000-0000-0000-0000-000000000002/chunks?page=1&pageSize=1",
+      ),
+      {
+        params: Promise.resolve({
+          sourceId: "00000000-0000-0000-0000-000000000002",
+        }),
+      },
+    )
+
+    await expect(response.json()).resolves.toMatchObject({
+      chunks: [
+        {
+          parserChunkId: "parser_1",
+          documentId: "doc_1",
+          assetUrl: "https://knowhere.example/assets/chart.png",
+          sourceTitle: "notes.pdf",
+        },
+      ],
+      pagination: {
+        page: 1,
+        pageSize: 1,
+        total: 1,
+      },
+    })
+    expect(response.status).toBe(200)
+    expect(mocks.readChunks).toHaveBeenCalledWith({
+      documentId: "doc_1",
+      revisionKey: "job_1",
+      page: 1,
+      pageSize: 1,
+    })
+    expect(mocks.listChunks).toHaveBeenCalledWith("doc_1", {
+      page: 1,
+      pageSize: 1,
+      includeAssetUrls: true,
     })
   })
 
@@ -548,6 +659,56 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
     expect(mocks.readChunks).not.toHaveBeenCalled()
   })
 
+  it("marks workspace chunks unavailable when the parsed document is missing remotely", async () => {
+    const notFoundError = new Error("Document not found")
+    notFoundError.name = "NotFoundError"
+    mocks.getCurrentUser.mockResolvedValue({
+      id: "user_1",
+      email: null,
+      name: null,
+    })
+    mocks.ensureWorkspace.mockResolvedValue({
+      id: "workspace_1",
+      userId: "user_1",
+      namespace: "notebook-workspace_1",
+      createdAt: new Date("2026-05-10T00:00:00.000Z"),
+    })
+    mocks.findSourceInWorkspace.mockResolvedValue(
+      makeReadySource({
+        id: "00000000-0000-0000-0000-000000000002",
+        knowhereJobId: "job_1",
+        knowhereDocumentId: "doc_missing",
+      }),
+    )
+    mocks.ensureApiKeyForWorkspace.mockResolvedValue("jwt_123")
+    mocks.readChunks.mockRejectedValue(notFoundError)
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost:3001/api/sources/00000000-0000-0000-0000-000000000002/chunks?page=1&pageSize=1",
+      ),
+      {
+        params: Promise.resolve({
+          sourceId: "00000000-0000-0000-0000-000000000002",
+        }),
+      },
+    )
+
+    await expect(response.json()).resolves.toEqual({
+      chunks: [],
+      pagination: {
+        page: 1,
+        pageSize: 1,
+        total: 0,
+        totalPages: 0,
+      },
+      message:
+        "Source is unavailable. The parsed document is not available locally and could not be loaded from Knowhere.",
+      isUnavailable: true,
+    })
+    expect(response.status).toBe(200)
+  })
+
   it("materializes a remote source id and reads chunks through the SDK", async () => {
     const knowhereClient = {
       documents: {
@@ -591,7 +752,10 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
       }),
     )
     mocks.readChunks.mockResolvedValue({
-      document: { localDocumentId: "doc_remote" },
+      document: {
+        localDocumentId: "doc_remote",
+        resultDirectoryPath: "parsed-storage:doc_remote",
+      },
       chunks: [
         {
           position: 1,
@@ -660,7 +824,6 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
       revisionKey: "job_result_1",
       page: 1,
       pageSize: 1,
-      assetUrlPolicy: "durable",
     })
   })
 })

@@ -169,6 +169,63 @@ describe("useWorkspaceCitationFocus", () => {
     expect(result.current.pendingCitationId).toBeNull();
   });
 
+  it("focuses page-asset citations through the loaded page chunk", async () => {
+    const pageChunk: ParsedChunkView = {
+      chunkId: "page_4",
+      documentId: "document_1",
+      type: "page",
+      content: "Page 4 summary",
+      sourceTitle: "Contract.pdf",
+      pageAssets: [
+        {
+          pageNumber: 4,
+          assetUrl: "https://assets.example/page-000004.png",
+          contentType: "image/png",
+        },
+      ],
+    };
+    const fetchChunks = vi.fn(async () => [pageChunk]);
+    const selectSource = vi.fn();
+    const pageAssetSource: SourceView = {
+      ...readySource,
+      documentPresentation: { kind: "page-assets", pageCount: 8 },
+    };
+    const pageCitation: ChatCitationView = {
+      chunkType: "page",
+      score: 0.9,
+      pageCitationAssetUrl: "https://assets.example/page-000004.png",
+      pageCitationPageNumber: 4,
+      source: {
+        documentId: "document_1",
+        sourceFileName: "Contract.pdf",
+        sectionPath: "Page 4",
+      },
+    };
+
+    const { result } = renderHook(() =>
+      useWorkspaceCitationFocus({
+        fetchChunks,
+        onSelectSource: selectSource,
+        selectedSourceId: null,
+        sources: [pageAssetSource],
+      }),
+      { wrapper: createSWRWrapper },
+    );
+
+    await act(async () => {
+      await result.current.handleCitationClick(pageCitation, "message_1:0");
+    });
+
+    expect(fetchChunks).toHaveBeenCalledWith("source_1");
+    expect(selectSource).toHaveBeenCalledWith("source_1");
+    expect(result.current.focusedChunk.chunkId).toBe("page_4");
+    expect(result.current.focusedPage).toEqual({
+      pageNumber: null,
+      requestId: 0,
+    });
+    expect(result.current.citationListViewRequestId).toBe(1);
+  });
+
   it("reuses cached chunks for a different source without refetching", async () => {
     const fetchChunks = vi.fn(async () => [prefetchedChunk]);
     const selectSource = vi.fn();

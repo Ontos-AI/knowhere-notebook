@@ -114,7 +114,6 @@ function WorkspaceShellContent({
     fetchChunks: workspaceClient.fetchChunks,
     initialPrefetchedChunksBySourceId:
       initialPrefetchedChunksBySourceId ?? undefined,
-    onRemoteSourceChunksLoaded: sourceWorkflow.handleSourcesRefresh,
     onSelectSource: handleCitationSourceSelected,
     selectedSourceId: sourceWorkflow.selectedSourceId,
     sources: sourceWorkflow.sources,
@@ -223,6 +222,7 @@ function WorkspaceShellContent({
       dashboardUrl={dashboardUrl}
       citationListViewRequestId={citationFocus.citationListViewRequestId}
       focusedChunk={citationFocus.focusedChunk}
+      focusedPage={citationFocus.focusedPage}
       hasMessages={hasMessages}
       hasMoreSelectedChunks={citationFocus.hasMoreSelectedChunks}
       contentView={contentView}
@@ -241,6 +241,7 @@ function WorkspaceShellContent({
       selectedSourceFile={citationFocus.selectedSource?.originalFile ?? null}
       selectedSourceId={sourceWorkflow.selectedSourceId}
       selectedSourceTitle={selectedSourceTitle}
+      selectedSourceView={citationFocus.selectedSource}
       sourceTitlesByDocumentId={sourceWorkflow.sourceTitlesByDocumentId}
       sources={sourceWorkflow.sources}
       officialLibrarySources={officialLibrarySources ?? []}

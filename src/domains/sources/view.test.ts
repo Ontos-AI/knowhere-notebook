@@ -121,6 +121,18 @@ describe("toSourceView", () => {
     });
   });
 
+  it("includes document presentation options when provided", () => {
+    expect(
+      toSourceView(makeSource(), {
+        chunkCount: 4,
+        documentPresentation: { kind: "page-assets", pageCount: 4 },
+      }),
+    ).toMatchObject({
+      chunkCount: 4,
+      documentPresentation: { kind: "page-assets", pageCount: 4 },
+    });
+  });
+
   it("does not expose legacy demo original proxy routes", () => {
     const view = toSourceView(
       makeSource({

@@ -3,6 +3,7 @@ import { Schema } from "effect";
 import type { Source } from "@/infrastructure/db/schema";
 import type { SourceView } from "@/domains/sources/types";
 import { sourceFailureMessage } from "./failure-message";
+import type { SourceDocumentPresentation } from "./types";
 
 const SourceStatus = Schema.Literal(
   "uploading",
@@ -13,7 +14,10 @@ const SourceStatus = Schema.Literal(
 
 export function toSourceView(
   source: Source,
-  options: { chunkCount?: number } = {},
+  options: {
+    readonly chunkCount?: number
+    readonly documentPresentation?: SourceDocumentPresentation
+  } = {},
 ): SourceView {
   const originalFile = getSourceOriginalFile(source)
   const status = toSourceStatus(source.status)
@@ -34,6 +38,9 @@ export function toSourceView(
     ...(originalFile ? { originalFile } : {}),
     ...(options.chunkCount !== undefined
       ? { chunkCount: options.chunkCount }
+      : {}),
+    ...(options.documentPresentation !== undefined
+      ? { documentPresentation: options.documentPresentation }
       : {}),
   };
 }

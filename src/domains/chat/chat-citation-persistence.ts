@@ -87,6 +87,7 @@ function toCitationView(
     score: citation.score,
     assetUrl: citation.assetUrl,
     pageCitationAssetUrl: citation.pageCitationAssetUrl,
+    pageCitationPageNumber: citation.pageCitationPageNumber,
     description: "description" in citation ? citation.description : undefined,
     source: {
       documentId: citation.source.documentId,

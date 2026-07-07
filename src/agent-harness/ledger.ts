@@ -1,4 +1,8 @@
 import type {
+  KnowledgeGrepMatch,
+  KnowledgeGrepResponse,
+  KnowledgeReadChunk,
+  KnowledgeReadResponse,
   RetrievalQueryResponse,
   RetrievalResult,
 } from "@ontos-ai/knowhere-sdk"
@@ -14,6 +18,8 @@ const imageExtensions = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg"] as co
 
 type MutableLedger = {
   retrievalCount: number
+  readCount: number
+  grepCount: number
   chunks: EvidenceChunk[]
   assets: EvidenceAsset[]
   evidenceText: string[]
@@ -41,6 +47,8 @@ export type EvidenceLedger = ReturnType<typeof createEvidenceLedger>
 export function createEvidenceLedger() {
   const ledger: MutableLedger = {
     retrievalCount: 0,
+    readCount: 0,
+    grepCount: 0,
     chunks: [],
     assets: [],
     evidenceText: [],
@@ -98,6 +106,38 @@ export function createEvidenceLedger() {
             ...(chunk.jobId ? { revisionKey: chunk.jobId } : {}),
             ...(chunk.assetUrl ? { assetUrl: chunk.assetUrl } : {}),
           },
+        })
+      })
+
+      return snapshot(ledger)
+    },
+
+    addReadChunksResponse(response: KnowledgeReadResponse): EvidenceLedgerSnapshot {
+      ledger.readCount += 1
+      const readIndex = ledger.readCount
+
+      response.chunks.forEach((chunk, index) => {
+        addChunkFromReadChunk({
+          ledger,
+          response,
+          chunk,
+          ref: `read${readIndex}:chunk:${index + 1}`,
+        })
+      })
+
+      return snapshot(ledger)
+    },
+
+    addGrepChunksResponse(response: KnowledgeGrepResponse): EvidenceLedgerSnapshot {
+      ledger.grepCount += 1
+      const grepIndex = ledger.grepCount
+
+      response.matches.forEach((match, index) => {
+        addChunkFromGrepMatch({
+          ledger,
+          response,
+          match,
+          ref: `grep${grepIndex}:match:${index + 1}`,
         })
       })
 
@@ -175,6 +215,69 @@ function addChunkFromResult(input: {
         sectionPath: input.result.source.sectionPath,
       },
       ...(input.result.assetUrl ? { assetUrl: input.result.assetUrl } : {}),
+    },
+  })
+}
+
+function addChunkFromReadChunk(input: {
+  readonly ledger: MutableLedger
+  readonly response: KnowledgeReadResponse
+  readonly chunk: KnowledgeReadChunk
+  readonly ref: string
+}): void {
+  addChunk({
+    ledger: input.ledger,
+    chunk: {
+      ref: input.ref,
+      kind: "read_chunk",
+      chunkId: input.chunk.chunkId,
+      content: input.chunk.content,
+      contentPreview: buildContentPreview(input.chunk.content),
+      chunkType: input.chunk.chunkType,
+      score: null,
+      sourceChunkPath: input.chunk.sourceChunkPath,
+      filePath: input.chunk.filePath,
+      metadata: input.chunk.metadata,
+      source: {
+        documentId: input.response.document.documentId,
+        sourceFileName: input.response.document.sourceFileName,
+        sectionPath: input.chunk.sectionPath,
+      },
+      revisionKey: input.response.document.jobId,
+      ...(input.chunk.assetUrl ? { assetUrl: input.chunk.assetUrl } : {}),
+    },
+  })
+}
+
+function addChunkFromGrepMatch(input: {
+  readonly ledger: MutableLedger
+  readonly response: KnowledgeGrepResponse
+  readonly match: KnowledgeGrepMatch
+  readonly ref: string
+}): void {
+  addChunk({
+    ledger: input.ledger,
+    chunk: {
+      ref: input.ref,
+      kind: "grep_match",
+      chunkId: input.match.chunkId,
+      content: input.match.snippet,
+      contentPreview: buildContentPreview(input.match.snippet),
+      chunkType: input.match.chunkType,
+      score: null,
+      sourceChunkPath: input.match.sourceChunkPath,
+      filePath: input.match.filePath,
+      metadata: {
+        position: input.match.position,
+        startOffset: input.match.startOffset,
+        endOffset: input.match.endOffset,
+      },
+      source: {
+        documentId: input.response.document.documentId,
+        sourceFileName: input.response.document.sourceFileName,
+        sectionPath: input.match.sectionPath,
+      },
+      revisionKey: input.response.document.jobId,
     },
   })
 }

@@ -37,6 +37,7 @@ describe("ChunksPanel", () => {
       unobserve() {}
       disconnect() {}
     };
+    Element.prototype.scrollIntoView = vi.fn();
   });
 
   afterEach(async () => {
@@ -69,6 +70,201 @@ describe("ChunksPanel", () => {
       screen.getByRole("heading", { name: "Parsed Chunks" }),
     ).toBeTruthy();
     expect(screen.getByText(/Showing all parsed chunks from/)).toBeTruthy();
+  });
+
+  it("renders page chunk assets inside the normal chunk list", async () => {
+    mockVisibleVirtualViewport();
+
+    render(
+      React.createElement(C, {
+        chunks: [
+          {
+            chunkId: "page_4",
+            type: "page",
+            content: "Page 4 summary",
+            sourceTitle: "report.pdf",
+            pageNums: [4],
+            pageAssets: [
+              {
+                pageNumber: 4,
+                assetUrl: "https://assets.example/page-000004.png",
+                contentType: "image/png",
+                width: 1200,
+                height: 1600,
+              },
+            ],
+          },
+          {
+            chunkId: "table_1",
+            type: "table",
+            content: "<table><tbody><tr><td>Budget</td></tr></tbody></table>",
+            sourceTitle: "report.pdf",
+          },
+        ],
+        selectedSource: "report.pdf",
+        selectedSourceView: {
+          id: "source_1",
+          title: "report.pdf",
+          mimeType: "application/pdf",
+          status: "ready",
+          documentPresentation: { kind: "page-assets", pageCount: 4 },
+        },
+      }),
+    );
+
+    expect(screen.getByRole("heading", { name: "Parsed Chunks" })).toBeTruthy();
+    expect(
+      await screen.findByRole("img", { name: "Page 4" }),
+    ).toBeTruthy();
+    expect(screen.getByText("image/png")).toBeTruthy();
+    expect(screen.getByText("Budget")).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Original" }),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Tree" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /original file/i }),
+    ).toBeNull();
+  });
+
+  it("renders only the first page-asset chunk for each page number", async () => {
+    mockVisibleVirtualViewport();
+
+    render(
+      React.createElement(C, {
+        chunks: [
+          {
+            chunkId: "page_4_first",
+            type: "page",
+            content: "First page 4 summary",
+            sourceTitle: "report.pdf",
+            pageNums: [4],
+            pageAssets: [
+              {
+                pageNumber: 4,
+                assetUrl: "https://assets.example/page-000004-a.png",
+                contentType: "image/png",
+              },
+            ],
+          },
+          {
+            chunkId: "page_4_duplicate",
+            type: "page",
+            content: "Duplicate page 4 summary",
+            sourceTitle: "report.pdf",
+            pageNums: [4],
+            pageAssets: [
+              {
+                pageNumber: 4,
+                assetUrl: "https://assets.example/page-000004-b.png",
+                contentType: "image/png",
+              },
+            ],
+          },
+          {
+            chunkId: "page_5",
+            type: "page",
+            content: "Page 5 summary",
+            sourceTitle: "report.pdf",
+            pageNums: [5],
+            pageAssets: [
+              {
+                pageNumber: 5,
+                assetUrl: "https://assets.example/page-000005.png",
+                contentType: "image/png",
+              },
+            ],
+          },
+        ],
+        selectedSource: "report.pdf",
+        selectedSourceView: {
+          id: "source_1",
+          title: "report.pdf",
+          mimeType: "application/pdf",
+          status: "ready",
+          documentPresentation: { kind: "page-assets", pageCount: 5 },
+        },
+      }),
+    );
+
+    expect(await screen.findAllByRole("img", { name: "Page 4" }))
+      .toHaveLength(1);
+    expect(screen.getByRole("img", { name: "Page 5" })).toBeTruthy();
+    expect(screen.queryByTestId("chunk-card-shell-page_4_duplicate"))
+      .toBeNull();
+  });
+
+  it("renders page chunks normally when no page assets exist", async () => {
+    mockVisibleVirtualViewport();
+
+    render(
+      React.createElement(C, {
+        chunks: [
+          {
+            chunkId: "page_4",
+            type: "page",
+            content: "Page 4 summary",
+            readableContent: "Page 4 summary",
+            sourceTitle: "report.pdf",
+            pageNums: [4],
+          },
+        ],
+        selectedSource: "report.pdf",
+        selectedSourceView: {
+          id: "source_1",
+          title: "report.pdf",
+          mimeType: "application/pdf",
+          status: "ready",
+          documentPresentation: { kind: "page-assets", pageCount: 4 },
+        },
+      }),
+    );
+
+    expect(await screen.findByText("Page 4 summary")).toBeTruthy();
+    expect(screen.queryByRole("img", { name: "Page 4" })).toBeNull();
+  });
+
+  it("shows a page-level placeholder when a page asset image fails to load", async () => {
+    mockVisibleVirtualViewport();
+
+    render(
+      React.createElement(C, {
+        chunks: [
+          {
+            chunkId: "page_4",
+            type: "page",
+            content: "Page 4 summary",
+            sourceTitle: "report.pdf",
+            pageNums: [4],
+            pageAssets: [
+              {
+                pageNumber: 4,
+                assetUrl: "https://assets.example/page-000004.png",
+                contentType: "image/png",
+                width: 1200,
+                height: 1600,
+              },
+            ],
+          },
+        ],
+        selectedSource: "report.pdf",
+        selectedSourceView: {
+          id: "source_1",
+          title: "report.pdf",
+          mimeType: "application/pdf",
+          status: "ready",
+          documentPresentation: { kind: "page-assets", pageCount: 4 },
+        },
+      }),
+    );
+
+    const pageImage = await screen.findByRole("img", { name: "Page 4" });
+    fireEvent.error(pageImage);
+
+    expect(
+      screen.getByTestId("page-asset-image-unavailable-4"),
+    ).toBeTruthy();
+    expect(screen.getByText("Page image unavailable.")).toBeTruthy();
   });
 
   it("defaults parsed chunks into a section tree view", () => {

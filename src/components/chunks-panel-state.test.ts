@@ -139,6 +139,65 @@ describe("chunksPanelState", () => {
     ])
   })
 
+  it("deduplicates page-asset chunks by page number", () => {
+    const chunks: ParsedChunkView[] = [
+      {
+        chunkId: "page_4_first",
+        type: "page",
+        content: "First page 4 summary.",
+        sourceTitle: "manual.pdf",
+        pageNums: [4],
+        pageAssets: [
+          {
+            pageNumber: 4,
+            assetUrl: "https://assets.example/page-4-a.png",
+            contentType: "image/png",
+          },
+        ],
+      },
+      {
+        chunkId: "page_4_duplicate",
+        type: "page",
+        content: "Duplicate page 4 summary.",
+        sourceTitle: "manual.pdf",
+        pageNums: [4],
+        pageAssets: [
+          {
+            pageNumber: 4,
+            assetUrl: "https://assets.example/page-4-b.png",
+            contentType: "image/png",
+          },
+        ],
+      },
+      {
+        chunkId: "page_5",
+        type: "page",
+        content: "Page 5 summary.",
+        sourceTitle: "manual.pdf",
+        pageAssets: [
+          {
+            pageNumber: 5,
+            assetUrl: "https://assets.example/page-5.png",
+            contentType: "image/png",
+          },
+        ],
+      },
+      {
+        chunkId: "table_1",
+        type: "table",
+        content: "<table />",
+        sourceTitle: "manual.pdf",
+        pageNums: [4],
+      },
+    ]
+
+    expect(
+      chunksPanelState
+        .getPageAssetChunksWithoutDuplicatePages(chunks)
+        .map((chunk) => chunk.chunkId),
+    ).toEqual(["page_4_first", "page_5", "table_1"])
+  })
+
   it("formats Knowhere section paths and reference labels for display", () => {
     expect(
       chunksPanelState.formatChunkSectionPath(

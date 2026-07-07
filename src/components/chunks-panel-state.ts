@@ -42,6 +42,9 @@ type ChunksPanelStateModule = {
     chunks: readonly ParsedChunkView[],
     focusedChunkId: string | null,
   ) => readonly ParsedChunkView[]
+  readonly getPageAssetChunksWithoutDuplicatePages: (
+    chunks: readonly ParsedChunkView[],
+  ) => readonly ParsedChunkView[]
   readonly getReferenceLabel: (connection: ParsedChunkConnection) => string
   readonly getRenderableReferences: (
     chunk: ParsedChunkView,
@@ -155,6 +158,32 @@ function dedupeChunksById(
   })
 
   return uniqueChunks
+}
+
+function getPageAssetChunksWithoutDuplicatePages(
+  chunks: readonly ParsedChunkView[],
+): readonly ParsedChunkView[] {
+  const seenPageNumbers = new Set<number>()
+
+  return chunks.filter((chunk) => {
+    if (chunk.type !== "page") return true
+
+    const pageNumber = getPageAssetChunkPageNumber(chunk)
+    if (pageNumber === null) return true
+    if (seenPageNumbers.has(pageNumber)) return false
+
+    seenPageNumbers.add(pageNumber)
+    return true
+  })
+}
+
+function getPageAssetChunkPageNumber(chunk: ParsedChunkView): number | null {
+  const pageAssetNumbers = (chunk.pageAssets ?? [])
+    .map((pageAsset) => pageAsset.pageNumber)
+    .filter(isPositivePageNumber)
+  if (pageAssetNumbers.length > 0) return Math.min(...pageAssetNumbers)
+
+  return getFirstPageNumber(chunk)
 }
 
 function createMutableSectionTreeNode(input: {
@@ -336,6 +365,10 @@ function getFirstPageNumber(chunk: ParsedChunkView): number | null {
   return Math.min(...finitePageNumbers)
 }
 
+function isPositivePageNumber(pageNumber: number): boolean {
+  return Number.isFinite(pageNumber) && pageNumber > 0
+}
+
 function formatChunkSectionPath(
   sectionPath: ParsedChunkView["sectionPath"],
 ): string | null {
@@ -454,6 +487,7 @@ export const chunksPanelState: ChunksPanelStateModule = {
   formatChunkSectionPath,
   formatReferenceLabel,
   getChunksWithFocusedFirst,
+  getPageAssetChunksWithoutDuplicatePages,
   getReferenceLabel,
   getRenderableReferences,
 }

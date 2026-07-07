@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import type { RetrievalResult } from "@ontos-ai/knowhere-sdk"
+import type {
+  Knowledge,
+  KnowledgeGrepResponse,
+  KnowledgeOutline,
+  KnowledgeReadResponse,
+  RetrievalResult,
+} from "@ontos-ai/knowhere-sdk"
 import { Effect } from "effect"
 import { ToolLoopAgent } from "ai"
 import type { HarnessRunResult } from "@/agent-harness"
@@ -8,6 +14,7 @@ import {
   answerQuestionWithRetrieval,
   generateAgenticOutputManifest,
   parseChatRequestBody,
+  type GenerateAnswer,
   type SearchSources,
 } from "."
 import type {
@@ -78,7 +85,7 @@ describe("answerQuestionWithRetrieval", () => {
       namespace: "notebook-workspace",
       query: "What does the document say?",
       topK: 8,
-      useAgentic: true,
+      useAgentic: false,
       dataType: 1,
       excludeDocumentIds: ["doc_excluded", "doc_remote"],
     });
@@ -88,12 +95,183 @@ describe("answerQuestionWithRetrieval", () => {
       sources,
       excludedSourceIds: ["source_2", "knowhere-doc:default:doc_remote"],
       searchSources: expect.any(Function),
+      knowhereTools: expect.any(Object),
     });
     expect(answer).toEqual({
       answer: "The answer is grounded.",
-      citations: [result],
+      citations: [],
       artifacts: [],
     });
+  });
+
+  it("does not create source chips from retrieval results when the manifest has no citations", async () => {
+    const unrelatedResult = makeRetrievalResult({
+      content: "Information hiding is unrelated to the requested source.",
+      source: {
+        documentId: "doc_information_hiding",
+        sourceFileName: "information_hiding.pdf",
+        sectionPath: "Root",
+      },
+    });
+    const retrieval = {
+      query: vi.fn().mockResolvedValue({
+        results: [unrelatedResult],
+        evidenceText: "Information hiding evidence.",
+        referencedChunks: [],
+        namespace: "notebook-workspace",
+        query: "requested fact",
+        routerUsed: "workflow_single_step",
+        answerText: null,
+      }),
+    };
+    const generateAnswer = vi.fn(async ({ searchSources }) => {
+      await searchSources({ query: "requested fact" });
+      return makeHarnessRunResult("The answer omits citations.");
+    });
+
+    const answer = await Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "What does the selected source say?",
+        namespace: "notebook-workspace",
+        sources: [makeSource()],
+        excludedSourceIds: [],
+        retrieval,
+        generateAnswer,
+        messages: [],
+      }),
+    );
+
+    expect(answer).toEqual({
+      answer: "The answer omits citations.",
+      citations: [],
+      artifacts: [],
+    });
+  });
+
+  it("exposes search, list, outline, read, and grep through the Knowhere tool runtime", async () => {
+    const result = makeRetrievalResult({
+      chunkType: "image",
+      source: {
+        documentId: "doc_included",
+        sourceFileName: "notes.txt",
+        sectionPath: "images/diagram.png",
+      },
+    });
+    const retrieval = {
+      query: vi.fn().mockResolvedValue({
+        results: [result],
+        evidenceText: "Diagram evidence.",
+        referencedChunks: [],
+        namespace: "notebook-workspace",
+        query: "diagram",
+        routerUsed: "workflow_single_step",
+        answerText: null,
+      }),
+    };
+    const getDocumentOutline = vi.fn().mockResolvedValue(makeKnowledgeOutline());
+    const readChunks = vi.fn().mockResolvedValue(
+      makeKnowledgeReadResponse("Full diagram chunk body."),
+    );
+    const grepChunks = vi.fn().mockResolvedValue(makeKnowledgeGrepResponse());
+    const knowledge = {
+      getDocumentOutline,
+      readChunks,
+      grepChunks,
+    } as unknown as Knowledge;
+    const listDocuments = vi.fn().mockResolvedValue({
+      documents: [
+        {
+          documentId: "doc_remote",
+          namespace: "default",
+          status: "ready",
+          currentJobResultId: "job_remote",
+          sourceFileName: "remote.pdf",
+        },
+      ],
+    });
+    const generateAnswer = vi.fn(
+      async ({ knowhereTools }: Parameters<GenerateAnswer>[0]) => {
+        if (!knowhereTools) throw new Error("Knowhere tools were not provided.");
+
+        const searchResponse = await knowhereTools.search({
+          query: "diagram",
+          targetContent: "image",
+          topK: 2,
+        });
+        const documents = await knowhereTools.listDocuments();
+        await knowhereTools.getDocumentOutline({
+          documentId: "doc_included",
+          revisionKey: "job_123",
+        });
+        await knowhereTools.readChunks({
+          documentId: "doc_included",
+          revisionKey: "job_123",
+          page: 1,
+          pageSize: 2,
+        });
+        await knowhereTools.grepChunks({
+          documentId: "doc_included",
+          revisionKey: "job_123",
+          pattern: "diagram",
+          maxResults: 3,
+        });
+
+        expect(searchResponse.results).toEqual([result]);
+        expect(
+          documents.documents.map((document) => document.documentId),
+        ).toEqual(["doc_included", "doc_remote"]);
+        return makeHarnessRunResult("Runtime answer.");
+      },
+    );
+    const sources = [
+      makeSource({ id: "source_included", knowhereDocumentId: "doc_included" }),
+      makeSource({ id: "source_excluded", knowhereDocumentId: "doc_excluded" }),
+    ];
+
+    const answer = await Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "Show the diagram.",
+        namespace: "notebook-workspace",
+        sources,
+        excludedSourceIds: ["source_excluded"],
+        retrieval,
+        knowledge,
+        remoteDocumentClient: { documents: { list: listDocuments } },
+        generateAnswer,
+        messages: [],
+      }),
+    );
+
+    expect(retrieval.query).toHaveBeenCalledWith({
+      namespace: "notebook-workspace",
+      query: "diagram",
+      topK: 2,
+      useAgentic: false,
+      dataType: 3,
+      excludeDocumentIds: ["doc_excluded"],
+    });
+    expect(listDocuments).toHaveBeenCalledWith({
+      namespace: "default",
+      page: 1,
+      pageSize: 200,
+    });
+    expect(getDocumentOutline).toHaveBeenCalledWith({
+      documentId: "doc_included",
+      revisionKey: "job_123",
+    });
+    expect(readChunks).toHaveBeenCalledWith({
+      documentId: "doc_included",
+      revisionKey: "job_123",
+      page: 1,
+      pageSize: 2,
+    });
+    expect(grepChunks).toHaveBeenCalledWith({
+      documentId: "doc_included",
+      revisionKey: "job_123",
+      pattern: "diagram",
+      maxResults: 3,
+    });
+    expect(answer.answer).toBe("Runtime answer.");
   });
 
   it("does not carry no-evidence metadata from default into a successful legacy namespace result", async () => {
@@ -170,7 +348,7 @@ describe("answerQuestionWithRetrieval", () => {
     );
     expect(answer).toEqual({
       answer: "The legacy answer is grounded.",
-      citations: [legacyResult],
+      citations: [],
       artifacts: [],
     });
   });
@@ -428,8 +606,18 @@ describe("answerQuestionWithRetrieval", () => {
     };
     const generateAnswer = vi.fn(async ({ searchSources }) => {
       await searchSources({ query: "What improved?" });
-      return makeHarnessRunResult(
+      return makeHarnessRunResultWithLedger(
         "Revenue improved [Source 1: revenue growth]. Margins expanded [Source 2: margin expansion].",
+        {
+          citations: [
+            makeOutputCitation("r1:result:1", firstResult),
+            makeOutputCitation("r1:result:2", secondResult),
+          ],
+          chunks: [
+            makeEvidenceChunkFromRetrievalResult("r1:result:1", firstResult),
+            makeEvidenceChunkFromRetrievalResult("r1:result:2", secondResult),
+          ],
+        },
       );
     });
 
@@ -472,8 +660,9 @@ describe("answerQuestionWithRetrieval", () => {
     };
     const generateAnswer = vi.fn(async ({ searchSources }) => {
       await searchSources({ query: "Tesla xAI investment" });
-      return makeHarnessRunResult(
+      return makeCitedHarnessRunResult(
         "Tesla invested in xAI [Source 1: xAI investment].",
+        result,
       );
     });
     const sources = [
@@ -501,6 +690,7 @@ describe("answerQuestionWithRetrieval", () => {
       sources,
       excludedSourceIds: [],
       searchSources: expect.any(Function),
+      knowhereTools: expect.any(Object),
     });
     const expectedResult = {
       ...result,
@@ -543,7 +733,10 @@ describe("answerQuestionWithRetrieval", () => {
         targetContent: "image",
         purpose: "Find visual rocket launch chunks.",
       });
-      return makeHarnessRunResult(`Use this launch photo. ${upstreamAssetUrl}`);
+      return makeCitedHarnessRunResult(
+        `Use this launch photo. ${upstreamAssetUrl}`,
+        result,
+      );
     });
     const hardenChatAssetUrl = vi
       .fn()
@@ -579,7 +772,7 @@ describe("answerQuestionWithRetrieval", () => {
       namespace: "notebook-workspace",
       query: "SpaceX rocket photos",
       topK: 8,
-      useAgentic: true,
+      useAgentic: false,
       dataType: 3,
     });
     expect(answer.answer).toBe("Use this launch photo.");
@@ -803,7 +996,10 @@ describe("answerQuestionWithRetrieval", () => {
     };
     const generateAnswer = vi.fn(async ({ searchSources }) => {
       await searchSources({ query: "page four evidence" });
-      return makeHarnessRunResult(`This page has the answer. ${storedPageAssetUrl}`);
+      return makeCitedHarnessRunResult(
+        `This page has the answer. ${storedPageAssetUrl}`,
+        result,
+      );
     });
     const hardenMediaAssetUrls = vi.fn(
       async ({
@@ -887,6 +1083,35 @@ describe("answerQuestionWithRetrieval", () => {
       "https://blob.example/workspaces/workspace_1/sources/source_pages/parsed-result/page_citation_assets/page-6.png";
     const hardenedPageAssetUrl =
       "https://blob.example/workspaces/workspace_1/chat-assets/source-source_pages/page-6.png";
+    const pageMetadata = {
+      pageNums: [6],
+      pageAssets: [
+        {
+          pageNum: 6,
+          artifactRef: "page_citation_assets/page-6.png",
+          assetUrl: rawPageAssetUrl,
+          contentType: "image/png",
+        },
+      ],
+    };
+    const referencedPageChunk: HarnessRunResult["trace"]["ledger"]["chunks"][number] = {
+      ref: "r1:referenced:1",
+      kind: "referenced_chunk",
+      chunkId: "chunk_page_6",
+      content: "",
+      contentPreview: "",
+      chunkType: "page",
+      score: null,
+      filePath: null,
+      metadata: pageMetadata,
+      source: {
+        documentId: "doc_pages",
+        sourceFileName: null,
+        sectionPath: "Page 6",
+      },
+      revisionKey: "job_1",
+      assetUrl: rawPageAssetUrl,
+    };
     const retrieval = {
       query: vi.fn().mockResolvedValue({
         results: [],
@@ -900,17 +1125,7 @@ describe("answerQuestionWithRetrieval", () => {
             filePath: null,
             jobId: "job_1",
             assetUrl: rawPageAssetUrl,
-            metadata: {
-              pageNums: [6],
-              pageAssets: [
-                {
-                  pageNum: 6,
-                  artifactRef: "page_citation_assets/page-6.png",
-                  assetUrl: rawPageAssetUrl,
-                  contentType: "image/png",
-                },
-              ],
-            },
+            metadata: pageMetadata,
           },
         ],
         namespace: "notebook-workspace",
@@ -921,7 +1136,16 @@ describe("answerQuestionWithRetrieval", () => {
     };
     const generateAnswer = vi.fn(async ({ searchSources }) => {
       await searchSources({ query: "page six evidence" });
-      return makeHarnessRunResult("This page has referenced evidence.");
+      return makeHarnessRunResultWithLedger("This page has referenced evidence.", {
+        citations: [
+          {
+            ref: "r1:referenced:1",
+            label: "Page 6",
+            source: referencedPageChunk.source,
+          },
+        ],
+        chunks: [referencedPageChunk],
+      });
     });
     const hardenMediaAssetUrls = vi.fn(
       async ({
@@ -1222,7 +1446,7 @@ describe("answerQuestionWithRetrieval", () => {
     ]);
   });
 
-  it("returns a safe fallback when the harness still has validation errors", async () => {
+  it("returns agent output when a legacy harness trace has validation errors", async () => {
     const retrieval = {
       query: vi.fn().mockResolvedValue({
         results: [makeRetrievalResult()],
@@ -1261,11 +1485,110 @@ describe("answerQuestionWithRetrieval", () => {
     );
 
     expect(answer).toEqual({
-      answer:
-        "I couldn't safely finish that response because the agent output did not pass Notebook's validation checks. Please try again.",
+      answer: "This invalid answer should not ship.",
       citations: [],
       artifacts: [],
     });
+  });
+
+  it("renders answer and resolves citations when manifest source metadata is wrong", async () => {
+    process.env.AI_GATEWAY_API_KEY = "test_gateway_key";
+    const result = makeRetrievalResult({
+      content: "Information hiding is a module design principle.",
+      source: {
+        documentId: "doc_information_hiding",
+        sourceFileName: "information_hiding.pdf",
+        sectionPath: "Root / Module Design",
+      },
+    });
+    const retrieval = {
+      query: vi.fn().mockResolvedValue({
+        results: [result],
+        evidenceText: "Information hiding evidence.",
+        referencedChunks: [],
+        namespace: "notebook-workspace",
+        query: "information hiding",
+        routerUsed: "workflow_single_step",
+        answerText: null,
+      }),
+    };
+    let generateCallCount = 0;
+    vi.spyOn(ToolLoopAgent.prototype, "generate").mockImplementation(
+      async function mockGenerate(
+        this: ToolLoopAgent,
+      ): ReturnType<ToolLoopAgent["generate"]> {
+        generateCallCount += 1;
+        const tools = this.tools as unknown as Record<
+          string,
+          { execute: (input: unknown) => Promise<unknown> }
+        >;
+
+        if (generateCallCount === 1) {
+          await tools.declareIntent?.execute({
+            task: "answer",
+            dependsOnPreviousTurn: false,
+            retrievalNeeded: "yes",
+            targetModalities: ["text"],
+            constraints: { citationRequired: true },
+            groundingPolicy: "must_use_sources",
+          });
+          await tools.setContextPolicy?.execute({
+            carryHistory: "none",
+            reason: "Self-contained request.",
+            activePriorTurnIds: [],
+          });
+          await tools.knowhere_search?.execute({
+            query: "information hiding",
+            targetContent: "text",
+          });
+        }
+
+        await tools.finalize?.execute({
+          text: "Information hiding is a module design principle.",
+          citations: [
+            {
+              ref: "r1:result:1",
+              label: "claimed-source.pdf / Claimed",
+              source: {
+                documentId: "doc_claimed",
+                sourceFileName: "claimed-source.pdf",
+                sectionPath: "Claimed",
+              },
+            },
+          ],
+          artifacts: [],
+          unresolved: [],
+        });
+
+        return {
+          text: "ignored",
+          response: { messages: [] },
+        } as unknown as Awaited<ReturnType<ToolLoopAgent["generate"]>>;
+      },
+    );
+
+    const answer = await Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "What is information hiding?",
+        namespace: "notebook-workspace",
+        sources: [makeSource()],
+        excludedSourceIds: [],
+        retrieval,
+        generateAnswer: generateAgenticOutputManifest,
+        messages: [],
+      }),
+    );
+
+    expect(generateCallCount).toBe(1);
+    expect(answer.answer).toBe("Information hiding is a module design principle.");
+    expect(answer.artifacts).toEqual([]);
+    expect(answer.citations.map((citation) => citation.source)).toEqual([
+      {
+        documentId: "doc_information_hiding",
+        sourceFileName: "information_hiding.pdf",
+        sectionPath: "Root / Module Design",
+      },
+    ]);
   });
 
   it("keeps image-only harness output instead of treating it as no results", async () => {
@@ -1568,12 +1891,13 @@ describe("answerQuestionWithRetrieval", () => {
       sources,
       excludedSourceIds: [],
       searchSources: expect.any(Function),
+      knowhereTools: expect.any(Object),
     });
     expect(retrieval.query).toHaveBeenCalledWith({
       namespace: "notebook-workspace",
       query: "公民身份证明 图片",
       topK: 8,
-      useAgentic: true,
+      useAgentic: false,
       dataType: 3,
     });
     const imageCitations = answer.citations.filter(
@@ -1664,7 +1988,7 @@ describe("answerQuestionWithRetrieval", () => {
       namespace: "notebook-workspace",
       query: "Tesla Q4 2025 Update energy generation and storage deployments",
       topK: 8,
-      useAgentic: true,
+      useAgentic: false,
       dataType: 1,
     });
     expect(generateAnswer).toHaveBeenCalledWith({
@@ -1673,6 +1997,7 @@ describe("answerQuestionWithRetrieval", () => {
       sources: [makeSource({ title: "TSLA-Q4-2025-Update.pdf" })],
       excludedSourceIds: [],
       searchSources: expect.any(Function),
+      knowhereTools: expect.any(Object),
     });
   });
 
@@ -1720,7 +2045,7 @@ describe("answerQuestionWithRetrieval", () => {
       namespace: "notebook-workspace",
       query: "Tesla energy storage deployments",
       topK: 8,
-      useAgentic: true,
+      useAgentic: false,
       dataType: 1,
     });
     expect(JSON.stringify(queryInput)).not.toContain(
@@ -1729,6 +2054,23 @@ describe("answerQuestionWithRetrieval", () => {
   });
 
   it("uses structured referenced chunks from RetrievalQueryResponse as citations", async () => {
+    const referencedImageChunk: HarnessRunResult["trace"]["ledger"]["chunks"][number] = {
+      ref: "r1:referenced:1",
+      kind: "referenced_chunk",
+      chunkId: "chunk_1",
+      content: "",
+      contentPreview: "",
+      chunkType: "image",
+      score: null,
+      filePath: "images/launch.jpg",
+      source: {
+        documentId: "doc_spacex",
+        sourceFileName: null,
+        sectionPath: "Assets / images / launch.jpg",
+      },
+      revisionKey: "job_1",
+      assetUrl: "https://blob.example/images/launch.jpg",
+    };
     const retrieval = {
       query: vi.fn().mockResolvedValue({
         results: [],
@@ -1755,7 +2097,16 @@ describe("answerQuestionWithRetrieval", () => {
         query: "SpaceX launch image",
         targetContent: "image",
       });
-      return makeHarnessRunResult("Here is the launch image.");
+      return makeHarnessRunResultWithLedger("Here is the launch image.", {
+        citations: [
+          {
+            ref: "r1:referenced:1",
+            label: "launch image",
+            source: referencedImageChunk.source,
+          },
+        ],
+        chunks: [referencedImageChunk],
+      });
     });
 
     const answer = await Effect.runPromise(
@@ -1821,9 +2172,9 @@ describe("generateAgenticOutputManifest", () => {
           reason: "The current request is self-contained.",
           activePriorTurnIds: [],
         });
-        await tools.retrieve?.execute({
+        await tools.knowhere_search?.execute({
           query: "冯荣洲 身份证 图片",
-          modalities: ["text", "image"],
+          targetContent: "text_image",
           topK: 2,
           purpose: "Find exactly the requested identity-card images.",
         });
@@ -1835,7 +2186,7 @@ describe("generateAgenticOutputManifest", () => {
               label: "商务标文件.pdf / 身份证正面",
               source: {
                 documentId: "doc_identity",
-                sourceFileName: "商务标文件.pdf",
+                sourceFileName: "document-generated.pdf",
                 sectionPath: "身份证正面",
               },
             },
@@ -1954,9 +2305,9 @@ describe("generateAgenticOutputManifest", () => {
           reason: "The current request is self-contained.",
           activePriorTurnIds: [],
         });
-        await tools.retrieve?.execute({
+        await tools.knowhere_search?.execute({
           query: "identity card front image",
-          modalities: ["image"],
+          targetContent: "image",
           topK: 1,
           purpose: "Find the ID card image to inspect.",
         });
@@ -1972,7 +2323,7 @@ describe("generateAgenticOutputManifest", () => {
               label: "identity.pdf / images/id-front.png",
               source: {
                 documentId: "doc_identity",
-                sourceFileName: "identity.pdf",
+                sourceFileName: "generated.pdf",
                 sectionPath: "images/id-front.png",
               },
             },
@@ -2093,9 +2444,9 @@ describe("generateAgenticOutputManifest", () => {
           reason: "The current request is self-contained.",
           activePriorTurnIds: [],
         });
-        await tools.retrieve?.execute({
+        await tools.knowhere_search?.execute({
           query: "进度计划 违约金 承包人",
-          modalities: ["text"],
+          targetContent: "text",
           topK: 6,
           purpose: "Find the contract clause and page for the liquidated damages amount.",
         });
@@ -2112,7 +2463,7 @@ describe("generateAgenticOutputManifest", () => {
               label: "投标书 / （6）现场工期进度管理方面的违约责任",
               source: {
                 documentId: "doc_contract",
-                sourceFileName: "投标书.pdf",
+                sourceFileName: null,
                 sectionPath: "Root / （6）现场工期进度管理方面的违约责任",
               },
             },
@@ -2221,7 +2572,7 @@ describe("generateAgenticOutputManifest", () => {
     expect(result.trace.validationErrors).toEqual([]);
   });
 
-  it("self-corrects an over-budget manifest via a validation-feedback revision", async () => {
+  it("keeps an over-budget manifest after the first generation", async () => {
     process.env.AI_GATEWAY_API_KEY = "test_gateway_key";
     let generateCallCount = 0;
     vi.spyOn(ToolLoopAgent.prototype, "generate").mockImplementation(
@@ -2248,15 +2599,25 @@ describe("generateAgenticOutputManifest", () => {
             reason: "Self-contained request.",
             activePriorTurnIds: [],
           });
-          await tools.retrieve?.execute({
+          await tools.knowhere_search?.execute({
             query: "身份证 图片",
-            modalities: ["image"],
+            targetContent: "image",
             topK: 3,
             purpose: "Find requested identity images.",
           });
           await tools.finalize?.execute({
             text: "见下方图片。",
-            citations: [{ ref: "r1:result:1", label: "id" }],
+            citations: [
+              {
+                ref: "r1:result:1",
+                label: "ids.pdf / 身份证 1",
+                source: {
+                  documentId: "doc_identity",
+                  sourceFileName: "ids.pdf",
+                  sectionPath: "身份证 1",
+                },
+              },
+            ],
             artifacts: [1, 2, 3].map((index) => ({
               type: "image",
               ref: `asset:r1:result:${index}`,
@@ -2268,7 +2629,17 @@ describe("generateAgenticOutputManifest", () => {
         } else {
           await tools.finalize?.execute({
             text: "见下方图片。",
-            citations: [{ ref: "r1:result:1", label: "id" }],
+            citations: [
+              {
+                ref: "r1:result:1",
+                label: "ids.pdf / 身份证 1",
+                source: {
+                  documentId: "doc_identity",
+                  sourceFileName: "ids.pdf",
+                  sectionPath: "身份证 1",
+                },
+              },
+            ],
             artifacts: [1, 2].map((index) => ({
               type: "image",
               ref: `asset:r1:result:${index}`,
@@ -2318,12 +2689,12 @@ describe("generateAgenticOutputManifest", () => {
       searchSources,
     });
 
-    expect(generateCallCount).toBe(2);
-    expect(result.trace.revisionsUsed).toBe(1);
+    expect(generateCallCount).toBe(1);
+    expect(result.trace.revisionsUsed).toBe(0);
     expect(result.trace.validationErrors).toEqual([]);
     expect(
       result.manifest.artifacts.filter((artifact) => artifact.display).length,
-    ).toBe(2);
+    ).toBe(3);
   });
 });
 
@@ -2418,6 +2789,171 @@ function makeHarnessRunResult(text: string): HarnessRunResult {
       validationErrors: [],
       revisionsUsed: 0,
     },
+  };
+}
+
+function makeCitedHarnessRunResult(
+  text: string,
+  result: RetrievalResult,
+  ref = "r1:result:1",
+): HarnessRunResult {
+  return makeHarnessRunResultWithLedger(text, {
+    citations: [makeOutputCitation(ref, result)],
+    chunks: [makeEvidenceChunkFromRetrievalResult(ref, result)],
+  });
+}
+
+function makeHarnessRunResultWithLedger(
+  text: string,
+  input: {
+    readonly citations?: HarnessRunResult["manifest"]["citations"]
+    readonly chunks?: HarnessRunResult["trace"]["ledger"]["chunks"]
+    readonly assets?: HarnessRunResult["trace"]["ledger"]["assets"]
+    readonly artifacts?: HarnessRunResult["manifest"]["artifacts"]
+  },
+): HarnessRunResult {
+  const chunks = input.chunks ?? [];
+  return {
+    manifest: {
+      text,
+      citations: input.citations ?? [],
+      artifacts: input.artifacts ?? [],
+      unresolved: [],
+    },
+    trace: {
+      ...makeHarnessRunResult("").trace,
+      ledger: {
+        retrievalCount: chunks.length > 0 ? 1 : 0,
+        chunks,
+        assets: input.assets ?? [],
+        evidenceText: [],
+        stopReasons: [],
+        failureReasons: [],
+        decisionTraces: [],
+      },
+    },
+  };
+}
+
+function makeOutputCitation(
+  ref: string,
+  result: RetrievalResult,
+): HarnessRunResult["manifest"]["citations"][number] {
+  return {
+    ref,
+    label: [result.source.sourceFileName, result.source.sectionPath]
+      .filter(Boolean)
+      .join(" / "),
+    source: {
+      documentId: result.source.documentId,
+      sourceFileName: result.source.sourceFileName,
+      sectionPath: result.source.sectionPath,
+    },
+  };
+}
+
+function makeEvidenceChunkFromRetrievalResult(
+  ref: string,
+  result: RetrievalResult,
+): HarnessRunResult["trace"]["ledger"]["chunks"][number] {
+  return {
+    ref,
+    kind: "result",
+    ...(result.chunkId ? { chunkId: result.chunkId } : {}),
+    content: result.content,
+    contentPreview: result.content,
+    chunkType: result.chunkType,
+    score: result.score,
+    ...(result.sourceChunkPath ? { sourceChunkPath: result.sourceChunkPath } : {}),
+    ...(result.filePath ? { filePath: result.filePath } : {}),
+    ...(result.metadata ? { metadata: result.metadata } : {}),
+    source: {
+      documentId: result.source.documentId,
+      sourceFileName: result.source.sourceFileName,
+      sectionPath: result.source.sectionPath,
+    },
+    ...(result.assetUrl ? { assetUrl: result.assetUrl } : {}),
+  };
+}
+
+function makeKnowledgeOutline(): KnowledgeOutline {
+  return {
+    document: makeLocalKnowledgeDocument(),
+    totalChunks: 1,
+    typeCounts: { text: 1, image: 0, table: 0, page: 0 },
+    sections: [
+      {
+        sectionPath: "Root / Diagram",
+        sectionTitle: "Diagram",
+        sectionLevel: 2,
+        summary: "Diagram section.",
+        startChunk: 1,
+        endChunk: 1,
+        chunkCount: 1,
+        typeCounts: { text: 1, image: 0, table: 0, page: 0 },
+        children: [],
+      },
+    ],
+    sectionTree: [],
+  };
+}
+
+function makeKnowledgeReadResponse(content: string): KnowledgeReadResponse {
+  return {
+    document: makeLocalKnowledgeDocument(),
+    chunks: [
+      {
+        position: 1,
+        chunkId: "chunk_1",
+        chunkType: "text",
+        content,
+        readableContent: content,
+        sectionPath: "Root / Diagram",
+        sourceChunkPath: "chunks/chunk-1.md",
+        filePath: "notes.txt",
+        metadata: {},
+      },
+    ],
+    page: 1,
+    pageSize: 1,
+    totalChunks: 1,
+    totalPages: 1,
+  };
+}
+
+function makeKnowledgeGrepResponse(): KnowledgeGrepResponse {
+  return {
+    document: makeLocalKnowledgeDocument(),
+    matches: [
+      {
+        position: 1,
+        chunkId: "chunk_1",
+        chunkType: "text",
+        sectionPath: "Root / Diagram",
+        sourceChunkPath: "chunks/chunk-1.md",
+        filePath: "notes.txt",
+        startOffset: 0,
+        endOffset: 7,
+        snippet: "diagram",
+      },
+    ],
+    scannedChunks: 1,
+    truncated: false,
+  };
+}
+
+function makeLocalKnowledgeDocument() {
+  return {
+    localDocumentId: "doc_included",
+    documentId: "doc_included",
+    jobId: "job_123",
+    namespace: "notebook-workspace",
+    sourceFileName: "notes.txt",
+    chunkCount: 1,
+    typeCounts: { text: 1, image: 0, table: 0, page: 0 },
+    resultDirectoryPath: "parsed-storage:doc_included/job_123",
+    createdAt: new Date("2026-01-01T00:00:00Z"),
+    updatedAt: new Date("2026-01-01T00:00:00Z"),
   };
 }
 

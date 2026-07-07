@@ -13,6 +13,11 @@ type FocusedChunkState = {
   readonly requestId: number
 }
 
+type FocusedPageState = {
+  readonly pageNumber: number | null
+  readonly requestId: number
+}
+
 type PrefetchedChunksBySourceId = Readonly<Record<string, ParsedChunkView[]>>
 type PrefetchedChunksUpdater = (
   current: PrefetchedChunksBySourceId,
@@ -21,7 +26,6 @@ type PrefetchedChunksUpdater = (
 type WorkspaceCitationFocusInput = {
   readonly fetchChunks: (sourceId: string) => Promise<ParsedChunkView[]>
   readonly initialPrefetchedChunksBySourceId?: PrefetchedChunksBySourceId
-  readonly onRemoteSourceChunksLoaded?: (sourceId: string) => void
   readonly onSelectSource: (sourceId: string | null) => void
   readonly selectedSourceId: string | null
   readonly sources: readonly SourceView[]
@@ -30,6 +34,7 @@ type WorkspaceCitationFocusInput = {
 type WorkspaceCitationFocus = {
   readonly citationListViewRequestId: number
   readonly focusedChunk: FocusedChunkState
+  readonly focusedPage: FocusedPageState
   readonly handleCitationClick: (
     citation: ChatCitationView,
     citationId: string,
@@ -52,13 +57,16 @@ type WorkspaceCitationFocus = {
 export function useWorkspaceCitationFocus({
   fetchChunks,
   initialPrefetchedChunksBySourceId = {},
-  onRemoteSourceChunksLoaded,
   onSelectSource,
   selectedSourceId,
   sources,
 }: WorkspaceCitationFocusInput): WorkspaceCitationFocus {
   const [focusedChunk, setFocusedChunk] = useState<FocusedChunkState>({
     chunkId: null,
+    requestId: 0,
+  })
+  const [focusedPage, setFocusedPage] = useState<FocusedPageState>({
+    pageNumber: null,
     requestId: 0,
   })
   const [pendingCitationId, setPendingCitationId] = useState<string | null>(
@@ -90,7 +98,6 @@ export function useWorkspaceCitationFocus({
     selectedSourceId,
     sources,
     prefetchedChunksBySourceId,
-    onRemoteSourceChunksLoaded,
   })
 
   const requestChunkFocus = useCallback(
@@ -102,6 +109,12 @@ export function useWorkspaceCitationFocus({
     },
     [],
   )
+  const requestPageFocus = useCallback((pageNumber: number | null): void => {
+    setFocusedPage((current) => ({
+      pageNumber,
+      requestId: current.requestId + 1,
+    }))
+  }, [])
 
   const updatePrefetchedChunksBySourceId = useCallback(
     (updater: PrefetchedChunksUpdater): void => {
@@ -122,10 +135,12 @@ export function useWorkspaceCitationFocus({
         )
       }
       requestChunkFocus(null)
+      requestPageFocus(null)
     },
     [
       onSelectSource,
       requestChunkFocus,
+      requestPageFocus,
       selectedSourceId,
       updatePrefetchedChunksBySourceId,
     ],
@@ -192,6 +207,7 @@ export function useWorkspaceCitationFocus({
           citation,
         )
         if (!source) return
+
         setCitationListViewRequestId((current) => current + 1)
 
         const loadedChunkId = workspaceCitationState.getLoadedCitationChunkId({
@@ -271,6 +287,7 @@ export function useWorkspaceCitationFocus({
   return {
     citationListViewRequestId,
     focusedChunk,
+    focusedPage,
     handleCitationClick,
     handleLoadAllChunks,
     handleLoadMoreChunks,

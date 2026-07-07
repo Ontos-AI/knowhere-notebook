@@ -149,6 +149,7 @@ type WorkspaceShellInitialStateDependencies = {
   readonly sourceViewOptionsBySourceId: (
     sources: readonly Source[],
     client: WorkspaceShellInitialStateClient,
+    options?: Parameters<typeof getSourceViewOptionsBySourceId>[2],
   ) => ReturnType<typeof getSourceViewOptionsBySourceId>
 }
 
@@ -356,6 +357,9 @@ export const loadWorkspaceShellInitialStateEffect = (
       deps.sourceViewOptionsBySourceId(
         sourcesNeedingChunkCount,
         client,
+        {
+          documentPresentationDetection: "disabled",
+        },
       ),
     )
 

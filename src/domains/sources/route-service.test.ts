@@ -472,6 +472,9 @@ describe("source route service", () => {
     expect(getSourceViewOptionsBySourceId).toHaveBeenCalledWith(
       [source],
       knowhereClient,
+      expect.objectContaining({
+        documentPresentationDetection: "disabled",
+      }),
     );
     expect(result).toEqual({
       status: 200,
@@ -546,6 +549,9 @@ describe("source route service", () => {
     expect(getSourceViewOptionsBySourceId).toHaveBeenCalledWith(
       [],
       knowhereClient,
+      expect.objectContaining({
+        documentPresentationDetection: "disabled",
+      }),
     );
     expect(result).toEqual({
       status: 200,
@@ -628,6 +634,9 @@ describe("source route service", () => {
     expect(getSourceViewOptionsBySourceId).toHaveBeenCalledWith(
       [],
       knowhereClient,
+      expect.objectContaining({
+        documentPresentationDetection: "disabled",
+      }),
     );
     expect(result).toEqual({
       status: 200,
@@ -700,6 +709,9 @@ describe("source route service", () => {
     expect(getSourceViewOptionsBySourceId).toHaveBeenCalledWith(
       [],
       knowhereClient,
+      expect.objectContaining({
+        documentPresentationDetection: "disabled",
+      }),
     );
     expect(knowhereClient.documents.listChunks).not.toHaveBeenCalled();
     expect(result).toEqual({

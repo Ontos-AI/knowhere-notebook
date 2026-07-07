@@ -351,6 +351,7 @@ function getSelectedSourcePage(
 }
 
 function getChunkTreeHref(source: SourceView): string | undefined {
+  if (source.documentPresentation?.kind === "page-assets") return undefined;
   return source.documentId
     ? `/inspect/${encodeURIComponent(source.documentId)}/chunks`
     : undefined;
