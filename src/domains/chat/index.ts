@@ -40,6 +40,7 @@ import {
 } from "./media-assets"
 import { enrichRetrievalResultsWithPageCitationAssetUrls } from "./page-citation-assets"
 import type { HardenableRetrievalResult } from "./media-asset-hardening"
+import { notebookKnowhereTools } from "./knowhere-tools"
 
 const DEFAULT_TOP_K = 8
 const NOTEBOOK_USE_AGENTIC_RETRIEVAL: NonNullable<
@@ -217,6 +218,14 @@ export const answerQuestionWithRetrieval = (
         sources: input.sources,
         excludedSourceIds: input.excludedSourceIds,
         searchSources,
+        knowhereTools: notebookKnowhereTools.createRuntime({
+          namespace: input.namespace,
+          sources: input.sources,
+          excludedSourceIds: input.excludedSourceIds,
+          searchSources,
+          knowledge: input.knowledge,
+          remoteDocumentClient: input.remoteDocumentClient,
+        }),
         ...(input.inspectImages ? { inspectImages: input.inspectImages } : {}),
       }),
     )

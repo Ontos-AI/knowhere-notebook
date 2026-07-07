@@ -27,6 +27,7 @@ import type { Source } from "@/infrastructure/db/schema"
 import { CHAT_MODEL } from "@/lib/ai"
 import type { HardenChatAssetUrl } from "./media-assets"
 import { isAuthError } from "@/integrations/dashboard/api-key-service"
+import { makeKnowhereClientWithParsedStorage } from "@/integrations/knowhere"
 import { summarizeUnknownError } from "@/lib/format-log-value"
 import { logger } from "@/lib/logger"
 import { routeResult, type RouteResult } from "@/lib/route-result"
@@ -98,6 +99,9 @@ const answerChatEffect = (input: AnswerChatInput) =>
     const parsedStorage = new BlobParsedDocumentStorage({
       workspaceId: workspace.id,
     })
+    const knowhereResources = makeKnowhereClientWithParsedStorage(apiKey, {
+      workspaceId: workspace.id,
+    })
     const hardenChatAssetUrl: HardenChatAssetUrl = async ({
       source,
       sourcePath,
@@ -140,6 +144,8 @@ const answerChatEffect = (input: AnswerChatInput) =>
           threadId: body.value.threadId,
           excludedSourceIds: body.value.excludedSourceIds,
           retrieval: client.retrieval,
+          knowledge: knowhereResources.knowledge,
+          remoteDocumentClient: client,
           generateAnswer: generateAgenticOutputManifest,
           hardenChatAssetUrl,
           hardenMediaAssetUrls: ({ results, artifacts }) =>

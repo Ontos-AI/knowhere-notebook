@@ -14,8 +14,8 @@ import type {
   ContextPolicy,
   HarnessToolCallTrace,
   IntentFrame,
+  KnowhereToolRuntime,
   OutputManifest,
-  RetrievalCapability,
 } from "./types"
 
 describe("agent harness runtime", () => {
@@ -29,7 +29,7 @@ describe("agent harness runtime", () => {
   })
 
   it("passes only outer retrieval parameters to KNOWHERE after intent and context policy are declared", async () => {
-    const query = vi.fn<RetrievalCapability["query"]>().mockResolvedValue(
+    const query = vi.fn<KnowhereToolRuntime["search"]>().mockResolvedValue(
       makeRetrievalResponse(),
     )
     const state: {
@@ -40,14 +40,12 @@ describe("agent harness runtime", () => {
     const tools = createHarnessTools({
       state,
       ledger: createEvidenceLedger(),
-      retrieval: { query },
+      knowhereTools: makeKnowhereTools(query),
       recentTurns: [],
     })
 
-    expect(await executeTool(tools.retrieve, { query: "q4 chart" })).toEqual({
-      ok: false,
-      message: "declareIntent must be called before retrieve.",
-    })
+    expect(await executeTool(tools.knowhere_search, { query: "q4 chart" }))
+      .toContain('status="error"')
 
     await executeTool(tools.declareIntent, {
       task: "show_media",
@@ -57,30 +55,27 @@ describe("agent harness runtime", () => {
       constraints: { desiredCount: 2, maxCount: 2 },
       groundingPolicy: "must_use_sources",
     })
-    expect(await executeTool(tools.retrieve, { query: "q4 chart" })).toEqual({
-      ok: false,
-      message: "setContextPolicy must be called before retrieve.",
-    })
+    expect(await executeTool(tools.knowhere_search, { query: "q4 chart" }))
+      .toContain("setContextPolicy must be called before knowhere_search.")
 
     await executeTool(tools.setContextPolicy, {
       carryHistory: "none",
       reason: "The current request is unrelated to previous turns.",
       activePriorTurnIds: [],
     })
-    const result = await executeTool(tools.retrieve, {
+    const result = await executeTool(tools.knowhere_search, {
       query: "q4 chart",
-      modalities: ["image"],
+      targetContent: "image",
       topK: 2,
       purpose: "Find the two requested charts.",
     })
 
-    expect(result).toMatchObject({
-      ok: true,
-      retrievalCount: 1,
-    })
+    expect(result).toContain('<knowhere operation="search" status="ok">')
+    expect(result).toContain('ref="r1:result:1"')
+    expect(result).toContain('ref="asset:r1:result:1"')
     expect(query).toHaveBeenCalledWith({
       query: "q4 chart",
-      modalities: ["image"],
+      targetContent: "image",
       topK: 2,
       purpose: "Find the two requested charts.",
       signalPaths: undefined,
@@ -91,17 +86,17 @@ describe("agent harness runtime", () => {
       "LegalAction",
     )
     expect(state.toolCalls?.map((call) => [call.tool, call.ok])).toEqual([
-      ["retrieve", false],
+      ["knowhere_search", false],
       ["declareIntent", true],
-      ["retrieve", false],
+      ["knowhere_search", false],
       ["setContextPolicy", true],
-      ["retrieve", true],
+      ["knowhere_search", true],
     ])
   })
 
-  it("returns only newly retrieved evidence in each retrieve tool result", async () => {
+  it("returns only newly searched evidence in each knowhere_search tool result", async () => {
     const query = vi
-      .fn<RetrievalCapability["query"]>()
+      .fn<KnowhereToolRuntime["search"]>()
       .mockResolvedValueOnce(makeRetrievalResponse())
       .mockResolvedValueOnce({
         ...makeRetrievalResponse(),
@@ -143,22 +138,17 @@ describe("agent harness runtime", () => {
     const tools = createHarnessTools({
       state,
       ledger,
-      retrieval: { query },
+      knowhereTools: makeKnowhereTools(query),
       recentTurns: [],
     })
 
-    const firstResult = await executeTool(tools.retrieve, { query: "first" })
-    const secondResult = await executeTool(tools.retrieve, { query: "second" })
+    const firstResult = await executeTool(tools.knowhere_search, { query: "first" })
+    const secondResult = await executeTool(tools.knowhere_search, { query: "second" })
 
-    expect(firstResult).toMatchObject({
-      retrievalCount: 1,
-      chunks: [{ ref: "r1:result:1" }],
-    })
-    expect(secondResult).toMatchObject({
-      retrievalCount: 2,
-      evidenceText: "Second evidence",
-      chunks: [{ ref: "r2:result:1" }],
-    })
+    expect(firstResult).toContain('ref="r1:result:1"')
+    expect(secondResult).toContain('retrievalCount="2"')
+    expect(secondResult).toContain("Second evidence")
+    expect(secondResult).toContain('ref="r2:result:1"')
     expect(JSON.stringify(secondResult)).not.toContain("r1:result:1")
     expect(ledger.snapshot().chunks.map((chunk) => chunk.ref)).toEqual([
       "r1:result:1",
@@ -171,7 +161,7 @@ describe("agent harness runtime", () => {
     const tools = createHarnessTools({
       state: {},
       ledger: createEvidenceLedger(),
-      retrieval: { query: vi.fn<RetrievalCapability["query"]>() },
+      knowhereTools: makeKnowhereTools(),
       inspectImages,
       recentTurns: [],
     })
@@ -183,12 +173,13 @@ describe("agent harness runtime", () => {
 
     expect(result).toEqual({
       ok: false,
-      message: "retrieve must be called before inspectImage.",
+      message:
+        "Knowhere evidence tools must return image assets before inspectImage.",
       inspected: [],
       skipped: [
         {
           ref: "asset:r1:result:1",
-          reason: "No retrieval evidence is available yet.",
+          reason: "No Knowhere evidence is available yet.",
         },
       ],
     })
@@ -202,7 +193,7 @@ describe("agent harness runtime", () => {
     const tools = createHarnessTools({
       state: {},
       ledger,
-      retrieval: { query: vi.fn<RetrievalCapability["query"]>() },
+      knowhereTools: makeKnowhereTools(),
       inspectImages,
       recentTurns: [],
     })
@@ -223,7 +214,7 @@ describe("agent harness runtime", () => {
         },
         {
           ref: "missing",
-          reason: "Ref was not returned by retrieve as an asset.",
+          reason: "Ref was not returned by Knowhere as an asset.",
         },
       ],
     })
@@ -236,7 +227,7 @@ describe("agent harness runtime", () => {
     const tools = createHarnessTools({
       state: {},
       ledger,
-      retrieval: { query: vi.fn<RetrievalCapability["query"]>() },
+      knowhereTools: makeKnowhereTools(),
       inspectImages: vi.fn(),
       recentTurns: [],
     })
@@ -268,7 +259,7 @@ describe("agent harness runtime", () => {
     const tools = createHarnessTools({
       state: {},
       ledger,
-      retrieval: { query: vi.fn<RetrievalCapability["query"]>() },
+      knowhereTools: makeKnowhereTools(),
       inspectImages,
       recentTurns: [],
     })
@@ -324,7 +315,7 @@ describe("agent harness runtime", () => {
     const tools = createHarnessTools({
       state: {},
       ledger,
-      retrieval: { query: vi.fn<RetrievalCapability["query"]>() },
+      knowhereTools: makeKnowhereTools(),
       inspectImages,
       recentTurns: [],
     })
@@ -368,7 +359,7 @@ describe("agent harness runtime", () => {
     const tools = createHarnessTools({
       state,
       ledger: createEvidenceLedger(),
-      retrieval: { query: vi.fn<RetrievalCapability["query"]>() },
+      knowhereTools: makeKnowhereTools(),
       recentTurns: [],
     })
 
@@ -427,7 +418,7 @@ describe("agent harness runtime", () => {
     const tools = createHarnessTools({
       state,
       ledger: createEvidenceLedger(),
-      retrieval: { query: vi.fn<RetrievalCapability["query"]>() },
+      knowhereTools: makeKnowhereTools(),
       recentTurns: [
         {
           id: "turn_1",
@@ -459,7 +450,7 @@ describe("agent harness runtime", () => {
     const tools = createHarnessTools({
       state,
       ledger: createEvidenceLedger(),
-      retrieval: { query: vi.fn<RetrievalCapability["query"]>() },
+      knowhereTools: makeKnowhereTools(),
       recentTurns: [
         {
           id: "turn_1",
@@ -521,7 +512,7 @@ describe("agent harness runtime", () => {
           {
             type: "tool-call",
             toolCallId: "call_1",
-            toolName: "retrieve",
+            toolName: "knowhere_search",
             input: { query: "q4" },
             providerOptions: {
               google: {
@@ -537,12 +528,10 @@ describe("agent harness runtime", () => {
           {
             type: "tool-result",
             toolCallId: "call_1",
-            toolName: "retrieve",
+            toolName: "knowhere_search",
             output: {
-              type: "json",
-              value: {
-                ok: true,
-              },
+              type: "text",
+              value: '<knowhere operation="search" status="ok"></knowhere>',
             },
             providerOptions: {
               google: {
@@ -574,12 +563,10 @@ describe("agent harness runtime", () => {
           {
             type: "tool-result",
             toolCallId: "call_1",
-            toolName: "retrieve",
+            toolName: "knowhere_search",
             output: {
-              type: "json",
-              value: {
-                ok: true,
-              },
+              type: "text",
+              value: '<knowhere operation="search" status="ok"></knowhere>',
             },
           },
         ],
@@ -619,13 +606,11 @@ describe("agent harness runtime", () => {
             {
               type: "tool-result",
               toolCallId: "call_1",
-              toolName: "retrieve",
+              toolName: "knowhere_search",
               output: {
-                type: "json",
-                value: {
-                  ok: true,
-                  assets: [{ ref: "asset:r1:referenced:1", type: "image" }],
-                },
+                type: "text",
+                value:
+                  '<knowhere operation="search" status="ok"><asset ref="asset:r1:referenced:1" type="image" /></knowhere>',
               },
             },
           ],
@@ -645,13 +630,11 @@ describe("agent harness runtime", () => {
           {
             type: "tool-result",
             toolCallId: "call_1",
-            toolName: "retrieve",
+            toolName: "knowhere_search",
             output: {
-              type: "json",
-              value: {
-                ok: true,
-                assets: [{ ref: "asset:r1:referenced:1", type: "image" }],
-              },
+              type: "text",
+              value:
+                '<knowhere operation="search" status="ok"><asset ref="asset:r1:referenced:1" type="image" /></knowhere>',
             },
           },
         ],
@@ -673,13 +656,11 @@ describe("agent harness runtime", () => {
             {
               type: "tool-result",
               toolCallId: "call_1",
-              toolName: "retrieve",
+              toolName: "knowhere_search",
               output: {
-                type: "json",
-                value: {
-                  ok: true,
-                  chunks: [{ ref: "r1:result:1" }],
-                },
+                type: "text",
+                value:
+                  '<knowhere operation="search" status="ok"><chunk ref="r1:result:1"></chunk></knowhere>',
               },
               providerOptions: {
                 google: {
@@ -704,13 +685,11 @@ describe("agent harness runtime", () => {
           {
             type: "tool-result",
             toolCallId: "call_1",
-            toolName: "retrieve",
+            toolName: "knowhere_search",
             output: {
-              type: "json",
-              value: {
-                ok: true,
-                chunks: [{ ref: "r1:result:1" }],
-              },
+              type: "text",
+              value:
+                '<knowhere operation="search" status="ok"><chunk ref="r1:result:1"></chunk></knowhere>',
             },
           },
         ],
@@ -727,6 +706,18 @@ describe("agent harness runtime", () => {
 
 function executeTool(tool: unknown, input: unknown): Promise<unknown> {
   return (tool as { execute: (input: unknown) => Promise<unknown> }).execute(input)
+}
+
+function makeKnowhereTools(
+  search: KnowhereToolRuntime["search"] = vi.fn(),
+): KnowhereToolRuntime {
+  return {
+    search,
+    listDocuments: vi.fn().mockResolvedValue({ documents: [] }),
+    getDocumentOutline: vi.fn().mockRejectedValue(new Error("Not configured.")),
+    readChunks: vi.fn().mockRejectedValue(new Error("Not configured.")),
+    grepChunks: vi.fn().mockRejectedValue(new Error("Not configured.")),
+  }
 }
 
 function makeTurnInput(overrides: Partial<AgentTurnInput> = {}): AgentTurnInput {

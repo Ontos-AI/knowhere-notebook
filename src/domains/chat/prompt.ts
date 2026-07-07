@@ -8,17 +8,15 @@ import {
   runAgentHarness,
   type AgentTurn,
   type AgentTurnInput,
-  type HarnessRetrievalRequest,
   type HarnessRunResult,
   type InspectImages,
-  type TargetModality,
+  type KnowhereToolRuntime,
 } from "@/agent-harness"
 import type {
-  AgenticRetrievalQuery,
-  AgenticRetrievalTargetContent,
   ChatHistoryMessage,
   SearchSources,
 } from "./contracts"
+import { notebookKnowhereTools } from "./knowhere-tools"
 
 const RECENT_CONTEXT_MESSAGE_LIMIT = 8
 const CONTEXT_CONTENT_CHAR_LIMIT = 900
@@ -30,6 +28,7 @@ type GenerateAgenticOutputManifestInput = {
   sources: readonly Source[]
   excludedSourceIds: readonly string[]
   searchSources: SearchSources
+  knowhereTools?: KnowhereToolRuntime
   inspectImages?: InspectImages
 }
 
@@ -59,10 +58,11 @@ export const generateAgenticOutputManifestEffect = (
       runAgentHarness({
         model: CHAT_MODEL,
         turn,
-        retrieval: {
-          query: (request) =>
-            input.searchSources(toAgenticRetrievalQuery(request)),
-        },
+        knowhereTools:
+          input.knowhereTools ??
+          notebookKnowhereTools.createSearchOnlyRuntime({
+            searchSources: input.searchSources,
+          }),
         ...(input.inspectImages ? { inspectImages: input.inspectImages } : {}),
       }),
     )
@@ -122,36 +122,6 @@ function getCitationLabels(
     .split(";")
     .map((label) => label.trim())
     .filter((label) => label.length > 0)
-}
-
-function toAgenticRetrievalQuery(
-  request: HarnessRetrievalRequest,
-): AgenticRetrievalQuery {
-  return {
-    query: request.query,
-    targetContent: toAgenticRetrievalTargetContent(request.modalities),
-    purpose: request.purpose,
-    topK: request.topK,
-    signalPaths: request.signalPaths,
-    filterMode: request.filterMode,
-    threshold: request.threshold,
-  }
-}
-
-function toAgenticRetrievalTargetContent(
-  modalities: readonly TargetModality[],
-): AgenticRetrievalTargetContent {
-  const requestedModalities = new Set(modalities)
-  if (requestedModalities.has("image") && requestedModalities.has("text")) {
-    return "text_image"
-  }
-  if (requestedModalities.has("table") && requestedModalities.has("text")) {
-    return "text_table"
-  }
-  if (requestedModalities.has("image")) return "image"
-  if (requestedModalities.has("table")) return "table"
-  if (requestedModalities.has("text")) return "text"
-  return "all"
 }
 
 function formatSourceContext(

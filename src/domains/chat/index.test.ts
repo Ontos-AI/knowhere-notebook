@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import type { RetrievalResult } from "@ontos-ai/knowhere-sdk"
+import type {
+  Knowledge,
+  KnowledgeGrepResponse,
+  KnowledgeOutline,
+  KnowledgeReadResponse,
+  RetrievalResult,
+} from "@ontos-ai/knowhere-sdk"
 import { Effect } from "effect"
 import { ToolLoopAgent } from "ai"
 import type { HarnessRunResult } from "@/agent-harness"
@@ -8,6 +14,7 @@ import {
   answerQuestionWithRetrieval,
   generateAgenticOutputManifest,
   parseChatRequestBody,
+  type GenerateAnswer,
   type SearchSources,
 } from "."
 import type {
@@ -88,12 +95,139 @@ describe("answerQuestionWithRetrieval", () => {
       sources,
       excludedSourceIds: ["source_2", "knowhere-doc:default:doc_remote"],
       searchSources: expect.any(Function),
+      knowhereTools: expect.any(Object),
     });
     expect(answer).toEqual({
       answer: "The answer is grounded.",
       citations: [result],
       artifacts: [],
     });
+  });
+
+  it("exposes search, list, outline, read, and grep through the Knowhere tool runtime", async () => {
+    const result = makeRetrievalResult({
+      chunkType: "image",
+      source: {
+        documentId: "doc_included",
+        sourceFileName: "notes.txt",
+        sectionPath: "images/diagram.png",
+      },
+    });
+    const retrieval = {
+      query: vi.fn().mockResolvedValue({
+        results: [result],
+        evidenceText: "Diagram evidence.",
+        referencedChunks: [],
+        namespace: "notebook-workspace",
+        query: "diagram",
+        routerUsed: "workflow_single_step",
+        answerText: null,
+      }),
+    };
+    const getDocumentOutline = vi.fn().mockResolvedValue(makeKnowledgeOutline());
+    const readChunks = vi.fn().mockResolvedValue(
+      makeKnowledgeReadResponse("Full diagram chunk body."),
+    );
+    const grepChunks = vi.fn().mockResolvedValue(makeKnowledgeGrepResponse());
+    const knowledge = {
+      getDocumentOutline,
+      readChunks,
+      grepChunks,
+    } as unknown as Knowledge;
+    const listDocuments = vi.fn().mockResolvedValue({
+      documents: [
+        {
+          documentId: "doc_remote",
+          namespace: "default",
+          status: "ready",
+          currentJobResultId: "job_remote",
+          sourceFileName: "remote.pdf",
+        },
+      ],
+    });
+    const generateAnswer = vi.fn(
+      async ({ knowhereTools }: Parameters<GenerateAnswer>[0]) => {
+        if (!knowhereTools) throw new Error("Knowhere tools were not provided.");
+
+        const searchResponse = await knowhereTools.search({
+          query: "diagram",
+          targetContent: "image",
+          topK: 2,
+        });
+        const documents = await knowhereTools.listDocuments();
+        await knowhereTools.getDocumentOutline({
+          documentId: "doc_included",
+          revisionKey: "job_123",
+        });
+        await knowhereTools.readChunks({
+          documentId: "doc_included",
+          revisionKey: "job_123",
+          page: 1,
+          pageSize: 2,
+        });
+        await knowhereTools.grepChunks({
+          documentId: "doc_included",
+          revisionKey: "job_123",
+          pattern: "diagram",
+          maxResults: 3,
+        });
+
+        expect(searchResponse.results).toEqual([result]);
+        expect(
+          documents.documents.map((document) => document.documentId),
+        ).toEqual(["doc_included", "doc_remote"]);
+        return makeHarnessRunResult("Runtime answer.");
+      },
+    );
+    const sources = [
+      makeSource({ id: "source_included", knowhereDocumentId: "doc_included" }),
+      makeSource({ id: "source_excluded", knowhereDocumentId: "doc_excluded" }),
+    ];
+
+    const answer = await Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "Show the diagram.",
+        namespace: "notebook-workspace",
+        sources,
+        excludedSourceIds: ["source_excluded"],
+        retrieval,
+        knowledge,
+        remoteDocumentClient: { documents: { list: listDocuments } },
+        generateAnswer,
+        messages: [],
+      }),
+    );
+
+    expect(retrieval.query).toHaveBeenCalledWith({
+      namespace: "notebook-workspace",
+      query: "diagram",
+      topK: 2,
+      useAgentic: false,
+      dataType: 3,
+      excludeDocumentIds: ["doc_excluded"],
+    });
+    expect(listDocuments).toHaveBeenCalledWith({
+      namespace: "default",
+      page: 1,
+      pageSize: 200,
+    });
+    expect(getDocumentOutline).toHaveBeenCalledWith({
+      documentId: "doc_included",
+      revisionKey: "job_123",
+    });
+    expect(readChunks).toHaveBeenCalledWith({
+      documentId: "doc_included",
+      revisionKey: "job_123",
+      page: 1,
+      pageSize: 2,
+    });
+    expect(grepChunks).toHaveBeenCalledWith({
+      documentId: "doc_included",
+      revisionKey: "job_123",
+      pattern: "diagram",
+      maxResults: 3,
+    });
+    expect(answer.answer).toBe("Runtime answer.");
   });
 
   it("does not carry no-evidence metadata from default into a successful legacy namespace result", async () => {
@@ -501,6 +635,7 @@ describe("answerQuestionWithRetrieval", () => {
       sources,
       excludedSourceIds: [],
       searchSources: expect.any(Function),
+      knowhereTools: expect.any(Object),
     });
     const expectedResult = {
       ...result,
@@ -1568,6 +1703,7 @@ describe("answerQuestionWithRetrieval", () => {
       sources,
       excludedSourceIds: [],
       searchSources: expect.any(Function),
+      knowhereTools: expect.any(Object),
     });
     expect(retrieval.query).toHaveBeenCalledWith({
       namespace: "notebook-workspace",
@@ -1673,6 +1809,7 @@ describe("answerQuestionWithRetrieval", () => {
       sources: [makeSource({ title: "TSLA-Q4-2025-Update.pdf" })],
       excludedSourceIds: [],
       searchSources: expect.any(Function),
+      knowhereTools: expect.any(Object),
     });
   });
 
@@ -1821,9 +1958,9 @@ describe("generateAgenticOutputManifest", () => {
           reason: "The current request is self-contained.",
           activePriorTurnIds: [],
         });
-        await tools.retrieve?.execute({
+        await tools.knowhere_search?.execute({
           query: "冯荣洲 身份证 图片",
-          modalities: ["text", "image"],
+          targetContent: "text_image",
           topK: 2,
           purpose: "Find exactly the requested identity-card images.",
         });
@@ -1954,9 +2091,9 @@ describe("generateAgenticOutputManifest", () => {
           reason: "The current request is self-contained.",
           activePriorTurnIds: [],
         });
-        await tools.retrieve?.execute({
+        await tools.knowhere_search?.execute({
           query: "identity card front image",
-          modalities: ["image"],
+          targetContent: "image",
           topK: 1,
           purpose: "Find the ID card image to inspect.",
         });
@@ -2093,9 +2230,9 @@ describe("generateAgenticOutputManifest", () => {
           reason: "The current request is self-contained.",
           activePriorTurnIds: [],
         });
-        await tools.retrieve?.execute({
+        await tools.knowhere_search?.execute({
           query: "进度计划 违约金 承包人",
-          modalities: ["text"],
+          targetContent: "text",
           topK: 6,
           purpose: "Find the contract clause and page for the liquidated damages amount.",
         });
@@ -2248,9 +2385,9 @@ describe("generateAgenticOutputManifest", () => {
             reason: "Self-contained request.",
             activePriorTurnIds: [],
           });
-          await tools.retrieve?.execute({
+          await tools.knowhere_search?.execute({
             query: "身份证 图片",
-            modalities: ["image"],
+            targetContent: "image",
             topK: 3,
             purpose: "Find requested identity images.",
           });
@@ -2418,6 +2555,87 @@ function makeHarnessRunResult(text: string): HarnessRunResult {
       validationErrors: [],
       revisionsUsed: 0,
     },
+  };
+}
+
+function makeKnowledgeOutline(): KnowledgeOutline {
+  return {
+    document: makeLocalKnowledgeDocument(),
+    totalChunks: 1,
+    typeCounts: { text: 1, image: 0, table: 0, page: 0 },
+    sections: [
+      {
+        sectionPath: "Root / Diagram",
+        sectionTitle: "Diagram",
+        sectionLevel: 2,
+        summary: "Diagram section.",
+        startChunk: 1,
+        endChunk: 1,
+        chunkCount: 1,
+        typeCounts: { text: 1, image: 0, table: 0, page: 0 },
+        children: [],
+      },
+    ],
+    sectionTree: [],
+  };
+}
+
+function makeKnowledgeReadResponse(content: string): KnowledgeReadResponse {
+  return {
+    document: makeLocalKnowledgeDocument(),
+    chunks: [
+      {
+        position: 1,
+        chunkId: "chunk_1",
+        chunkType: "text",
+        content,
+        readableContent: content,
+        sectionPath: "Root / Diagram",
+        sourceChunkPath: "chunks/chunk-1.md",
+        filePath: "notes.txt",
+        metadata: {},
+      },
+    ],
+    page: 1,
+    pageSize: 1,
+    totalChunks: 1,
+    totalPages: 1,
+  };
+}
+
+function makeKnowledgeGrepResponse(): KnowledgeGrepResponse {
+  return {
+    document: makeLocalKnowledgeDocument(),
+    matches: [
+      {
+        position: 1,
+        chunkId: "chunk_1",
+        chunkType: "text",
+        sectionPath: "Root / Diagram",
+        sourceChunkPath: "chunks/chunk-1.md",
+        filePath: "notes.txt",
+        startOffset: 0,
+        endOffset: 7,
+        snippet: "diagram",
+      },
+    ],
+    scannedChunks: 1,
+    truncated: false,
+  };
+}
+
+function makeLocalKnowledgeDocument() {
+  return {
+    localDocumentId: "doc_included",
+    documentId: "doc_included",
+    jobId: "job_123",
+    namespace: "notebook-workspace",
+    sourceFileName: "notes.txt",
+    chunkCount: 1,
+    typeCounts: { text: 1, image: 0, table: 0, page: 0 },
+    resultDirectoryPath: "parsed-storage:doc_included/job_123",
+    createdAt: new Date("2026-01-01T00:00:00Z"),
+    updatedAt: new Date("2026-01-01T00:00:00Z"),
   };
 }
 

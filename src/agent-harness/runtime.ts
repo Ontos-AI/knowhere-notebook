@@ -9,6 +9,7 @@ import {
 import { z } from "zod"
 
 import { createEvidenceLedger } from "./ledger"
+import { knowhereToolText } from "./knowhere-text"
 import type {
   AgentTurn,
   AgentTurnInput,
@@ -20,9 +21,10 @@ import type {
   ImageInspectionResponse,
   InspectImages,
   IntentFrame,
+  KnowhereSearchRequest,
+  KnowhereSearchTargetContent,
+  KnowhereToolRuntime,
   OutputManifest,
-  RetrievalCapability,
-  TargetModality,
 } from "./types"
 import { validateOutputManifest } from "./validator"
 
@@ -39,7 +41,7 @@ export type AgentHarnessModel = ToolLoopAgentSettings["model"]
 export type RunAgentHarnessInput = {
   readonly model: AgentHarnessModel
   readonly turn: AgentTurnInput
-  readonly retrieval: RetrievalCapability
+  readonly knowhereTools: KnowhereToolRuntime
   readonly inspectImages?: InspectImages
   readonly maxSteps?: number
   /**
@@ -71,6 +73,53 @@ type HarnessStepPreparation = {
 }
 
 const targetModalitySchema = z.enum(["text", "image", "table"])
+const knowhereSearchTargetContentSchema = z.enum([
+  "all",
+  "text",
+  "image",
+  "table",
+  "text_image",
+  "text_table",
+])
+const knowledgeChunkTypeSchema = z.enum(["text", "image", "table", "page"])
+
+const knowhereDocumentReferenceSchema = z.object({
+  localDocumentId: z.string().min(1).optional(),
+  documentId: z.string().min(1).optional(),
+  jobId: z.string().min(1).optional(),
+  revisionKey: z.string().min(1).optional(),
+})
+
+const knowhereSearchSchema = z.object({
+  query: z.string().min(1),
+  targetContent: knowhereSearchTargetContentSchema.default("all"),
+  purpose: z.string().optional(),
+  topK: z.number().int().min(1).max(12).optional(),
+  signalPaths: z.array(z.string().min(1)).max(8).optional(),
+  filterMode: z.enum(["keep", "delete"]).optional(),
+  threshold: z.number().min(0).max(1).optional(),
+})
+
+const knowhereReadChunksSchema = knowhereDocumentReferenceSchema.extend({
+  page: z.number().int().min(1).optional(),
+  pageSize: z.number().int().min(1).max(50).optional(),
+  sectionPath: z.string().min(1).optional(),
+  startChunk: z.number().int().min(0).optional(),
+  endChunk: z.number().int().min(0).optional(),
+  chunkId: z.string().min(1).optional(),
+  chunkType: knowledgeChunkTypeSchema.optional(),
+})
+
+const knowhereGrepChunksSchema = knowhereDocumentReferenceSchema.extend({
+  pattern: z.string().min(1),
+  continuationCursor: z.string().min(1).optional(),
+  isRegex: z.boolean().optional(),
+  isCaseSensitive: z.boolean().optional(),
+  maxResults: z.number().int().min(1).max(50).optional(),
+  chunkType: knowledgeChunkTypeSchema.optional(),
+  sectionPathPrefix: z.string().min(1).optional(),
+  contextChars: z.number().int().min(0).max(2_000).optional(),
+})
 
 const intentFrameSchema = z.object({
   task: z.enum([
@@ -166,7 +215,7 @@ export async function runAgentHarness(
   const tools = createHarnessTools({
     state,
     ledger,
-    retrieval: input.retrieval,
+    knowhereTools: input.knowhereTools,
     inspectImages: input.inspectImages,
     recentTurns: input.turn.recentTurns,
   })
@@ -364,7 +413,7 @@ function buildRevisionFeedback(errors: readonly string[]): string {
 function buildForcedFinalizationFeedback(): string {
   return [
     "The retrieval step budget has been reached.",
-    "Do not search again or call any evidence-reading tools.",
+    "Do not search again or call any Knowhere evidence-reading tools.",
     "Use only the evidence and tool results already available in this turn.",
     "Call finalize now with the best supported answer.",
     "If the existing evidence is insufficient, explain the gap in unresolved",
@@ -396,7 +445,7 @@ function hasUninspectedImageAssets(input: {
 export function createHarnessTools(input: {
   readonly state: HarnessToolState
   readonly ledger: ReturnType<typeof createEvidenceLedger>
-  readonly retrieval: RetrievalCapability
+  readonly knowhereTools: KnowhereToolRuntime
   readonly inspectImages?: InspectImages
   readonly recentTurns: readonly AgentTurn[]
 }) {
@@ -433,82 +482,109 @@ export function createHarnessTools(input: {
         }),
     }),
 
-    retrieve: tool({
+    knowhere_search: tool({
       description:
-        "Ask KNOWHERE for evidence context. KNOWHERE handles internal navigation; this tool only submits a concise query and records returned evidence.",
-      inputSchema: z.object({
-        query: z.string().min(1),
-        modalities: z.array(targetModalitySchema).default(["text"]),
-        purpose: z.string().optional(),
-        topK: z.number().int().min(1).max(12).optional(),
-        signalPaths: z.array(z.string().min(1)).max(8).optional(),
-        filterMode: z.enum(["keep", "delete"]).optional(),
-        threshold: z.number().min(0).max(1).optional(),
-      }),
+        "Search Knowhere for relevant Notebook evidence. Returns tagged text with evidence refs such as r1:result:1 and asset refs such as asset:r1:result:1.",
+      inputSchema: knowhereSearchSchema,
       execute: async (request) =>
         traceToolCall(input.state, {
-          toolName: "retrieve",
-          inputSummary: summarizeRetrievalRequest(request),
-          execute: async () => {
-            if (!input.state.intent) {
-              return {
-                ok: false,
-                message: "declareIntent must be called before retrieve.",
-              }
-            }
-            if (!input.state.contextPolicy) {
-              return {
-                ok: false,
-                message: "setContextPolicy must be called before retrieve.",
-              }
-            }
+          toolName: "knowhere_search",
+          inputSummary: summarizeKnowhereSearchRequest(request),
+          execute: async () =>
+            executeKnowhereSearch({
+              state: input.state,
+              ledger: input.ledger,
+              knowhereTools: input.knowhereTools,
+              request,
+            }),
+          summarizeOutput: summarizeKnowhereTextOutput,
+        }),
+    }),
 
-            const beforeSnapshot = input.ledger.snapshot()
-            const response = await input.retrieval.query({
-              query: request.query,
-              modalities: request.modalities as TargetModality[],
-              purpose: request.purpose,
-              topK: request.topK,
-              signalPaths: request.signalPaths,
-              filterMode: request.filterMode,
-              threshold: request.threshold,
-            })
-            const snapshot = input.ledger.addRetrievalResponse(response)
-            const currentChunks = snapshot.chunks.slice(
-              beforeSnapshot.chunks.length,
-            )
-            const currentAssets = snapshot.assets.slice(
-              beforeSnapshot.assets.length,
-            )
-            return {
-              ok: true,
-              retrievalCount: snapshot.retrievalCount,
-              evidenceText: response.evidenceText ?? "",
-              stopReason: response.stopReason ?? null,
-              failureReason: response.failureReason ?? null,
-              chunks: currentChunks.map((chunk) => ({
-                ref: chunk.ref,
-                kind: chunk.kind,
-                type: chunk.chunkType,
-                preview: chunk.contentPreview,
-                source: chunk.source,
-                assetRef: chunk.assetRef,
-              })),
-              assets: currentAssets.map((asset) => ({
-                ref: asset.ref,
-                type: asset.type,
-                label: asset.label,
-                source: asset.source,
-              })),
-            }
-          },
-          summarizeOutput: summarizeRetrieveOutput,
+    knowhere_list_documents: tool({
+      description:
+        "List ready visible Notebook/Knowhere documents available for this chat turn. Use this to discover documentId and revisionKey before outline/read/grep.",
+      inputSchema: z.object({}),
+      execute: async () =>
+        traceToolCall(input.state, {
+          toolName: "knowhere_list_documents",
+          inputSummary: {},
+          execute: async () =>
+            executeKnowhereTextTool({
+              operation: "list_documents",
+              state: input.state,
+              execute: async () =>
+                knowhereToolText.formatListDocuments(
+                  await input.knowhereTools.listDocuments(),
+                ),
+            }),
+          summarizeOutput: summarizeKnowhereTextOutput,
+        }),
+    }),
+
+    knowhere_get_document_outline: tool({
+      description:
+        "Read a document outline from Knowhere parsed storage. Use documentId/revisionKey from knowhere_list_documents or search refs.",
+      inputSchema: knowhereDocumentReferenceSchema,
+      execute: async (request) =>
+        traceToolCall(input.state, {
+          toolName: "knowhere_get_document_outline",
+          inputSummary: summarizeDocumentReference(request),
+          execute: async () =>
+            executeKnowhereTextTool({
+              operation: "get_document_outline",
+              state: input.state,
+              validate: () => validateDocumentReference(request),
+              execute: async () =>
+                knowhereToolText.formatOutline(
+                  await input.knowhereTools.getDocumentOutline(request),
+                ),
+            }),
+          summarizeOutput: summarizeKnowhereTextOutput,
+        }),
+    }),
+
+    knowhere_read_chunks: tool({
+      description:
+        "Read complete chunk bodies from Knowhere parsed storage. This tool never slices individual chunk content; control read size with page/pageSize, sectionPath, startChunk/endChunk, chunkId, and chunkType.",
+      inputSchema: knowhereReadChunksSchema,
+      execute: async (request) =>
+        traceToolCall(input.state, {
+          toolName: "knowhere_read_chunks",
+          inputSummary: summarizeReadChunksRequest(request),
+          execute: async () =>
+            executeKnowhereReadChunks({
+              state: input.state,
+              ledger: input.ledger,
+              knowhereTools: input.knowhereTools,
+              request,
+            }),
+          summarizeOutput: summarizeKnowhereTextOutput,
+        }),
+    }),
+
+    knowhere_grep_chunks: tool({
+      description:
+        "Search chunk text with a literal or regex pattern. Returns bounded match snippets as grep refs such as grep1:match:1 and may include truncated=true with a continuationCursor.",
+      inputSchema: knowhereGrepChunksSchema,
+      execute: async (request) =>
+        traceToolCall(input.state, {
+          toolName: "knowhere_grep_chunks",
+          inputSummary: summarizeGrepChunksRequest(request),
+          execute: async () =>
+            executeKnowhereGrepChunks({
+              state: input.state,
+              ledger: input.ledger,
+              knowhereTools: input.knowhereTools,
+              request,
+            }),
+          summarizeOutput: summarizeKnowhereTextOutput,
         }),
     }),
 
     inspectImage: tool({
       description:
-        "Inspect retrieved image asset refs visually for OCR, visual details, comparisons, or verification. Use only after retrieve has returned image assets.",
+        "Inspect Knowhere image asset refs visually for OCR, visual details, comparisons, or verification. Use only after a Knowhere tool has returned image assets.",
       inputSchema: z.object({
         refs: z.array(z.string().min(1)).min(1).max(imageInspectionRefLimit),
         question: z.string().min(1),
@@ -526,32 +602,6 @@ export function createHarnessTools(input: {
               question: request.question,
             }),
           summarizeOutput: summarizeInspectImageOutput,
-        }),
-    }),
-
-    readEvidence: tool({
-      description:
-        "Read more text from an evidence chunk already returned by KNOWHERE.",
-      inputSchema: z.object({
-        ref: z.string().min(1),
-        offset: z.number().int().min(0).optional(),
-        limit: z.number().int().min(1).max(8_000).optional(),
-      }),
-      execute: async (request) =>
-        traceToolCall(input.state, {
-          toolName: "readEvidence",
-          inputSummary: {
-            ref: request.ref,
-            offset: request.offset ?? 0,
-            limit: request.limit ?? 4_000,
-          },
-          execute: async () =>
-            input.ledger.read(
-              request.ref,
-              request.offset ?? 0,
-              request.limit ?? 4_000,
-            ),
-          summarizeOutput: summarizeReadEvidenceOutput,
         }),
     }),
 
@@ -689,14 +739,15 @@ async function inspectRetrievedImages(input: {
   }
 
   const snapshot = input.ledger.snapshot()
-  if (snapshot.retrievalCount === 0) {
+  if (snapshot.chunks.length === 0 && snapshot.assets.length === 0) {
     return {
       ok: false,
-      message: "retrieve must be called before inspectImage.",
+      message:
+        "Knowhere evidence tools must return image assets before inspectImage.",
       inspected: [],
       skipped: refs.map((ref) => ({
         ref,
-        reason: "No retrieval evidence is available yet.",
+        reason: "No Knowhere evidence is available yet.",
       })),
     }
   }
@@ -726,7 +777,7 @@ async function inspectRetrievedImages(input: {
     if (!asset) {
       skipped.push({
         ref,
-        reason: "Ref was not returned by retrieve as an asset.",
+        reason: "Ref was not returned by Knowhere as an asset.",
       })
       continue
     }
@@ -804,6 +855,161 @@ async function inspectRetrievedImages(input: {
   }
 }
 
+type KnowhereToolOperation =
+  | "search"
+  | "list_documents"
+  | "get_document_outline"
+  | "read_chunks"
+  | "grep_chunks"
+
+type KnowhereSearchToolRequest = z.infer<typeof knowhereSearchSchema>
+type KnowhereDocumentReferenceRequest = z.infer<
+  typeof knowhereDocumentReferenceSchema
+>
+type KnowhereReadChunksToolRequest = z.infer<typeof knowhereReadChunksSchema>
+type KnowhereGrepChunksToolRequest = z.infer<typeof knowhereGrepChunksSchema>
+type DocumentReferenceSummary = {
+  readonly documentId?: string
+  readonly localDocumentId?: string
+  readonly hasJobId: boolean
+  readonly hasRevisionKey: boolean
+}
+
+async function executeKnowhereSearch(input: {
+  readonly state: HarnessToolState
+  readonly ledger: ReturnType<typeof createEvidenceLedger>
+  readonly knowhereTools: KnowhereToolRuntime
+  readonly request: KnowhereSearchToolRequest
+}): Promise<string> {
+  return executeKnowhereTextTool({
+    operation: "search",
+    state: input.state,
+    execute: async () => {
+      const beforeSnapshot = input.ledger.snapshot()
+      const response = await input.knowhereTools.search({
+        query: input.request.query,
+        targetContent: input.request.targetContent,
+        purpose: input.request.purpose,
+        topK: input.request.topK,
+        signalPaths: input.request.signalPaths,
+        filterMode: input.request.filterMode,
+        threshold: input.request.threshold,
+      })
+      const snapshot = input.ledger.addRetrievalResponse(response)
+      return knowhereToolText.formatSearch({
+        response,
+        retrievalCount: snapshot.retrievalCount,
+        chunks: snapshot.chunks.slice(beforeSnapshot.chunks.length),
+        assets: snapshot.assets.slice(beforeSnapshot.assets.length),
+      })
+    },
+  })
+}
+
+async function executeKnowhereReadChunks(input: {
+  readonly state: HarnessToolState
+  readonly ledger: ReturnType<typeof createEvidenceLedger>
+  readonly knowhereTools: KnowhereToolRuntime
+  readonly request: KnowhereReadChunksToolRequest
+}): Promise<string> {
+  return executeKnowhereTextTool({
+    operation: "read_chunks",
+    state: input.state,
+    validate: () => validateDocumentReference(input.request),
+    execute: async () => {
+      const beforeSnapshot = input.ledger.snapshot()
+      const response = await input.knowhereTools.readChunks(input.request)
+      const snapshot = input.ledger.addReadChunksResponse(response)
+      return knowhereToolText.formatReadChunks({
+        response,
+        chunks: snapshot.chunks.slice(beforeSnapshot.chunks.length),
+        assets: snapshot.assets.slice(beforeSnapshot.assets.length),
+      })
+    },
+  })
+}
+
+async function executeKnowhereGrepChunks(input: {
+  readonly state: HarnessToolState
+  readonly ledger: ReturnType<typeof createEvidenceLedger>
+  readonly knowhereTools: KnowhereToolRuntime
+  readonly request: KnowhereGrepChunksToolRequest
+}): Promise<string> {
+  return executeKnowhereTextTool({
+    operation: "grep_chunks",
+    state: input.state,
+    validate: () => validateDocumentReference(input.request),
+    execute: async () => {
+      const beforeSnapshot = input.ledger.snapshot()
+      const response = await input.knowhereTools.grepChunks(input.request)
+      const snapshot = input.ledger.addGrepChunksResponse(response)
+      return knowhereToolText.formatGrepChunks({
+        response,
+        chunks: snapshot.chunks.slice(beforeSnapshot.chunks.length),
+        assets: snapshot.assets.slice(beforeSnapshot.assets.length),
+      })
+    },
+  })
+}
+
+async function executeKnowhereTextTool(input: {
+  readonly operation: KnowhereToolOperation
+  readonly state: HarnessToolState
+  readonly validate?: () => string | null
+  readonly execute: () => Promise<string>
+}): Promise<string> {
+  const workflowError = validateKnowhereWorkflow(input.state, input.operation)
+  if (workflowError) {
+    return knowhereToolText.formatError({
+      operation: input.operation,
+      message: workflowError,
+    })
+  }
+
+  const validationError = input.validate?.()
+  if (validationError) {
+    return knowhereToolText.formatError({
+      operation: input.operation,
+      message: validationError,
+    })
+  }
+
+  try {
+    return await input.execute()
+  } catch (error) {
+    return knowhereToolText.formatError({
+      operation: input.operation,
+      message: formatUnknownError(error),
+    })
+  }
+}
+
+function validateKnowhereWorkflow(
+  state: HarnessToolState,
+  operation: KnowhereToolOperation,
+): string | null {
+  const toolName = `knowhere_${operation}`
+  if (!state.intent) return `declareIntent must be called before ${toolName}.`
+  if (!state.contextPolicy) {
+    return `setContextPolicy must be called before ${toolName}.`
+  }
+  return null
+}
+
+function validateDocumentReference(
+  request: KnowhereDocumentReferenceRequest,
+): string | null {
+  if (
+    request.documentId ||
+    request.localDocumentId ||
+    request.jobId
+  ) {
+    return null
+  }
+
+  return "A documentId, localDocumentId, or jobId is required."
+}
+
 function getUniqueTrimmedRefs(refs: readonly string[]): string[] {
   const normalizedRefs: string[] = []
   for (const ref of refs) {
@@ -860,6 +1066,7 @@ function recordToolCall(
 }
 
 function getToolTraceOk(output: unknown): boolean {
+  if (typeof output === "string") return !output.includes('status="error"')
   if (!isRecord(output)) return true
   if (typeof output.ok === "boolean") return output.ok
   if (typeof output.found === "boolean") return output.found
@@ -884,9 +1091,9 @@ function summarizeContextPolicy(policy: ContextPolicy): unknown {
   }
 }
 
-function summarizeRetrievalRequest(request: {
+function summarizeKnowhereSearchRequest(request: {
   readonly query: string
-  readonly modalities?: readonly TargetModality[]
+  readonly targetContent?: KnowhereSearchTargetContent
   readonly purpose?: string
   readonly topK?: number
   readonly signalPaths?: readonly string[]
@@ -895,7 +1102,7 @@ function summarizeRetrievalRequest(request: {
 }): unknown {
   return {
     query: request.query,
-    modalities: request.modalities ?? ["text"],
+    targetContent: request.targetContent ?? "all",
     purpose: request.purpose,
     topK: request.topK,
     signalPathCount: request.signalPaths?.length ?? 0,
@@ -904,27 +1111,67 @@ function summarizeRetrievalRequest(request: {
   }
 }
 
-function summarizeRetrieveOutput(output: unknown): unknown {
-  if (!isRecord(output)) return output
+function summarizeDocumentReference(
+  request: KnowhereDocumentReferenceRequest,
+): DocumentReferenceSummary {
   return {
-    ok: output.ok,
-    retrievalCount: output.retrievalCount,
-    stopReason: output.stopReason,
-    failureReason: output.failureReason,
-    chunkCount: Array.isArray(output.chunks) ? output.chunks.length : 0,
-    assetCount: Array.isArray(output.assets) ? output.assets.length : 0,
+    documentId: request.documentId,
+    localDocumentId: request.localDocumentId,
+    hasJobId: typeof request.jobId === "string",
+    hasRevisionKey: typeof request.revisionKey === "string",
   }
 }
 
-function summarizeReadEvidenceOutput(output: unknown): unknown {
-  if (!isRecord(output)) return output
+function summarizeReadChunksRequest(
+  request: KnowhereReadChunksToolRequest,
+): unknown {
   return {
-    found: output.found,
-    ref: output.ref,
-    contentLength: output.contentLength,
-    offset: output.offset,
-    limit: output.limit,
-    hasMoreContent: output.hasMoreContent,
+    ...summarizeDocumentReference(request),
+    page: request.page,
+    pageSize: request.pageSize,
+    sectionPath: request.sectionPath,
+    startChunk: request.startChunk,
+    endChunk: request.endChunk,
+    chunkId: request.chunkId,
+    chunkType: request.chunkType,
+  }
+}
+
+function summarizeGrepChunksRequest(
+  request: KnowhereGrepChunksToolRequest,
+): unknown {
+  return {
+    ...summarizeDocumentReference(request),
+    patternLength: request.pattern.trim().length,
+    continuationCursor: request.continuationCursor,
+    isRegex: request.isRegex,
+    isCaseSensitive: request.isCaseSensitive,
+    maxResults: request.maxResults,
+    chunkType: request.chunkType,
+    sectionPathPrefix: request.sectionPathPrefix,
+    contextChars: request.contextChars,
+  }
+}
+
+function summarizeKnowhereTextOutput(output: unknown): unknown {
+  if (typeof output !== "string") return output
+  return {
+    ok: !output.includes('status="error"'),
+    textLength: output.length,
+    chunkCount: countOccurrences(output, "<chunk "),
+    assetCount: countOccurrences(output, "<asset "),
+    truncated: output.includes('truncated="true"'),
+  }
+}
+
+function countOccurrences(value: string, pattern: string): number {
+  let count = 0
+  let offset = 0
+  for (;;) {
+    const index = value.indexOf(pattern, offset)
+    if (index === -1) return count
+    count += 1
+    offset = index + pattern.length
   }
 }
 
@@ -997,6 +1244,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
 }
 
+function formatUnknownError(error: unknown): string {
+  if (error instanceof Error) return error.message
+  return String(error)
+}
+
 export function buildHarnessSystemPrompt(turn: AgentTurnInput): string {
   return [
     "You are the outer Knowhere Agent Harness.",
@@ -1007,10 +1259,10 @@ export function buildHarnessSystemPrompt(turn: AgentTurnInput): string {
     "1. Call declareIntent first. Capture constraints like a requested image/table count in constraints.desiredCount.",
     "2. Call setContextPolicy next, deciding how prior turns should influence this turn.",
     "3. When the policy needs prior-turn detail (references or corrections), call readPriorTurn for the relevant ids.",
-    "4. Call retrieve only when evidence is needed. The query must be concise and self-contained.",
-    "5. For pixel-level details, OCR, visual comparison, image verification, or when the likely answer is only visible on a retrieved page/image asset, call inspectImage only after retrieve returned image asset refs.",
+    "4. Call knowhere_search when relevance search is needed. Use knowhere_list_documents, knowhere_get_document_outline, knowhere_read_chunks, and knowhere_grep_chunks for focused document reads.",
+    "5. For pixel-level details, OCR, visual comparison, image verification, or when the likely answer is only visible on a returned page/image asset, call inspectImage only after a Knowhere tool returned image asset refs.",
     `6. inspectImage accepts at most ${imageInspectionRefLimit} image asset refs per call and per turn.`,
-    "7. Use readEvidence only for chunk refs already in the evidence ledger.",
+    "7. knowhere_read_chunks returns complete chunk bodies; control size with page/pageSize, sectionPath, startChunk/endChunk, chunkId, and chunkType.",
     "8. Call finalize with text, citations, artifacts, and unresolved issues. finalize requires declareIntent and setContextPolicy first.",
     "",
     "Context rules:",
@@ -1022,7 +1274,7 @@ export function buildHarnessSystemPrompt(turn: AgentTurnInput): string {
     "- Final output is the OutputManifest passed to finalize, not freeform tool JSON or trailing text.",
     "- artifacts with display=true are the exact images/tables shown. Never display every candidate; honor constraints.desiredCount / maxCount.",
     "- Use type=derived_table only for tables you create from evidence; every derived_table.sourceRefs entry must reference evidence in the ledger.",
-    "- citations and selected image/table artifact refs may only reference refs returned by retrieve (in the evidence ledger).",
+    "- citations and selected image/table artifact refs may only reference refs returned by Knowhere tools in the evidence ledger.",
     "- inspectImage observations are inspection notes, not new source refs. Final citations and displayed image artifacts must use the original retrieved image asset refs.",
     "- If text evidence identifies a relevant page/image but does not include the exact fact, inspect the returned image asset for OCR/detail before saying the answer is unavailable.",
     "- If evidence is insufficient, list it in unresolved instead of fabricating facts.",
