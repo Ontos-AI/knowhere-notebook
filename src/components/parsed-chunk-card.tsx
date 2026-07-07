@@ -444,7 +444,8 @@ function PageCitationAssetImage({
   readonly asset: NonNullable<ParsedChunkView["pageAssets"]>[number];
 }): ReactNode {
   const [failedAssetUrl, setFailedAssetUrl] = useState<string | null>(null);
-  const hasImageError = failedAssetUrl === asset.assetUrl;
+  const imageAssetUrl = getInlineImageAssetUrl(asset.assetUrl);
+  const hasImageError = failedAssetUrl === imageAssetUrl;
   const aspectRatio =
     asset.width && asset.height ? `${asset.width} / ${asset.height}` : undefined;
 
@@ -463,11 +464,11 @@ function PageCitationAssetImage({
         ) : (
           // eslint-disable-next-line @next/next/no-img-element -- Page assets can be short-lived Knowhere URLs outside Next image optimization.
           <img
-            src={asset.assetUrl}
+            src={imageAssetUrl}
             alt={`Page ${asset.pageNumber}`}
             className="max-h-[680px] w-full object-contain"
             loading="lazy"
-            onError={() => setFailedAssetUrl(asset.assetUrl)}
+            onError={() => setFailedAssetUrl(imageAssetUrl)}
           />
         )}
       </div>
@@ -509,6 +510,9 @@ function ImageChunkCard({
   readonly sourceOriginalFile: SourceOriginalFileView | null;
 }): ReactNode {
   const imageAssetUrl = getImageChunkAssetUrl(chunk, sourceOriginalFile);
+  const inlineImageAssetUrl = imageAssetUrl
+    ? getInlineImageAssetUrl(imageAssetUrl)
+    : null;
 
   return (
     <ChunkCardFrame
@@ -519,11 +523,11 @@ function ImageChunkCard({
     >
       <ChunkSummaryPanel chunk={chunk} />
       <ChunkContentPanel chunk={chunk}>
-        {imageAssetUrl ? (
+        {inlineImageAssetUrl ? (
           <figure className="overflow-hidden rounded-lg border border-border bg-muted/30">
             {/* eslint-disable-next-line @next/next/no-img-element -- Parsed artifact dimensions are not known before render. */}
             <img
-              src={imageAssetUrl}
+              src={inlineImageAssetUrl}
               alt={chunk.summary ?? "Image chunk"}
               className="max-h-[520px] w-full object-contain"
             />
@@ -557,6 +561,29 @@ function getImageChunkAssetUrl(
   if (!sourceOriginalFile?.mimeType.startsWith("image/")) return null;
 
   return sourceOriginalFile.url;
+}
+
+function getInlineImageAssetUrl(assetUrl: string): string {
+  if (!isNotebookBlobAssetUrl(assetUrl)) return assetUrl;
+
+  return `/api/parsed-assets/inline?url=${encodeURIComponent(assetUrl)}`;
+}
+
+function isNotebookBlobAssetUrl(assetUrl: string): boolean {
+  try {
+    const url = new URL(assetUrl);
+    if (!url.hostname.toLowerCase().endsWith(".blob.vercel-storage.com")) {
+      return false;
+    }
+
+    const pathname = decodeURIComponent(url.pathname).toLowerCase();
+    return (
+      pathname.includes("/parsed-documents/") ||
+      pathname.includes("/parsed-result/")
+    );
+  } catch {
+    return false;
+  }
 }
 
 function hasPageCitationAssets(chunk: ParsedChunkView): boolean {
