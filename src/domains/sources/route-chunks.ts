@@ -13,7 +13,7 @@ import {
 } from "./remote-library"
 import {
   getClientForWorkspace,
-  getKnowledgeForSource,
+  getKnowledgeResourcesForSource,
 } from "./route-dependencies"
 import { sourceRowRepository } from "./source-row-repository"
 import type {
@@ -99,7 +99,7 @@ const loadSourceChunksEffect = (
     const apiKey = yield* Effect.tryPromise(() =>
       deps.ensureApiKeyForWorkspace(workspace.id, input.cookieHeader),
     )
-    const knowledge = getKnowledgeForSource({
+    const readResources = getKnowledgeResourcesForSource({
       apiKey,
       workspaceId: workspace.id,
       sourceId: source.id,
@@ -114,7 +114,11 @@ const loadSourceChunksEffect = (
 
     if (input.shouldLoadAll) {
       return yield* Effect.tryPromise(() =>
-        readAllSourceChunks({ knowledge, source: readableSource }),
+        readAllSourceChunks({
+          client: readResources.client,
+          knowledge: readResources.knowledge,
+          source: readableSource,
+        }),
       ).pipe(
         Effect.map((chunks) =>
           routeResult.ok({ chunks: resolveChunkConnectionTargets(chunks) }),
@@ -125,7 +129,8 @@ const loadSourceChunksEffect = (
 
     return yield* Effect.tryPromise(() =>
       readSourceChunkPage({
-        knowledge,
+        client: readResources.client,
+        knowledge: readResources.knowledge,
         source: readableSource,
         params: input.pageParams,
       }),
@@ -175,7 +180,7 @@ const loadRemoteChunkPageEffect = (
     )
     const documentId = source.knowhereDocumentId ?? remoteDocument.documentId
 
-    const knowledge = getKnowledgeForSource({
+    const readResources = getKnowledgeResourcesForSource({
       apiKey,
       workspaceId: workspace.id,
       sourceId: source.id,
@@ -190,7 +195,11 @@ const loadRemoteChunkPageEffect = (
 
     if (input.shouldLoadAll) {
       return yield* Effect.tryPromise(() =>
-        readAllSourceChunks({ knowledge, source: readableSource }),
+        readAllSourceChunks({
+          client: readResources.client,
+          knowledge: readResources.knowledge,
+          source: readableSource,
+        }),
       ).pipe(
         Effect.map((chunks) =>
           routeResult.ok({ chunks: resolveChunkConnectionTargets(chunks) }),
@@ -201,7 +210,8 @@ const loadRemoteChunkPageEffect = (
 
     return yield* Effect.tryPromise(() =>
       readSourceChunkPage({
-        knowledge,
+        client: readResources.client,
+        knowledge: readResources.knowledge,
         source: readableSource,
         params: input.pageParams,
       }),

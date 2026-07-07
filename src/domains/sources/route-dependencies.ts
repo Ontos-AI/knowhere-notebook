@@ -99,6 +99,16 @@ function getKnowledgeForSource(input: {
   readonly documentId: string
   readonly revisionKey?: string | null
 }): Knowledge {
+  return getKnowledgeResourcesForSource(input).knowledge
+}
+
+function getKnowledgeResourcesForSource(input: {
+  readonly apiKey: string
+  readonly workspaceId: string
+  readonly sourceId: string
+  readonly documentId: string
+  readonly revisionKey?: string | null
+}): { readonly client: SourceRouteKnowhereClient; readonly knowledge: Knowledge } {
   const scheduler = createParsedDocumentSyncScheduler({
     workspaceId: input.workspaceId,
     sourceId: input.sourceId,
@@ -106,15 +116,16 @@ function getKnowledgeForSource(input: {
     apiKey: input.apiKey,
     revisionKey: input.revisionKey ?? undefined,
   })
-  const { knowledge } = makeKnowhereClientWithParsedStorage(input.apiKey, {
+  const resources = makeKnowhereClientWithParsedStorage(input.apiKey, {
     workspaceId: input.workspaceId,
     scheduler,
   })
-  return knowledge
+  return { client: resources.client, knowledge: resources.knowledge }
 }
 
 export {
   createSourceRouteDependencies,
   getClientForWorkspace,
   getKnowledgeForSource,
+  getKnowledgeResourcesForSource,
 }

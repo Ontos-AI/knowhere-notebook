@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   ensureWorkspace: vi.fn(),
   findSourceInWorkspace: vi.fn(),
   getCurrentUser: vi.fn(),
+  listChunks: vi.fn(),
   makeKnowhereClient: vi.fn(),
   makeKnowhereClientWithParsedStorage: vi.fn(),
   readChunks: vi.fn(),
@@ -62,12 +63,12 @@ describe("GET /api/sources/[sourceId]/page-assets", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.makeKnowhereClientWithParsedStorage.mockReturnValue({
-      client: { documents: { listChunks: vi.fn() } },
+      client: { documents: { listChunks: mocks.listChunks } },
       knowledge: { readChunks: mocks.readChunks },
     })
   })
 
-  it("returns durable page assets for a ready workspace source", async () => {
+  it("returns stored page assets for a ready workspace source without durable hardening", async () => {
     mocks.getCurrentUser.mockResolvedValue({
       id: "user_1",
       email: null,
@@ -88,6 +89,10 @@ describe("GET /api/sources/[sourceId]/page-assets", () => {
     )
     mocks.ensureApiKeyForWorkspace.mockResolvedValue("jwt_123")
     mocks.readChunks.mockResolvedValue({
+      document: {
+        localDocumentId: "doc_1",
+        resultDirectoryPath: "parsed-storage:doc_1",
+      },
       chunks: [
         {
           chunkId: "page_1",
@@ -147,8 +152,8 @@ describe("GET /api/sources/[sourceId]/page-assets", () => {
       chunkType: "page",
       page: 1,
       pageSize: 1,
-      assetUrlPolicy: "durable",
     })
+    expect(mocks.listChunks).not.toHaveBeenCalled()
   })
 
   it("rejects non-ready workspace sources", async () => {
@@ -209,6 +214,10 @@ describe("GET /api/sources/[sourceId]/page-assets", () => {
     )
     mocks.ensureApiKeyForWorkspace.mockResolvedValue("jwt_123")
     mocks.readChunks.mockResolvedValue({
+      document: {
+        localDocumentId: "doc_1",
+        resultDirectoryPath: "remote:doc_1",
+      },
       chunks: [
         {
           chunkId: "page_1",
@@ -220,6 +229,15 @@ describe("GET /api/sources/[sourceId]/page-assets", () => {
       pageSize: 1,
       totalChunks: 1,
       totalPages: 1,
+    })
+    mocks.listChunks.mockResolvedValue({
+      chunks: [],
+      pagination: {
+        page: 1,
+        pageSize: 1,
+        total: 1,
+        totalPages: 1,
+      },
     })
 
     const response = await GET(
@@ -243,6 +261,135 @@ describe("GET /api/sources/[sourceId]/page-assets", () => {
       },
     })
     expect(response.status).toBe(200)
+    expect(mocks.listChunks).toHaveBeenCalledWith("doc_1", {
+      page: 1,
+      pageSize: 1,
+      chunkType: "page",
+      includeAssetUrls: true,
+    })
+  })
+
+  it("returns Knowhere page asset URLs when the storage probe falls through to remote chunks", async () => {
+    mocks.getCurrentUser.mockResolvedValue({
+      id: "user_1",
+      email: null,
+      name: null,
+    })
+    mocks.ensureWorkspace.mockResolvedValue({
+      id: "workspace_1",
+      userId: "user_1",
+      namespace: "notebook-workspace_1",
+      createdAt: new Date("2026-05-10T00:00:00.000Z"),
+    })
+    mocks.findSourceInWorkspace.mockResolvedValue(
+      makeReadySource({
+        id: "00000000-0000-0000-0000-000000000002",
+        knowhereDocumentId: "doc_1",
+      }),
+    )
+    mocks.ensureApiKeyForWorkspace.mockResolvedValue("jwt_123")
+    mocks.readChunks.mockResolvedValue({
+      document: {
+        localDocumentId: "doc_1",
+        resultDirectoryPath: "remote:doc_1",
+      },
+      chunks: [
+        {
+          chunkId: "page_1",
+          chunkType: "page",
+          metadata: {
+            pageAssets: [
+              {
+                pageNum: 1,
+                contentType: "image/png",
+                width: 1200,
+                height: 1600,
+              },
+            ],
+          },
+        },
+      ],
+      page: 1,
+      pageSize: 1,
+      totalChunks: 1,
+      totalPages: 1,
+    })
+    mocks.listChunks.mockResolvedValue({
+      chunks: [
+        {
+          id: "document_page_1",
+          chunkId: "page_1",
+          chunkType: "page",
+          content: "Page 1",
+          sectionId: null,
+          sectionPath: "pages/1",
+          sourceChunkPath: "pages/1",
+          filePath: "pages/page-000001.png",
+          sortOrder: 0,
+          metadata: {
+            pageAssets: [
+              {
+                pageNum: 1,
+                assetUrl: "https://knowhere.example/page-000001.png",
+                contentType: "image/png",
+                width: 1200,
+                height: 1600,
+              },
+            ],
+          },
+          assetUrl: "https://knowhere.example/page-000001.png",
+        },
+      ],
+      pagination: {
+        page: 1,
+        pageSize: 1,
+        total: 1,
+        totalPages: 1,
+      },
+    })
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost:3001/api/sources/00000000-0000-0000-0000-000000000002/page-assets?page=1&pageSize=1",
+      ),
+      {
+        params: Promise.resolve({
+          sourceId: "00000000-0000-0000-0000-000000000002",
+        }),
+      },
+    )
+
+    await expect(response.json()).resolves.toEqual({
+      pages: [
+        {
+          pageNumber: 1,
+          assetUrl: "https://knowhere.example/page-000001.png",
+          contentType: "image/png",
+          width: 1200,
+          height: 1600,
+        },
+      ],
+      pagination: {
+        page: 1,
+        pageSize: 1,
+        total: 1,
+        totalPages: 1,
+      },
+    })
+    expect(response.status).toBe(200)
+    expect(mocks.readChunks).toHaveBeenCalledWith({
+      documentId: "doc_1",
+      revisionKey: "job_1",
+      chunkType: "page",
+      page: 1,
+      pageSize: 1,
+    })
+    expect(mocks.listChunks).toHaveBeenCalledWith("doc_1", {
+      page: 1,
+      pageSize: 1,
+      chunkType: "page",
+      includeAssetUrls: true,
+    })
   })
 
   it("marks page assets unavailable when the parsed document is missing remotely", async () => {

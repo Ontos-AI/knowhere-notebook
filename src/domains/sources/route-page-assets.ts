@@ -9,7 +9,7 @@ import {
 } from "./remote-library"
 import {
   getClientForWorkspace,
-  getKnowledgeForSource,
+  getKnowledgeResourcesForSource,
 } from "./route-dependencies"
 import { sourceRowRepository } from "./source-row-repository"
 import type {
@@ -71,7 +71,7 @@ const loadSourcePageAssetsEffect = (
     const apiKey = yield* Effect.tryPromise(() =>
       deps.ensureApiKeyForWorkspace(workspace.id, input.cookieHeader),
     )
-    const knowledge = getKnowledgeForSource({
+    const readResources = getKnowledgeResourcesForSource({
       apiKey,
       workspaceId: workspace.id,
       sourceId: source.id,
@@ -80,7 +80,8 @@ const loadSourcePageAssetsEffect = (
     })
     return yield* Effect.tryPromise(() =>
       readSourcePageAssets({
-        knowledge,
+        client: readResources.client,
+        knowledge: readResources.knowledge,
         source: {
           documentId,
           revisionKey: source.knowhereJobId,
@@ -136,7 +137,7 @@ const loadRemotePageAssetsEffect = (
     const documentId = source.knowhereDocumentId ?? remoteDocument.documentId
     const revisionKey =
       source.knowhereJobId ?? remoteDocument.revisionKey ?? null
-    const knowledge = getKnowledgeForSource({
+    const readResources = getKnowledgeResourcesForSource({
       apiKey,
       workspaceId: workspace.id,
       sourceId: source.id,
@@ -145,7 +146,8 @@ const loadRemotePageAssetsEffect = (
     })
     return yield* Effect.tryPromise(() =>
       readSourcePageAssets({
-        knowledge,
+        client: readResources.client,
+        knowledge: readResources.knowledge,
         source: { documentId, revisionKey },
         params: input.pageParams,
       }),

@@ -1,6 +1,10 @@
 import "server-only"
 
-import type { Knowledge } from "@ontos-ai/knowhere-sdk"
+import type {
+  DocumentChunk,
+  Knowledge,
+  KnowledgeReadResponse,
+} from "@ontos-ai/knowhere-sdk"
 
 import type { ChunkPageParams } from "@/domains/chunks"
 import type { SourcePageAssetView } from "./route-types"
@@ -20,7 +24,30 @@ export type SourcePageAssetsPage = {
   }
 }
 
+type PageAssetReadClient = {
+  readonly documents: {
+    listChunks(
+      documentId: string,
+      params: {
+        readonly page: number
+        readonly pageSize: number
+        readonly chunkType: "page"
+        readonly includeAssetUrls: true
+      },
+    ): Promise<{
+      readonly chunks: readonly DocumentChunk[]
+      readonly pagination?: {
+        readonly page?: number
+        readonly pageSize?: number
+        readonly total?: number
+        readonly totalPages?: number
+      }
+    }>
+  }
+}
+
 export async function readSourcePageAssets(input: {
+  readonly client: PageAssetReadClient
   readonly knowledge: Knowledge
   readonly source: ReadableSource
   readonly params: ChunkPageParams
@@ -31,8 +58,36 @@ export async function readSourcePageAssets(input: {
     chunkType: "page",
     page: input.params.page,
     pageSize: input.params.pageSize,
-    assetUrlPolicy: "durable",
   })
+
+  const knowledgePage = toSourcePageAssetsPageFromKnowledgeResponse(
+    response,
+    input.params,
+  )
+  if (
+    isParsedStorageReadResponse(response) &&
+    knowledgePage.pages.length > 0
+  ) {
+    return knowledgePage
+  }
+  if (knowledgePage.pages.length > 0) return knowledgePage
+
+  const remoteResponse = await input.client.documents.listChunks(
+    input.source.documentId,
+    {
+      page: input.params.page,
+      pageSize: input.params.pageSize,
+      chunkType: "page",
+      includeAssetUrls: true,
+    },
+  )
+  return toSourcePageAssetsPageFromRemoteResponse(remoteResponse, input.params)
+}
+
+function toSourcePageAssetsPageFromKnowledgeResponse(
+  response: KnowledgeReadResponse,
+  params: ChunkPageParams,
+): SourcePageAssetsPage {
   const pages = response.chunks.flatMap((chunk): SourcePageAssetView[] =>
     readPageAssetViews(chunk.metadata.pageAssets, chunk.assetUrl),
   )
@@ -41,19 +96,65 @@ export async function readSourcePageAssets(input: {
   const resolvedTotal = total > 0 ? total : pages.length
   const computedTotalPages = Math.max(
     1,
-    Math.ceil(resolvedTotal / input.params.pageSize),
+    Math.ceil(resolvedTotal / params.pageSize),
   )
   const totalPages = Math.max(response.totalPages ?? 0, computedTotalPages)
 
   return {
     pages,
     pagination: {
-      page: response.page ?? input.params.page,
-      pageSize: response.pageSize ?? input.params.pageSize,
+      page: response.page ?? params.page,
+      pageSize: response.pageSize ?? params.pageSize,
       total: resolvedTotal,
       totalPages,
     },
   }
+}
+
+function toSourcePageAssetsPageFromRemoteResponse(
+  response: {
+    readonly chunks: readonly DocumentChunk[]
+    readonly pagination?: {
+      readonly page?: number
+      readonly pageSize?: number
+      readonly total?: number
+      readonly totalPages?: number
+    }
+  },
+  params: ChunkPageParams,
+): SourcePageAssetsPage {
+  const pages = response.chunks.flatMap((chunk): SourcePageAssetView[] =>
+    readPageAssetViews(chunk.metadata.pageAssets, chunk.assetUrl ?? undefined),
+  )
+  const maxPageNumber = getMaxPageNumber(pages)
+  const total = Math.max(response.pagination?.total ?? 0, maxPageNumber ?? 0)
+  const resolvedTotal = total > 0 ? total : pages.length
+  const computedTotalPages = Math.max(
+    1,
+    Math.ceil(resolvedTotal / params.pageSize),
+  )
+  const totalPages = Math.max(
+    response.pagination?.totalPages ?? 0,
+    computedTotalPages,
+  )
+
+  return {
+    pages,
+    pagination: {
+      page: response.pagination?.page ?? params.page,
+      pageSize: response.pagination?.pageSize ?? params.pageSize,
+      total: resolvedTotal,
+      totalPages,
+    },
+  }
+}
+
+function isParsedStorageReadResponse(response: KnowledgeReadResponse): boolean {
+  const resultDirectoryPath = response.document.resultDirectoryPath
+  return (
+    typeof resultDirectoryPath === "string" &&
+    resultDirectoryPath.startsWith("parsed-storage:")
+  )
 }
 
 function readPageAssetViews(

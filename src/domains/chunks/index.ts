@@ -17,6 +17,7 @@ export type ChunkKnowhereClient = {
       params: {
         page: number
         pageSize: number
+        chunkType?: "text" | "image" | "table" | "page"
         includeAssetUrls: boolean
       },
     ): Promise<{

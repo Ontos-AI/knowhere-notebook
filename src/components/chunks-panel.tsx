@@ -19,6 +19,7 @@ import {
 } from "d3-hierarchy";
 import {
   FilePlus2,
+  ImageOff,
   Layers,
   RotateCcw,
   UploadCloud,
@@ -1221,6 +1222,8 @@ function PageAssetImage({
   readonly page: SourcePageAssetView;
   readonly refCallback: (element: HTMLDivElement | null) => void;
 }): ReactNode {
+  const [failedAssetUrl, setFailedAssetUrl] = useState<string | null>(null);
+  const hasImageError = failedAssetUrl === page.assetUrl;
   const aspectRatio =
     page.width && page.height ? `${page.width} / ${page.height}` : undefined;
 
@@ -1241,13 +1244,39 @@ function PageAssetImage({
         className="overflow-hidden rounded-md bg-muted/30"
         style={aspectRatio ? { aspectRatio } : undefined}
       >
-        <img
-          src={page.assetUrl}
-          alt={`Page ${page.pageNumber}`}
-          className="h-full w-full object-contain"
-          loading="lazy"
-        />
+        {hasImageError ? (
+          <PageAssetImageUnavailable pageNumber={page.pageNumber} />
+        ) : (
+          // eslint-disable-next-line @next/next/no-img-element -- Page assets can be short-lived Knowhere URLs outside Next image optimization.
+          <img
+            src={page.assetUrl}
+            alt={`Page ${page.pageNumber}`}
+            className="h-full w-full object-contain"
+            loading="lazy"
+            onError={() => setFailedAssetUrl(page.assetUrl)}
+          />
+        )}
       </div>
+    </div>
+  );
+}
+
+function PageAssetImageUnavailable({
+  pageNumber,
+}: {
+  readonly pageNumber: number;
+}): ReactNode {
+  return (
+    <div
+      data-testid={`page-asset-image-unavailable-${pageNumber}`}
+      className="flex min-h-[220px] h-full w-full flex-col items-center justify-center gap-3 px-6 py-10 text-center"
+    >
+      <div className="flex size-11 items-center justify-center rounded-full bg-background/80 text-muted-foreground">
+        <ImageOff className="size-5" />
+      </div>
+      <p className="text-sm font-medium text-muted-foreground">
+        Page image unavailable.
+      </p>
     </div>
   );
 }

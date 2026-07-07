@@ -134,6 +134,48 @@ describe("ChunksPanel", () => {
     expect(fetchPageAssetPageMock).toHaveBeenCalledWith("source_1", 1);
   });
 
+  it("shows a page-level placeholder when a page asset image fails to load", async () => {
+    fetchPageAssetPageMock.mockResolvedValue({
+      pages: [
+        {
+          pageNumber: 4,
+          assetUrl: "https://assets.example/page-000004.png",
+          contentType: "image/png",
+          width: 1200,
+          height: 1600,
+        },
+      ],
+      pagination: {
+        page: 1,
+        pageSize: 50,
+        total: 4,
+        totalPages: 1,
+      },
+    });
+
+    render(
+      React.createElement(C, {
+        chunks: [],
+        selectedSource: "report.pdf",
+        selectedSourceView: {
+          id: "source_1",
+          title: "report.pdf",
+          mimeType: "application/pdf",
+          status: "ready",
+          documentPresentation: { kind: "page-assets", pageCount: 4 },
+        },
+      }),
+    );
+
+    const pageImage = await screen.findByRole("img", { name: "Page 4" });
+    fireEvent.error(pageImage);
+
+    expect(
+      screen.getByTestId("page-asset-image-unavailable-4"),
+    ).toBeTruthy();
+    expect(screen.getByText("Page image unavailable.")).toBeTruthy();
+  });
+
   it("loads missing page buckets after focusing a later page asset", async () => {
     const user = userEvent.setup();
     fetchPageAssetPageMock.mockImplementation(
