@@ -1446,7 +1446,7 @@ describe("answerQuestionWithRetrieval", () => {
     ]);
   });
 
-  it("returns a safe fallback when the harness still has validation errors", async () => {
+  it("returns agent output when a legacy harness trace has validation errors", async () => {
     const retrieval = {
       query: vi.fn().mockResolvedValue({
         results: [makeRetrievalResult()],
@@ -1485,14 +1485,13 @@ describe("answerQuestionWithRetrieval", () => {
     );
 
     expect(answer).toEqual({
-      answer:
-        "I couldn't safely finish that response because the agent output did not pass Notebook's validation checks. Please try again.",
+      answer: "This invalid answer should not ship.",
       citations: [],
       artifacts: [],
     });
   });
 
-  it("returns a safe fallback when a manifest citation ref declares the wrong source", async () => {
+  it("renders answer and resolves citations when manifest source metadata is wrong", async () => {
     process.env.AI_GATEWAY_API_KEY = "test_gateway_key";
     const result = makeRetrievalResult({
       content: "Information hiding is a module design principle.",
@@ -1580,13 +1579,16 @@ describe("answerQuestionWithRetrieval", () => {
       }),
     );
 
-    expect(generateCallCount).toBe(2);
-    expect(answer).toEqual({
-      answer:
-        "I couldn't safely finish that response because the agent output did not pass Notebook's validation checks. Please try again.",
-      citations: [],
-      artifacts: [],
-    });
+    expect(generateCallCount).toBe(1);
+    expect(answer.answer).toBe("Information hiding is a module design principle.");
+    expect(answer.artifacts).toEqual([]);
+    expect(answer.citations.map((citation) => citation.source)).toEqual([
+      {
+        documentId: "doc_information_hiding",
+        sourceFileName: "information_hiding.pdf",
+        sectionPath: "Root / Module Design",
+      },
+    ]);
   });
 
   it("keeps image-only harness output instead of treating it as no results", async () => {
@@ -2570,7 +2572,7 @@ describe("generateAgenticOutputManifest", () => {
     expect(result.trace.validationErrors).toEqual([]);
   });
 
-  it("self-corrects an over-budget manifest via a validation-feedback revision", async () => {
+  it("keeps an over-budget manifest after the first generation", async () => {
     process.env.AI_GATEWAY_API_KEY = "test_gateway_key";
     let generateCallCount = 0;
     vi.spyOn(ToolLoopAgent.prototype, "generate").mockImplementation(
@@ -2687,12 +2689,12 @@ describe("generateAgenticOutputManifest", () => {
       searchSources,
     });
 
-    expect(generateCallCount).toBe(2);
-    expect(result.trace.revisionsUsed).toBe(1);
+    expect(generateCallCount).toBe(1);
+    expect(result.trace.revisionsUsed).toBe(0);
     expect(result.trace.validationErrors).toEqual([]);
     expect(
       result.manifest.artifacts.filter((artifact) => artifact.display).length,
-    ).toBe(2);
+    ).toBe(3);
   });
 });
 

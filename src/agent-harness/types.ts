@@ -209,8 +209,8 @@ export type EvidenceLedgerSnapshot = {
 
 export type OutputCitation = {
   readonly ref: string
-  readonly label: string
-  readonly source: EvidenceChunk["source"]
+  readonly label?: string
+  readonly source?: EvidenceChunk["source"]
 }
 
 export type OutputArtifact = {

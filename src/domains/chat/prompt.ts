@@ -74,7 +74,7 @@ export const generateAgenticOutputManifestEffect = (
       citationCount: result.manifest.citations.length,
       artifactCount: result.manifest.artifacts.length,
       unresolvedCount: result.manifest.unresolved.length,
-      validationErrorCount: result.trace.validationErrors.length,
+      finalized: result.trace.finalized,
       intentTask: result.trace.intent?.task ?? null,
       carryHistory: result.trace.contextPolicy?.carryHistory ?? null,
     })

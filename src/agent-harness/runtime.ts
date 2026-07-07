@@ -25,10 +25,8 @@ import type {
   KnowhereToolRuntime,
   OutputManifest,
 } from "./types"
-import { validateOutputManifest } from "./validator"
 
 const defaultMaxSteps = 14
-const defaultMaxRevisions = 1
 const imageInspectionReminderStepNumber = 12
 const forcedFinalizationStepNumber = 13
 const imageInspectionRefLimit = 6
@@ -43,11 +41,6 @@ export type RunAgentHarnessInput = {
   readonly knowhereTools: KnowhereToolRuntime
   readonly inspectImages?: InspectImages
   readonly maxSteps?: number
-  /**
-   * How many times the agent may revise after a failed validation pass before
-   * the harness gives up and returns the last manifest with recorded errors.
-   */
-  readonly maxRevisions?: number
 }
 
 type HarnessToolState = {
@@ -164,12 +157,14 @@ const contextPolicySchema = z.object({
 
 const outputCitationSchema = z.object({
   ref: z.string().min(1),
-  label: z.string().min(1),
-  source: z.object({
-    documentId: z.string().nullable().optional(),
-    sourceFileName: z.string().nullable().optional(),
-    sectionPath: z.string().nullable().optional(),
-  }),
+  label: z.string().min(1).optional(),
+  source: z
+    .object({
+      documentId: z.string().nullable().optional(),
+      sourceFileName: z.string().nullable().optional(),
+      sectionPath: z.string().nullable().optional(),
+    })
+    .optional(),
 })
 
 const selectedOutputArtifactSchema = z.object({
@@ -236,46 +231,11 @@ export async function runAgentHarness(
     ],
   })
 
-  const maxRevisions = input.maxRevisions ?? defaultMaxRevisions
-  let messages = buildHarnessMessages(input.turn)
-  let manifest = buildFallbackManifest("")
-  let validationErrors: readonly string[] = []
-  let revisionsUsed = 0
-
-  for (let attempt = 0; ; attempt += 1) {
-    const response = await agent.generate({ messages })
-    manifest =
-      state.finalizedManifest ?? buildFallbackManifest(response.text.trim())
-
-    const validation = validateOutputManifest({
-      manifest,
-      intent: state.intent,
-      contextPolicy: state.contextPolicy,
-      finalized: state.finalized === true,
-      ledger: ledger.snapshot(),
-      toolCalls: state.toolCalls,
-      surface: input.turn.surface,
-    })
-    validationErrors = validation.errors
-
-    if (validation.ok || attempt >= maxRevisions) break
-
-    // Self-correction (reflexion): continue the same conversation with
-    // structured validator feedback and require a fresh finalize so the agent
-    // can repair its own contract violations instead of shipping them.
-    revisionsUsed += 1
-    state.finalizedManifest = undefined
-    state.finalized = false
-    messages = [
-      ...messages,
-      ...(response.response.messages as ModelMessage[]),
-      {
-        role: "user",
-        content: buildRevisionFeedback(validation.errors),
-      },
-    ]
-  }
-
+  const response = await agent.generate({
+    messages: buildHarnessMessages(input.turn),
+  })
+  const manifest =
+    state.finalizedManifest ?? buildFallbackManifest(response.text.trim())
   const ledgerSnapshot = ledger.snapshot()
   return {
     manifest,
@@ -286,8 +246,8 @@ export async function runAgentHarness(
       finalized: state.finalized === true,
       priorTurnReads: [...(state.priorTurnReads ?? [])],
       toolCalls: [...(state.toolCalls ?? [])],
-      validationErrors,
-      revisionsUsed,
+      validationErrors: [],
+      revisionsUsed: 0,
     },
   }
 }
@@ -395,22 +355,6 @@ type ModelMessageForRole<TRole extends ModelMessage["role"]> = Extract<
   { readonly role: TRole }
 >
 
-function buildRevisionFeedback(errors: readonly string[]): string {
-  return [
-    "Your finalize output did not satisfy the output contract:",
-    ...errors.map((error) => `- ${error}`),
-    "",
-    "Fix every issue and call finalize again with a corrected manifest.",
-    "You must call finalize; freeform assistant text is not a valid final",
-    "answer contract.",
-    "Do not exceed the user's requested artifact count, only cite or display",
-    "evidence refs that exist in the evidence ledger, and do not fabricate",
-    "facts when evidence is missing. Citation source.documentId,",
-    "sourceFileName, and sectionPath must match the selected evidence ref",
-    "exactly.",
-  ].join("\n")
-}
-
 function buildForcedFinalizationFeedback(): string {
   return [
     "The retrieval step budget has been reached.",
@@ -453,7 +397,7 @@ export function createHarnessTools(input: {
   return {
     declareIntent: tool({
       description:
-        "Declare the user's intent before any other action. This is working memory, not a final answer.",
+        "Declare the user's intent when it helps plan the response. This is working memory, not a final answer.",
       inputSchema: intentFrameSchema,
       execute: async (intent): Promise<IntentFrame> =>
         traceToolCall(input.state, {
@@ -493,7 +437,6 @@ export function createHarnessTools(input: {
           inputSummary: summarizeKnowhereSearchRequest(request),
           execute: async () =>
             executeKnowhereSearch({
-              state: input.state,
               ledger: input.ledger,
               knowhereTools: input.knowhereTools,
               request,
@@ -513,7 +456,6 @@ export function createHarnessTools(input: {
           execute: async () =>
             executeKnowhereTextTool({
               operation: "list_documents",
-              state: input.state,
               execute: async () =>
                 knowhereToolText.formatListDocuments(
                   await input.knowhereTools.listDocuments(),
@@ -534,7 +476,6 @@ export function createHarnessTools(input: {
           execute: async () =>
             executeKnowhereTextTool({
               operation: "get_document_outline",
-              state: input.state,
               validate: () => validateDocumentReference(request),
               execute: async () =>
                 knowhereToolText.formatOutline(
@@ -555,7 +496,6 @@ export function createHarnessTools(input: {
           inputSummary: summarizeReadChunksRequest(request),
           execute: async () =>
             executeKnowhereReadChunks({
-              state: input.state,
               ledger: input.ledger,
               knowhereTools: input.knowhereTools,
               request,
@@ -574,7 +514,6 @@ export function createHarnessTools(input: {
           inputSummary: summarizeGrepChunksRequest(request),
           execute: async () =>
             executeKnowhereGrepChunks({
-              state: input.state,
               ledger: input.ledger,
               knowhereTools: input.knowhereTools,
               request,
@@ -669,26 +608,13 @@ export function createHarnessTools(input: {
       description:
         "Finalize the user-facing output manifest. This is the only final answer " +
         "contract. Artifacts listed here with display=true are the exact set of " +
-        "images/tables shown to the user; cite only refs from the evidence ledger " +
-        "and copy citation source metadata exactly from the selected ref.",
+        "images/tables shown to the user; cite evidence refs when available.",
       inputSchema: outputManifestSchema,
       execute: async (manifest) =>
         traceToolCall(input.state, {
           toolName: "finalize",
           inputSummary: summarizeManifest(manifest),
           execute: async () => {
-            if (!input.state.intent) {
-              return {
-                ok: false as const,
-                message: "declareIntent must be called before finalize.",
-              }
-            }
-            if (!input.state.contextPolicy) {
-              return {
-                ok: false as const,
-                message: "setContextPolicy must be called before finalize.",
-              }
-            }
             input.state.finalizedManifest = manifest
             input.state.finalized = true
             return { ok: true as const, ...manifest }
@@ -878,14 +804,12 @@ type DocumentReferenceSummary = {
 }
 
 async function executeKnowhereSearch(input: {
-  readonly state: HarnessToolState
   readonly ledger: ReturnType<typeof createEvidenceLedger>
   readonly knowhereTools: KnowhereToolRuntime
   readonly request: KnowhereSearchToolRequest
 }): Promise<string> {
   return executeKnowhereTextTool({
     operation: "search",
-    state: input.state,
     execute: async () => {
       const beforeSnapshot = input.ledger.snapshot()
       const response = await input.knowhereTools.search({
@@ -909,14 +833,12 @@ async function executeKnowhereSearch(input: {
 }
 
 async function executeKnowhereReadChunks(input: {
-  readonly state: HarnessToolState
   readonly ledger: ReturnType<typeof createEvidenceLedger>
   readonly knowhereTools: KnowhereToolRuntime
   readonly request: KnowhereReadChunksToolRequest
 }): Promise<string> {
   return executeKnowhereTextTool({
     operation: "read_chunks",
-    state: input.state,
     validate: () => validateDocumentReference(input.request),
     execute: async () => {
       const beforeSnapshot = input.ledger.snapshot()
@@ -932,14 +854,12 @@ async function executeKnowhereReadChunks(input: {
 }
 
 async function executeKnowhereGrepChunks(input: {
-  readonly state: HarnessToolState
   readonly ledger: ReturnType<typeof createEvidenceLedger>
   readonly knowhereTools: KnowhereToolRuntime
   readonly request: KnowhereGrepChunksToolRequest
 }): Promise<string> {
   return executeKnowhereTextTool({
     operation: "grep_chunks",
-    state: input.state,
     validate: () => validateDocumentReference(input.request),
     execute: async () => {
       const beforeSnapshot = input.ledger.snapshot()
@@ -956,18 +876,9 @@ async function executeKnowhereGrepChunks(input: {
 
 async function executeKnowhereTextTool(input: {
   readonly operation: KnowhereToolOperation
-  readonly state: HarnessToolState
   readonly validate?: () => string | null
   readonly execute: () => Promise<string>
 }): Promise<string> {
-  const workflowError = validateKnowhereWorkflow(input.state, input.operation)
-  if (workflowError) {
-    return knowhereToolText.formatError({
-      operation: input.operation,
-      message: workflowError,
-    })
-  }
-
   const validationError = input.validate?.()
   if (validationError) {
     return knowhereToolText.formatError({
@@ -984,18 +895,6 @@ async function executeKnowhereTextTool(input: {
       message: formatUnknownError(error),
     })
   }
-}
-
-function validateKnowhereWorkflow(
-  state: HarnessToolState,
-  operation: KnowhereToolOperation,
-): string | null {
-  const toolName = `knowhere_${operation}`
-  if (!state.intent) return `declareIntent must be called before ${toolName}.`
-  if (!state.contextPolicy) {
-    return `setContextPolicy must be called before ${toolName}.`
-  }
-  return null
 }
 
 function validateDocumentReference(
@@ -1257,15 +1156,15 @@ export function buildHarnessSystemPrompt(turn: AgentTurnInput): string {
     "KNOWHERE is only an evidence provider. Do not infer or control its internal navigation algorithm.",
     "Your job is to understand intent, decide context use, optionally retrieve evidence, select evidence/artifacts, create source-backed derived tables when useful, and finalize an output manifest.",
     "",
-    "Required workflow:",
-    "1. Call declareIntent first. Capture constraints like a requested image/table count in constraints.desiredCount.",
-    "2. Call setContextPolicy next, deciding how prior turns should influence this turn.",
+    "Recommended workflow:",
+    "1. Call declareIntent when it helps you plan the response. Capture constraints like a requested image/table count in constraints.desiredCount.",
+    "2. Call setContextPolicy when prior turns may influence this turn.",
     "3. When the policy needs prior-turn detail (references or corrections), call readPriorTurn for the relevant ids.",
     "4. Call knowhere_search when relevance search is needed. Use knowhere_list_documents, knowhere_get_document_outline, knowhere_read_chunks, and knowhere_grep_chunks for focused document reads.",
     "5. For pixel-level details, OCR, visual comparison, image verification, or when the likely answer is only visible on a returned page/image asset, call inspectImage only after a Knowhere tool returned image asset refs.",
     `6. inspectImage accepts at most ${imageInspectionRefLimit} image asset refs per call and per turn.`,
     "7. knowhere_read_chunks returns complete chunk bodies; control size with page/pageSize, sectionPath, startChunk/endChunk, chunkId, and chunkType.",
-    "8. Call finalize with text, citations, artifacts, and unresolved issues. finalize requires declareIntent and setContextPolicy first.",
+    "8. Call finalize with text, citations, artifacts, and unresolved issues when you are ready to answer.",
     "",
     "Context rules:",
     "- If the current user request is unrelated to prior turns, set carryHistory to none and do not reuse prior topics.",
@@ -1276,13 +1175,12 @@ export function buildHarnessSystemPrompt(turn: AgentTurnInput): string {
     "- Final output is the OutputManifest passed to finalize, not freeform tool JSON or trailing text.",
     "- artifacts with display=true are the exact images/tables shown. Never display every candidate; honor constraints.desiredCount / maxCount.",
     "- Use type=derived_table only for tables you create from evidence; every derived_table.sourceRefs entry must reference evidence in the ledger.",
-    "- citations and selected image/table artifact refs may only reference refs returned by Knowhere tools in the evidence ledger.",
-    "- For every citation, source.documentId, sourceFileName, and sectionPath must match the selected evidence ref exactly. Use null or omit the field only when the ref omits it.",
-    "- Omit citations when you cannot identify a supporting evidence ref with matching source metadata.",
+    "- Prefer citation and selected image/table artifact refs returned by Knowhere tools in the evidence ledger.",
+    "- Citation label and source metadata are optional. Notebook resolves citation metadata from evidence refs when possible.",
+    "- If evidence is relevant but you cannot identify a supporting evidence ref, answer with unresolved issues instead of fabricating a ref.",
     "- inspectImage observations are inspection notes, not new source refs. Final citations and displayed image artifacts must use the original retrieved image asset refs.",
     "- If text evidence identifies a relevant page/image but does not include the exact fact, inspect the returned image asset for OCR/detail before saying the answer is unavailable.",
     "- If evidence is insufficient, list it in unresolved instead of fabricating facts.",
-    "- After a validation-feedback message, fix all listed issues and call finalize again.",
     `Surface: ${turn.surface}`,
     `Output capabilities: ${JSON.stringify(turn.outputCapabilities)}`,
     turn.sourceContext ? `Searchable source context:\n${turn.sourceContext}` : "",

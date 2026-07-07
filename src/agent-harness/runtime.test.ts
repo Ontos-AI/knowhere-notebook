@@ -28,24 +28,23 @@ describe("agent harness runtime", () => {
     expect(prompt).not.toContain("navigation action")
   })
 
-  it("tells the agent to cite only refs with matching source metadata", () => {
+  it("tells the agent citation metadata is optional and ledger-resolved", () => {
     const prompt = buildHarnessSystemPrompt(makeTurnInput())
 
     expect(prompt).toContain(
-      "source.documentId, sourceFileName, and sectionPath must match the selected evidence ref exactly",
+      "Citation label and source metadata are optional",
     )
     expect(prompt).toContain(
-      "Omit citations when you cannot identify a supporting evidence ref",
+      "Notebook resolves citation metadata from evidence refs when possible",
     )
+    expect(prompt).not.toContain("must match the selected evidence ref exactly")
   })
 
-  it("passes only outer retrieval parameters to KNOWHERE after intent and context policy are declared", async () => {
+  it("passes only outer retrieval parameters to KNOWHERE without planning-tool gating", async () => {
     const query = vi.fn<KnowhereToolRuntime["search"]>().mockResolvedValue(
       makeRetrievalResponse(),
     )
     const state: {
-      intent?: IntentFrame
-      contextPolicy?: ContextPolicy
       toolCalls?: HarnessToolCallTrace[]
     } = {}
     const tools = createHarnessTools({
@@ -55,25 +54,6 @@ describe("agent harness runtime", () => {
       recentTurns: [],
     })
 
-    expect(await executeTool(tools.knowhere_search, { query: "q4 chart" }))
-      .toContain('status="error"')
-
-    await executeTool(tools.declareIntent, {
-      task: "show_media",
-      dependsOnPreviousTurn: false,
-      retrievalNeeded: "yes",
-      targetModalities: ["image"],
-      constraints: { desiredCount: 2, maxCount: 2 },
-      groundingPolicy: "must_use_sources",
-    })
-    expect(await executeTool(tools.knowhere_search, { query: "q4 chart" }))
-      .toContain("setContextPolicy must be called before knowhere_search.")
-
-    await executeTool(tools.setContextPolicy, {
-      carryHistory: "none",
-      reason: "The current request is unrelated to previous turns.",
-      activePriorTurnIds: [],
-    })
     const result = await executeTool(tools.knowhere_search, {
       query: "q4 chart",
       targetContent: "image",
@@ -97,10 +77,6 @@ describe("agent harness runtime", () => {
       "LegalAction",
     )
     expect(state.toolCalls?.map((call) => [call.tool, call.ok])).toEqual([
-      ["knowhere_search", false],
-      ["declareIntent", true],
-      ["knowhere_search", false],
-      ["setContextPolicy", true],
       ["knowhere_search", true],
     ])
   })
@@ -360,10 +336,8 @@ describe("agent harness runtime", () => {
     })
   })
 
-  it("blocks finalize until intent and context policy are declared", async () => {
+  it("accepts finalize output without planning-tool gating", async () => {
     const state: {
-      intent?: IntentFrame
-      contextPolicy?: ContextPolicy
       finalizedManifest?: OutputManifest
       finalized?: boolean
     } = {}
@@ -381,31 +355,6 @@ describe("agent harness runtime", () => {
       unresolved: [],
     }
 
-    expect(await executeTool(tools.finalize, manifest)).toEqual({
-      ok: false,
-      message: "declareIntent must be called before finalize.",
-    })
-    expect(state.finalizedManifest).toBeUndefined()
-
-    await executeTool(tools.declareIntent, {
-      task: "answer_question",
-      dependsOnPreviousTurn: false,
-      retrievalNeeded: "no",
-      targetModalities: ["text"],
-      constraints: {},
-      groundingPolicy: "may_use_sources",
-    })
-    expect(await executeTool(tools.finalize, manifest)).toEqual({
-      ok: false,
-      message: "setContextPolicy must be called before finalize.",
-    })
-    expect(state.finalizedManifest).toBeUndefined()
-
-    await executeTool(tools.setContextPolicy, {
-      carryHistory: "none",
-      reason: "Self-contained request.",
-      activePriorTurnIds: [],
-    })
     expect(await executeTool(tools.finalize, manifest)).toMatchObject({
       ok: true,
       text: "Answer.",

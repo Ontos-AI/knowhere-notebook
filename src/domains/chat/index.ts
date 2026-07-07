@@ -16,7 +16,6 @@ import type {
   EvidenceChunk,
   HarnessRunResult,
   OutputArtifact,
-  OutputCitation,
 } from "@/agent-harness"
 import {
   toChatCitationViews,
@@ -55,8 +54,6 @@ const KNOWHERE_RESPONSE_TEXT_LOG_LIMIT = 200
 const KNOWHERE_CHUNK_LOG_LIMIT = 100
 const KNOWHERE_RESPONSE_LOG_ITEM_LIMIT = 20
 const NO_RESULTS_ANSWER = "I couldn't find that in your sources."
-const HARNESS_VALIDATION_FAILURE_ANSWER =
-  "I couldn't safely finish that response because the agent output did not pass Notebook's validation checks. Please try again."
 const RAW_URL_PATTERN = /https?:\/\/[^\s)\]}>"']+/g
 const REDACTED_MEDIA_URL = "[media asset URL hidden]"
 const RETRIEVAL_TARGET_CONTENT_DATA_TYPES: Readonly<
@@ -234,23 +231,8 @@ export const answerQuestionWithRetrieval = (
       answerLength: generatedAnswer.manifest.text.length,
       retrievalCallCount: retrievalResponses.length,
       citationCount: generatedAnswer.manifest.citations.length,
-      harnessValidationErrorCount: generatedAnswer.trace.validationErrors.length,
-      revisionsUsed: generatedAnswer.trace.revisionsUsed,
+      finalized: generatedAnswer.trace.finalized,
     })
-    if (generatedAnswer.trace.validationErrors.length > 0) {
-      logger.warn("chat-agent: validation failed; returning safe fallback", {
-        validationErrors: generatedAnswer.trace.validationErrors,
-        revisionsUsed: generatedAnswer.trace.revisionsUsed,
-        finalized: generatedAnswer.trace.finalized,
-        intentTask: generatedAnswer.trace.intent?.task ?? null,
-        retrievalCallCount: retrievalResponses.length,
-      })
-      return {
-        answer: HARNESS_VALIDATION_FAILURE_ANSWER,
-        citations: [] as ChatCitationView[],
-        artifacts: [] as ChatArtifactView[],
-      }
-    }
 
     const rawResults = selectCitationRawResults({
       generatedAnswer,
@@ -437,7 +419,7 @@ function toChatArtifactView(input: {
 }
 
 function normalizeHarnessSource(
-  source: OutputCitation["source"],
+  source: EvidenceChunk["source"],
   sources: readonly AnswerQuestionInput["sources"][number][],
 ): ChatCitationView["source"] {
   const sourceTitle = source.documentId
