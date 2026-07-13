@@ -113,6 +113,7 @@ describe("uploadSourceToKnowhere", () => {
       namespace: "default",
       documentMetadata: {
         createdByClient: "notebook",
+        clientVersion: "0.1.0",
         sourceFileName: "notes.pdf",
         title: "notes.pdf",
         mimeType: "application/pdf",
@@ -324,6 +325,7 @@ describe("uploadSourceToKnowhere", () => {
       namespace: "default",
       documentMetadata: {
         createdByClient: "notebook",
+        clientVersion: "0.1.0",
         sourceFileName: "large.pdf",
         title: "large.pdf",
         mimeType: "application/pdf",

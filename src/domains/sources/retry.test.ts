@@ -55,6 +55,7 @@ describe("retrySourceToKnowhereEffect", () => {
       namespace: "default",
       documentMetadata: {
         createdByClient: "notebook",
+        clientVersion: "0.1.0",
         sourceFileName: "notes.pdf",
         title: "notes.pdf",
         mimeType: "application/pdf",
