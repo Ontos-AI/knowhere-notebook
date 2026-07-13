@@ -15,6 +15,7 @@ import { validateUploadFile } from "./validation"
 import { TempFile, tempFileLayer } from "@/lib/temp-files"
 import { getUploadNamespace } from "./namespace"
 import { sourceFailureMessage } from "./failure-message"
+import { createNotebookDocumentMetadata } from "./document-metadata"
 
 /**
  * Upload a browser file to Knowhere for parsing.
@@ -212,20 +213,6 @@ const markSourceParsingEffect = (input: {
           input.jobId,
         ),
   )
-
-function createNotebookDocumentMetadata(input: {
-  readonly title: string
-  readonly mimeType: string
-  readonly sizeBytes: number
-}): Readonly<Record<string, unknown>> {
-  return {
-    createdByClient: "notebook",
-    sourceFileName: input.title,
-    title: input.title,
-    mimeType: input.mimeType,
-    sizeBytes: input.sizeBytes,
-  }
-}
 
 function getDocumentId(job: UploadJobResult): string | null {
   return typeof job.documentId === "string" && job.documentId.length > 0

@@ -9,6 +9,7 @@ import type {
   UploadKnowhereClient,
 } from "./source-upload-contracts"
 import { sourceFailureMessage } from "./failure-message"
+import { createNotebookDocumentMetadata } from "./document-metadata"
 
 type RetrySourceRepository = {
   readonly markSourceParsing: (
@@ -121,20 +122,6 @@ const tryGetPlannedDocumentIdEffect = (
     )
     return getDocumentId(currentJob)
   }).pipe(Effect.catchAll(() => Effect.succeed(null)))
-}
-
-function createNotebookDocumentMetadata(input: {
-  readonly title: string
-  readonly mimeType: string
-  readonly sizeBytes: number
-}): Readonly<Record<string, unknown>> {
-  return {
-    createdByClient: "notebook",
-    sourceFileName: input.title,
-    title: input.title,
-    mimeType: input.mimeType,
-    sizeBytes: input.sizeBytes,
-  }
 }
 
 function getDocumentId(job: UploadJobResult): string | null {
