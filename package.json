@@ -20,6 +20,7 @@
     "upstash:dev": "npx @upstash/qstash-cli dev"
   },
   "dependencies": {
+    "@ai-sdk/openai-compatible": "2.0.63",
     "@ai-sdk/react": "^3.0.177",
     "@antv/chart-visualization-skills": "0.1.3",
     "@effect/platform": "^0.96.1",

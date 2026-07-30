@@ -1,6 +1,6 @@
 import { Effect } from "effect"
 
-import { CHAT_MODEL } from "@/lib/ai"
+import { getChatModel, getChatModelLabel, isChatConfigured } from "@/lib/ai"
 import { logger } from "@/lib/logger"
 import type { Source } from "@/infrastructure/db/schema"
 import type { ChatCitationView } from "@/domains/chat/types"
@@ -35,11 +35,12 @@ export const generateAgenticOutputManifestEffect = (
   input: GenerateAgenticOutputManifestInput,
 ): Effect.Effect<HarnessRunResult, unknown> =>
   Effect.gen(function* () {
-    if (!process.env.AI_GATEWAY_API_KEY) {
+    if (!isChatConfigured()) {
       return yield* Effect.die(
         new Error(
-          "AI_GATEWAY_API_KEY environment variable is required. " +
-            "Set it in your .env.local file.",
+          "Chat is not configured. Set either AI_GATEWAY_API_KEY " +
+            "(Vercel AI Gateway) or CHAT_BASE_URL + CHAT_MODEL + CHAT_API_KEY " +
+            "(OpenAI-compatible) in .env.local.",
         ),
       )
     }
@@ -47,7 +48,7 @@ export const generateAgenticOutputManifestEffect = (
     const turn = buildNotebookHarnessTurn(input)
     logger.info("chat-agent: harness request", {
       operation: "generateAgenticOutputManifest.initial",
-      model: CHAT_MODEL,
+      model: getChatModelLabel(),
       surface: turn.surface,
       recentTurnCount: turn.recentTurns.length,
       messageCharLength: turn.userText.length,
@@ -55,7 +56,7 @@ export const generateAgenticOutputManifestEffect = (
 
     const result = yield* Effect.tryPromise(() =>
       runAgentHarness({
-        model: CHAT_MODEL,
+        model: getChatModel(),
         turn,
         retrieval: {
           query: (request) =>
@@ -66,7 +67,7 @@ export const generateAgenticOutputManifestEffect = (
 
     logger.info("chat-agent: harness response", {
       operation: "generateAgenticOutputManifest.final",
-      model: CHAT_MODEL,
+      model: getChatModelLabel(),
       answerLength: result.manifest.text.length,
       citationCount: result.manifest.citations.length,
       artifactCount: result.manifest.artifacts.length,

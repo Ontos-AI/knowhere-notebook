@@ -3,7 +3,7 @@ import g2SkillIndex from "@antv/chart-visualization-skills/dist/index/g2.index.j
 import type { Skill } from "@antv/chart-visualization-skills"
 import { z } from "zod"
 
-import { CHAT_MODEL } from "@/lib/ai"
+import { getChatModel, getChatModelLabel, isChatConfigured } from "@/lib/ai"
 import { summarizeUnknownError } from "@/lib/format-log-value"
 import { logger } from "@/lib/logger"
 
@@ -132,9 +132,11 @@ export function parseChatDiagramRequestBody(
 export async function generateChatDiagramSpec(input: {
   readonly answer: string
 }): Promise<ChatDiagramSpec> {
-  if (!process.env.AI_GATEWAY_API_KEY) {
+  if (!isChatConfigured()) {
     throw new Error(
-      "AI_GATEWAY_API_KEY environment variable is required. Set it in your .env.local file.",
+      "Chat is not configured. Set either AI_GATEWAY_API_KEY (Vercel AI " +
+        "Gateway) or CHAT_BASE_URL + CHAT_MODEL + CHAT_API_KEY (OpenAI-compatible) " +
+        "in .env.local.",
     )
   }
 
@@ -191,18 +193,18 @@ async function requestChatDiagramObject(input: {
 }): Promise<ChatDiagramSpec> {
   logger.info("chat-diagram: llm request", {
     attempt: input.attempt,
-    model: CHAT_MODEL,
+    model: getChatModelLabel(),
     promptCharLength: input.prompt.length,
   })
   const response = await generateObject({
-    model: CHAT_MODEL,
+    model: getChatModel(),
     schema: chatDiagramSpecSchema,
     prompt: input.prompt,
   })
   const spec = normalizeChatDiagramSpec(response.object)
   logger.info("chat-diagram: llm response", {
     attempt: input.attempt,
-    model: CHAT_MODEL,
+    model: getChatModelLabel(),
     type: spec.type,
     dataPointCount: spec.type === "none" ? 0 : spec.data.length,
   })

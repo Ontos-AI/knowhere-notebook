@@ -10,7 +10,9 @@ Upload documents, explore parsed content, and ask questions about your knowledge
    ```
 
 2. Fill in your API keys in `.env.local`:
-   - `AI_GATEWAY_API_KEY` — your Vercel AI Gateway key for chat (optional `CHAT_MODEL` override)
+   - Chat (one of):
+     - `AI_GATEWAY_API_KEY` — Vercel AI Gateway key (optional `CHAT_MODEL` override, default `google/gemini-3-flash`), or
+     - `CHAT_BASE_URL` + `CHAT_API_KEY` + `CHAT_MODEL` — any OpenAI-compatible endpoint (e.g. DeepSeek, local Xinference/vLLM). `CHAT_MODEL` is required in this mode.
    - `KNOWHERE_API_KEY` — optional development override that skips Dashboard auth and calls Knowhere directly
    - `NEXT_PUBLIC_POSTHOG_KEY` — PostHog Project API key for front-end event tracking
    - `NEXT_PUBLIC_POSTHOG_HOST` — PostHog ingestion host (default `https://us.i.posthog.com`)
@@ -63,7 +65,7 @@ GA4 field and event alignment guidance lives in `docs/ga4-alignment.md`.
 ## Tech Stack
 
 - **Framework**: [Next.js 16](https://nextjs.org) with App Router and Server Components
-- **AI**: [Vercel AI SDK](https://sdk.vercel.ai) + [Vercel AI Gateway](https://vercel.com/docs/ai-gateway)
+- **AI**: [Vercel AI SDK](https://sdk.vercel.ai) via the [Vercel AI Gateway](https://vercel.com/docs/ai-gateway) or any OpenAI-compatible endpoint (see `docs/adr/0007-chat-provider-abstraction.md`)
 - **Knowledge**: [Knowhere Node.js SDK](https://github.com/Ontos-AI/knowhere-sdk) for document parsing and retrieval
 - **UI**: [shadcn/ui](https://ui.shadcn.com) + Tailwind CSS 4
 - **Icons**: [Lucide](https://lucide.dev)
