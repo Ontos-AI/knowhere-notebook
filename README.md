@@ -136,3 +136,10 @@ src/
 ├── integrations/     # External systems: Dashboard and Knowhere
 └── lib/              # Small cross-cutting utilities
 ```
+
+## Desktop Layout
+
+Two-panel (sources | chat) with a resize handle. Parsed chunks and the
+Official Library are full-screen overlays, triggered by the tree icon on a
+source row or a citation reference in chat.
+
