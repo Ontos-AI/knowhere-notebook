@@ -104,6 +104,18 @@ const defaultBlobStore: ChunkPageBlobStore = {
     }),
 }
 
+/**
+ * The chunk-page cache is a best-effort optimization backed by Vercel Blob.
+ * Local/self-hosted dev (and any deploy without `BLOB_READ_WRITE_TOKEN`) has
+ * no Blob store, so `@vercel/blob` calls throw "No token found". Treat a
+ * missing token as "cache unavailable" and fetch from Knowhere directly
+ * instead of crashing the chunks route. An explicitly injected `cacheStore`
+ * (tests / custom stores) bypasses this gate.
+ */
+function isBlobCacheConfigured(): boolean {
+  return Boolean(process.env.BLOB_READ_WRITE_TOKEN?.trim())
+}
+
 const defaultFetchAsset: FetchChunkAsset = (assetUrl: string) => fetch(assetUrl)
 
 const defaultScheduleWarm: ChunkPageWarmScheduler = (
@@ -159,6 +171,8 @@ export const loadChunkPageForSource = (
     const mode = options.mode ?? visibleChunkPageMode
     const workspaceId = options.workspaceId ?? source.workspaceId
     const cacheStore = options.cacheStore ?? defaultBlobStore
+    const cacheAvailable =
+      options.cacheStore !== undefined || isBlobCacheConfigured()
     const includeAssetUrls = mode === visibleChunkPageMode
     const revisionProbeResponse = yield* Effect.promise(() =>
       client.documents.listChunks(source.knowhereDocumentId!, {
@@ -170,16 +184,31 @@ export const loadChunkPageForSource = (
     const probeRevisionKey = getRevisionKey(revisionProbeResponse, source)
     if (probeRevisionKey) {
       scheduleRevisionKeyUpdate(source, probeRevisionKey, options.onRevisionKey)
-      const cachedPage = yield* Effect.promise(() =>
-        readCachedChunkPage({
-          cacheStore,
-          documentId: source.knowhereDocumentId!,
-          mode,
-          params,
-          revisionKey: probeRevisionKey,
-          workspaceId,
-        }),
-      )
+      const cachedPage = cacheAvailable
+        ? yield* Effect.promise(() =>
+            readCachedChunkPage({
+              cacheStore,
+              documentId: source.knowhereDocumentId!,
+              mode,
+              params,
+              revisionKey: probeRevisionKey,
+              workspaceId,
+            }),
+          ).pipe(
+            Effect.catchAll((error) =>
+              Effect.sync(() => {
+                logger.warn("chunks: cached chunk page read failed", {
+                  documentId: source.knowhereDocumentId,
+                  page: params.page,
+                  pageSize: params.pageSize,
+                  revisionKey: probeRevisionKey,
+                  error: getErrorMessage(error),
+                })
+                return null
+              }),
+            ),
+          )
+        : null
       if (cachedPage) return cachedPage
     }
 
@@ -207,7 +236,7 @@ export const loadChunkPageForSource = (
           : {},
     })
 
-    if (revisionKey) {
+    if (revisionKey && cacheAvailable) {
       if (mode === visibleChunkPageMode) {
         scheduleChunkPageWarm({
           source,
