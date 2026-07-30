@@ -78,6 +78,30 @@ The CI workflow runs lint, typecheck, tests, and build on pull requests targetin
 After changes are merged to `main`, the release workflow creates a date-based
 GitHub Release with a source archive and build metadata.
 
+## Deployment (Docker)
+
+Notebook ships as a standalone Next.js image built with `output: "standalone"`.
+
+```bash
+docker build -t knowhere-notebook:dev .
+docker run -d --name knowhere-notebook -p 3000:3000 \
+  --env-file .env.docker knowhere-notebook:dev
+```
+
+The image runs the traced standalone server as a non-root user on port 3000.
+Provide the same variables as `.env.local` (via a gitignored `.env.docker`):
+`KNOWHERE_API_KEY`/`KNOWHERE_BASE_URL`, `DATABASE_URL`/`DATABASE_DRIVER`, and
+chat config (`AI_GATEWAY_API_KEY` or `CHAT_BASE_URL`+`CHAT_API_KEY`+`CHAT_MODEL`).
+
+When running against a Knowhere stack on the host (Docker Desktop / OrbStack),
+use `host.docker.internal` in `KNOWHERE_BASE_URL` and `DATABASE_URL` so the
+container can reach the host services.
+
+**Vercel Blob is optional.** The chunk-page cache is backed by Vercel Blob when
+`BLOB_READ_WRITE_TOKEN` is set; without it, the cache is disabled and chunks
+are served straight from Knowhere. This is what lets self-hosted / local
+deployments work without a Blob store.
+
 ## Dashboard Auth Integration
 
 Notebook treats Dashboard as the auth source of truth. Server-side auth calls

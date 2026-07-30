@@ -45,8 +45,9 @@ details when the documentation isn't enough.
 - **Watch tests:** `pnpm test:watch`
 - **E2E tests:** `pnpm test:e2e` (Playwright, chromium only)
 - **Integration tests:** `pnpm test:integration` (needs `TEST_DATABASE_URL`; script currently globs `src/lib/*.integration.test.ts` which has no matches — real integration tests are in `src/domains/`)
-- **DB schema push:** `pnpm db:push` (dev); `pnpm db:migrate` (prod)
+- **DB schema push:** `pnpm db:push --force` (dev; `--force` skips the TTY prompt because `drizzle.config.ts` sets `strict: true`). drizzle-kit does **not** load `.env.local`, so pass it inline: `DATABASE_URL=… pnpm db:push --force`. `pnpm db:migrate` for prod.
 - **Build:** `pnpm build`
+- **Docker image:** `docker build -t knowhere-notebook:dev .` then `docker run -d --name knowhere-notebook -p 3000:3000 --env-file .env.docker knowhere-notebook:dev` (standalone, non-root, port 3000).
 
 CI runs: `lint → typecheck → test → build` on PRs to `main` and `staging`.
 
@@ -81,6 +82,8 @@ src/
 - **Database driver:** `DATABASE_DRIVER=pg` for local dev (postgres-js), `neon` (default) for Vercel/Neon production.
 - **Auth:** Dashboard is the source of truth. Notebook forwards the session cookie; it never decodes tokens. `KNOWHERE_API_KEY` env enables API-key dev mode (skips Dashboard auth, uses a deterministic local user).
 - **Chat provider:** two backends in `src/lib/ai.ts` — `AI_GATEWAY_API_KEY` (Vercel AI Gateway, model as plain string) OR `CHAT_BASE_URL`+`CHAT_API_KEY`+`CHAT_MODEL` (OpenAI-compatible `LanguageModelV3`). Use `getChatModel()`/`isChatConfigured()`; never reintroduce per-call-site `AI_GATEWAY_API_KEY` guards. `@ai-sdk/openai-compatible` is pinned to 2.x (provider V3) to match `ai@6`.
+- **Vercel Blob is optional:** the chunk-page cache (`src/domains/chunks/server.ts`) is gated on `BLOB_READ_WRITE_TOKEN`; without it the cache is skipped and chunks are served straight from Knowhere. Don't add hard `@vercel/blob` calls in request paths without gating on the token or wrapping in a read-failure-as-miss handler.
+- **Fonts:** use the local `geist` package (`GeistSans`/`GeistMono` from `geist/font/*`), not `next/font/google` — the repo runs in airgapped/self-hosted setups where Google Fonts is unreachable.
 
 ## Domain Language
 
