@@ -50,42 +50,32 @@ describe("WorkspaceShell", () => {
     const layout = screen.getByTestId("desktop-panel-layout");
     const panels = screen.getByTestId("desktop-resizable-panels");
     const sourcesPanel = screen.getByTestId("desktop-sources-panel");
-    const chunksPanel = screen.getByTestId("desktop-chunks-panel");
 
     const minimumTotalWidth =
       DESKTOP_PANEL_MIN_WIDTHS.sources +
-      DESKTOP_PANEL_MIN_WIDTHS.chunks +
       DESKTOP_PANEL_MIN_WIDTHS.chat +
-      DESKTOP_PANEL_GUTTER_WIDTH * 2;
+      DESKTOP_PANEL_GUTTER_WIDTH;
 
     expect(layout.className).toContain("overflow-x-auto");
     expect(panels.style.minWidth).toBe(`${minimumTotalWidth}px`);
     expect(sourcesPanel.style.width).toBe("350px");
-    expect(chunksPanel.style.minWidth).toBe(
-      `${DESKTOP_PANEL_MIN_WIDTHS.chunks}px`,
-    );
   });
 
   it("lets desktop users resize neighboring panels and collapse sources below the threshold", () => {
     render(React.createElement(C, { sources: [] }));
 
     const firstHandle = screen.getByRole("separator", {
-      name: "Resize sources and parsed chunks",
+      name: "Resize sources and chat",
     });
     const sourcesPanel = screen.getByTestId("desktop-sources-panel");
-    const chunksPanel = screen.getByTestId("desktop-chunks-panel");
 
     fireEvent.pointerDown(firstHandle, { clientX: 0 });
     fireEvent.pointerMove(window, { clientX: 120 });
     fireEvent.pointerUp(window);
 
     expect(sourcesPanel.style.width).toBe("470px");
-    expect(chunksPanel.style.width).toBe("600px");
 
-    const resizedHandle = screen.getByRole("separator", {
-      name: "Resize sources and parsed chunks",
-    });
-    fireEvent.pointerDown(resizedHandle, { clientX: 120 });
+    fireEvent.pointerDown(firstHandle, { clientX: 120 });
     fireEvent.pointerMove(window, { clientX: -1000 });
     fireEvent.pointerUp(window);
 
@@ -95,46 +85,6 @@ describe("WorkspaceShell", () => {
     expect(
       screen.getByRole("button", { name: "Show sources panel" }),
     ).toBeTruthy();
-  });
-
-  it("lets desktop users expand the chat panel by shrinking parsed chunks further", () => {
-    render(React.createElement(C, { sources: [] }));
-
-    const secondHandle = screen.getByRole("separator", {
-      name: "Resize parsed chunks and chat",
-    });
-    const chunksPanel = screen.getByTestId("desktop-chunks-panel");
-    const chatPanel = screen.getByTestId("desktop-chat-panel");
-
-    fireEvent.pointerDown(secondHandle, { clientX: 0 });
-    fireEvent.pointerMove(window, { clientX: -500 });
-    fireEvent.pointerUp(window);
-
-    expect(chunksPanel.style.width).toBe("480px");
-    expect(chatPanel.style.width).toBe("660px");
-  });
-
-  it("uses rendered panel widths when resizing the flex-grown middle panel", () => {
-    render(React.createElement(C, { sources: [] }));
-
-    const secondHandle = screen.getByRole("separator", {
-      name: "Resize parsed chunks and chat",
-    });
-    const chunksPanel = screen.getByTestId("desktop-chunks-panel");
-    const chatPanel = screen.getByTestId("desktop-chat-panel");
-    vi.spyOn(chunksPanel, "getBoundingClientRect").mockReturnValue(
-      createElementRect(1100),
-    );
-    vi.spyOn(chatPanel, "getBoundingClientRect").mockReturnValue(
-      createElementRect(420),
-    );
-
-    fireEvent.pointerDown(secondHandle, { clientX: 0 });
-    fireEvent.pointerMove(window, { clientX: -900 });
-    fireEvent.pointerUp(window);
-
-    expect(chunksPanel.style.width).toBe("480px");
-    expect(chatPanel.style.width).toBe("1040px");
   });
 
   it("shows a login CTA instead of the chat composer for guests", () => {
@@ -196,7 +146,7 @@ describe("WorkspaceShell", () => {
     );
 
     const desktopLibraryPanel = within(
-      within(screen.getByTestId("desktop-chunks-panel")).getByTestId(
+      screen.getByTestId(
         "official-library-panel",
       ),
     );
@@ -209,7 +159,7 @@ describe("WorkspaceShell", () => {
       desktopLibraryPanel.getByRole("button", { name: "Back to sources" }),
     );
     expect(
-      within(screen.getByTestId("desktop-chunks-panel")).queryByTestId(
+      screen.queryByTestId(
         "official-library-panel",
       ),
     ).toBeNull();
@@ -1189,7 +1139,7 @@ describe("WorkspaceShell", () => {
     await user.click(desktopSourcesPanel.getByRole("button", { name: "Open library" }));
 
     const desktopLibraryPanel = within(
-      within(screen.getByTestId("desktop-chunks-panel")).getByTestId(
+      screen.getByTestId(
         "official-library-panel",
       ),
     );
@@ -1210,7 +1160,7 @@ describe("WorkspaceShell", () => {
     await desktopChatPanel.findByText("Refreshed materialized answer.");
     expect(desktopChatPanel.queryByText("Seeded canonical answer.")).toBeNull();
     const refreshedLibraryPanel = within(
-      within(screen.getByTestId("desktop-chunks-panel")).getByTestId(
+      screen.getByTestId(
         "official-library-panel",
       ),
     );
@@ -1386,20 +1336,6 @@ function countFetchesWithSearch(
     const url = getRequestURL(input);
     return url.pathname === path && url.search === search;
   }).length;
-}
-
-function createElementRect(width: number): DOMRect {
-  return {
-    bottom: 0,
-    height: 0,
-    left: 0,
-    right: width,
-    top: 0,
-    width,
-    x: 0,
-    y: 0,
-    toJSON: () => ({}),
-  };
 }
 
 function makeUploadedBlob(): {

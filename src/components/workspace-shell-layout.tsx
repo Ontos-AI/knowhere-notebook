@@ -28,7 +28,7 @@ import type {
   SourceView,
 } from "@/domains/sources/types"
 
-export type PanelId = "sources" | "content" | "chat"
+export type PanelId = "sources" | "chat"
 export type ContentView = "chunks" | "library"
 
 type DesktopPanelKey = keyof typeof workspaceShellState.minimumDesktopPanelWidths
@@ -234,47 +234,12 @@ export function WorkspaceShellLayout(
             )}
           </div>
           <DesktopResizeHandle
-            label="Resize sources and parsed chunks"
+            label="Resize sources and chat"
             onResizeStart={() =>
-              props.onDesktopPanelResizeStart("sources", "chunks")
+              props.onDesktopPanelResizeStart("sources", "chat")
             }
             onResize={(deltaX) =>
-              props.onDesktopPanelResize("sources", "chunks", deltaX)
-            }
-            onResizeEnd={props.onDesktopPanelResizeEnd}
-          />
-          <div
-            data-testid="desktop-chunks-panel"
-            ref={(element) => {
-              props.onDesktopPanelElementChange("chunks", element)
-            }}
-            className="h-full min-w-0 shrink-0 grow"
-            style={{
-              minWidth: `${workspaceShellState.minimumDesktopPanelWidths.chunks}px`,
-              width: `${props.desktopPanelWidths.chunks}px`,
-            }}
-          >
-            {props.contentView === "library" ? (
-              <OfficialLibraryPanel
-                addingLibrarySourceIds={[...addingLibrarySourceIds]}
-                officialLibrarySources={[...officialLibrarySources]}
-                sources={[...props.sources]}
-                onBack={props.onLibraryBack}
-                onOfficialLibrarySourceAdd={
-                  props.isGuest ? undefined : props.onOfficialLibrarySourceAdd
-                }
-              />
-            ) : props.isChunksOverlayVisible ? null : (
-              <ChunksPlaceholder />
-            )}
-          </div>
-          <DesktopResizeHandle
-            label="Resize parsed chunks and chat"
-            onResizeStart={() =>
-              props.onDesktopPanelResizeStart("chunks", "chat")
-            }
-            onResize={(deltaX) =>
-              props.onDesktopPanelResize("chunks", "chat", deltaX)
+              props.onDesktopPanelResize("sources", "chat", deltaX)
             }
             onResizeEnd={props.onDesktopPanelResizeEnd}
           />
@@ -283,7 +248,7 @@ export function WorkspaceShellLayout(
             ref={(element) => {
               props.onDesktopPanelElementChange("chat", element)
             }}
-            className="h-full shrink-0"
+            className="h-full min-w-0 shrink-0 grow"
             style={{
               minWidth: `${workspaceShellState.collapsedDesktopPanelWidth}px`,
               width: `${props.desktopPanelWidths.chat}px`,
@@ -348,48 +313,20 @@ export function WorkspaceShellLayout(
           isLibraryOpen={props.contentView === "library"}
           onSourceUploaded={props.isGuest ? undefined : props.onSourceUploaded}
           selectedSourceId={props.selectedSourceId}
-          onSelectSource={(id) => {
-            props.onSourceSelected(id)
-            if (id) props.onMobilePanelChange("content")
-          }}
+          onSelectSource={props.onSourceSelected}
           onToggleIncluded={props.isGuest ? undefined : props.onToggleIncluded}
           onArchiveSource={props.isGuest ? undefined : props.onArchiveSource}
           onRetrySource={props.isGuest ? undefined : props.onRetrySource}
           onOfficialLibrarySourceAdd={
             props.isGuest ? undefined : props.onOfficialLibrarySourceAdd
           }
-          onLibraryOpen={() => {
-            props.onLibraryOpen()
-            props.onMobilePanelChange("content")
-          }}
+          onLibraryOpen={props.onLibraryOpen}
           onOpenChunksOverlay={props.onOpenChunksOverlay}
           archivingSourceIds={[...props.archivingSourceIds]}
           retryingSourceIds={[...retryingSourceIds]}
           addingLibrarySourceIds={[...addingLibrarySourceIds]}
           onLoginClick={props.isGuest ? props.onLoginClick : undefined}
         />
-      </div>
-      <div
-        id="panel-content"
-        role="tabpanel"
-        aria-labelledby="tab-content"
-        className={`min-[1116px]:hidden flex-1 overflow-hidden pb-14 ${
-          props.mobilePanel === "content" ? "flex flex-col" : "hidden"
-        }`}
-      >
-        {props.contentView === "library" ? (
-          <OfficialLibraryPanel
-            addingLibrarySourceIds={[...addingLibrarySourceIds]}
-            officialLibrarySources={[...officialLibrarySources]}
-            sources={[...props.sources]}
-            onBack={props.onLibraryBack}
-            onOfficialLibrarySourceAdd={
-              props.isGuest ? undefined : props.onOfficialLibrarySourceAdd
-            }
-          />
-        ) : props.isChunksOverlayVisible ? null : (
-          <ChunksPlaceholder />
-        )}
       </div>
       <div
         id="panel-chat"
@@ -420,10 +357,7 @@ export function WorkspaceShellLayout(
           onThreadArchive={props.isGuest ? undefined : props.onArchiveChatThread}
           onLoginClick={props.isGuest ? props.onLoginClick : undefined}
           sourceTitlesByDocumentId={props.sourceTitlesByDocumentId}
-          onCitationClick={(citation, citationId) => {
-            props.onMobilePanelChange("content")
-            props.onCitationClick(citation, citationId)
-          }}
+          onCitationClick={props.onCitationClick}
         />
       </div>
 
@@ -461,22 +395,25 @@ export function WorkspaceShellLayout(
         </div>
       ) : null}
 
+      {props.contentView === "library" ? (
+        <div className="fixed inset-0 z-50 flex flex-col bg-background">
+          <OfficialLibraryPanel
+            addingLibrarySourceIds={[...addingLibrarySourceIds]}
+            officialLibrarySources={[...officialLibrarySources]}
+            sources={[...props.sources]}
+            onBack={props.onLibraryBack}
+            onOfficialLibrarySourceAdd={
+              props.isGuest ? undefined : props.onOfficialLibrarySourceAdd
+            }
+          />
+        </div>
+      ) : null}
+
       {props.chat.error && (
         <div className="fixed bottom-18 right-4 z-50 max-w-sm rounded-lg border border-destructive/30 bg-background px-4 py-3 text-sm text-destructive shadow-lg min-[1116px]:bottom-4">
           {props.chat.error}
         </div>
       )}
-    </div>
-  )
-}
-
-function ChunksPlaceholder(): ReactElement {
-  return (
-    <div className="flex h-full flex-col items-center justify-center gap-3 px-4 text-center">
-      <FileText className="size-8 text-muted-foreground" strokeWidth={1.5} />
-      <p className="max-w-xs text-sm font-medium text-muted-foreground">
-        Click the tree icon on a source to view its parsed chunks.
-      </p>
     </div>
   )
 }

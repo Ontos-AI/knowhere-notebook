@@ -7,16 +7,12 @@ describe("workspaceShellState", () => {
     const widths = workspaceShellState.fitDesktopPanelWidthsToContainer(1280);
     const totalWidth =
       widths.sources +
-      widths.chunks +
       widths.chat +
-      workspaceShellState.desktopPanelGutterWidth * 2;
+      workspaceShellState.desktopPanelGutterWidth;
 
     expect(totalWidth).toBeLessThanOrEqual(1280);
     expect(widths.sources).toBeGreaterThanOrEqual(
       workspaceShellState.minimumDesktopPanelWidths.sources,
-    );
-    expect(widths.chunks).toBeGreaterThanOrEqual(
-      workspaceShellState.minimumDesktopPanelWidths.chunks,
     );
     expect(widths.chat).toBeGreaterThanOrEqual(
       workspaceShellState.minimumDesktopPanelWidths.chat,
@@ -27,22 +23,20 @@ describe("workspaceShellState", () => {
     const resized = workspaceShellState.resizeDesktopPanelWidths(
       {
         sources: 350,
-        chunks: 720,
-        chat: 420,
+        chat: 800,
       },
       {
         leftPanel: "sources",
-        rightPanel: "chunks",
+        rightPanel: "chat",
         deltaX: 120,
         leftWidth: 350,
-        rightWidth: 600,
+        rightWidth: 800,
       },
     );
 
     expect(resized).toEqual({
       sources: 470,
-      chunks: 480,
-      chat: 420,
+      chat: 680,
     });
   });
 
@@ -50,45 +44,20 @@ describe("workspaceShellState", () => {
     const resized = workspaceShellState.resizeDesktopPanelWidths(
       {
         sources: 350,
-        chunks: 720,
-        chat: 420,
+        chat: 800,
       },
       {
         leftPanel: "sources",
-        rightPanel: "chunks",
+        rightPanel: "chat",
         deltaX: -170,
         leftWidth: 350,
-        rightWidth: 600,
+        rightWidth: 800,
       },
     );
 
     expect(resized).toEqual({
       sources: 180,
-      chunks: 770,
-      chat: 420,
-    });
-  });
-
-  it("allows the chat panel to narrow continuously before sidebar mode", () => {
-    const resized = workspaceShellState.resizeDesktopPanelWidths(
-      {
-        sources: 350,
-        chunks: 720,
-        chat: 420,
-      },
-      {
-        leftPanel: "chunks",
-        rightPanel: "chat",
-        deltaX: 240,
-        leftWidth: 650,
-        rightWidth: 420,
-      },
-    );
-
-    expect(resized).toEqual({
-      sources: 350,
-      chunks: 890,
-      chat: 180,
+      chat: 970,
     });
   });
 
@@ -96,59 +65,53 @@ describe("workspaceShellState", () => {
     const resized = workspaceShellState.resizeDesktopPanelWidths(
       {
         sources: 350,
-        chunks: 720,
-        chat: 420,
+        chat: 800,
       },
       {
         leftPanel: "sources",
-        rightPanel: "chunks",
-        deltaX: -300,
+        rightPanel: "chat",
+        deltaX: -400,
         leftWidth: 350,
-        rightWidth: 600,
+        rightWidth: 800,
       },
     );
 
-    expect(resized).toEqual({
-      sources: workspaceShellState.collapsedDesktopPanelWidth,
-      chunks: 950 - workspaceShellState.collapsedDesktopPanelWidth,
-      chat: 420,
-    });
+    expect(resized.sources).toBe(
+      workspaceShellState.collapsedDesktopPanelWidth,
+    );
+    expect(resized.sources + resized.chat).toBe(1150);
   });
 
   it("clamps the chat panel at the compact sidebar width", () => {
     const resized = workspaceShellState.resizeDesktopPanelWidths(
       {
         sources: 350,
-        chunks: 720,
-        chat: 420,
+        chat: 800,
       },
       {
-        leftPanel: "chunks",
+        leftPanel: "sources",
         rightPanel: "chat",
-        deltaX: 400,
-        leftWidth: 650,
-        rightWidth: 420,
+        deltaX: 1200,
+        leftWidth: 350,
+        rightWidth: 800,
       },
     );
 
-    expect(resized).toEqual({
-      sources: 350,
-      chunks: 1_070 - workspaceShellState.collapsedDesktopPanelWidth,
-      chat: workspaceShellState.collapsedDesktopPanelWidth,
-    });
+    expect(resized.chat).toBe(
+      workspaceShellState.collapsedDesktopPanelWidth,
+    );
+    expect(resized.sources + resized.chat).toBe(1150);
   });
 
   it("includes compact sidebars when calculating the minimum desktop width", () => {
     const minimumWidth = workspaceShellState.getMinimumDesktopPanelWidth({
       sources: workspaceShellState.collapsedDesktopPanelWidth,
-      chunks: 900,
       chat: workspaceShellState.collapsedDesktopPanelWidth,
     });
 
     expect(minimumWidth).toBe(
       workspaceShellState.collapsedDesktopPanelWidth * 2 +
-        workspaceShellState.minimumDesktopPanelWidths.chunks +
-        workspaceShellState.desktopPanelGutterWidth * 2,
+        workspaceShellState.desktopPanelGutterWidth,
     );
   });
 });

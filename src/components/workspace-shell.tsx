@@ -92,7 +92,7 @@ function WorkspaceShellContent({
   loginUrl,
 }: WorkspaceShellProps): ReactElement {
   const [mobilePanel, setMobilePanel] = useState<PanelId>(
-    isGuest ? "content" : "chat",
+    isGuest ? "sources" : "chat",
   )
   const [isChunksOverlayVisible, setIsChunksOverlayVisible] = useState(
     Boolean(chunkViewDocumentId),

@@ -76,7 +76,7 @@ describe("WorkspaceShellLayout", () => {
     expect(screen.getByTestId("desktop-sources-panel").style.width).toBe(
       "350px",
     )
-    expect(screen.getByTestId("desktop-chat-panel").style.width).toBe("420px")
+    expect(screen.getByTestId("desktop-chat-panel").style.width).toBe("800px")
   })
 
   it("renders compact sidebars when the side panels are collapsed", () => {
@@ -106,7 +106,7 @@ describe("WorkspaceShellLayout", () => {
         ],
         desktopPanelWidths: {
           sources: workspaceShellState.collapsedDesktopPanelWidth,
-          chunks: 960,
+          
           chat: workspaceShellState.collapsedDesktopPanelWidth,
         },
         focusedChunk: { chunkId: null, requestId: 0 },
@@ -121,7 +121,7 @@ describe("WorkspaceShellLayout", () => {
         minimumDesktopPanelWidth:
           workspaceShellState.getMinimumDesktopPanelWidth({
             sources: workspaceShellState.collapsedDesktopPanelWidth,
-            chunks: 960,
+            
             chat: workspaceShellState.collapsedDesktopPanelWidth,
           }),
         mobilePanel: "chat",
@@ -200,7 +200,7 @@ describe("WorkspaceShellLayout", () => {
         chatThreads: [],
         desktopPanelWidths: {
           sources: 180,
-          chunks: 900,
+          
           chat: 180,
         },
         focusedChunk: { chunkId: null, requestId: 0 },
@@ -215,7 +215,7 @@ describe("WorkspaceShellLayout", () => {
         minimumDesktopPanelWidth:
           workspaceShellState.getMinimumDesktopPanelWidth({
             sources: 180,
-            chunks: 900,
+            
             chat: 180,
           }),
         mobilePanel: "chat",
