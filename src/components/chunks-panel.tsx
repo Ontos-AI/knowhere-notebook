@@ -18,6 +18,8 @@ import {
   type HierarchyPointNode,
 } from "d3-hierarchy";
 import {
+  ChevronDown,
+  ChevronRight,
   FilePlus2,
   Layers,
   RotateCcw,
@@ -528,14 +530,33 @@ function ChunkSectionTree({
     useState<SectionTreePan>(initialSectionTreePan);
   const [sectionTreeDragState, setSectionTreeDragState] =
     useState<SectionTreeDragState | null>(null);
+  const [expandedNodeIds, setExpandedNodeIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
   const sectionTreeZoomSurfaceRef = useRef<HTMLDivElement | null>(null);
   const sectionTree = useMemo(
     () => chunksPanelState.buildSectionTree(chunks, sourceTitle),
     [chunks, sourceTitle],
   );
+  const isNodeExpanded = useCallback(
+    (node: RenderableChunkTreeNode): boolean =>
+      node.kind === "root" || expandedNodeIds.has(node.id),
+    [expandedNodeIds],
+  );
+  const handleNodeToggle = useCallback((nodeId: string): void => {
+    setExpandedNodeIds((current) => {
+      const next = new Set(current);
+      if (next.has(nodeId)) {
+        next.delete(nodeId);
+      } else {
+        next.add(nodeId);
+      }
+      return next;
+    });
+  }, []);
   const layout = useMemo(
-    () => getChunkSectionTreeLayout(sectionTree),
-    [sectionTree],
+    () => getChunkSectionTreeLayout(sectionTree, isNodeExpanded),
+    [sectionTree, isNodeExpanded],
   );
   const scaledLayoutWidth: number = Math.round(
     (layout.width * zoomPercent) / 100,
@@ -672,6 +693,8 @@ function ChunkSectionTree({
               xOffset={layout.xOffset}
               yOffset={layout.yOffset}
               onChunkFocus={onChunkFocus}
+              onNodeToggle={handleNodeToggle}
+              isExpanded={isNodeExpanded(node.data)}
             />
           ))}
         </div>
@@ -766,12 +789,16 @@ function SectionTreeItem({
   xOffset,
   yOffset,
   onChunkFocus,
+  onNodeToggle,
+  isExpanded,
 }: {
   readonly focusedChunkId: string | null;
   readonly node: HierarchyPointNode<RenderableChunkTreeNode>;
   readonly xOffset: number;
   readonly yOffset: number;
   readonly onChunkFocus: (chunkId: string | null) => void;
+  readonly onNodeToggle: (nodeId: string) => void;
+  readonly isExpanded: boolean;
 }): ReactNode {
   const itemStyle: CSSProperties = {
     left: node.y + yOffset,
@@ -781,11 +808,15 @@ function SectionTreeItem({
   };
   const isFocusedChunk =
     node.data.kind === "chunk" && node.data.chunk?.chunkId === focusedChunkId;
+  const hasChildren = node.data.children.length > 0;
+  const isToggleable =
+    node.data.kind === "section" && hasChildren;
 
   return (
     <div
       role="treeitem"
       aria-label={getTreeItemAriaLabel(node.data)}
+      aria-expanded={isToggleable ? isExpanded : undefined}
       aria-level={node.depth + 1}
       aria-selected={isFocusedChunk ? true : undefined}
       className="min-w-0"
@@ -816,9 +847,20 @@ function SectionTreeItem({
             node.data.kind === "root"
               ? "border-primary/25 bg-primary/10"
               : "border-border bg-background-secondary",
+            isToggleable ? "cursor-pointer transition-colors hover:border-primary/30 hover:bg-accent/40" : null,
           )}
+          onClick={
+            isToggleable ? () => onNodeToggle(node.data.id) : undefined
+          }
         >
-          <span className="truncate text-xs font-bold text-foreground">
+          <span className="flex items-center gap-1 truncate text-xs font-bold text-foreground">
+            {isToggleable ? (
+              isExpanded ? (
+                <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
+              ) : (
+                <ChevronRight className="size-3 shrink-0 text-muted-foreground" />
+              )
+            ) : null}
             {node.data.label}
           </span>
           <span className="mt-1 text-[11px] font-medium text-muted-foreground">
@@ -839,11 +881,15 @@ function isInteractiveSectionTreeTarget(target: EventTarget): boolean {
 
 function getChunkSectionTreeLayout(
   sectionTree: ChunkSectionTreeNode,
+  isExpanded: (node: RenderableChunkTreeNode) => boolean,
 ): ChunkSectionTreeLayout {
   const renderableTree = toRenderableChunkTreeNode(sectionTree);
   const root = hierarchy<RenderableChunkTreeNode>(
     renderableTree,
-    (node) => (node.children.length > 0 ? [...node.children] : undefined),
+    (node) =>
+      node.children.length > 0 && isExpanded(node)
+        ? [...node.children]
+        : undefined,
   );
   const positionedRoot = createD3Tree<RenderableChunkTreeNode>()
     .nodeSize([sectionTreeRowGap, sectionTreeColumnGap])(root);

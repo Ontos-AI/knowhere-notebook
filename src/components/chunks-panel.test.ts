@@ -116,13 +116,34 @@ describe("ChunksPanel", () => {
     expect(
       screen.getByRole("tree", { name: "Parsed chunk sections" }),
     ).toBeTruthy();
+    // Default: root + 1 level only — level-1 sections visible.
     expect(screen.getByText("Overview")).toBeTruthy();
     expect(screen.getByText("Outlook")).toBeTruthy();
+    // Deeper nodes hidden until expanded.
+    expect(
+      screen.queryByRole("treeitem", {
+        name: /Robotics section with 2 chunks/i,
+      }),
+    ).toBeNull();
+
+    // Expand Outlook → Product visible; expand Product → Robotics visible.
+    fireEvent.click(screen.getByText("Outlook"));
+    expect(screen.getByText("Product")).toBeTruthy();
+    fireEvent.click(screen.getByText("Product"));
     expect(
       screen.getByRole("treeitem", {
         name: /Robotics section with 2 chunks/i,
       }),
     ).toBeTruthy();
+
+    // Collapse Outlook → Product and Robotics hidden again.
+    fireEvent.click(screen.getByText("Outlook"));
+    expect(screen.queryByText("Product")).toBeNull();
+    expect(
+      screen.queryByRole("treeitem", {
+        name: /Robotics section with 2 chunks/i,
+      }),
+    ).toBeNull();
   });
 
   it("deduplicates repeated chunks before rendering section tree keys", () => {
@@ -157,6 +178,8 @@ describe("ChunksPanel", () => {
         name: "Overview section with 1 chunk",
       }),
     ).toBeTruthy();
+    // Chunk is hidden by default (root + 1 level); expand to see it.
+    fireEvent.click(screen.getByText("Overview"));
     expect(
       screen.getAllByRole("treeitem", { name: "Overview text Text" }),
     ).toHaveLength(1);
@@ -465,6 +488,10 @@ describe("ChunksPanel", () => {
 
     await user.click(screen.getByRole("button", { name: "Tree" }));
 
+    // Expand the collapsed path (root + 1 level by default).
+    fireEvent.click(screen.getByText("Outlook"));
+    fireEvent.click(screen.getByText("Robotics"));
+
     const chunkNode = screen.getByRole("button", {
       name: /Robotics details\s*Text/,
     });
@@ -502,6 +529,11 @@ describe("ChunksPanel", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "Tree" }));
+
+    // Expand the collapsed path to reach the chunk node.
+    fireEvent.click(screen.getByText("Outlook"));
+    fireEvent.click(screen.getByText("Robotics"));
+
     await user.click(
       screen.getByRole("button", { name: /Robotics details\s*Text/ }),
     );

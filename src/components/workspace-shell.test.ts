@@ -265,6 +265,11 @@ describe("WorkspaceShell", () => {
     );
 
     const desktopChunksPanel = within(screen.getByTestId("desktop-chunks-panel"));
+    // Tree defaults to root + 1 level; expand the section to reveal the chunk.
+    await waitFor(() => {
+      expect(desktopChunksPanel.getByText("Overview")).toBeTruthy();
+    });
+    fireEvent.click(desktopChunksPanel.getByText("Overview"));
     await waitFor(() => {
       expect(
         desktopChunksPanel.getByText("First document chunk content."),
