@@ -247,6 +247,7 @@ describe("WorkspaceShell", () => {
 
     render(
       React.createElement(C, {
+        chunkViewDocumentId: "doc_1",
         sources: [
           {
             id: "source_1",
@@ -264,15 +265,14 @@ describe("WorkspaceShell", () => {
       }),
     );
 
-    const desktopChunksPanel = within(screen.getByTestId("desktop-chunks-panel"));
-    // Tree defaults to root + 1 level; expand the section to reveal the chunk.
+    // chunkViewDocumentId auto-opens the chunks overlay; expand to see the chunk.
     await waitFor(() => {
-      expect(desktopChunksPanel.getByText("Overview")).toBeTruthy();
+      expect(screen.getByText("Overview")).toBeTruthy();
     });
-    fireEvent.click(desktopChunksPanel.getByText("Overview"));
+    fireEvent.click(screen.getByText("Overview"));
     await waitFor(() => {
       expect(
-        desktopChunksPanel.getByText("First document chunk content."),
+        screen.getByText("First document chunk content."),
       ).toBeTruthy();
     });
     expect(countFetches(fetch, "/api/sources/source_1/chunks")).toBe(1);
@@ -352,7 +352,7 @@ describe("WorkspaceShell", () => {
 
     await waitFor(() => {
       const topRow = screen
-        .getByTestId("desktop-chunks-panel")
+        .getByTestId("chunks-panel")
         .querySelector<HTMLElement>('[data-index="0"]');
 
       expect(topRow?.getAttribute("data-chunk-id")).toBe("demo-source:chunk_1");
@@ -437,8 +437,8 @@ describe("WorkspaceShell", () => {
     fireEvent.click(citationButton);
 
     await waitFor(() => {
-      const topRow = document
-        .getElementById("panel-content")!
+      const topRow = screen
+        .getByTestId("chunks-panel")
         .querySelector<HTMLElement>('[data-index="0"]');
 
       expect(topRow?.getAttribute("data-chunk-id")).toBe("demo-source:chunk_1");
@@ -561,7 +561,7 @@ describe("WorkspaceShell", () => {
     });
     await waitFor(() => {
       const topRow = screen
-        .getByTestId("desktop-chunks-panel")
+        .getByTestId("chunks-panel")
         .querySelector<HTMLElement>('[data-index="0"]');
 
       expect(topRow?.getAttribute("data-chunk-id")).toBe("chunk_1");
@@ -576,7 +576,7 @@ describe("WorkspaceShell", () => {
 
     await waitFor(() => {
       const topRow = screen
-        .getByTestId("desktop-chunks-panel")
+        .getByTestId("chunks-panel")
         .querySelector<HTMLElement>('[data-index="0"]');
 
       expect(topRow?.getAttribute("data-chunk-id")).toBe("chunk_2");
@@ -664,7 +664,7 @@ describe("WorkspaceShell", () => {
     await user.click(citation);
     await waitFor(() => {
       const topRow = screen
-        .getByTestId("desktop-chunks-panel")
+        .getByTestId("chunks-panel")
         .querySelector<HTMLElement>('[data-index="0"]');
 
       expect(topRow?.getAttribute("data-chunk-id")).toBe("chunk_1");
@@ -674,7 +674,7 @@ describe("WorkspaceShell", () => {
     await user.click(citation);
     await waitFor(() => {
       const topRow = screen
-        .getByTestId("desktop-chunks-panel")
+        .getByTestId("chunks-panel")
         .querySelector<HTMLElement>('[data-index="0"]');
 
       expect(topRow?.getAttribute("data-chunk-id")).toBe("chunk_1");

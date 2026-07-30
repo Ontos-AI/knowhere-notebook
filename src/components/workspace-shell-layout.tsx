@@ -69,6 +69,7 @@ export type WorkspaceShellLayoutProps = {
   readonly hasMessages: boolean
   readonly hasMoreSelectedChunks: boolean
   readonly contentView: ContentView
+  readonly isChunksOverlayVisible: boolean
   readonly isCreatingThread: boolean
   readonly isGuest: boolean
   readonly isSelectedAllChunksLoading: boolean
@@ -96,6 +97,7 @@ export type WorkspaceShellLayoutProps = {
     citation: ChatCitationView,
     citationId: string,
   ) => void | Promise<void>
+  readonly onCloseChunksOverlay: () => void
   readonly onCreateChatThread: () => void | Promise<void>
   readonly onDesktopLayoutElementChange: (element: HTMLDivElement | null) => void
   readonly onDesktopPanelElementChange: (
@@ -119,6 +121,7 @@ export type WorkspaceShellLayoutProps = {
   readonly onLibraryBack: () => void
   readonly onLibraryOpen: () => void
   readonly onMobilePanelChange: (panel: PanelId) => void
+  readonly onOpenChunksOverlay: (sourceId?: string) => void
   readonly onOfficialLibrarySourceAdd: (
     demoSourceId: string,
   ) => void | Promise<void>
@@ -222,6 +225,7 @@ export function WorkspaceShellLayout(
                   props.isGuest ? undefined : props.onOfficialLibrarySourceAdd
                 }
                 onLibraryOpen={props.onLibraryOpen}
+                onOpenChunksOverlay={props.onOpenChunksOverlay}
                 archivingSourceIds={[...props.archivingSourceIds]}
                 retryingSourceIds={[...retryingSourceIds]}
                 addingLibrarySourceIds={[...addingLibrarySourceIds]}
@@ -260,27 +264,8 @@ export function WorkspaceShellLayout(
                   props.isGuest ? undefined : props.onOfficialLibrarySourceAdd
                 }
               />
-            ) : (
-              <ChunksPanel
-                chunks={[...props.selectedChunks]}
-                selectedSource={props.selectedSourceTitle}
-                selectedSourceFile={props.selectedSourceFile}
-                citationListViewRequestId={props.citationListViewRequestId}
-                focusedChunkId={props.focusedChunk.chunkId}
-                focusedChunkRequestId={props.focusedChunk.requestId}
-                isLoading={props.isSelectedChunksLoading}
-                isLoadingAllChunks={props.isSelectedAllChunksLoading}
-                isLoadingMore={props.isSelectedChunksLoadingMore}
-                hasMoreChunks={props.hasMoreSelectedChunks}
-                onLoadAllChunks={props.onLoadAllChunks}
-                onLoadMore={props.onLoadMoreChunks}
-                onLoginClick={props.isGuest ? props.onLoginClick : undefined}
-                onSourceUploaded={
-                  props.isGuest ? undefined : props.onSourceUploaded
-                }
-                analyticsContext={props.analyticsContext}
-                sourceCountSnapshot={props.sources.length}
-              />
+            ) : props.isChunksOverlayVisible ? null : (
+              <ChunksPlaceholder />
             )}
           </div>
           <DesktopResizeHandle
@@ -377,6 +362,7 @@ export function WorkspaceShellLayout(
             props.onLibraryOpen()
             props.onMobilePanelChange("content")
           }}
+          onOpenChunksOverlay={props.onOpenChunksOverlay}
           archivingSourceIds={[...props.archivingSourceIds]}
           retryingSourceIds={[...retryingSourceIds]}
           addingLibrarySourceIds={[...addingLibrarySourceIds]}
@@ -401,25 +387,8 @@ export function WorkspaceShellLayout(
               props.isGuest ? undefined : props.onOfficialLibrarySourceAdd
             }
           />
-        ) : (
-          <ChunksPanel
-            chunks={[...props.selectedChunks]}
-            selectedSource={props.selectedSourceTitle}
-            selectedSourceFile={props.selectedSourceFile}
-            citationListViewRequestId={props.citationListViewRequestId}
-            focusedChunkId={props.focusedChunk.chunkId}
-            focusedChunkRequestId={props.focusedChunk.requestId}
-            isLoading={props.isSelectedChunksLoading}
-            isLoadingAllChunks={props.isSelectedAllChunksLoading}
-            isLoadingMore={props.isSelectedChunksLoadingMore}
-            hasMoreChunks={props.hasMoreSelectedChunks}
-            onLoadAllChunks={props.onLoadAllChunks}
-            onLoadMore={props.onLoadMoreChunks}
-            onLoginClick={props.isGuest ? props.onLoginClick : undefined}
-            onSourceUploaded={props.isGuest ? undefined : props.onSourceUploaded}
-            analyticsContext={props.analyticsContext}
-            sourceCountSnapshot={props.sources.length}
-          />
+        ) : props.isChunksOverlayVisible ? null : (
+          <ChunksPlaceholder />
         )}
       </div>
       <div
@@ -466,11 +435,48 @@ export function WorkspaceShellLayout(
         hasMessages={props.hasMessages}
       />
 
+      {props.isChunksOverlayVisible ? (
+        <div className="fixed inset-0 z-50 flex flex-col bg-background">
+          <ChunksPanel
+            chunks={[...props.selectedChunks]}
+            selectedSource={props.selectedSourceTitle}
+            selectedSourceFile={props.selectedSourceFile}
+            citationListViewRequestId={props.citationListViewRequestId}
+            focusedChunkId={props.focusedChunk.chunkId}
+            focusedChunkRequestId={props.focusedChunk.requestId}
+            isLoading={props.isSelectedChunksLoading}
+            isLoadingAllChunks={props.isSelectedAllChunksLoading}
+            isLoadingMore={props.isSelectedChunksLoadingMore}
+            hasMoreChunks={props.hasMoreSelectedChunks}
+            onLoadAllChunks={props.onLoadAllChunks}
+            onLoadMore={props.onLoadMoreChunks}
+            onClose={props.onCloseChunksOverlay}
+            onLoginClick={props.isGuest ? props.onLoginClick : undefined}
+            onSourceUploaded={
+              props.isGuest ? undefined : props.onSourceUploaded
+            }
+            analyticsContext={props.analyticsContext}
+            sourceCountSnapshot={props.sources.length}
+          />
+        </div>
+      ) : null}
+
       {props.chat.error && (
         <div className="fixed bottom-18 right-4 z-50 max-w-sm rounded-lg border border-destructive/30 bg-background px-4 py-3 text-sm text-destructive shadow-lg min-[1116px]:bottom-4">
           {props.chat.error}
         </div>
       )}
+    </div>
+  )
+}
+
+function ChunksPlaceholder(): ReactElement {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-3 px-4 text-center">
+      <FileText className="size-8 text-muted-foreground" strokeWidth={1.5} />
+      <p className="max-w-xs text-sm font-medium text-muted-foreground">
+        Click the tree icon on a source to view its parsed chunks.
+      </p>
     </div>
   )
 }

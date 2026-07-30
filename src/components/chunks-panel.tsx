@@ -61,6 +61,7 @@ export type ChunksPanelProps = {
   hasMoreChunks?: boolean;
   onLoadMore?: () => void;
   onLoadAllChunks?: () => void;
+  onClose?: () => void;
   onLoginClick?: () => void;
   onSourceUploaded?: (source: SourceView) => void;
   analyticsContext?: AnalyticsContext;
@@ -88,20 +89,17 @@ export function ChunksPanel({
   hasMoreChunks = false,
   onLoadMore,
   onLoadAllChunks,
+  onClose,
   onLoginClick,
   onSourceUploaded,
   analyticsContext,
   sourceCountSnapshot = 0,
 }: Partial<ChunksPanelProps> = {}) {
-  const originalPreviewCacheKey = selectedSourceFile?.url ?? null;
   const isOriginalPreviewAvailable =
     sourceOriginalPreviewModel.canPreviewOriginalFile(
       selectedSource,
       selectedSourceFile,
     );
-  const [mountedOriginalPreviewKey, setMountedOriginalPreviewKey] = useState<
-    string | null
-  >(null);
   const [chunkDisplayModeState, setChunkDisplayModeState] =
     useState<ChunkDisplayModeState>(() => ({
       handledCitationListViewRequestId: citationListViewRequestId,
@@ -114,11 +112,8 @@ export function ChunksPanel({
   const {
     activeFocusedChunkId,
     handleChunkSelected: selectChunk,
-    handleOriginalViewSelected: selectOriginalView,
-    handleParsedViewSelected,
     handleViewportScroll,
     hasOriginalFile,
-    hasOriginalView,
     measureVirtualChunkElement,
     originalTargetPageNumber,
     originalTargetPageRequestId,
@@ -145,23 +140,12 @@ export function ChunksPanel({
     file: selectedSourceFile,
   });
 
-  const rememberOriginalPreview = useCallback((): void => {
-    if (originalPreviewCacheKey) {
-      setMountedOriginalPreviewKey(originalPreviewCacheKey);
-    }
-  }, [originalPreviewCacheKey]);
-
   const handleChunkSelected = useCallback(
     (chunk: ParsedChunkView): void => {
-      rememberOriginalPreview();
       selectChunk(chunk);
     },
-    [rememberOriginalPreview, selectChunk],
+    [selectChunk],
   );
-  const handleOriginalViewSelected = useCallback((): void => {
-    rememberOriginalPreview();
-    selectOriginalView();
-  }, [rememberOriginalPreview, selectOriginalView]);
   const handleListModeSelected = useCallback((): void => {
     setChunkDisplayModeState({
       handledCitationListViewRequestId: citationListViewRequestId,
@@ -241,10 +225,7 @@ export function ChunksPanel({
       ? "list"
       : chunkDisplayModeState.mode;
   const headerTitle = focusedChunkId ? "Referenced Chunks" : "Parsed Chunks";
-  const shouldMountOriginalPreview =
-    visibleView === "original" ||
-    (originalPreviewCacheKey !== null &&
-      mountedOriginalPreviewKey === originalPreviewCacheKey);
+  const shouldMountOriginalPreview = visibleView === "original";
   const isTreeModeVisible =
     visibleView === "parsed" && chunkDisplayMode === "tree";
   const headerSubtitle = visibleView === "original" ? (
@@ -328,23 +309,16 @@ export function ChunksPanel({
               </button>
             </div>
           ) : null}
-          {hasOriginalView ? (
-            <div className="flex shrink-0 rounded-lg border border-border bg-muted/40 p-0.5">
-              <button
-                type="button"
-                onClick={handleParsedViewSelected}
-                className={viewToggleClassName(visibleView === "parsed")}
-              >
-                Parsed
-              </button>
-              <button
-                type="button"
-                onClick={handleOriginalViewSelected}
-                className={viewToggleClassName(visibleView === "original")}
-              >
-                Original
-              </button>
-            </div>
+          {onClose ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={onClose}
+              className="shrink-0"
+            >
+              Close
+            </Button>
           ) : null}
         </div>
       </header>

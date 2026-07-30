@@ -1,7 +1,6 @@
 "use client";
 
 import type { ReactElement } from "react";
-import Link from "next/link";
 import { FileText, ListTree, Plus, RotateCcw, Trash2 } from "lucide-react";
 
 import { Checkbox } from "@/components/ui/checkbox";
@@ -9,7 +8,7 @@ import { Spinner } from "@/components/ui/spinner";
 import type { SourceView } from "@/domains/sources/types";
 
 export type SourceRowProps = {
-  readonly chunkTreeHref?: string;
+  readonly onTreeClick?: () => void;
   readonly isArchiving: boolean;
   readonly isAdding?: boolean;
   readonly isNarrow?: boolean;
@@ -33,7 +32,7 @@ export function SourceRow({
   onToggleIncluded,
   onArchiveClick,
   onRetryClick,
-  chunkTreeHref,
+  onTreeClick,
   isArchiving,
   isRetrying = false,
 }: SourceRowProps): ReactElement {
@@ -117,15 +116,16 @@ export function SourceRow({
         </div>
       </button>
       <div className="flex shrink-0 items-center justify-self-end">
-        {chunkTreeHref && isReady ? (
-          <Link
-            href={chunkTreeHref}
+        {onTreeClick && isReady ? (
+          <button
+            type="button"
+            onClick={onTreeClick}
             className="shrink-0 rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
             aria-label={`Open ${source.title} chunk tree link`}
             title="Open chunk tree"
           >
             <ListTree className="size-3.5" />
-          </Link>
+          </button>
         ) : null}
         {isLibrarySource && onAddClick && (
           <button

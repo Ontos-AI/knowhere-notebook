@@ -41,6 +41,7 @@ export type SourcesPanelProps = {
   onArchiveSource?: (sourceId: string) => void;
   onRetrySource?: (sourceId: string) => void;
   onLibraryOpen?: () => void;
+  onOpenChunksOverlay?: (sourceId: string) => void;
   onOfficialLibrarySourceAdd?: (demoSourceId: string) => void;
   archivingSourceIds?: readonly string[];
   retryingSourceIds?: readonly string[];
@@ -69,6 +70,7 @@ export function SourcesPanel({
   onArchiveSource,
   onRetrySource,
   onLibraryOpen,
+  onOpenChunksOverlay,
   archivingSourceIds = [],
   retryingSourceIds = [],
   analyticsContext,
@@ -233,7 +235,11 @@ export function SourcesPanel({
                 <SourceRow
                   key={source.id}
                   source={source}
-                  chunkTreeHref={getChunkTreeHref(source)}
+                  onTreeClick={
+                    onOpenChunksOverlay
+                      ? () => onOpenChunksOverlay(source.id)
+                      : undefined
+                  }
                   isSelected={source.id === selectedSourceId}
                   onSelect={() =>
                     onSelectSource?.(
@@ -348,12 +354,6 @@ function getSelectedSourcePage(
     (source) => source.id === selectedSourceId,
   );
   return selectedIndex >= 0 ? getSourcePageForIndex(selectedIndex) : null;
-}
-
-function getChunkTreeHref(source: SourceView): string | undefined {
-  return source.documentId
-    ? `/inspect/${encodeURIComponent(source.documentId)}/chunks`
-    : undefined;
 }
 
 function SourcePaginationControls({

@@ -94,6 +94,9 @@ function WorkspaceShellContent({
   const [mobilePanel, setMobilePanel] = useState<PanelId>(
     isGuest ? "content" : "chat",
   )
+  const [isChunksOverlayVisible, setIsChunksOverlayVisible] = useState(
+    Boolean(chunkViewDocumentId),
+  )
   const pathname = usePathname()
   const [contentView, setContentView] = useState<ContentView>("chunks")
   const sourceWorkflow = useWorkspaceSourceWorkflow({
@@ -152,6 +155,17 @@ function WorkspaceShellContent({
   function handleSourceSelected(sourceId: string | null): void {
     setContentView("chunks")
     citationFocus.handleSourceSelected(sourceId)
+  }
+
+  function handleOpenChunksOverlay(sourceId?: string): void {
+    if (sourceId) {
+      citationFocus.handleSourceSelected(sourceId)
+    }
+    setIsChunksOverlayVisible(true)
+  }
+
+  function handleCloseChunksOverlay(): void {
+    setIsChunksOverlayVisible(false)
   }
 
   async function handleOfficialLibrarySourceAdd(
@@ -225,6 +239,7 @@ function WorkspaceShellContent({
       hasMessages={hasMessages}
       hasMoreSelectedChunks={citationFocus.hasMoreSelectedChunks}
       contentView={contentView}
+      isChunksOverlayVisible={isChunksOverlayVisible}
       isCreatingThread={chatWorkflow.isCreatingThread}
       isGuest={isGuest}
       isSelectedAllChunksLoading={citationFocus.isSelectedAllChunksLoading}
@@ -248,7 +263,11 @@ function WorkspaceShellContent({
       onArchiveSource={sourceWorkflow.handleArchiveSource}
       onRetrySource={sourceWorkflow.handleRetrySource}
       onChatSend={chatWorkflow.handleChatSend}
-      onCitationClick={citationFocus.handleCitationClick}
+      onCitationClick={(citation, citationId) => {
+        setIsChunksOverlayVisible(true)
+        citationFocus.handleCitationClick(citation, citationId)
+      }}
+      onCloseChunksOverlay={handleCloseChunksOverlay}
       onCreateChatThread={chatWorkflow.handleCreateChatThread}
       onDesktopLayoutElementChange={handleDesktopLayoutElementChange}
       onDesktopPanelElementChange={handleDesktopPanelElementChange}
@@ -261,6 +280,7 @@ function WorkspaceShellContent({
       onLoginClick={redirectToLogin}
       onLibraryBack={handleLibraryBack}
       onLibraryOpen={handleLibraryOpen}
+      onOpenChunksOverlay={handleOpenChunksOverlay}
       onMobilePanelChange={setMobilePanel}
       onSelectChatThread={chatWorkflow.handleSelectChatThread}
       onSourceSelected={handleSourceSelected}
