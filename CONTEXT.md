@@ -125,7 +125,10 @@ text requests.
 
 A Parsed Chunk is a document chunk returned by the Knowhere document chunks
 API. Parsed chunks can have parser chunk IDs, asset paths, page numbers,
-summary, keywords, and connection metadata.
+summary, keywords, and connection metadata. Table chunks have their HTML
+fetched server-side from `assetUrl` and set as `content` (via
+`enrichChunksWithAssetUrls`) because the Knowhere list endpoint puts a
+summary string in `content`, not the table HTML.
 
 ## Parsed Chunk Card
 
