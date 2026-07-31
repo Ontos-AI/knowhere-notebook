@@ -130,7 +130,6 @@ function makeSource(overrides: Partial<Source> = {}): Source {
     originalBlobPathname: "source-uploads/upload_1/document.pdf",
     originalBlobUrl:
       "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
-    demoKey: null,
     createdAt: new Date("2026-05-10T00:00:00Z"),
     updatedAt: new Date("2026-05-10T00:00:00Z"),
     deletedAt: null,

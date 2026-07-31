@@ -64,25 +64,6 @@ describe("SourcesPanel", () => {
     expect(screen.getByRole("button", { name: "Confirm" })).toBeTruthy();
   });
 
-  it("uses the same primary compact style for source CTAs", () => {
-    const onLoginClick = vi.fn();
-
-    const { rerender } = render(React.createElement(C, { sources: [] }));
-    expectPrimaryCompactButton(
-      screen.getByRole("button", { name: "Upload Document" }),
-    );
-
-    rerender(
-      React.createElement(C, {
-        sources: [],
-        onLoginClick,
-      }),
-    );
-    expectPrimaryCompactButton(
-      screen.getByRole("button", { name: "Log in to upload" }),
-    );
-  });
-
   it("keeps the narrow upload trigger visible as a primary icon button", () => {
     render(
       React.createElement(C, {
@@ -172,92 +153,6 @@ describe("SourcesPanel", () => {
 
     expect(onSelectSource).toHaveBeenCalledWith("source_1");
     expect(screen.getByText("Processed · 3 chunks")).toBeTruthy();
-  });
-
-  it("shows an open-library action separately from workspace sources", async () => {
-    const onSelectSource = vi.fn();
-    const onLibraryOpen = vi.fn();
-
-    render(
-      React.createElement(C, {
-        sources: [
-          {
-            id: "demo-spacex-s1",
-            kind: "demo",
-            demoSourceId: "demo-spacex-s1",
-            title: "spacex-s1.pdf",
-            status: "ready",
-            chunkCount: 922,
-            officialLibrary: {
-              librarySourceId: "financial-spacex-s1",
-              categoryId: "financial-reports",
-              sourceUrl: "https://data.olivierroy.dev/spacex-s1.pdf",
-            },
-          },
-          {
-            id: "source_1",
-            kind: "workspace",
-            title: "lecture.pdf",
-            status: "ready",
-            chunkCount: 3,
-          },
-        ],
-        officialLibrarySources: [
-          {
-            librarySourceId: "stem-transformers",
-            categoryId: "stem-books",
-            categoryLabel: "STEM books",
-            title: "Transformers.pdf",
-            sourceUrl: "https://example.com/transformers.pdf",
-            mimeType: "application/pdf",
-            status: "planned",
-          },
-        ],
-        onSelectSource,
-        onLibraryOpen,
-      }),
-    );
-
-    expect(screen.queryByText("Official Library · 922 chunks")).toBeNull();
-    expect(screen.queryByText("STEM books · Preparing")).toBeNull();
-    expect(screen.getByRole("heading", { name: "Sources" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Open library" })).toBeTruthy();
-    expect(screen.getByText("Processed · 3 chunks")).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: "Open library" }));
-    expect(onLibraryOpen).toHaveBeenCalledOnce();
-  });
-
-  it("opens the library instead of login when guest mode has library sources", () => {
-    const onLibraryOpen = vi.fn();
-    const onLoginClick = vi.fn();
-
-    render(
-      React.createElement(C, {
-        sources: [],
-        officialLibrarySources: [
-          {
-            librarySourceId: "stem-transformers",
-            categoryId: "stem-books",
-            categoryLabel: "STEM books",
-            title: "Transformers.pdf",
-            sourceUrl: "https://example.com/transformers.pdf",
-            mimeType: "application/pdf",
-            status: "ready",
-            demoSourceId: "demo-transformers",
-          },
-        ],
-        onLibraryOpen,
-        onLoginClick,
-      }),
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Open library" }));
-
-    expect(onLibraryOpen).toHaveBeenCalledOnce();
-    expect(onLoginClick).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Log in to upload" }))
-      .toBeTruthy();
   });
 
   it("paginates large source lists", async () => {
@@ -584,13 +479,6 @@ function getRequestPath(input: RequestInfo | URL): string {
         ? input.toString()
         : input.url;
   return new URL(url, "http://localhost").pathname;
-}
-
-function expectPrimaryCompactButton(button: HTMLElement): void {
-  expect(button.className).toContain("bg-[#8E51FF]");
-  expect(button.className).toContain("border-b-[4px]");
-  expect(button.className).toContain("font-mono-readable");
-  expect(button.className).not.toContain("bg-background");
 }
 
 function makeReadySource(index: number): {

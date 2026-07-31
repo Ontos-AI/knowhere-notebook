@@ -63,19 +63,6 @@ describe("workspaceClient", () => {
     })
   })
 
-  it("throws materialization route errors instead of treating them as empty sources", async () => {
-    mockRouteClient.postJsonWithStatus.mockResolvedValue({
-      status: 502,
-      body: { message: "Demo sources could not be prepared right now." },
-    })
-
-    await expect(
-      workspaceClient.materializeDemoSources({
-        demoSourceIds: ["demo-tsla-q4-2025"],
-      }),
-    ).rejects.toThrow("Demo sources could not be prepared right now.")
-  })
-
   it("retries a source with an encoded source id", async () => {
     mockRouteClient.patchJsonWithStatus.mockResolvedValue({
       status: 200,

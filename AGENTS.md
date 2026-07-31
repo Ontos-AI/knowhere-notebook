@@ -57,16 +57,13 @@ CI runs: `lint → typecheck → test → build` on PRs to `main` and `staging`.
 src/
   app/              Next.js App Router pages and route handlers
   components/       React components — domain features and shadcn/ui primitives
-  domains/          Product logic: chat, chunks, demo, sources, workspace
+  domains/          Product logic: chat, chunks, sources, workspace
   agent-harness/    Chat agent validation/ledger runtime
   providers/        Client-side context providers
   proxy.ts          Edge middleware (renamed from middleware.ts in Next.js 16)
   infrastructure/   Owned platform: auth, database (Drizzle + Neon Postgres)
   integrations/     External systems: Dashboard oRPC, Knowhere SDK
   lib/              Cross-cutting utilities (effect-operation, route-result, etc.)
-  agent-harness/    Chat agent validation/ledger runtime
-  providers/        Client-side context providers
-  proxy.ts          Edge middleware (renamed from middleware.ts in Next.js 16)
 ```
 
 - Route handlers are thin HTTP adapters: parse request → call a **Route Service** (in `src/domains/*/route-*.ts`) → serialize `RouteResult`. See `src/app/api/chat/route.ts` for the pattern.
@@ -87,7 +84,11 @@ src/
 - **Chat provider:** two backends in `src/lib/ai.ts` — `AI_GATEWAY_API_KEY` (Vercel AI Gateway, model as plain string) OR `CHAT_BASE_URL`+`CHAT_API_KEY`+`CHAT_MODEL` (OpenAI-compatible `LanguageModelV3`). Use `getChatModel()`/`isChatConfigured()`; never reintroduce per-call-site `AI_GATEWAY_API_KEY` guards. `@ai-sdk/openai-compatible` is pinned to 2.x (provider V3) to match `ai@6`.
 - **Vercel Blob is optional:** the chunk-page cache (`src/domains/chunks/server.ts`) is gated on `BLOB_READ_WRITE_TOKEN`; without it the cache is skipped and chunks are served straight from Knowhere. Don't add hard `@vercel/blob` calls in request paths without gating on the token or wrapping in a read-failure-as-miss handler.
 - **Fonts:** use the local `geist` package (`GeistSans`/`GeistMono` from `geist/font/*`), not `next/font/google` — the repo runs in airgapped/self-hosted setups where Google Fonts is unreachable.
-- **Desktop layout:** 2-panel (sources | chat) with one resize handle. Chunks and the Official Library are full-screen overlays (`fixed inset-0 z-50`), not inline panels. `PanelId` is `"sources" | "chat"`. The chunks overlay opens via the source-row tree button or by clicking a citation in chat.
+- **Desktop layout:** 2-panel (sources | chat) with one resize handle. Chunks are a full-screen overlay (`fixed inset-0 z-50`), not an inline panel. `PanelId` is `"sources" | "chat"`. The chunks overlay opens via the source-row tree button or by clicking a citation in chat. A namespace dropdown in the sources panel header lets users import documents from any Knowhere namespace.
+- **No demo or guest mode:** Demo catalog, guest mode, and the Official Library panel have been removed. All sources are either `kind: "workspace"` (local DB row) or `kind: "remote"` (Knowhere document not yet localized). Anonymous requests redirect to login.
+- **Eager localization:** Compatible-namespace Knowhere documents are auto-localized into workspace Source rows on every source list load (`GET /api/sources` and SSR). No user click needed. `localizeRemoteLibrarySources` pre-filters against existing DB rows to avoid redundant writes.
+- **SourceKind:** `"workspace" | "remote"` only. The `"demo"` variant has been removed.
+- **Namespace API:** `GET /api/namespaces` lists all Knowhere namespaces with document counts. `POST /api/namespaces/[namespace]/localize` bulk-localizes all documents from a specific namespace. The SDK does not expose a namespaces endpoint, so `listKnowhereNamespaces` in `src/integrations/knowhere.ts` calls `GET /v1/documents/namespaces` directly.
 
 ## Domain Language
 

@@ -13,7 +13,8 @@ for retrieval. Workspace creation is idempotent per Dashboard user.
 
 The Workspace Shell is the client-side orchestrator for the Notebook work
 surface. It composes Source selection, Parsed Chunk pagination, Chat Thread
-state, Citation focus, and panel layout into the visible three-panel notebook.
+state, Citation focus, and panel layout into the visible two-panel notebook
+(sources | chat) with a full-screen chunks overlay.
 
 ## Workspace Shell Layout
 
@@ -30,8 +31,8 @@ route paths or mutation request shapes inline.
 ## Workspace Desktop Panels
 
 Workspace Desktop Panels is the hook that owns browser measurements and resize
-drag state for the three desktop panels. Pure resize math stays in Workspace
-Shell State.
+drag state for the two desktop panels (sources | chat). Pure resize math stays
+in Workspace Shell State.
 
 ## Workspace Resize Handle Workflow
 
@@ -54,15 +55,17 @@ Sources are soft-deleted with `deletedAt` rather than removed.
 ## Source Repository
 
 The Source Repository is a stable facade over smaller persistence modules. It
-composes Source row lifecycle, Demo Source persistence, and Source Parse Result
-artifact metadata without exposing those internal modules to route services.
+composes Source row lifecycle and Source Parse Result artifact metadata
+without exposing those internal modules to route services.
 
 ## Source Library Localization
 
 Source Library Localization is the workflow that turns Knowhere-owned library
-documents into Notebook Source rows for a Workspace. Listing and chat should
-localize missing Knowhere documents before chunks, archive, selection, or
-retrieval flows act on them.
+documents into Notebook Source rows for a Workspace. Listing and SSR eagerly
+localize compatible-namespace documents (via `localizeRemoteLibrarySources`)
+before chunks, archive, selection, or retrieval flows act on them. Only
+genuinely new documents are upserted — existing DB rows are pre-filtered to
+avoid redundant writes.
 
 ## Source Upload
 
@@ -74,7 +77,7 @@ Large files should use the Blob-backed path instead of a Server Action upload.
 
 The Source Upload Contract names the repository and Knowhere client shapes used
 by upload workflows. Persistence adapters can depend on the contract without
-importing the user-upload or Demo Source workflow implementation.
+importing the user-upload workflow implementation.
 
 ## Source Row
 
@@ -92,12 +95,6 @@ submission state, and upload errors to the Source Upload Dialog Workflow.
 Source Upload Dialog Workflow owns browser upload dialog behavior: open state,
 selected file state, drag-and-drop selection, upload submission, friendly error
 messages, duplicate-submit prevention, and post-upload cleanup.
-
-## Demo Source
-
-A Demo Source is app-owned static content served to guest users and optionally
-materialized into an authenticated workspace. Demo sources should not depend on
-live workspace state for guest rendering.
 
 ## Source Original Preview
 
@@ -150,7 +147,7 @@ callbacks.
 ## Chat Repository
 
 The Chat Repository is a stable facade over Chat Thread lifecycle, Chat Message
-persistence, Demo Chat seeding, and Citation persistence normalization.
+persistence, and Citation persistence normalization.
 
 ## Chat Message
 

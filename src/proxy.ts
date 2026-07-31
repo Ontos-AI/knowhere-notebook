@@ -30,27 +30,13 @@ const PUBLIC_PATHS: readonly string[] = [
 ]
 
 const STATIC_EXTENSIONS = /\.(?:svg|png|jpe?g|gif|webp|ico|woff2?|ttf|eot|css|js|map|txt|xml|webmanifest|json|pdf)$/i
-const GUEST_SOURCE_CHUNKS_PATH = /^\/api\/sources\/[^/]+\/chunks$/u
-const GUEST_DEMO_ORIGINAL_PATH = /^\/api\/demo-sources\/[^/]+\/original$/u
-const GUEST_DEMO_ASSET_PATH = /^\/api\/demo-sources\/[^/]+\/assets\/.+$/u
 
 function isPublicPath(req: NextRequest): boolean {
   const pathname = req.nextUrl.pathname
-  if (isGuestSourceReadPath(req.method, pathname)) return true
   if (pathname.startsWith("/_next")) return true
   if (pathname.startsWith("/api/internal/")) return true
   if (STATIC_EXTENSIONS.test(pathname)) return true
   return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"))
-}
-
-function isGuestSourceReadPath(method: string, pathname: string): boolean {
-  if (method !== "GET") return false
-  return (
-    pathname === "/api/sources" ||
-    GUEST_SOURCE_CHUNKS_PATH.test(pathname) ||
-    GUEST_DEMO_ORIGINAL_PATH.test(pathname) ||
-    GUEST_DEMO_ASSET_PATH.test(pathname)
-  )
 }
 
 export function proxy(req: NextRequest): NextResponse {

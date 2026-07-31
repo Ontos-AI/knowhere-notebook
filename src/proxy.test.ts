@@ -25,30 +25,22 @@ describe("proxy", () => {
     }
   });
 
-  it("allows anonymous guest source reads", () => {
+  it("keeps anonymous source reads protected", () => {
     const sourcesResponse = proxy(
       new NextRequest("http://localhost:3001/api/sources"),
     );
     const chunksResponse = proxy(
       new NextRequest(
-        "http://localhost:3001/api/sources/demo-tsla-q4-2025/chunks",
-      ),
-    );
-    const originalResponse = proxy(
-      new NextRequest(
-        "http://localhost:3001/api/demo-sources/demo-tsla-q4-2025/original",
-      ),
-    );
-    const assetResponse = proxy(
-      new NextRequest(
-        "http://localhost:3001/api/demo-sources/demo-tsla-q4-2025/assets/images/image-1.jpg",
+        "http://localhost:3001/api/sources/source-1/chunks",
       ),
     );
 
-    expect(sourcesResponse.headers.get("x-middleware-next")).toBe("1");
-    expect(chunksResponse.headers.get("x-middleware-next")).toBe("1");
-    expect(originalResponse.headers.get("x-middleware-next")).toBe("1");
-    expect(assetResponse.headers.get("x-middleware-next")).toBe("1");
+    expect(sourcesResponse.headers.get("location")).toBe(
+      "http://localhost:3001/login",
+    );
+    expect(chunksResponse.headers.get("location")).toBe(
+      "http://localhost:3001/login",
+    );
   });
 
   it("keeps anonymous source mutations protected", () => {

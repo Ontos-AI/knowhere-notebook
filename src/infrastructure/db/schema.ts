@@ -74,8 +74,6 @@ export type NewWorkspace = typeof workspaces.$inferInsert;
  *                         and download path
  *   - `staged_blob_*`   — legacy temporary Blob staging pointer retained for
  *                         older rows during the PR #28 transition
- *   - `demo_key`    — canonical demo source identifier when this row is a
- *                     materialized API-owned demo copy
  *   - `deleted_at`   — soft delete timestamp; reads filter it out
  *
  * Indexes:
@@ -101,7 +99,6 @@ export const sources = pgTable(
     stagedBlobUrl: text("staged_blob_url"),
     originalBlobPathname: text("original_blob_pathname"),
     originalBlobUrl: text("original_blob_url"),
-    demoKey: text("demo_key"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -115,7 +112,6 @@ export const sources = pgTable(
       .on(t.workspaceId, t.createdAt.desc())
       .where(sql`deleted_at IS NULL`),
     index("sources_workspace_status_idx").on(t.workspaceId, t.status),
-    uniqueIndex("sources_workspace_demo_key_idx").on(t.workspaceId, t.demoKey),
     uniqueIndex("sources_workspace_document_idx")
       .on(t.workspaceId, t.knowhereDocumentId)
       .where(sql`knowhere_document_id IS NOT NULL AND deleted_at IS NULL`),
@@ -124,39 +120,6 @@ export const sources = pgTable(
 
 export type Source = typeof sources.$inferSelect;
 export type NewSource = typeof sources.$inferInsert;
-
-/**
- * User presentation state for canonical demo sources before they are copied
- * into a real workspace source.
- */
-export const demoSourceVisibilities = pgTable(
-  "demo_source_visibilities",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    workspaceId: uuid("workspace_id")
-      .notNull()
-      .references(() => workspaces.id, { onDelete: "cascade" }),
-    demoSourceId: text("demo_source_id").notNull(),
-    hiddenAt: timestamp("hidden_at", { withTimezone: true }),
-    deletedAt: timestamp("deleted_at", { withTimezone: true }),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-  },
-  (t) => [
-    uniqueIndex("demo_source_visibilities_workspace_source_idx").on(
-      t.workspaceId,
-      t.demoSourceId,
-    ),
-    index("demo_source_visibilities_workspace_idx").on(t.workspaceId),
-  ],
-);
-
-export type DemoSourceVisibility = typeof demoSourceVisibilities.$inferSelect;
-export type NewDemoSourceVisibility = typeof demoSourceVisibilities.$inferInsert;
 
 /**
  * Notebook-owned parse-result artifact index for one source.
@@ -192,8 +155,7 @@ export type SourceParseResult = typeof sourceParseResults.$inferSelect;
 export type NewSourceParseResult = typeof sourceParseResults.$inferInsert;
 
 /**
- * A chat thread is a conversation within a workspace. `demo_key` is retained
- * for legacy seeded demo conversations.
+ * A chat thread is a conversation within a workspace.
  */
 export const chatThreads = pgTable(
   "chat_threads",
@@ -203,7 +165,6 @@ export const chatThreads = pgTable(
       .notNull()
       .references(() => workspaces.id, { onDelete: "cascade" }),
     title: text("title"),
-    demoKey: text("demo_key"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -219,10 +180,6 @@ export const chatThreads = pgTable(
     index("chat_threads_workspace_updated_idx")
       .on(t.workspaceId, t.updatedAt.desc())
       .where(sql`deleted_at IS NULL`),
-    uniqueIndex("chat_threads_workspace_demo_key_idx").on(
-      t.workspaceId,
-      t.demoKey,
-    ),
   ],
 );
 

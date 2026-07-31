@@ -73,7 +73,6 @@ const source: Source = {
   stagedBlobUrl: null,
   originalBlobPathname: null,
   originalBlobUrl: null,
-  demoKey: null,
   createdAt: new Date("2026-05-10T00:00:00Z"),
   updatedAt: new Date("2026-05-10T00:00:00Z"),
   deletedAt: null,

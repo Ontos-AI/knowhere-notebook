@@ -199,8 +199,14 @@ export function localizeRemoteLibrarySources(
   input: RemoteLibraryLocalizationInput,
 ): Effect.Effect<readonly Source[], never> {
   return Effect.gen(function* () {
+    const localDocumentIds = new Set(
+      input.localSources.flatMap((source): string[] =>
+        source.knowhereDocumentId ? [source.knowhereDocumentId] : [],
+      ),
+    )
     const remoteDocuments = (yield* listRemoteLibraryDocuments(input)).filter(
       (document) =>
+        !localDocumentIds.has(document.documentId) &&
         !matchesActiveNotebookParsingSource(document, input.localSources),
     )
     if (remoteDocuments.length === 0) return input.localSources

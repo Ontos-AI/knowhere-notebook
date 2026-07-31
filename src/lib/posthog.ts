@@ -9,7 +9,6 @@ export type AnalyticsContext = {
   readonly workspaceId?: string;
   readonly workspaceNamespace?: string;
   readonly userId?: string;
-  readonly isGuest?: boolean;
 };
 
 type AnalyticsEnvelope = {
@@ -66,7 +65,6 @@ function buildBaseProperties(context?: AnalyticsContext): Properties {
     workspace_id: context?.workspaceId,
     workspace_namespace: context?.workspaceNamespace,
     user_id: context?.userId,
-    is_guest: context?.isGuest,
   };
 }
 

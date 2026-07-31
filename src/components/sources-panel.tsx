@@ -5,7 +5,7 @@ import {
   useMemo,
   useState,
 } from "react";
-import { BookOpen, ChevronLeft, ChevronRight, Database, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, Database, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -19,36 +19,28 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Spinner } from "@/components/ui/spinner";
+import { NamespaceDropdown } from "@/components/namespace-dropdown";
 import { sourcePanelState } from "@/components/source-panel-state";
 import { SourceRow } from "@/components/source-row";
 import { SourceUploadDialog } from "@/components/source-upload-dialog";
-import type {
-  OfficialLibrarySourceView,
-  SourceView,
-} from "@/domains/sources/types";
+import type { SourceView } from "@/domains/sources/types";
 import type { AnalyticsContext } from "@/lib/posthog";
 
 export type SourcesPanelProps = {
   readonly isNarrow?: boolean;
-  readonly addingLibrarySourceIds?: readonly string[];
-  readonly isLibraryOpen?: boolean;
-  readonly officialLibrarySources?: readonly OfficialLibrarySourceView[];
   sources: SourceView[];
   onSourceUploaded?: (source: SourceView) => void;
+  onSourcesLocalized?: (sources: readonly SourceView[]) => void;
   selectedSourceId?: string | null;
   onSelectSource?: (sourceId: string | null) => void;
   onToggleIncluded?: (sourceId: string, included: boolean) => void;
   onArchiveSource?: (sourceId: string) => void;
   onRetrySource?: (sourceId: string) => void;
-  onLibraryOpen?: () => void;
   onOpenChunksOverlay?: (sourceId: string) => void;
-  onOfficialLibrarySourceAdd?: (demoSourceId: string) => void;
   archivingSourceIds?: readonly string[];
   retryingSourceIds?: readonly string[];
   analyticsContext?: AnalyticsContext;
   sourceCountSnapshot?: number;
-  /** When provided, the Upload button redirects to login instead of opening the dialog. */
-  onLoginClick?: () => void;
 };
 
 const sourceListPageSize = 25;
@@ -60,22 +52,19 @@ type SourcePageState = {
 
 export function SourcesPanel({
   isNarrow = false,
-  isLibraryOpen = false,
-  officialLibrarySources = [],
   sources = [],
   onSourceUploaded,
+  onSourcesLocalized,
   selectedSourceId = null,
   onSelectSource,
   onToggleIncluded,
   onArchiveSource,
   onRetrySource,
-  onLibraryOpen,
   onOpenChunksOverlay,
   archivingSourceIds = [],
   retryingSourceIds = [],
   analyticsContext,
   sourceCountSnapshot = sources.length,
-  onLoginClick,
 }: Partial<SourcesPanelProps> = {}): ReactElement {
   const [confirmSourceId, setConfirmSourceId] = useState<string | null>(null);
   const [sourcePageState, setSourcePageState] = useState<SourcePageState>({
@@ -92,9 +81,7 @@ export function SourcesPanel({
     sources,
   });
   const retryingSourceIdSet = new Set(retryingSourceIds);
-  const workspaceSources = sources.filter(
-    (source) => source.officialLibrary === undefined,
-  );
+  const workspaceSources = sources;
   const selectedSourcePage = getSelectedSourcePage(
     workspaceSources,
     selectedSourceId,
@@ -108,9 +95,6 @@ export function SourcesPanel({
     () => getSourcePagination(workspaceSources, requestedSourcePage),
     [requestedSourcePage, workspaceSources],
   );
-  const hasLibrarySources =
-    officialLibrarySources.length > 0 ||
-    sources.some((source) => source.officialLibrary !== undefined);
 
   return (
     <aside className="z-10 flex h-full w-full shrink-0 flex-col border-r border-border/70 bg-background">
@@ -161,19 +145,7 @@ export function SourcesPanel({
       </AlertDialog>
 
       <div className={`border-b border-border/70 ${isNarrow ? "p-2" : "p-4"}`}>
-        {onLoginClick ? (
-          <Button
-            onClick={onLoginClick}
-            size="sm"
-            className={`flex w-full items-center justify-center gap-2 shadow-xs ${
-              isNarrow ? "px-0" : ""
-            }`}
-            title="Log in to upload"
-          >
-            <Plus className="size-4" />
-            {isNarrow ? null : "Log in to upload"}
-          </Button>
-        ) : isNarrow ? (
+        {isNarrow ? (
           <SourceUploadDialog
             onSourceUploaded={onSourceUploaded}
             analyticsContext={analyticsContext}
@@ -212,18 +184,8 @@ export function SourcesPanel({
             <h3 className="truncate text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
               Sources
             </h3>
-            {hasLibrarySources && !isNarrow ? (
-              <button
-                type="button"
-                onClick={onLibraryOpen}
-                className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-border/80 bg-background px-2 text-[11px] font-semibold text-foreground shadow-xs hover:bg-muted ${
-                  isLibraryOpen ? "border-primary/40 bg-primary/5 text-primary" : ""
-                }`}
-                aria-label="Open library"
-              >
-                <BookOpen className="size-3.5" />
-                open library
-              </button>
+            {!isNarrow && onSourcesLocalized ? (
+              <NamespaceDropdown onSourcesLocalized={onSourcesLocalized} />
             ) : null}
           </div>
 

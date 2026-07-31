@@ -93,16 +93,13 @@ describe("posthog", () => {
     window.history.pushState({}, "", "/workspace/guest");
 
     resetGuest();
-    await trackView({
-      isGuest: true,
-    });
+    await trackView();
 
     expect(mocks.reset).toHaveBeenCalledOnce();
     expect(mocks.capture).toHaveBeenCalledWith(
       "$pageview",
       expect.objectContaining({
         $pathname: "/workspace/guest",
-        is_guest: true,
       }),
     );
     expect(mocks.reset.mock.invocationCallOrder[0]).toBeLessThan(
@@ -119,7 +116,6 @@ describe("posthog", () => {
     await initClient();
     await trackView({
       workspaceId: "ws_1",
-      isGuest: false,
     });
 
     expect(mocks.capture).toHaveBeenCalledWith(
@@ -128,7 +124,6 @@ describe("posthog", () => {
         $current_url: window.location.href,
         $pathname: "/workspace/test",
         workspace_id: "ws_1",
-        is_guest: false,
       }),
     );
     const payload = mocks.capture.mock.calls[0]?.[1] as

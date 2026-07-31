@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactElement } from "react";
-import { FileText, ListTree, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { FileText, ListTree, RotateCcw, Trash2 } from "lucide-react";
 
 import { Checkbox } from "@/components/ui/checkbox";
 import { Spinner } from "@/components/ui/spinner";
@@ -10,11 +10,9 @@ import type { SourceView } from "@/domains/sources/types";
 export type SourceRowProps = {
   readonly onTreeClick?: () => void;
   readonly isArchiving: boolean;
-  readonly isAdding?: boolean;
   readonly isNarrow?: boolean;
   readonly isRetrying?: boolean;
   readonly isSelected: boolean;
-  readonly onAddClick?: (sourceId: string) => void;
   readonly onArchiveClick?: (sourceId: string) => void;
   readonly onRetryClick?: (sourceId: string) => void;
   readonly onSelect: () => void;
@@ -25,9 +23,7 @@ export type SourceRowProps = {
 export function SourceRow({
   source,
   isSelected,
-  isAdding = false,
   isNarrow = false,
-  onAddClick,
   onSelect,
   onToggleIncluded,
   onArchiveClick,
@@ -40,7 +36,6 @@ export function SourceRow({
   const isBusy = source.status === "uploading" || source.status === "parsing";
   const isFailed = source.status === "failed";
   const canRetry = isFailed && source.originalFile !== undefined;
-  const isLibrarySource = source.officialLibrary !== undefined;
   const isRemoteSource = source.kind === "remote";
 
   const iconBg = fileIconTint(source.title);
@@ -62,7 +57,7 @@ export function SourceRow({
       >
         <Checkbox
           checked={!source.excludedFromQuery}
-          disabled={!isReady || !onToggleIncluded || isAdding || isRemoteSource}
+          disabled={!isReady || !onToggleIncluded || isRemoteSource}
           onCheckedChange={(checked) =>
             onToggleIncluded?.(source.id, checked === true)
           }
@@ -127,26 +122,6 @@ export function SourceRow({
             <ListTree className="size-3.5" />
           </button>
         ) : null}
-        {isLibrarySource && onAddClick && (
-          <button
-            type="button"
-            disabled={isAdding || !source.demoSourceId}
-            onClick={(event) => {
-              event.stopPropagation();
-              if (isAdding || !source.demoSourceId) return;
-              onAddClick(source.demoSourceId);
-            }}
-            className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border/70 px-2 py-1 text-[11px] font-semibold text-foreground hover:bg-muted disabled:cursor-wait disabled:opacity-70"
-            aria-label={`Add ${source.title} to sources`}
-          >
-            {isAdding ? (
-              <Spinner className="size-3.5" />
-            ) : (
-              <Plus className="size-3.5" />
-            )}
-            {isNarrow ? null : "Add"}
-          </button>
-        )}
         {canRetry && onRetryClick ? (
           <button
             type="button"
@@ -192,7 +167,6 @@ export function SourceRow({
 }
 
 function getReadySourceLabel(source: SourceView): string {
-  if (source.officialLibrary !== undefined) return "Official Library";
   if (source.kind === "remote") return "Remote";
   return "Processed";
 }

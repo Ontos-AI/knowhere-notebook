@@ -20,7 +20,6 @@ function makeSource(overrides: Partial<Source> = {}): Source {
     stagedBlobUrl: null,
     originalBlobPathname: null,
     originalBlobUrl: null,
-    demoKey: null,
     createdAt: new Date("2026-05-06T00:00:00Z"),
     updatedAt: new Date("2026-05-06T00:00:00Z"),
     deletedAt: null,
@@ -73,33 +72,6 @@ describe("countChunksBySourceId", () => {
       ),
     )
 
-    expect(counts.size).toBe(0)
-  })
-
-  it("does not count materialized demo sources through their copied document id", async () => {
-    const listChunks = vi.fn().mockResolvedValue({
-      pagination: { total: 70 },
-    })
-    const mockClient = {
-      documents: { listChunks },
-    } as unknown as Knowhere
-
-    const { countChunksBySourceId } = await import("./counts")
-
-    const counts = await Effect.runPromise(
-      countChunksBySourceId(
-        [
-          makeSource({
-            id: "source_demo",
-            demoKey: "demo-tsla-q4-2025",
-            knowhereDocumentId: "doc_user_copy",
-          }),
-        ],
-        mockClient,
-      ),
-    )
-
-    expect(listChunks).not.toHaveBeenCalled()
     expect(counts.size).toBe(0)
   })
 })

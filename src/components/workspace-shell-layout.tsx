@@ -10,7 +10,6 @@ import {
 import { ChatPanel } from "@/components/chat-panel"
 import { ChunksPanel } from "@/components/chunks-panel"
 import { MobileTabBar } from "@/components/mobile-tab-bar"
-import { OfficialLibraryPanel } from "@/components/official-library-panel"
 import { SourcesPanel } from "@/components/sources-panel"
 import { TopNav } from "@/components/top-nav"
 import type { AnalyticsContext } from "@/lib/posthog"
@@ -23,13 +22,11 @@ import type {
 } from "@/domains/chat/types"
 import type { ParsedChunkView } from "@/domains/chunks/types"
 import type {
-  OfficialLibrarySourceView,
   SourceOriginalFileView,
   SourceView,
 } from "@/domains/sources/types"
 
 export type PanelId = "sources" | "chat"
-export type ContentView = "chunks" | "library"
 
 type DesktopPanelKey = keyof typeof workspaceShellState.minimumDesktopPanelWidths
 type DesktopSidePanelKey = Exclude<DesktopPanelKey, "chunks">
@@ -56,7 +53,6 @@ type WorkspaceChatState = {
 }
 
 export type WorkspaceShellLayoutProps = {
-  readonly addingLibrarySourceIds: readonly string[]
   readonly archivingSourceIds: readonly string[]
   readonly retryingSourceIds?: readonly string[]
   readonly archivingThreadIds: readonly string[]
@@ -68,10 +64,8 @@ export type WorkspaceShellLayoutProps = {
   readonly focusedChunk: FocusedChunkState
   readonly hasMessages: boolean
   readonly hasMoreSelectedChunks: boolean
-  readonly contentView: ContentView
   readonly isChunksOverlayVisible: boolean
   readonly isCreatingThread: boolean
-  readonly isGuest: boolean
   readonly isSelectedAllChunksLoading: boolean
   readonly isSelectedChunksLoading: boolean
   readonly isSelectedChunksLoadingMore: boolean
@@ -86,7 +80,6 @@ export type WorkspaceShellLayoutProps = {
   readonly selectedSourceTitle: string | null
   readonly sourceTitlesByDocumentId: Readonly<Record<string, string>>
   readonly sources: readonly SourceView[]
-  readonly officialLibrarySources: readonly OfficialLibrarySourceView[]
   readonly user: WorkspaceShellUser | undefined
   readonly analyticsContext?: AnalyticsContext
   readonly onArchiveChatThread: (threadId: string) => void | Promise<void>
@@ -117,17 +110,12 @@ export type WorkspaceShellLayoutProps = {
   ) => void
   readonly onLoadAllChunks: () => void
   readonly onLoadMoreChunks: () => void
-  readonly onLoginClick: () => void
-  readonly onLibraryBack: () => void
-  readonly onLibraryOpen: () => void
   readonly onMobilePanelChange: (panel: PanelId) => void
   readonly onOpenChunksOverlay: (sourceId?: string) => void
-  readonly onOfficialLibrarySourceAdd: (
-    demoSourceId: string,
-  ) => void | Promise<void>
   readonly onSelectChatThread: (threadId: string) => void
   readonly onSourceSelected: (sourceId: string | null) => void
   readonly onSourceUploaded: (source: SourceView) => void
+  readonly onSourcesLocalized?: (sources: readonly SourceView[]) => void
   readonly onToggleIncluded: (sourceId: string, included: boolean) => void
 }
 
@@ -135,9 +123,7 @@ export function WorkspaceShellLayout(
   props: WorkspaceShellLayoutProps,
 ): ReactElement {
   const { onDesktopLayoutElementChange } = props
-  const addingLibrarySourceIds = props.addingLibrarySourceIds ?? []
   const retryingSourceIds = props.retryingSourceIds ?? []
-  const officialLibrarySources = props.officialLibrarySources ?? []
   const selectedSourcesCount = props.sources.filter(
     (source) => !source.excludedFromQuery && source.status === "ready",
   ).length
@@ -202,34 +188,19 @@ export function WorkspaceShellLayout(
             ) : (
               <SourcesPanel
                 sources={[...props.sources]}
-                officialLibrarySources={[...officialLibrarySources]}
-                isLibraryOpen={props.contentView === "library"}
                 isNarrow={isSourcesPanelNarrow}
                 analyticsContext={props.analyticsContext}
                 sourceCountSnapshot={props.sources.length}
-                onSourceUploaded={
-                  props.isGuest ? undefined : props.onSourceUploaded
-                }
+                onSourceUploaded={props.onSourceUploaded}
+                onSourcesLocalized={props.onSourcesLocalized}
                 selectedSourceId={props.selectedSourceId}
                 onSelectSource={props.onSourceSelected}
-                onToggleIncluded={
-                  props.isGuest ? undefined : props.onToggleIncluded
-                }
-                onArchiveSource={
-                  props.isGuest ? undefined : props.onArchiveSource
-                }
-                onRetrySource={
-                  props.isGuest ? undefined : props.onRetrySource
-                }
-                onOfficialLibrarySourceAdd={
-                  props.isGuest ? undefined : props.onOfficialLibrarySourceAdd
-                }
-                onLibraryOpen={props.onLibraryOpen}
+                onToggleIncluded={props.onToggleIncluded}
+                onArchiveSource={props.onArchiveSource}
+                onRetrySource={props.onRetrySource}
                 onOpenChunksOverlay={props.onOpenChunksOverlay}
                 archivingSourceIds={[...props.archivingSourceIds]}
                 retryingSourceIds={[...retryingSourceIds]}
-                addingLibrarySourceIds={[...addingLibrarySourceIds]}
-                onLoginClick={props.isGuest ? props.onLoginClick : undefined}
               />
             )}
           </div>
@@ -269,7 +240,7 @@ export function WorkspaceShellLayout(
                 messages={props.chat.messages}
                 threads={[...props.chatThreads]}
                 activeThreadId={props.chat.threadId}
-                isDisabled={props.isGuest || props.readySourceCount === 0}
+                isDisabled={props.readySourceCount === 0}
                 isSending={props.chat.isSending}
                 isHistoryLoading={props.chat.isLoading}
                 isCreatingThread={props.isCreatingThread}
@@ -281,15 +252,10 @@ export function WorkspaceShellLayout(
                 analyticsContext={props.analyticsContext}
                 selectedSourcesCount={selectedSourcesCount}
                 onSend={props.onChatSend}
-                onNewChat={props.isGuest ? undefined : props.onCreateChatThread}
-                onThreadSelect={
-                  props.isGuest ? undefined : props.onSelectChatThread
-                }
-                onThreadArchive={
-                  props.isGuest ? undefined : props.onArchiveChatThread
-                }
+                onNewChat={props.onCreateChatThread}
+                onThreadSelect={props.onSelectChatThread}
+                onThreadArchive={props.onArchiveChatThread}
                 onCitationClick={props.onCitationClick}
-                onLoginClick={props.isGuest ? props.onLoginClick : undefined}
                 sourceTitlesByDocumentId={props.sourceTitlesByDocumentId}
               />
             )}
@@ -309,23 +275,16 @@ export function WorkspaceShellLayout(
           sources={[...props.sources]}
           analyticsContext={props.analyticsContext}
           sourceCountSnapshot={props.sources.length}
-          officialLibrarySources={[...officialLibrarySources]}
-          isLibraryOpen={props.contentView === "library"}
-          onSourceUploaded={props.isGuest ? undefined : props.onSourceUploaded}
+          onSourceUploaded={props.onSourceUploaded}
+          onSourcesLocalized={props.onSourcesLocalized}
           selectedSourceId={props.selectedSourceId}
           onSelectSource={props.onSourceSelected}
-          onToggleIncluded={props.isGuest ? undefined : props.onToggleIncluded}
-          onArchiveSource={props.isGuest ? undefined : props.onArchiveSource}
-          onRetrySource={props.isGuest ? undefined : props.onRetrySource}
-          onOfficialLibrarySourceAdd={
-            props.isGuest ? undefined : props.onOfficialLibrarySourceAdd
-          }
-          onLibraryOpen={props.onLibraryOpen}
+          onToggleIncluded={props.onToggleIncluded}
+          onArchiveSource={props.onArchiveSource}
+          onRetrySource={props.onRetrySource}
           onOpenChunksOverlay={props.onOpenChunksOverlay}
           archivingSourceIds={[...props.archivingSourceIds]}
           retryingSourceIds={[...retryingSourceIds]}
-          addingLibrarySourceIds={[...addingLibrarySourceIds]}
-          onLoginClick={props.isGuest ? props.onLoginClick : undefined}
         />
       </div>
       <div
@@ -340,7 +299,7 @@ export function WorkspaceShellLayout(
           messages={props.chat.messages}
           threads={[...props.chatThreads]}
           activeThreadId={props.chat.threadId}
-          isDisabled={props.isGuest || props.readySourceCount === 0}
+          isDisabled={props.readySourceCount === 0}
           isSending={props.chat.isSending}
           isHistoryLoading={props.chat.isLoading}
           isCreatingThread={props.isCreatingThread}
@@ -352,10 +311,9 @@ export function WorkspaceShellLayout(
           analyticsContext={props.analyticsContext}
           selectedSourcesCount={selectedSourcesCount}
           onSend={props.onChatSend}
-          onNewChat={props.isGuest ? undefined : props.onCreateChatThread}
-          onThreadSelect={props.isGuest ? undefined : props.onSelectChatThread}
-          onThreadArchive={props.isGuest ? undefined : props.onArchiveChatThread}
-          onLoginClick={props.isGuest ? props.onLoginClick : undefined}
+          onNewChat={props.onCreateChatThread}
+          onThreadSelect={props.onSelectChatThread}
+          onThreadArchive={props.onArchiveChatThread}
           sourceTitlesByDocumentId={props.sourceTitlesByDocumentId}
           onCitationClick={props.onCitationClick}
         />
@@ -385,26 +343,9 @@ export function WorkspaceShellLayout(
             onLoadAllChunks={props.onLoadAllChunks}
             onLoadMore={props.onLoadMoreChunks}
             onClose={props.onCloseChunksOverlay}
-            onLoginClick={props.isGuest ? props.onLoginClick : undefined}
-            onSourceUploaded={
-              props.isGuest ? undefined : props.onSourceUploaded
-            }
+            onSourceUploaded={props.onSourceUploaded}
             analyticsContext={props.analyticsContext}
             sourceCountSnapshot={props.sources.length}
-          />
-        </div>
-      ) : null}
-
-      {props.contentView === "library" ? (
-        <div className="fixed inset-0 z-50 flex flex-col bg-background">
-          <OfficialLibraryPanel
-            addingLibrarySourceIds={[...addingLibrarySourceIds]}
-            officialLibrarySources={[...officialLibrarySources]}
-            sources={[...props.sources]}
-            onBack={props.onLibraryBack}
-            onOfficialLibrarySourceAdd={
-              props.isGuest ? undefined : props.onOfficialLibrarySourceAdd
-            }
           />
         </div>
       ) : null}

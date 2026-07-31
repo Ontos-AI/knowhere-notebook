@@ -12,7 +12,7 @@ const workspaceClientKeys = {
   chatThreads: "/api/chat/threads",
   chatDiagram: "/api/chat/diagram",
   chat: "/api/chat",
-  materializeDemoSources: "/api/demo-sources/materialize",
+  namespaces: "/api/namespaces",
   archiveSource: "archive-source",
   retrySource: "retry-source",
   archiveChatThread: "archive-chat-thread",
@@ -48,10 +48,6 @@ type ChatMessageRequest = {
   excludedSourceIds: string[]
 }
 
-type MaterializeDemoSourcesRequest = {
-  demoSourceIds: string[]
-}
-
 type SourcesResponse = {
   sources?: SourceView[]
 }
@@ -85,6 +81,20 @@ type RetrySourceResponse = {
   message?: string
 }
 
+type NamespaceView = {
+  namespace: string
+  documentCount: number
+}
+
+type NamespacesResponse = {
+  namespaces?: NamespaceView[]
+}
+
+type LocalizeNamespaceResponse = {
+  sources?: SourceView[]
+  message?: string
+}
+
 export const workspaceClient = {
   keys: workspaceClientKeys,
   fetchChunks,
@@ -95,7 +105,8 @@ export const workspaceClient = {
   createChatThread,
   createChatDiagram,
   sendChatMessage,
-  materializeDemoSources,
+  fetchNamespaces,
+  localizeNamespace,
   archiveSource,
   retrySource,
   archiveChatThread,
@@ -180,24 +191,6 @@ function sendChatMessage(
   )
 }
 
-async function materializeDemoSources(
-  input: MaterializeDemoSourcesRequest,
-): Promise<SourceView[]> {
-  const response = await workspaceRouteClient.postJsonWithStatus<
-    SourcesResponse & { readonly message?: string }
-  >(
-    workspaceClientKeys.materializeDemoSources,
-    input,
-  )
-  if (response.status < 200 || response.status >= 300) {
-    throw new Error(
-      response.body.message ?? "Demo sources could not be prepared right now.",
-    )
-  }
-  const body = response.body
-  return Array.isArray(body.sources) ? body.sources : []
-}
-
 function archiveSource(sourceId: string): Promise<ArchiveResponse> {
   return workspaceRouteClient.patchJson(
     `/api/sources/${encodeURIComponent(sourceId)}`,
@@ -230,4 +223,26 @@ function archiveChatThread(threadId: string): Promise<ArchiveResponse> {
       archived: true,
     },
   )
+}
+
+async function fetchNamespaces(): Promise<NamespaceView[]> {
+  const body = await workspaceRouteClient.getJson<NamespacesResponse>(
+    workspaceClientKeys.namespaces,
+  )
+  return Array.isArray(body.namespaces) ? body.namespaces : []
+}
+
+async function localizeNamespace(namespace: string): Promise<SourceView[]> {
+  const response = await workspaceRouteClient.postJsonWithStatus<
+    LocalizeNamespaceResponse
+  >(
+    `/api/namespaces/${encodeURIComponent(namespace)}/localize`,
+    {},
+  )
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(
+      response.body.message ?? "Could not import documents from this namespace.",
+    )
+  }
+  return Array.isArray(response.body.sources) ? response.body.sources : []
 }

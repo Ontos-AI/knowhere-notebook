@@ -12,7 +12,6 @@ export const countChunksBySourceId = (
   Effect.gen(function* () {
     const readySources = sources.filter(
       (source) =>
-        !source.demoKey &&
         source.status === "ready" &&
         source.knowhereDocumentId,
     )

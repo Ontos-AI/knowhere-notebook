@@ -8,10 +8,8 @@ const mocks = vi.hoisted(() => {
     deleteBlob: vi.fn(),
     ensureApiKeyForWorkspace: vi.fn(),
     ensureWorkspace: vi.fn(),
-    fetchDemoCatalog: vi.fn(),
     findSourceInWorkspace: vi.fn(),
     getCurrentUser: vi.fn(),
-    hideDemoSource: vi.fn(),
     makeKnowhereClient: vi.fn(),
     requireUser: vi.fn(),
     retrySourceToKnowhere: vi.fn(),
@@ -32,13 +30,6 @@ vi.mock("@/integrations/dashboard/api-key-service", () => ({
   ensureApiKeyForWorkspace: mocks.ensureApiKeyForWorkspace,
 }));
 
-vi.mock("@/integrations/knowhere-demo", () => ({
-  knowhereDemoApi: {
-    fetchCatalog: mocks.fetchDemoCatalog,
-    fetchChunkPage: vi.fn(),
-  },
-}))
-
 vi.mock("@/infrastructure/auth", () => ({
   getCurrentUser: mocks.getCurrentUser,
   requireUser: mocks.requireUser,
@@ -55,7 +46,6 @@ vi.mock("@/domains/sources/background-reconcile", () => ({
 vi.mock("@/domains/sources/service", () => ({
   sourceService: {
     findInWorkspace: mocks.findSourceInWorkspace,
-    hideDemoSource: mocks.hideDemoSource,
     retrySourceToKnowhere: mocks.retrySourceToKnowhere,
     softDelete: mocks.softDeleteSource,
   },
@@ -120,7 +110,6 @@ describe("PATCH /api/sources/[sourceId]", () => {
     mocks.requireUser.mockResolvedValue({ id: "user_1" });
     mocks.ensureWorkspace.mockResolvedValue({ id: "workspace_1" });
     mocks.findSourceInWorkspace.mockResolvedValue(null);
-    mocks.fetchDemoCatalog.mockResolvedValue({ sources: [] });
 
     const response = await PATCH(
       new NextRequest(
@@ -183,86 +172,6 @@ describe("PATCH /api/sources/[sourceId]", () => {
     );
   });
 
-  it("archives materialized demo sources and records canonical visibility", async () => {
-    mocks.requireUser.mockResolvedValue({ id: "user_1" });
-    mocks.ensureWorkspace.mockResolvedValue({ id: "workspace_1" });
-    mocks.findSourceInWorkspace.mockResolvedValue({
-      id: "source_demo",
-      demoKey: "demo-tsla-q4-2025",
-      knowhereDocumentId: "doc_user_copy",
-      originalBlobPathname: null,
-    });
-    mocks.ensureApiKeyForWorkspace.mockResolvedValue("jwt_123");
-    mocks.makeKnowhereClient.mockReturnValue({
-      documents: { archive: mocks.archive },
-    });
-    mocks.archive.mockResolvedValue(undefined);
-    mocks.softDeleteSource.mockResolvedValue(true);
-    mocks.hideDemoSource.mockResolvedValue(undefined);
-
-    const response = await PATCH(
-      new NextRequest("http://localhost:3001/api/sources/source_demo", {
-        method: "PATCH",
-        body: JSON.stringify({ archived: true }),
-      }),
-      { params: Promise.resolve({ sourceId: "source_demo" }) },
-    );
-
-    await expect(response.json()).resolves.toEqual({
-      id: "source_demo",
-      archived: true,
-    });
-    expect(response.status).toBe(200);
-    expect(mocks.ensureApiKeyForWorkspace).toHaveBeenCalledWith(
-      "workspace_1",
-      "session=abc",
-    );
-    expect(mocks.archive).toHaveBeenCalledWith("doc_user_copy");
-    expect(mocks.deleteBlob).not.toHaveBeenCalled();
-    expect(mocks.softDeleteSource).toHaveBeenCalledWith(
-      "workspace_1",
-      "source_demo",
-    );
-    expect(mocks.hideDemoSource).toHaveBeenCalledWith(
-      "workspace_1",
-      "demo-tsla-q4-2025",
-    );
-  });
-
-  it("hides a canonical demo source before it has a workspace row", async () => {
-    mocks.requireUser.mockResolvedValue({ id: "user_1" });
-    mocks.ensureWorkspace.mockResolvedValue({ id: "workspace_1" });
-    mocks.findSourceInWorkspace.mockResolvedValue(null);
-    mocks.fetchDemoCatalog.mockResolvedValue({
-      sources: [
-        {
-          demoSourceId: "demo-tsla-q4-2025",
-        },
-      ],
-    });
-    mocks.hideDemoSource.mockResolvedValue(undefined);
-
-    const response = await PATCH(
-      new NextRequest("http://localhost:3001/api/sources/demo-tsla-q4-2025", {
-        method: "PATCH",
-        body: JSON.stringify({ archived: true }),
-      }),
-      { params: Promise.resolve({ sourceId: "demo-tsla-q4-2025" }) },
-    );
-
-    await expect(response.json()).resolves.toEqual({
-      id: "demo-tsla-q4-2025",
-      archived: true,
-    });
-    expect(response.status).toBe(200);
-    expect(mocks.hideDemoSource).toHaveBeenCalledWith(
-      "workspace_1",
-      "demo-tsla-q4-2025",
-    );
-    expect(mocks.ensureApiKeyForWorkspace).not.toHaveBeenCalled();
-    expect(mocks.archive).not.toHaveBeenCalled();
-  });
-
   it("retries a failed source and starts background reconciliation", async () => {
     mocks.requireUser.mockResolvedValue({ id: "user_1" });
     mocks.ensureWorkspace.mockResolvedValue({ id: "workspace_1" });
@@ -281,7 +190,6 @@ describe("PATCH /api/sources/[sourceId]", () => {
       originalBlobPathname: "source-uploads/upload_1/document.pdf",
       originalBlobUrl:
         "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
-      demoKey: null,
       createdAt: new Date("2026-05-10T00:00:00Z"),
       updatedAt: new Date("2026-05-10T00:00:00Z"),
       deletedAt: null,
@@ -313,7 +221,6 @@ describe("PATCH /api/sources/[sourceId]", () => {
       originalBlobPathname: "source-uploads/upload_1/document.pdf",
       originalBlobUrl:
         "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
-      demoKey: null,
       createdAt: new Date("2026-05-10T00:00:00Z"),
       updatedAt: new Date("2026-05-10T00:00:00Z"),
       deletedAt: null,

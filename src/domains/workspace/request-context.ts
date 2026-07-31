@@ -4,7 +4,6 @@ import { Effect } from "effect"
 import { headers } from "next/headers"
 
 import { ensureApiKeyForWorkspace } from "@/integrations/dashboard/api-key-service"
-import { authURLs } from "@/infrastructure/auth/urls"
 import {
   getCurrentUser,
   requireUser,
@@ -24,10 +23,6 @@ type AuthenticatedNotebookContext = {
 type AuthenticatedNotebookClientContext = AuthenticatedNotebookContext & {
   readonly apiKey: string
   readonly client: NotebookClient
-}
-
-type GuestNotebookContext = {
-  readonly loginUrl: string
 }
 
 // ---------------------------------------------------------------------------
@@ -75,23 +70,6 @@ const getClientForWorkspaceEffect = (workspace: Workspace) =>
     return { apiKey, client }
   })
 
-const getGuestEffect = Effect.gen(function* () {
-    const dashboardOrigin =
-      process.env.DASHBOARD_ORIGIN ?? "http://localhost:3000"
-    const dashboardLoginURL = `${dashboardOrigin}/login`
-    const headersList = yield* Effect.tryPromise(() => headers())
-    const notebookPublicURL =
-      process.env.NOTEBOOK_PUBLIC_URL ??
-      authURLs.resolveNotebookPublicURLFromHeaders(headersList)
-    const loginUrl = authURLs.buildDashboardLoginURL(
-      dashboardLoginURL,
-      notebookPublicURL,
-    )
-
-    return { loginUrl }
-  },
-)
-
 // ---------------------------------------------------------------------------
 // Async wrappers (backward-compatible)
 // ---------------------------------------------------------------------------
@@ -114,14 +92,9 @@ async function getClientForWorkspace(
   return Effect.runPromise(getClientForWorkspaceEffect(workspace))
 }
 
-async function getGuest(): Promise<GuestNotebookContext> {
-  return Effect.runPromise(getGuestEffect)
-}
-
 export const notebookRequestContext = {
   getAuthenticated,
   getOptionalAuthenticated,
   getAuthenticatedWithClient,
   getClientForWorkspace,
-  getGuest,
 } as const

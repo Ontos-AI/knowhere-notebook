@@ -12,21 +12,15 @@ import type { SourceView } from "@/domains/sources/types"
 type WorkspaceSourceWorkflowInput = {
   readonly initialSelectedDocumentId?: string | null
   readonly initialSources?: readonly SourceView[]
-  readonly isGuest?: boolean
 }
 
 type WorkspaceSourceWorkflow = {
-  readonly addingLibrarySourceIds: string[]
   readonly archivingSourceIds: string[]
   readonly handleArchiveSource: (sourceId: string) => Promise<void>
   readonly handleRetrySource: (sourceId: string) => Promise<void>
-  readonly handleOfficialLibrarySourceAdd: (demoSourceId: string) => Promise<boolean>
   readonly handleSelectedSourceChange: (sourceId: string | null) => void
-  readonly handleSourcesMaterialized: (
-    demoSourceIds: readonly string[],
-    materializedSources: readonly SourceView[],
-  ) => void
   readonly handleSourceUploaded: (source: SourceView) => void
+  readonly handleSourcesLocalized: (sources: readonly SourceView[]) => void
   readonly handleToggleIncluded: (sourceId: string, included: boolean) => void
   readonly readySourceCount: number
   readonly retryingSourceIds: string[]
@@ -39,12 +33,10 @@ type WorkspaceSourceWorkflow = {
 const sourcesSWRKey = workspaceClient.keys.sources
 const archiveSourceSWRKey = workspaceClient.keys.archiveSource
 const retrySourceSWRKey = workspaceClient.keys.retrySource
-const materializeDemoSourceSWRKey = workspaceClient.keys.materializeDemoSources
 
 export function useWorkspaceSourceWorkflow({
   initialSelectedDocumentId = null,
   initialSources = [],
-  isGuest = false,
 }: WorkspaceSourceWorkflowInput): WorkspaceSourceWorkflow {
   const initialSourceRows = useMemo(() => [...initialSources], [initialSources])
   const initialSelectedSourceId = workspaceSourceState.getInitialSelectedSourceId(
@@ -59,11 +51,8 @@ export function useWorkspaceSourceWorkflow({
   >({})
   const [archivingSourceIds, setArchivingSourceIds] = useState<string[]>([])
   const [retryingSourceIds, setRetryingSourceIds] = useState<string[]>([])
-  const [addingLibrarySourceIds, setAddingLibrarySourceIds] = useState<string[]>(
-    [],
-  )
   const shouldRefreshSourcesOnMount =
-    !isGuest && workspaceClientCache.hasPendingSources(initialSourceRows)
+    workspaceClientCache.hasPendingSources(initialSourceRows)
   const { data: serverSources, mutate: mutateSources } = useSWR(
     sourcesSWRKey,
     workspaceClient.fetchSources,
@@ -103,10 +92,6 @@ export function useWorkspaceSourceWorkflow({
     retrySourceSWRKey,
     retrySourceMutation,
   )
-  const { trigger: materializeDemoSources } = useSWRMutation(
-    materializeDemoSourceSWRKey,
-    materializeDemoSourcesMutation,
-  )
 
   function handleSourceUploaded(source: SourceView): void {
     void mutateSources(
@@ -117,29 +102,21 @@ export function useWorkspaceSourceWorkflow({
     void mutateSources()
   }
 
-  function handleSourcesMaterialized(
-    demoSourceIds: readonly string[],
-    materializedSources: readonly SourceView[],
-  ): void {
-    const materializedDemoSourceIdSet = new Set(demoSourceIds)
+  function handleSourcesLocalized(sources: readonly SourceView[]): void {
+    if (sources.length === 0) return
     void mutateSources(
-      (current) => [
-        ...(current ?? sourceRows).filter(
-          (source) =>
-            !source.demoSourceId ||
-            !materializedDemoSourceIdSet.has(source.demoSourceId),
-        ),
-        ...materializedSources,
-      ],
+      (current) => {
+        const existing = current ?? sourceRows
+        const newIds = new Set(sources.map((s) => s.id))
+        const merged = [
+          ...existing.filter((s) => !newIds.has(s.id)),
+          ...sources,
+        ]
+        return merged
+      },
       { revalidate: false },
     )
-    setSelectedSourceId((current) => {
-      if (!current || materializedDemoSourceIdSet.has(current)) {
-        return materializedSources[0]?.id ?? current
-      }
-
-      return current
-    })
+    void mutateSources()
   }
 
   function handleToggleIncluded(sourceId: string, included: boolean): void {
@@ -210,35 +187,13 @@ export function useWorkspaceSourceWorkflow({
     }
   }
 
-  async function handleOfficialLibrarySourceAdd(
-    demoSourceId: string,
-  ): Promise<boolean> {
-    setAddingLibrarySourceIds((current) =>
-      workspaceSourceState.addPendingId(current, demoSourceId),
-    )
-    try {
-      const materializedSources = await materializeDemoSources([demoSourceId])
-      handleSourcesMaterialized([demoSourceId], materializedSources)
-      return true
-    } catch {
-      // Keep the library source visible when materialization fails.
-      return false
-    } finally {
-      setAddingLibrarySourceIds((current) =>
-        workspaceSourceState.removePendingId(current, demoSourceId),
-      )
-    }
-  }
-
   return {
-    addingLibrarySourceIds,
     archivingSourceIds,
     handleArchiveSource,
     handleRetrySource,
-    handleOfficialLibrarySourceAdd,
     handleSelectedSourceChange,
-    handleSourcesMaterialized,
     handleSourceUploaded,
+    handleSourcesLocalized,
     handleToggleIncluded,
     readySourceCount,
     retryingSourceIds,
@@ -251,16 +206,7 @@ export function useWorkspaceSourceWorkflow({
 
 function isQueryableReadySource(source: SourceView): boolean {
   if (source.status !== "ready") return false
-
-  return !isUnmaterializedOfficialLibrarySource(source) && !isRemoteSource(source)
-}
-
-function isUnmaterializedOfficialLibrarySource(source: SourceView): boolean {
-  return source.kind === "demo" && source.officialLibrary !== undefined
-}
-
-function isRemoteSource(source: SourceView): boolean {
-  return source.kind === "remote"
+  return source.kind !== "remote"
 }
 
 function archiveSourceMutation(
@@ -275,13 +221,4 @@ function retrySourceMutation(
   { arg: sourceId }: { readonly arg: string },
 ): ReturnType<typeof workspaceClient.retrySource> {
   return workspaceClient.retrySource(sourceId)
-}
-
-function materializeDemoSourcesMutation(
-  _key: string,
-  { arg: demoSourceIds }: { readonly arg: readonly string[] },
-): ReturnType<typeof workspaceClient.materializeDemoSources> {
-  return workspaceClient.materializeDemoSources({
-    demoSourceIds: [...demoSourceIds],
-  })
 }

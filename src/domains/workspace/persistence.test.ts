@@ -34,7 +34,6 @@ type ChatThreadRow = {
   id: string
   workspaceId: string
   title: string | null
-  demoKey: string | null
   createdAt: Date
   updatedAt: Date
   deletedAt: Date | null
@@ -155,7 +154,6 @@ describe("chatRepository", () => {
       id: "thread_1",
       workspaceId: "workspace_1",
       title: "Grounded answer",
-      demoKey: null,
       createdAt: new Date("2026-01-01T00:00:00.000Z"),
       updatedAt: new Date("2026-01-01T00:00:00.000Z"),
       deletedAt: null,

@@ -30,8 +30,6 @@ describe("Home", () => {
 
   it("renders the workspace shell from the API-backed initial state", async () => {
     mocks.loadWorkspaceShellInitialState.mockResolvedValue({
-      isGuest: true,
-      loginUrl: "/login",
       sources: [],
       chatMessages: [],
     })

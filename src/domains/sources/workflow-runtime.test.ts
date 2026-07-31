@@ -37,7 +37,6 @@ function makeSource(status: Source["status"]): Source {
     stagedBlobUrl: null,
     originalBlobPathname: null,
     originalBlobUrl: null,
-    demoKey: null,
     createdAt: new Date("2026-05-10T00:00:00.000Z"),
     updatedAt: new Date("2026-05-10T00:00:00.000Z"),
     deletedAt: null,

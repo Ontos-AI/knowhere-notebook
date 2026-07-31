@@ -31,21 +31,10 @@ type SourceService = {
     sourceId: string,
     revisionKey: string,
   ) => Promise<Source | null>
-  readonly listHiddenDemoSourceIds: (workspaceId: string) => Promise<string[]>
-  readonly hideDemoSource: (
-    workspaceId: string,
-    demoSourceId: string,
-  ) => Promise<void>
   readonly softDelete: (
     workspaceId: string,
     sourceId: string,
   ) => Promise<boolean>
-  readonly upsertMaterializedDemoSource: (
-    workspaceId: string,
-    input: Parameters<
-      typeof sourceWorkflowRuntime.upsertMaterializedDemoSource
-    >[1],
-  ) => Promise<Source>
   readonly uploadSourceToKnowhere: (
     workspace: Workspace,
     file: File,
@@ -106,14 +95,10 @@ const retrySourceToKnowhere: SourceService["retrySourceToKnowhere"] = (
 export const sourceService: SourceService = {
   findInWorkspace: sourceWorkflowRuntime.findInWorkspace,
   getParseAssetUrls: sourceWorkflowRuntime.getParseAssetUrls,
-  hideDemoSource: sourceWorkflowRuntime.hideDemoSource,
-  listHiddenDemoSourceIds: sourceWorkflowRuntime.listHiddenDemoSourceIds,
   listForWorkspace: sourceWorkflowRuntime.listForWorkspace,
   localizeRemoteDocument: sourceWorkflowRuntime.localizeRemoteDocument,
   updateSourceRevisionKey: sourceWorkflowRuntime.updateRevisionKey,
   softDelete: sourceWorkflowRuntime.softDelete,
-  upsertMaterializedDemoSource:
-    sourceWorkflowRuntime.upsertMaterializedDemoSource,
   uploadSourceToKnowhere,
   uploadSourceBlobToKnowhere,
   retrySourceToKnowhere,

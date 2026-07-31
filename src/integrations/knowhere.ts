@@ -14,6 +14,46 @@ export function makeKnowhereClient(apiKey: string): Knowhere {
   return wrapKnowhereClient(client)
 }
 
+export type KnowhereNamespace = {
+  readonly namespace: string
+  readonly documentCount: number
+}
+
+/**
+ * List all namespaces from the Knowhere API.
+ * The SDK does not expose this endpoint, so we call it directly.
+ */
+export async function listKnowhereNamespaces(
+  apiKey: string,
+): Promise<readonly KnowhereNamespace[]> {
+  const baseURL = process.env.KNOWHERE_BASE_URL ?? "https://api.knowhere.com"
+  const response = await fetch(`${baseURL}/v1/documents/namespaces`, {
+    headers: { Authorization: `Bearer ${apiKey}` },
+  })
+  if (!response.ok) {
+    logger.warn("knowhere: listNamespaces failed", {
+      status: response.status,
+    })
+    return []
+  }
+  const data = (await response.json()) as unknown
+  const items = Array.isArray(data)
+    ? data
+    : (data as { namespaces?: unknown[] })?.namespaces
+  if (!Array.isArray(items)) return []
+  return items
+    .filter(
+      (item): item is { namespace: string; document_count?: number; documentCount?: number } =>
+        typeof item === "object" &&
+        item !== null &&
+        typeof (item as { namespace?: unknown }).namespace === "string",
+    )
+    .map((item) => ({
+      namespace: item.namespace,
+      documentCount: item.documentCount ?? item.document_count ?? 0,
+    }))
+}
+
 function wrapKnowhereClient(client: Knowhere): Knowhere {
   return new Proxy(client, {
     get(target, prop, receiver) {
