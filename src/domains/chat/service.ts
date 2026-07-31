@@ -14,6 +14,7 @@ import type {
   ChatArtifactView,
   ChatCitationView,
   ChatMessageView,
+  RetrievalTraceView,
 } from "@/domains/chat/types"
 
 export type ChatRepository = {
@@ -57,6 +58,7 @@ const threadNotFound = {
 export type ChatTurnValue = {
   threadId: string
   messages: [ChatMessageView, ChatMessageView]
+  retrievalTrace?: RetrievalTraceView
 }
 
 type ChatTurnInput = {
@@ -148,8 +150,14 @@ export const handleChatTurnEffect = (input: ChatTurnInput) =>
       threadId: thread.id,
       messages: [
         toChatMessageView(userMessage),
-        toChatMessageView(assistantMessage, answer.citations, answer.artifacts),
+        toChatMessageView(
+          assistantMessage,
+          answer.citations,
+          answer.artifacts,
+          answer.retrievalTrace,
+        ),
       ] as [ChatMessageView, ChatMessageView],
+      retrievalTrace: answer.retrievalTrace,
     }
   })
 

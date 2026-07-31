@@ -9,6 +9,7 @@ import { logger } from "@/lib/logger"
 import type {
   ChatArtifactView,
   ChatCitationView,
+  RetrievalTraceView,
 } from "@/domains/chat/types"
 import type {
   DerivedTableArtifact,
@@ -139,6 +140,8 @@ export const answerQuestionWithRetrieval = (
           namespace,
           query: retrievalQueryParams.query,
           topK: retrievalQueryParams.topK,
+          rerank: retrievalQueryParams.rerank,
+          internalRecallK: retrievalQueryParams.internalRecallK,
           dataType: retrievalQueryParams.dataType ?? null,
           signalPathCount: retrievalQueryParams.signalPaths?.length ?? 0,
           filterMode: retrievalQueryParams.filterMode ?? null,
@@ -264,15 +267,18 @@ export const answerQuestionWithRetrieval = (
     })
     const citationResults = hardenedMedia.results
     const displayArtifacts = hardenedMedia.artifacts ?? []
+    const retrievalTrace = buildRetrievalTrace(retrievalResponses)
     logger.info("chat-agent: answer complete", {
       answerLength: answer.length,
       citationCount: citationResults.length,
       artifactCount: displayArtifacts.length,
+      retrievalQueryCount: retrievalTrace?.queries.length ?? 0,
     })
     return {
       answer,
       citations: toChatCitationViews(citationResults, answer),
       artifacts: displayArtifacts,
+      retrievalTrace,
     }
   })
 
@@ -682,6 +688,29 @@ function joinResponseText(
   return uniqueValues.length > 0 ? uniqueValues.join(",") : null
 }
 
+function buildRetrievalTrace(
+  responses: readonly RetrievalQueryResponse[],
+): RetrievalTraceView | undefined {
+  if (responses.length === 0) return undefined
+
+  const queries = responses.map((response) => {
+    const topScores = response.results
+      .map((result) => result.score)
+      .filter((score): score is number => typeof score === "number")
+      .sort((left, right) => right - left)
+      .slice(0, 5)
+    return {
+      query: response.query,
+      namespace: response.namespace,
+      resultCount: response.results.length,
+      referencedChunkCount: response.referencedChunks.length,
+      topScores,
+    }
+  })
+
+  return { queries }
+}
+
 function buildRetrievalQueryParams(input: {
   readonly input: AgenticRetrievalQuery
   readonly fallbackQuestion: string
@@ -699,6 +728,8 @@ function buildRetrievalQueryParams(input: {
     query,
     topK: normalizeTopK(input.input.topK),
     useAgentic: true,
+    rerank: true,
+    internalRecallK: 30,
     dataType,
     ...(input.input.signalPaths && input.input.signalPaths.length > 0
       ? { signalPaths: input.input.signalPaths }

@@ -60,6 +60,54 @@ describe("ChatMessageList", () => {
     ).toBeTruthy();
   });
 
+  it("renders the transient retrieval trace for a fresh assistant message", () => {
+    render(
+      React.createElement(ChatMessageList, {
+        messages: [
+          {
+            id: "assistant_1",
+            role: "assistant",
+            content: "The deadline is Monday.",
+            retrievalTrace: {
+              queries: [
+                {
+                  query: "deadline monday",
+                  namespace: "notebook-workspace",
+                  resultCount: 3,
+                  referencedChunkCount: 1,
+                  topScores: [0.91, 0.8],
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(screen.getByText("Retrieval")).toBeTruthy();
+    expect(screen.getByText("deadline monday")).toBeTruthy();
+    expect(screen.getByText("3 hits")).toBeTruthy();
+    expect(screen.getByText("1 cited chunk")).toBeTruthy();
+    expect(screen.getByText("top score: 0.910 · 0.800")).toBeTruthy();
+  });
+
+  it("does not render a retrieval trace without queries", () => {
+    render(
+      React.createElement(ChatMessageList, {
+        messages: [
+          {
+            id: "assistant_1",
+            role: "assistant",
+            content: "The deadline is Monday.",
+            retrievalTrace: { queries: [] },
+          },
+        ],
+      }),
+    );
+
+    expect(screen.queryByText("Retrieval")).toBeNull();
+  });
+
   it("renders citations in a bottom source area as file chips", async () => {
     const user = userEvent.setup();
 
@@ -125,7 +173,7 @@ describe("ChatMessageList", () => {
 
     const tooltip = await screen.findByRole("tooltip");
     expect(tooltip.textContent).toBe(
-      "spacex-s1.pdf · Assets / tables / table-25 Capital Expenditures.html",
+      "spacex-s1.pdf · Assets / tables / table-25 Capital Expenditures.htmlScore: 0.900",
     );
   });
 

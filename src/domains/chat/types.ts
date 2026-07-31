@@ -50,6 +50,24 @@ export type ChatMessageView = {
   readonly content: string
   readonly citations?: readonly ChatCitationView[]
   readonly artifacts?: readonly ChatArtifactView[]
+  readonly retrievalTrace?: RetrievalTraceView
+}
+
+/**
+ * Transient retrieval trace attached to a fresh assistant message. It is
+ * returned by the chat route and held in client state only; it is never
+ * persisted to the chat message row.
+ */
+export type RetrievalTraceEntryView = {
+  readonly query: string
+  readonly namespace: string
+  readonly resultCount: number
+  readonly referencedChunkCount: number
+  readonly topScores: readonly number[]
+}
+
+export type RetrievalTraceView = {
+  readonly queries: readonly RetrievalTraceEntryView[]
 }
 
 export type ChatThreadView = {

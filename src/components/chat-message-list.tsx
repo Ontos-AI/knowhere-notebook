@@ -11,6 +11,7 @@ import remarkGfm from "remark-gfm";
 
 import { ChatDiagramCard } from "@/components/chat-diagram-card";
 import { useChatMessageListWorkflow } from "@/components/chat-message-list-workflow";
+import { ChatRetrievalTrace } from "@/components/chat-retrieval-trace";
 import { chatPanelModel } from "@/components/chat-panel-model";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
@@ -375,6 +376,9 @@ function MessageBubble({
           onCitationClick={onCitationClick}
           pendingCitationId={pendingCitationId}
         />
+        {message.retrievalTrace && (
+          <ChatRetrievalTrace trace={message.retrievalTrace} />
+        )}
       </div>
     </div>
   );
@@ -652,10 +656,21 @@ function CitationChip({
         align="start"
         className="max-w-[320px] bg-popover text-popover-foreground shadow-lg"
       >
-        {tooltipLabel}
+        <div>
+          {tooltipLabel}
+          {isUsableCitationScore(citation.score) && (
+            <span className="mt-1 block text-[10px] font-semibold text-muted-foreground">
+              Score: {citation.score!.toFixed(3)}
+            </span>
+          )}
+        </div>
       </TooltipContent>
     </Tooltip>
   );
+}
+
+function isUsableCitationScore(score: number | null | undefined): boolean {
+  return typeof score === "number" && Number.isFinite(score) && score > 0;
 }
 
 function getDisplayCitations(

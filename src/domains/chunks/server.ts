@@ -223,7 +223,7 @@ export const loadChunkPageForSource = (
       : revisionProbeResponse
     if (includeAssetUrls) {
       yield* Effect.tryPromise(() =>
-        enrichChunksWithAssetUrls(source.knowhereDocumentId!, response, client),
+        enrichChunksWithAssetUrls(source.knowhereDocumentId!, response),
       ).pipe(
         Effect.catchAll(() => Effect.void),
       )
@@ -691,7 +691,6 @@ function getMirroredAssetContentType(
 async function enrichChunksWithAssetUrls(
   documentId: string,
   response: { readonly chunks: readonly DocumentChunk[] },
-  client: ChunkKnowhereClient,
 ): Promise<void> {
   const tableChunks = response.chunks.filter(
     (chunk) =>

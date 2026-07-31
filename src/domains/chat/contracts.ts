@@ -8,6 +8,7 @@ import type { HarnessRunResult } from "@/agent-harness"
 import type {
   ChatArtifactView,
   ChatCitationView,
+  RetrievalTraceView,
 } from "@/domains/chat/types"
 import type { HardenMediaAssetUrls } from "./media-asset-hardening"
 import type { LoadSourceAssetUrls } from "./media-assets"
@@ -76,4 +77,5 @@ export type AnswerQuestionResult = {
   answer: string
   citations: ChatCitationView[]
   artifacts?: ChatArtifactView[]
+  retrievalTrace?: RetrievalTraceView
 }

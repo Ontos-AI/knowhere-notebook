@@ -5,6 +5,7 @@ import type {
   ChatCitationView,
   ChatMessageView,
   ChatThreadView,
+  RetrievalTraceView,
 } from "@/domains/chat/types"
 
 export function toChatThreadView(thread: ChatThread): ChatThreadView {
@@ -20,6 +21,7 @@ export function toChatMessageView(
   message: ChatMessage,
   citations: readonly ChatCitationView[] = [],
   artifacts?: readonly ChatArtifactView[],
+  retrievalTrace?: RetrievalTraceView,
 ): ChatMessageView {
   const citationViews =
     citations.length > 0
@@ -37,6 +39,7 @@ export function toChatMessageView(
     content: message.content,
     citations: citationViews,
     ...(artifactViews !== undefined ? { artifacts: artifactViews } : {}),
+    ...(retrievalTrace ? { retrievalTrace } : {}),
   }
 }
 

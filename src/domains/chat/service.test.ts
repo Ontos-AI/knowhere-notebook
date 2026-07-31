@@ -58,6 +58,8 @@ describe("handleChatTurn", () => {
       query: "What does the document say?",
       topK: 8,
       useAgentic: true,
+      rerank: true,
+      internalRecallK: 30,
       dataType: 1,
       excludeDocumentIds: ["doc_excluded"],
     });
@@ -222,6 +224,8 @@ describe("handleChatTurn", () => {
       query: "Tesla Q4 2025 Update energy generation and storage deployments",
       topK: 8,
       useAgentic: true,
+      rerank: true,
+      internalRecallK: 30,
       dataType: 1,
     });
   });

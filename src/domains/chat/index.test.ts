@@ -75,6 +75,8 @@ describe("answerQuestionWithRetrieval", () => {
       query: "What does the document say?",
       topK: 8,
       useAgentic: true,
+      rerank: true,
+      internalRecallK: 30,
       dataType: 1,
       excludeDocumentIds: ["doc_excluded"],
     });
@@ -89,6 +91,17 @@ describe("answerQuestionWithRetrieval", () => {
       answer: "The answer is grounded.",
       citations: [result],
       artifacts: [],
+      retrievalTrace: {
+        queries: [
+          {
+            namespace: "notebook-workspace",
+            query: "What does the document say?",
+            referencedChunkCount: 0,
+            resultCount: 1,
+            topScores: [0.9],
+          },
+        ],
+      },
     });
   });
 
@@ -168,6 +181,24 @@ describe("answerQuestionWithRetrieval", () => {
       answer: "The legacy answer is grounded.",
       citations: [legacyResult],
       artifacts: [],
+      retrievalTrace: {
+        queries: [
+          {
+            namespace: "default",
+            query: "legacy document answer",
+            referencedChunkCount: 0,
+            resultCount: 0,
+            topScores: [],
+          },
+          {
+            namespace: "notebook-legacy",
+            query: "legacy document answer",
+            referencedChunkCount: 0,
+            resultCount: 1,
+            topScores: [0.9],
+          },
+        ],
+      },
     });
   });
 
@@ -481,6 +512,8 @@ describe("answerQuestionWithRetrieval", () => {
       query: "SpaceX rocket photos",
       topK: 8,
       useAgentic: true,
+      rerank: true,
+      internalRecallK: 30,
       dataType: 3,
     });
     expect(answer.answer).toBe("Use this launch photo.");
@@ -1253,6 +1286,8 @@ describe("answerQuestionWithRetrieval", () => {
       query: "公民身份证明 图片",
       topK: 8,
       useAgentic: true,
+      rerank: true,
+      internalRecallK: 30,
       dataType: 3,
     });
     const imageCitations = answer.citations.filter(
@@ -1301,6 +1336,17 @@ describe("answerQuestionWithRetrieval", () => {
       answer: "I couldn't find that in your sources.",
       citations: [],
       artifacts: [],
+      retrievalTrace: {
+        queries: [
+          {
+            namespace: "notebook-workspace",
+            query: "Missing fact?",
+            referencedChunkCount: 0,
+            resultCount: 0,
+            topScores: [],
+          },
+        ],
+      },
     });
   });
 
@@ -1350,6 +1396,8 @@ describe("answerQuestionWithRetrieval", () => {
       query: "Tesla Q4 2025 Update energy generation and storage deployments",
       topK: 8,
       useAgentic: true,
+      rerank: true,
+      internalRecallK: 30,
       dataType: 1,
     });
     expect(generateAnswer).toHaveBeenCalledWith({
@@ -1359,6 +1407,56 @@ describe("answerQuestionWithRetrieval", () => {
       excludedSourceIds: [],
       searchSources: expect.any(Function),
     });
+  });
+
+  it("collects a retrieval trace entry per issued query", async () => {
+    const retrieval = {
+      query: vi
+        .fn()
+        .mockImplementation(async ({ query }: { readonly query: string }) => ({
+          results: [],
+          evidenceText: null,
+          referencedChunks: [],
+          namespace: "notebook-workspace",
+          query,
+          routerUsed: "workflow_single_step",
+          answerText: null,
+        })),
+    };
+    const generateAnswer = vi.fn(async ({ searchSources }) => {
+      await searchSources({ query: "query variant one" });
+      await searchSources({ query: "query variant two" });
+      return makeHarnessRunResult("Answer.");
+    });
+
+    const answer = await Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "Question",
+        namespace: "notebook-workspace",
+        sources: [makeSource()],
+        excludedSourceIds: [],
+        retrieval,
+        generateAnswer,
+        messages: [],
+      }),
+    );
+
+    expect(answer.retrievalTrace?.queries).toEqual([
+      {
+        namespace: "notebook-workspace",
+        query: "query variant one",
+        referencedChunkCount: 0,
+        resultCount: 0,
+        topScores: [],
+      },
+      {
+        namespace: "notebook-workspace",
+        query: "query variant two",
+        referencedChunkCount: 0,
+        resultCount: 0,
+        topScores: [],
+      },
+    ]);
   });
 
   it("does not append chat history to Knowhere tool queries", async () => {
@@ -1406,6 +1504,8 @@ describe("answerQuestionWithRetrieval", () => {
       query: "Tesla energy storage deployments",
       topK: 8,
       useAgentic: true,
+      rerank: true,
+      internalRecallK: 30,
       dataType: 1,
     });
     expect(JSON.stringify(queryInput)).not.toContain(

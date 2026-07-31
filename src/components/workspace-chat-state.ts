@@ -89,6 +89,7 @@ const chatLoadError = "The chat could not be loaded right now."
 const chatCreateError = "The chat could not be created right now."
 const chatSendError = "The assistant could not answer right now."
 const chatArchiveError = "The chat could not be deleted right now."
+const SEARCHING_SOURCES_STATUS = "Searching sources…"
 
 function createInitialState(
   threadId: string | null,
@@ -213,7 +214,7 @@ function addOptimisticUserMessage(
     ...current,
     isSending: true,
     error: null,
-    pendingStatusText: null,
+    pendingStatusText: SEARCHING_SOURCES_STATUS,
     messages: [...current.messages, optimisticUser],
   }
 }
