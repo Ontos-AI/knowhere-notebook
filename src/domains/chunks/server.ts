@@ -221,6 +221,13 @@ export const loadChunkPageForSource = (
           }),
         )
       : revisionProbeResponse
+    if (includeAssetUrls) {
+      yield* Effect.tryPromise(() =>
+        enrichChunksWithAssetUrls(source.knowhereDocumentId!, response, client),
+      ).pipe(
+        Effect.catchAll(() => Effect.void),
+      )
+    }
     const revisionKey = getRevisionKey(response, source) ?? probeRevisionKey
     if (revisionKey && revisionKey !== probeRevisionKey) {
       scheduleRevisionKeyUpdate(source, revisionKey, options.onRevisionKey)
@@ -679,6 +686,45 @@ function getMirroredAssetContentType(
   if (extension === ".webp") return "image/webp"
   if (extension === ".gif") return "image/gif"
   return "application/octet-stream"
+}
+
+async function enrichChunksWithAssetUrls(
+  documentId: string,
+  response: { readonly chunks: readonly DocumentChunk[] },
+  client: ChunkKnowhereClient,
+): Promise<void> {
+  if (!client.documents.getChunk) return
+
+  const chunksNeedingAssets = response.chunks.filter(
+    (chunk) =>
+      (chunk.chunkType === "image" || chunk.chunkType === "table") &&
+      (!chunk.assetUrl || chunk.assetUrl.length === 0) &&
+      chunk.id,
+  )
+  if (chunksNeedingAssets.length === 0) return
+
+  const results = await Promise.allSettled(
+    chunksNeedingAssets.map((chunk) =>
+      client.documents
+        .getChunk!(documentId, chunk.id, { includeAssetUrls: true })
+        .then((res) => ({ chunkId: chunk.id, assetUrl: res.chunk?.assetUrl }))
+        .catch(() => ({ chunkId: chunk.id, assetUrl: undefined })),
+    ),
+  )
+
+  const assetUrlByChunkId = new Map<string, string | null | undefined>()
+  for (const result of results) {
+    if (result.status === "fulfilled") {
+      assetUrlByChunkId.set(result.value.chunkId, result.value.assetUrl)
+    }
+  }
+
+  for (const chunk of response.chunks as DocumentChunk[]) {
+    const assetUrl = assetUrlByChunkId.get(chunk.id)
+    if (assetUrl) {
+      ;(chunk as DocumentChunk & { assetUrl?: string | null }).assetUrl = assetUrl
+    }
+  }
 }
 
 function getRevisionKey(
