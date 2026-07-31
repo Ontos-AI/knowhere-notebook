@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
+import { useMemo, type MouseEvent, type ReactNode } from "react";
 import { FileSearch, FileText, ImageIcon, Table2, Tags, TextQuote } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -525,10 +525,9 @@ function TableChunkCard({
   readonly isOriginalPreviewAvailable: boolean;
   readonly onChunkClick?: (chunk: ParsedChunkView) => void;
 }): ReactNode {
-  const contentHtml = useTableAssetHtml(chunk);
   const safeHtml = useMemo(
-    () => parsedChunkCardModel.getSanitizedTableHtml(contentHtml ?? chunk.content),
-    [contentHtml, chunk.content],
+    () => parsedChunkCardModel.getSanitizedTableHtml(chunk.content),
+    [chunk.content],
   );
 
   return (
@@ -565,31 +564,6 @@ function TableChunkCard({
       <ChunkKeywords chunk={chunk} />
     </ChunkCardFrame>
   );
-}
-
-function useTableAssetHtml(chunk: ParsedChunkView): string | null {
-  const [html, setHtml] = useState<string | null>(null);
-  const assetUrl = chunk.assetUrl;
-
-  useEffect(() => {
-    if (!assetUrl) return;
-
-    let cancelled = false;
-    fetch(assetUrl)
-      .then((response) => response.text())
-      .then((text) => {
-        if (!cancelled) setHtml(text);
-      })
-      .catch(() => {
-        if (!cancelled) setHtml(null);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [assetUrl]);
-
-  return assetUrl ? html : null;
 }
 
 function renderChunkIcon(type: ParsedChunkView["type"]): ReactNode {

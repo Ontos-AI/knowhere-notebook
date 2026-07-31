@@ -693,37 +693,46 @@ async function enrichChunksWithAssetUrls(
   response: { readonly chunks: readonly DocumentChunk[] },
   client: ChunkKnowhereClient,
 ): Promise<void> {
-  if (!client.documents.getChunk) return
-
-  const chunksNeedingAssets = response.chunks.filter(
+  const tableChunks = response.chunks.filter(
     (chunk) =>
-      (chunk.chunkType === "image" || chunk.chunkType === "table") &&
-      (!chunk.assetUrl || chunk.assetUrl.length === 0) &&
-      chunk.id,
+      chunk.chunkType === "table" && chunk.assetUrl && chunk.id,
   )
-  if (chunksNeedingAssets.length === 0) return
+  if (tableChunks.length === 0) return
 
+  const fetchAsset = defaultFetchAsset
   const results = await Promise.allSettled(
-    chunksNeedingAssets.map((chunk) =>
-      client.documents
-        .getChunk!(documentId, chunk.id, { includeAssetUrls: true })
-        .then((res) => ({ chunkId: chunk.id, assetUrl: res.chunk?.assetUrl }))
-        .catch(() => ({ chunkId: chunk.id, assetUrl: undefined })),
-    ),
+    tableChunks.map(async (chunk): Promise<{ chunkId: string; html: string | null }> => {
+      try {
+        const res = await fetchAsset(chunk.assetUrl!)
+        if (!res.ok) return { chunkId: chunk.id, html: null }
+        const html = await res.text()
+        return { chunkId: chunk.id, html }
+      } catch {
+        return { chunkId: chunk.id, html: null }
+      }
+    }),
   )
 
-  const assetUrlByChunkId = new Map<string, string | null | undefined>()
+  const htmlByChunkId = new Map<string, string | null>()
   for (const result of results) {
-    if (result.status === "fulfilled") {
-      assetUrlByChunkId.set(result.value.chunkId, result.value.assetUrl)
+    if (result.status === "fulfilled" && result.value.html) {
+      htmlByChunkId.set(result.value.chunkId, result.value.html)
     }
   }
 
+  let enriched = 0
   for (const chunk of response.chunks as DocumentChunk[]) {
-    const assetUrl = assetUrlByChunkId.get(chunk.id)
-    if (assetUrl) {
-      ;(chunk as DocumentChunk & { assetUrl?: string | null }).assetUrl = assetUrl
+    const html = htmlByChunkId.get(chunk.id)
+    if (html) {
+      ;(chunk as DocumentChunk & { content?: string | null }).content = html
+      enriched++
     }
+  }
+  if (enriched > 0) {
+    logger.info("chunks: enriched table chunks with inline HTML", {
+      documentId,
+      enriched,
+    })
   }
 }
 
