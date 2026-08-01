@@ -164,7 +164,7 @@ describe("ChatComposer", () => {
 
     const input = getComposerTextArea();
     input.scrollTop = 92;
-    await user.click(screen.getByRole("button", { name: "Templates" }));
+    await user.click(screen.getByRole("button", { name: "Prompts / Chart" }));
     await user.click(
       screen.getByRole("menuitem", { name: /IPO Prospectus Risk Mining/ }),
     );
@@ -200,7 +200,7 @@ describe("ChatComposer", () => {
 
     render(React.createElement(ChatComposer));
 
-    await user.click(screen.getByRole("button", { name: "Templates" }));
+    await user.click(screen.getByRole("button", { name: "Prompts / Chart" }));
     await user.click(
       screen.getByRole("menuitem", { name: /IPO Prospectus Risk Mining/ }),
     );
@@ -225,7 +225,7 @@ describe("ChatComposer", () => {
 
     render(React.createElement(ChatComposer));
 
-    await user.click(screen.getByRole("button", { name: "Templates" }));
+    await user.click(screen.getByRole("button", { name: "Prompts / Chart" }));
     await user.click(
       screen.getByRole("menuitem", {
         name: /Earnings Call Transcript Analysis/,
@@ -257,7 +257,7 @@ describe("ChatComposer", () => {
     expect(input.className).toContain("max-h-[192px]");
     expect(input.className).toContain("border-0");
     expect(input.className).toContain("shadow-none");
-    expect(screen.getByRole("button", { name: "Templates" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Prompts / Chart" })).toBeTruthy();
   });
 });
 

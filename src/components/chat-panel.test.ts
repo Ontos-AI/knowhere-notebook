@@ -133,7 +133,7 @@ describe("ChatPanel", () => {
       }),
     ).toBeNull();
 
-    await user.click(screen.getByRole("button", { name: "Templates" }));
+    await user.click(screen.getByRole("button", { name: "Prompts / Chart" }));
     await user.click(
       screen.getByRole("menuitem", {
         name: "Create diagram from latest answer",
@@ -177,7 +177,7 @@ describe("ChatPanel", () => {
       }),
     ).toBeNull();
 
-    await user.click(screen.getByRole("button", { name: "Templates" }));
+    await user.click(screen.getByRole("button", { name: "Prompts / Chart" }));
     await user.click(
       screen.getByRole("menuitem", {
         name: "Create diagram from latest answer",

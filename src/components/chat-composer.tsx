@@ -184,22 +184,24 @@ export function ChatComposer({
               onKeyDown={handleKeyDown}
             />
           </div>
-          <RetrievalParamsControls
-            disabled={isDisabled || isSending}
-            params={retrievalParams}
-            onParamsChange={setRetrievalParams}
-          />
           <div className="flex flex-wrap items-center justify-between gap-3 px-4 pb-4 sm:px-5">
-            <CreateMenu
-              canCreateDiagram={canCreateDiagram}
-              isCreatingDiagram={isCreatingDiagram}
-              isDisabled={isDisabled || isSending}
-              isLoadingTemplates={isLoadingTemplates}
-              onCloseAutoFocus={handleCreateMenuCloseAutoFocus}
-              onCreateDiagram={onCreateDiagram}
-              onTemplateSelect={handleTemplateSelect}
-              templates={templates}
-            />
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+              <CreateMenu
+                canCreateDiagram={canCreateDiagram}
+                isCreatingDiagram={isCreatingDiagram}
+                isDisabled={isDisabled || isSending}
+                isLoadingTemplates={isLoadingTemplates}
+                onCloseAutoFocus={handleCreateMenuCloseAutoFocus}
+                onCreateDiagram={onCreateDiagram}
+                onTemplateSelect={handleTemplateSelect}
+                templates={templates}
+              />
+              <RetrievalParamsControls
+                disabled={isDisabled || isSending}
+                params={retrievalParams}
+                onParamsChange={setRetrievalParams}
+              />
+            </div>
             <Button
               type="button"
               variant="default"
@@ -259,7 +261,7 @@ function RetrievalParamsControls({
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-4 pb-2 sm:px-5">
+    <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
       <label className="flex cursor-pointer items-center gap-2 text-[11px] font-medium text-muted-foreground">
         Rerank
         <Switch
@@ -367,14 +369,14 @@ function CreateMenu({
                 variant="secondary"
                 size="sm"
                 disabled={isDisabled}
-                aria-label="Templates"
+                aria-label="Prompts / Chart"
                 className="h-9 w-9 rounded-md border-0 bg-muted px-0 text-muted-foreground shadow-none hover:bg-muted/80"
               >
                 <WandSparkles className="size-4" />
               </Button>
             </TooltipTrigger>
           </DropdownMenuTrigger>
-          <TooltipContent side="top">Templates</TooltipContent>
+          <TooltipContent side="top">Prompts / Chart</TooltipContent>
         </Tooltip>
       </TooltipProvider>
       <DropdownMenuContent
