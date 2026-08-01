@@ -155,9 +155,15 @@ export async function runAgentHarness(
   let manifest = buildFallbackManifest("")
   let validationErrors: readonly string[] = []
   let revisionsUsed = 0
+  let llmCallCount = 0
+  let inputTokens = 0
+  let outputTokens = 0
 
   for (let attempt = 0; ; attempt += 1) {
     const response = await agent.generate({ messages })
+    llmCallCount += response.steps?.length ?? 0
+    inputTokens += response.totalUsage?.inputTokens ?? 0
+    outputTokens += response.totalUsage?.outputTokens ?? 0
     manifest =
       state.finalizedManifest ?? buildFallbackManifest(response.text.trim())
 
@@ -201,6 +207,9 @@ export async function runAgentHarness(
       toolCalls: [...(state.toolCalls ?? [])],
       validationErrors,
       revisionsUsed,
+      llmCallCount,
+      inputTokens,
+      outputTokens,
     },
   }
 }

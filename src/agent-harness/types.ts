@@ -177,6 +177,12 @@ export type HarnessTrace = {
   readonly toolCalls: readonly HarnessToolCallTrace[]
   readonly validationErrors: readonly string[]
   readonly revisionsUsed: number
+  /** Total LLM step calls across the agent loop and any revision attempts. */
+  readonly llmCallCount?: number
+  /** Total input tokens across the agent loop and any revision attempts. */
+  readonly inputTokens?: number
+  /** Total output tokens across the agent loop and any revision attempts. */
+  readonly outputTokens?: number
 }
 
 export type HarnessRunResult = {

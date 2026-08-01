@@ -112,6 +112,7 @@ export const answerQuestionWithRetrieval = (
   Effect.gen(function* () {
     const question = input.question.trim()
     const retrievalResponses: RetrievalQueryResponse[] = []
+    const answerStartedAtMs = Date.now()
 
     logger.info("chat-agent: answer start", {
       questionLength: question.length,
@@ -269,7 +270,13 @@ export const answerQuestionWithRetrieval = (
     })
     const citationResults = hardenedMedia.results
     const displayArtifacts = hardenedMedia.artifacts ?? []
-    const retrievalTrace = buildRetrievalTrace(retrievalResponses)
+    const retrievalTrace = buildRetrievalTrace({
+      responses: retrievalResponses,
+      durationSeconds: (Date.now() - answerStartedAtMs) / 1000,
+      llmCallCount: generatedAnswer.trace.llmCallCount,
+      inputTokens: generatedAnswer.trace.inputTokens,
+      outputTokens: generatedAnswer.trace.outputTokens,
+    })
     logger.info("chat-agent: answer complete", {
       answerLength: answer.length,
       citationCount: citationResults.length,
@@ -690,12 +697,16 @@ function joinResponseText(
   return uniqueValues.length > 0 ? uniqueValues.join(",") : null
 }
 
-function buildRetrievalTrace(
-  responses: readonly RetrievalQueryResponse[],
-): RetrievalTraceView | undefined {
-  if (responses.length === 0) return undefined
+function buildRetrievalTrace(input: {
+  readonly responses: readonly RetrievalQueryResponse[]
+  readonly durationSeconds: number
+  readonly llmCallCount?: number
+  readonly inputTokens?: number
+  readonly outputTokens?: number
+}): RetrievalTraceView | undefined {
+  if (input.responses.length === 0) return undefined
 
-  const queries = responses.map((response) => {
+  const queries = input.responses.map((response) => {
     const topScores = response.results
       .map((result) => result.score)
       .filter((score): score is number => typeof score === "number")
@@ -710,7 +721,23 @@ function buildRetrievalTrace(
     }
   })
 
-  return { queries }
+  return {
+    durationSeconds: roundToTenths(input.durationSeconds),
+    ...(typeof input.llmCallCount === "number"
+      ? { llmCallCount: input.llmCallCount }
+      : {}),
+    ...(typeof input.inputTokens === "number"
+      ? { inputTokens: input.inputTokens }
+      : {}),
+    ...(typeof input.outputTokens === "number"
+      ? { outputTokens: input.outputTokens }
+      : {}),
+    queries,
+  }
+}
+
+function roundToTenths(value: number): number {
+  return Math.round(value * 10) / 10
 }
 
 function buildRetrievalQueryParams(input: {

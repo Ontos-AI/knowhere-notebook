@@ -87,21 +87,22 @@ describe("answerQuestionWithRetrieval", () => {
       excludedSourceIds: ["source_2"],
       searchSources: expect.any(Function),
     });
-    expect(answer).toEqual({
+    expect(answer).toMatchObject({
       answer: "The answer is grounded.",
       citations: [result],
       artifacts: [],
-      retrievalTrace: {
-        queries: [
-          {
-            namespace: "notebook-workspace",
-            query: "What does the document say?",
-            referencedChunkCount: 0,
-            resultCount: 1,
-            topScores: [0.9],
-          },
-        ],
-      },
+    });
+    expect(answer.retrievalTrace).toMatchObject({
+      durationSeconds: expect.any(Number),
+      queries: [
+        {
+          namespace: "notebook-workspace",
+          query: "What does the document say?",
+          referencedChunkCount: 0,
+          resultCount: 1,
+          topScores: [0.9],
+        },
+      ],
     });
   });
 
@@ -177,28 +178,29 @@ describe("answerQuestionWithRetrieval", () => {
       2,
       expect.objectContaining({ namespace: "notebook-legacy" }),
     );
-    expect(answer).toEqual({
+    expect(answer).toMatchObject({
       answer: "The legacy answer is grounded.",
       citations: [legacyResult],
       artifacts: [],
-      retrievalTrace: {
-        queries: [
-          {
-            namespace: "default",
-            query: "legacy document answer",
-            referencedChunkCount: 0,
-            resultCount: 0,
-            topScores: [],
-          },
-          {
-            namespace: "notebook-legacy",
-            query: "legacy document answer",
-            referencedChunkCount: 0,
-            resultCount: 1,
-            topScores: [0.9],
-          },
-        ],
-      },
+    });
+    expect(answer.retrievalTrace).toMatchObject({
+      durationSeconds: expect.any(Number),
+      queries: [
+        {
+          namespace: "default",
+          query: "legacy document answer",
+          referencedChunkCount: 0,
+          resultCount: 0,
+          topScores: [],
+        },
+        {
+          namespace: "notebook-legacy",
+          query: "legacy document answer",
+          referencedChunkCount: 0,
+          resultCount: 1,
+          topScores: [0.9],
+        },
+      ],
     });
   });
 
@@ -1332,21 +1334,22 @@ describe("answerQuestionWithRetrieval", () => {
       }),
     );
 
-    expect(answer).toEqual({
+    expect(answer).toMatchObject({
       answer: "I couldn't find that in your sources.",
       citations: [],
       artifacts: [],
-      retrievalTrace: {
-        queries: [
-          {
-            namespace: "notebook-workspace",
-            query: "Missing fact?",
-            referencedChunkCount: 0,
-            resultCount: 0,
-            topScores: [],
-          },
-        ],
-      },
+    });
+    expect(answer.retrievalTrace).toMatchObject({
+      durationSeconds: expect.any(Number),
+      queries: [
+        {
+          namespace: "notebook-workspace",
+          query: "Missing fact?",
+          referencedChunkCount: 0,
+          resultCount: 0,
+          topScores: [],
+        },
+      ],
     });
   });
 
@@ -1681,6 +1684,10 @@ describe("generateAgenticOutputManifest", () => {
 
         return {
           text: "This freeform text should be ignored.",
+          steps: [
+            { stepNumber: 1, usage: { inputTokens: 120, outputTokens: 40 } },
+          ],
+          totalUsage: { inputTokens: 120, outputTokens: 40 },
         } as Awaited<ReturnType<ToolLoopAgent["generate"]>>;
       },
     );
@@ -1745,6 +1752,9 @@ describe("generateAgenticOutputManifest", () => {
       carryHistory: "none",
     });
     expect(result.trace.validationErrors).toEqual([]);
+    expect(result.trace.llmCallCount).toBe(1);
+    expect(result.trace.inputTokens).toBe(120);
+    expect(result.trace.outputTokens).toBe(40);
     expect(searchSources).toHaveBeenCalledWith({
       query: "冯荣洲 身份证 图片",
       targetContent: "text_image",
@@ -1819,6 +1829,10 @@ describe("generateAgenticOutputManifest", () => {
         return {
           text: "ignored",
           response: { messages: [] },
+          steps: [
+            { stepNumber: 1, usage: { inputTokens: 100, outputTokens: 30 } },
+          ],
+          totalUsage: { inputTokens: 100, outputTokens: 30 },
         } as unknown as Awaited<ReturnType<ToolLoopAgent["generate"]>>;
       },
     );
@@ -1858,6 +1872,9 @@ describe("generateAgenticOutputManifest", () => {
     expect(generateCallCount).toBe(2);
     expect(result.trace.revisionsUsed).toBe(1);
     expect(result.trace.validationErrors).toEqual([]);
+    expect(result.trace.llmCallCount).toBe(2);
+    expect(result.trace.inputTokens).toBe(200);
+    expect(result.trace.outputTokens).toBe(60);
     expect(
       result.manifest.artifacts.filter((artifact) => artifact.display).length,
     ).toBe(2);

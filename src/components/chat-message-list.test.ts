@@ -84,6 +84,10 @@ describe("ChatMessageList", () => {
             role: "assistant",
             content: "The deadline is Monday.",
             retrievalTrace: {
+              durationSeconds: 1.2,
+              llmCallCount: 5,
+              inputTokens: 820,
+              outputTokens: 414,
               queries: [
                 {
                   query: "deadline monday",
@@ -101,10 +105,41 @@ describe("ChatMessageList", () => {
 
     expandSection("Retrieval");
 
+    expect(screen.getByText("1.2s · 5 LLM calls · 820 in · 414 out")).toBeTruthy();
     expect(screen.getByText("deadline monday")).toBeTruthy();
     expect(screen.getByText("3 hits")).toBeTruthy();
     expect(screen.getByText("1 cited chunk")).toBeTruthy();
     expect(screen.getByText("top score: 0.910 · 0.800")).toBeTruthy();
+  });
+
+  it("does not render answer stats when the trace has no stat fields", () => {
+    render(
+      React.createElement(ChatMessageList, {
+        messages: [
+          {
+            id: "assistant_1",
+            role: "assistant",
+            content: "The deadline is Monday.",
+            retrievalTrace: {
+              queries: [
+                {
+                  query: "deadline monday",
+                  namespace: "notebook-workspace",
+                  resultCount: 0,
+                  referencedChunkCount: 0,
+                  topScores: [],
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    );
+
+    expandSection("Retrieval");
+
+    expect(screen.queryByText(/s ·/u)).toBeNull();
+    expect(screen.queryByText(/in ·/u)).toBeNull();
   });
 
   it("does not render a retrieval trace without queries", () => {

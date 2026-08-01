@@ -67,6 +67,14 @@ export type RetrievalTraceEntryView = {
 }
 
 export type RetrievalTraceView = {
+  /** Wall-clock time to answer the question, in seconds (1 decimal). */
+  readonly durationSeconds?: number
+  /** Total LLM step calls made by the agent harness for this answer. */
+  readonly llmCallCount?: number
+  /** Total input tokens consumed by the harness for this answer. */
+  readonly inputTokens?: number
+  /** Total output tokens produced by the harness for this answer. */
+  readonly outputTokens?: number
   readonly queries: readonly RetrievalTraceEntryView[]
 }
 

@@ -19,6 +19,11 @@ export function ChatRetrievalTrace({
       icon={<Search className="size-3" />}
       badge={trace.queries.length}
     >
+      {hasAnswerStats(trace) && (
+        <div className="mb-1.5 rounded-md bg-muted/35 px-2.5 py-1.5 text-[10px] font-medium text-muted-foreground">
+          {formatAnswerStats(trace)}
+        </div>
+      )}
       <div className="space-y-1.5">
         {trace.queries.map((entry, index) => (
           <div
@@ -53,4 +58,36 @@ export function ChatRetrievalTrace({
 
 function formatTopScores(scores: readonly number[]): string {
   return scores.map((score) => score.toFixed(3)).join(" · ");
+}
+
+function hasAnswerStats(trace: RetrievalTraceView): boolean {
+  return (
+    trace.durationSeconds !== undefined ||
+    trace.llmCallCount !== undefined ||
+    trace.inputTokens !== undefined ||
+    trace.outputTokens !== undefined
+  );
+}
+
+function formatAnswerStats(trace: RetrievalTraceView): string {
+  const parts: string[] = [];
+
+  if (trace.durationSeconds !== undefined) {
+    parts.push(`${trace.durationSeconds.toFixed(1)}s`);
+  }
+  if (trace.llmCallCount !== undefined) {
+    parts.push(
+      `${trace.llmCallCount} ${trace.llmCallCount === 1 ? "LLM call" : "LLM calls"}`,
+    );
+  }
+  if (
+    trace.inputTokens !== undefined ||
+    trace.outputTokens !== undefined
+  ) {
+    parts.push(
+      `${trace.inputTokens ?? 0} in · ${trace.outputTokens ?? 0} out`,
+    );
+  }
+
+  return parts.join(" · ");
 }
