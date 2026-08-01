@@ -1,4 +1,5 @@
 import type { ChatDiagramSpec } from "@/domains/chat/diagram"
+import type { RetrievalOverrides } from "@/domains/chat/contracts"
 import type {
   ChatMessageView,
   ChatThreadView,
@@ -46,6 +47,7 @@ type ChatMessageRequest = {
   message: string
   threadId?: string
   excludedSourceIds: string[]
+  retrievalParams?: RetrievalOverrides
 }
 
 type SourcesResponse = {

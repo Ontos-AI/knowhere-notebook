@@ -1,0 +1,17 @@
+[
+  {
+    "id": "ipo-prospectus-risk-mining",
+    "title": "IPO Prospectus Risk Mining",
+    "prompt": "You are a risk analyst specializing in IPO pricing. I have uploaded the prospectus of [Company Name].\nPlease complete the following tasks:\n1. Extract all risk items from the \"Risk Factors\" section and categorize them into: Market Risk/Operational Risk/Legal and Compliance Risk/Technical Risk/Competitive Risk.\n2. Identify which risk items use hedging language such as \"may\", \"might\", or \"could\", and which use more definitive language such as \"will\" or \"has\". Provide the results in a structured format."
+  },
+  {
+    "id": "earnings-call-transcript-analysis",
+    "title": "Earnings Call Transcript Analysis",
+    "prompt": "You are a sell-side research analyst preparing a post earnings flash note. I have uploaded the earnings release and earnings call transcript of [Company Name].\nPlease complete the following tasks:\n1. Extract the management's original wording on the following topics: Revenue guidance/Gross margin pressure/Specific business line.\n2. Identify analyst questions that management sidestepped or shifted away from.\n3. Extract all forward-looking statements that contain specific numbers, and organize them into a guidance tracking table."
+  },
+  {
+    "id": "research-paper-method-comparison",
+    "title": "Research Paper Method Comparison",
+    "prompt": "You are a PhD researcher writing a paper in [Research Area]. I have uploaded recent top conference and journal papers in this area.\nPlease analyze the papers and produce the following:\n1. Extract the three core elements for each paper: Dataset/Evaluation metrics/Model architecture. Present the results in a comparison table.\n2. Identify the unresolved issues repeatedly mentioned in the \"Limitations\" or \"Future Work\" sections across the papers, and present them as a list.\n3. Identify emerging technical terms appearing in the papers, assess whether they indicate a new research trend, and output a list of trend keywords."
+  }
+]

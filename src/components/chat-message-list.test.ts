@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -28,6 +28,13 @@ describe("ChatMessageList", () => {
     vi.restoreAllMocks();
   });
 
+  function expandSection(title: string): void {
+    const trigger = screen.getByRole("button", {
+      name: new RegExp(`^${title}`),
+    });
+    fireEvent.click(trigger);
+  }
+
   it("renders assistant citations using Notebook source labels", () => {
     render(
       React.createElement(ChatMessageList, {
@@ -54,6 +61,14 @@ describe("ChatMessageList", () => {
         },
       }),
     );
+
+    expect(
+      screen.getByRole("button", { name: "Sources1" }).getAttribute(
+        "aria-expanded",
+      ),
+    ).toBe("false");
+
+    expandSection("Sources");
 
     expect(
       screen.getByRole("button", { name: "Open source Syllabus.pdf" }),
@@ -84,7 +99,8 @@ describe("ChatMessageList", () => {
       }),
     );
 
-    expect(screen.getByText("Retrieval")).toBeTruthy();
+    expandSection("Retrieval");
+
     expect(screen.getByText("deadline monday")).toBeTruthy();
     expect(screen.getByText("3 hits")).toBeTruthy();
     expect(screen.getByText("1 cited chunk")).toBeTruthy();
@@ -162,7 +178,7 @@ describe("ChatMessageList", () => {
       .toBeTruthy();
     expect(screen.queryByText(/Source 1/u)).toBeNull();
     expect(screen.queryByText(/Source 3/u)).toBeNull();
-    expect(screen.getByText("Sources")).toBeTruthy();
+    expandSection("Sources");
     const sourceChips = screen.getAllByRole("button", {
       name: "Open source spacex-s1.pdf",
     });
@@ -368,6 +384,7 @@ describe("ChatMessageList", () => {
     );
 
     expect(screen.queryByRole("img")).toBeNull();
+    expandSection("Sources");
     expect(
       screen.getByRole("button", {
         name: "Open source source.pdf",
@@ -505,6 +522,7 @@ describe("ChatMessageList", () => {
         name: "商务标文件.pdf · 二、法定代表人身份证明",
       }),
     ).toBeTruthy();
+    expandSection("Sources");
     expect(
       screen.getAllByRole("button", {
         name: "Open source 商务标文件.pdf",

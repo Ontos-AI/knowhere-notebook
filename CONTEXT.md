@@ -186,6 +186,15 @@ ranking. The harness system prompt teaches the agent to craft BM25-friendly
 queries: distinctive keywords, query expansion with synonyms/domain terms, and
 multiple focused `retrieve` calls for multi-part or ambiguous questions.
 
+## Retrieval Overrides
+
+Retrieval Overrides are optional per-request tuning values that the chat
+composer sends in the chat request body as `retrievalParams`: the `rerank`
+switch and the `internalRecallK` / `topK` sliders. Each present field replaces
+the equivalent hardcoded default — or, for `topK`, the harness-chosen per-query
+value — inside `buildRetrievalQueryParams`. The request schema validates and
+clamps them server-side.
+
 ## Retrieval Trace
 
 A Retrieval Trace is the transient record of every Retrieval Query issued while
@@ -193,6 +202,14 @@ answering one user question: query text, namespace, hit count, cited chunk
 count, and top scores. It is attached to a fresh assistant Chat Message view
 and rendered by `ChatRetrievalTrace` under the sources section, but it is never
 persisted to the Chat Message row — reloading the thread drops it.
+
+## Prompt Template
+
+A Prompt Template is a canned `{ id, title, prompt }` analysis prompt offered
+by the composer's wand-icon Templates menu. Templates are loaded at runtime
+from `public/data/chat-prompt-templates.json` by `usePromptTemplates`, so
+self-hosted deployments can override them by bind-mounting their own JSON into
+the container without a rebuild.
 
 ## Dashboard Auth
 

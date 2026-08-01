@@ -30,6 +30,7 @@ import type {
   AgenticRetrievalResponse,
   AnswerQuestionInput,
   AnswerQuestionResult,
+  RetrievalOverrides,
 } from "./contracts"
 import {
   excludeDocuments,
@@ -135,6 +136,7 @@ export const answerQuestionWithRetrieval = (
           namespace,
           sources: input.sources,
           excludedSourceIds: input.excludedSourceIds,
+          retrievalOverrides: input.retrievalOverrides,
         })
         logger.info("chat-agent: searchSources start", {
           namespace,
@@ -717,19 +719,21 @@ function buildRetrievalQueryParams(input: {
   readonly namespace: string
   readonly sources: AnswerQuestionInput["sources"]
   readonly excludedSourceIds: readonly string[]
+  readonly retrievalOverrides?: RetrievalOverrides
 }): RetrievalQueryParams {
   const query = normalizeRetrievalQuery(
     input.input.query,
     input.fallbackQuestion,
   )
   const dataType = normalizeRetrievalDataType(input.input.targetContent)
+  const overrides = input.retrievalOverrides
   return {
     namespace: input.namespace,
     query,
-    topK: normalizeTopK(input.input.topK),
+    topK: overrides?.topK ?? normalizeTopK(input.input.topK),
     useAgentic: true,
-    rerank: true,
-    internalRecallK: 30,
+    rerank: overrides?.rerank ?? true,
+    internalRecallK: overrides?.internalRecallK ?? 30,
     dataType,
     ...(input.input.signalPaths && input.input.signalPaths.length > 0
       ? { signalPaths: input.input.signalPaths }

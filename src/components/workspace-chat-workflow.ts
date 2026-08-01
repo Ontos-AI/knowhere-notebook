@@ -21,6 +21,7 @@ import type {
   ChatMessageView,
   ChatThreadView,
 } from "@/domains/chat/types"
+import type { RetrievalOverrides } from "@/domains/chat/contracts"
 import type { SourceView } from "@/domains/sources/types"
 
 type WorkspaceChatWorkflowInput = {
@@ -38,7 +39,10 @@ type WorkspaceChatWorkflow = {
   readonly chat: ReturnType<typeof workspaceChatState.createInitialState>
   readonly chatThreads: ChatThreadView[]
   readonly handleArchiveChatThread: (threadId: string) => Promise<void>
-  readonly handleChatSend: (text: string) => Promise<void>
+  readonly handleChatSend: (
+    text: string,
+    retrievalParams?: RetrievalOverrides,
+  ) => Promise<void>
   readonly handleCreateChatThread: () => Promise<void>
   readonly handleRefreshActiveChatThread: () => Promise<void>
   readonly handleSelectChatThread: (threadId: string) => void
@@ -240,7 +244,10 @@ export function useWorkspaceChatWorkflow({
     }
   }
 
-  async function handleChatSend(text: string): Promise<void> {
+  async function handleChatSend(
+    text: string,
+    retrievalParams?: RetrievalOverrides,
+  ): Promise<void> {
     const sendStart = Date.now()
     const selectedSourcesCount = sources.filter(
       (source) =>
@@ -272,6 +279,7 @@ export function useWorkspaceChatWorkflow({
         excludedSourceIds: sources
           .filter((source) => source.excludedFromQuery)
           .map((source) => source.id),
+        retrievalParams,
       })
 
       if (!body.threadId || !Array.isArray(body.messages)) {

@@ -10,8 +10,9 @@ import {
   type MouseEvent,
   type ReactElement,
 } from "react";
-import { BarChart3, FileText, Plus, Send } from "lucide-react";
+import { BarChart3, FileText, Send, WandSparkles } from "lucide-react";
 
+import { usePromptTemplates } from "@/components/use-prompt-templates";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -22,7 +23,16 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
-import { chatPromptTemplates } from "@/domains/chat/prompt-templates";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import type { ChatPromptTemplate } from "@/domains/chat/prompt-templates";
+import type { RetrievalOverrides } from "@/domains/chat/contracts";
+import { Slider } from "@/components/ui/slider";
+import { Switch } from "@/components/ui/switch";
 const chatComposerName = "chat-composer";
 const chatComposerTextAreaMinHeight = 128;
 const chatComposerTextAreaMaxHeight = 192;
@@ -40,7 +50,7 @@ export type ChatComposerProps = {
   readonly isSending?: boolean;
   readonly onCreateDiagram?: () => void;
   readonly onLoginClick?: () => void;
-  readonly onSend?: (text: string) => void;
+  readonly onSend?: (text: string, retrievalParams: RetrievalOverrides) => void;
 };
 
 export function ChatComposer({
@@ -53,9 +63,15 @@ export function ChatComposer({
   onSend,
 }: ChatComposerProps): ReactElement {
   const [input, setInput] = useState("");
+  const [retrievalParams, setRetrievalParams] = useState<RetrievalOverrides>({
+    rerank: true,
+    internalRecallK: 30,
+    topK: 8,
+  });
   const composerInputId = useId();
   const pendingTemplatePromptRef = useRef<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const { isLoading: isLoadingTemplates, templates } = usePromptTemplates();
   const trimmedInput = input.trim();
   const canSend = !isDisabled && !isSending && trimmedInput.length > 0;
 
@@ -79,7 +95,7 @@ export function ChatComposer({
 
   function handleSend(): void {
     if (!canSend) return;
-    onSend?.(trimmedInput);
+    onSend?.(trimmedInput, retrievalParams);
     setInput("");
   }
 
@@ -168,14 +184,21 @@ export function ChatComposer({
               onKeyDown={handleKeyDown}
             />
           </div>
+          <RetrievalParamsControls
+            disabled={isDisabled || isSending}
+            params={retrievalParams}
+            onParamsChange={setRetrievalParams}
+          />
           <div className="flex flex-wrap items-center justify-between gap-3 px-4 pb-4 sm:px-5">
             <CreateMenu
               canCreateDiagram={canCreateDiagram}
               isCreatingDiagram={isCreatingDiagram}
               isDisabled={isDisabled || isSending}
+              isLoadingTemplates={isLoadingTemplates}
               onCloseAutoFocus={handleCreateMenuCloseAutoFocus}
               onCreateDiagram={onCreateDiagram}
               onTemplateSelect={handleTemplateSelect}
+              templates={templates}
             />
             <Button
               type="button"
@@ -222,67 +245,179 @@ function resizeComposerTextArea(textarea: HTMLTextAreaElement): number {
   return nextHeight;
 }
 
+function RetrievalParamsControls({
+  disabled,
+  onParamsChange,
+  params,
+}: {
+  readonly disabled: boolean;
+  readonly onParamsChange: (params: RetrievalOverrides) => void;
+  readonly params: RetrievalOverrides;
+}): ReactElement {
+  function update(changes: Partial<RetrievalOverrides>): void {
+    onParamsChange({ ...params, ...changes });
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-4 pb-2 sm:px-5">
+      <label className="flex cursor-pointer items-center gap-2 text-[11px] font-medium text-muted-foreground">
+        Rerank
+        <Switch
+          size="sm"
+          checked={params.rerank ?? true}
+          disabled={disabled}
+          onCheckedChange={(checked) =>
+            update({ rerank: Boolean(checked) })
+          }
+          aria-label="Rerank retrieval results"
+        />
+      </label>
+      <SliderControl
+        ariaLabel="Internal recall K"
+        disabled={disabled}
+        label="Recall K"
+        max={50}
+        min={5}
+        step={5}
+        value={params.internalRecallK ?? 30}
+        onChange={(value) => update({ internalRecallK: value })}
+      />
+      <SliderControl
+        ariaLabel="Top K results"
+        disabled={disabled}
+        label="Top K"
+        max={12}
+        min={1}
+        step={1}
+        value={params.topK ?? 8}
+        onChange={(value) => update({ topK: value })}
+      />
+    </div>
+  );
+}
+
+function SliderControl({
+  ariaLabel,
+  disabled,
+  label,
+  max,
+  min,
+  onChange,
+  step,
+  value,
+}: {
+  readonly ariaLabel: string;
+  readonly disabled: boolean;
+  readonly label: string;
+  readonly max: number;
+  readonly min: number;
+  readonly onChange: (value: number) => void;
+  readonly step: number;
+  readonly value: number;
+}): ReactElement {
+  return (
+    <div className="flex items-center gap-2 text-[11px] font-medium text-muted-foreground">
+      <span>{label}</span>
+      <Slider
+        aria-label={ariaLabel}
+        className="w-24"
+        disabled={disabled}
+        max={max}
+        min={min}
+        step={step}
+        value={value}
+        onValueChange={(nextValue) =>
+          onChange(typeof nextValue === "number" ? nextValue : (nextValue[0] ?? value))
+        }
+      />
+      <span className="w-7 text-right font-mono text-[11px] font-semibold text-foreground">
+        {value}
+      </span>
+    </div>
+  );
+}
+
 function CreateMenu({
   canCreateDiagram,
   isCreatingDiagram,
   isDisabled,
+  isLoadingTemplates,
   onCloseAutoFocus,
   onCreateDiagram,
   onTemplateSelect,
+  templates,
 }: {
   readonly canCreateDiagram: boolean;
   readonly isCreatingDiagram: boolean;
   readonly isDisabled: boolean;
+  readonly isLoadingTemplates: boolean;
   readonly onCloseAutoFocus: (event: Event) => void;
   readonly onCreateDiagram?: () => void;
   readonly onTemplateSelect: (prompt: string) => void;
+  readonly templates: readonly ChatPromptTemplate[];
 }): ReactElement {
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          type="button"
-          variant="secondary"
-          size="sm"
-          disabled={isDisabled}
-          className="h-9 gap-1.5 rounded-md border-0 bg-muted px-4 text-xs font-semibold text-muted-foreground shadow-none hover:bg-muted/80"
-        >
-          <Plus className="size-3.5" />
-          Create
-        </Button>
-      </DropdownMenuTrigger>
+      <TooltipProvider delayDuration={300}>
+        <Tooltip>
+          <DropdownMenuTrigger asChild>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={isDisabled}
+                aria-label="Templates"
+                className="h-9 w-9 rounded-md border-0 bg-muted px-0 text-muted-foreground shadow-none hover:bg-muted/80"
+              >
+                <WandSparkles className="size-4" />
+              </Button>
+            </TooltipTrigger>
+          </DropdownMenuTrigger>
+          <TooltipContent side="top">Templates</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
       <DropdownMenuContent
         align="start"
         side="top"
         className="w-72"
         onCloseAutoFocus={onCloseAutoFocus}
       >
-        {chatPromptTemplates.map((template) => (
-          <DropdownMenuItem
-            key={template.id}
-            onSelect={() => onTemplateSelect(template.prompt)}
-          >
-            <FileText className="size-4" />
-            {template.title}
-          </DropdownMenuItem>
-        ))}
-        {onCreateDiagram ? (
+        {isLoadingTemplates ? (
+          <div className="flex items-center gap-2 px-2.5 py-2 text-xs text-muted-foreground">
+            <Spinner className="size-3.5" />
+            Loading templates
+          </div>
+        ) : (
           <>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              disabled={!canCreateDiagram || isCreatingDiagram}
-              onSelect={onCreateDiagram}
-              aria-label="Create diagram from latest answer"
-            >
-              {isCreatingDiagram ? (
-                <Spinner className="size-4" />
-              ) : (
-                <BarChart3 className="size-4" />
-              )}
-              {isCreatingDiagram ? "Creating diagram" : "Create diagram"}
-            </DropdownMenuItem>
+            {templates.map((template) => (
+              <DropdownMenuItem
+                key={template.id}
+                onSelect={() => onTemplateSelect(template.prompt)}
+              >
+                <FileText className="size-4" />
+                {template.title}
+              </DropdownMenuItem>
+            ))}
+            {onCreateDiagram ? (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  disabled={!canCreateDiagram || isCreatingDiagram}
+                  onSelect={onCreateDiagram}
+                  aria-label="Create diagram from latest answer"
+                >
+                  {isCreatingDiagram ? (
+                    <Spinner className="size-4" />
+                  ) : (
+                    <BarChart3 className="size-4" />
+                  )}
+                  {isCreatingDiagram ? "Creating diagram" : "Create diagram"}
+                </DropdownMenuItem>
+              </>
+            ) : null}
           </>
-        ) : null}
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );

@@ -20,6 +20,7 @@ import type {
   ChatMessageView,
   ChatThreadView,
 } from "@/domains/chat/types"
+import type { RetrievalOverrides } from "@/domains/chat/contracts"
 import type { ParsedChunkView } from "@/domains/chunks/types"
 import type {
   SourceOriginalFileView,
@@ -85,7 +86,10 @@ export type WorkspaceShellLayoutProps = {
   readonly onArchiveChatThread: (threadId: string) => void | Promise<void>
   readonly onArchiveSource: (sourceId: string) => void | Promise<void>
   readonly onRetrySource?: (sourceId: string) => void | Promise<void>
-  readonly onChatSend: (text: string) => void | Promise<void>
+  readonly onChatSend: (
+    text: string,
+    retrievalParams?: RetrievalOverrides,
+  ) => void | Promise<void>
   readonly onCitationClick: (
     citation: ChatCitationView,
     citationId: string,

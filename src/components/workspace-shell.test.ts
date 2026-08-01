@@ -44,6 +44,13 @@ describe("WorkspaceShell", () => {
     vi.restoreAllMocks();
   });
 
+  async function expandSources(
+    panel: ReturnType<typeof within>,
+  ): Promise<void> {
+    const trigger = await panel.findByRole("button", { name: /^Sources/ });
+    fireEvent.click(trigger);
+  }
+
   it("keeps desktop panels horizontally scrollable at their minimum widths", () => {
     render(React.createElement(C, { sources: [] }));
 
@@ -244,9 +251,7 @@ describe("WorkspaceShell", () => {
     });
     await user.click(sendButton);
 
-    await desktopChatPanel.findAllByRole("button", {
-      name: "Open source doc.pdf",
-    });
+    await expandSources(desktopChatPanel);
     const citationButtons = desktopChatPanel.getAllByRole(
       "button",
       {
@@ -362,6 +367,7 @@ describe("WorkspaceShell", () => {
     await user.type(input, "Where?");
     await user.click(sendButton);
 
+    await expandSources(desktopChatPanel);
     const citation = await desktopChatPanel.findByRole("button", {
       name: "Open source doc.pdf",
     });
@@ -499,6 +505,7 @@ describe("WorkspaceShell", () => {
     });
 
     const desktopChatPanel = within(screen.getByTestId("desktop-chat-panel"));
+    await expandSources(desktopChatPanel);
     await user.click(
       desktopChatPanel.getByRole("button", {
         name: "Open source doc.pdf",

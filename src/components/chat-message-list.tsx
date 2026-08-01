@@ -11,6 +11,7 @@ import remarkGfm from "remark-gfm";
 
 import { ChatDiagramCard } from "@/components/chat-diagram-card";
 import { useChatMessageListWorkflow } from "@/components/chat-message-list-workflow";
+import { CollapsibleSection } from "@/components/collapsible-section";
 import { ChatRetrievalTrace } from "@/components/chat-retrieval-trace";
 import { chatPanelModel } from "@/components/chat-panel-model";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -592,10 +593,7 @@ function AssistantSources({
   if (displayCitations.length === 0) return null;
 
   return (
-    <div className="mt-3 border-t border-border/70 pt-2.5">
-      <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-        Sources
-      </p>
+    <CollapsibleSection title="Sources" badge={displayCitations.length}>
       <TooltipProvider delayDuration={0}>
         <div className="flex flex-wrap gap-1.5">
           {displayCitations.map((displayCitation) => (
@@ -611,7 +609,7 @@ function AssistantSources({
           ))}
         </div>
       </TooltipProvider>
-    </div>
+    </CollapsibleSection>
   );
 }
 

@@ -79,6 +79,7 @@ const answerChatEffect = (input: AnswerChatInput) =>
           question: body.value.question,
           threadId: body.value.threadId,
           excludedSourceIds: body.value.excludedSourceIds,
+          retrievalParams: body.value.retrievalParams,
           retrieval: client.retrieval,
           generateAnswer: generateAgenticOutputManifest,
           loadSourceAssetUrls,

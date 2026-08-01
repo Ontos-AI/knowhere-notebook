@@ -37,6 +37,7 @@ import type {
   ChatMessageView,
   ChatThreadView,
 } from "@/domains/chat/types";
+import type { RetrievalOverrides } from "@/domains/chat/contracts";
 import { workspaceClient } from "@/domains/workspace/client";
 import {
   trackNotebookAssistantQuestionSubmitted,
@@ -47,7 +48,7 @@ export type ChatPanelProps = {
   messages: ChatMessageView[];
   threads: ChatThreadView[];
   activeThreadId?: string | null;
-  onSend?: (text: string) => void;
+  onSend?: (text: string, retrievalParams?: RetrievalOverrides) => void;
   onNewChat?: () => void;
   onThreadSelect?: (threadId: string) => void;
   onThreadArchive?: (threadId: string) => void;
@@ -152,7 +153,10 @@ export function ChatPanel({
     }
   }
 
-  function handleComposerSend(text: string): void {
+  function handleComposerSend(
+    text: string,
+    retrievalParams?: RetrievalOverrides,
+  ): void {
     if (isCreateDiagramCommand(text)) {
       void handleCreateDiagramCommand();
       return;
@@ -165,7 +169,7 @@ export function ChatPanel({
       sourceCountSnapshot: sourceCount,
       messageLength: text.length,
     });
-    onSend?.(text);
+    onSend?.(text, retrievalParams);
   }
 
   return (

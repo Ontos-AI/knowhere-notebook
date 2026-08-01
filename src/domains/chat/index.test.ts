@@ -1459,6 +1459,49 @@ describe("answerQuestionWithRetrieval", () => {
     ]);
   });
 
+  it("applies retrieval overrides over hardcoded and harness-chosen values", async () => {
+    const retrieval = {
+      query: vi.fn().mockResolvedValue({
+        results: [makeRetrievalResult()],
+        evidenceText: "Evidence.",
+        referencedChunks: [],
+        namespace: "notebook-workspace",
+        query: "any",
+        routerUsed: "workflow_single_step",
+        answerText: null,
+      }),
+    };
+    const generateAnswer = vi.fn(async ({ searchSources }) => {
+      await searchSources({ query: "query", topK: 12 });
+      return makeHarnessRunResult("Answer.");
+    });
+
+    await Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "Question",
+        namespace: "notebook-workspace",
+        sources: [makeSource()],
+        excludedSourceIds: [],
+        retrieval,
+        generateAnswer,
+        messages: [],
+        retrievalOverrides: {
+          rerank: false,
+          internalRecallK: 45,
+          topK: 4,
+        },
+      }),
+    );
+
+    expect(retrieval.query).toHaveBeenCalledWith(
+      expect.objectContaining({
+        rerank: false,
+        internalRecallK: 45,
+        topK: 4,
+      }),
+    );
+  });
+
   it("does not append chat history to Knowhere tool queries", async () => {
     const retrieval = {
       query: vi.fn().mockResolvedValue({

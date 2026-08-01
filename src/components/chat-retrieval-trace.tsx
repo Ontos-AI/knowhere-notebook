@@ -3,6 +3,7 @@
 import { type ReactElement } from "react";
 import { Search } from "lucide-react";
 
+import { CollapsibleSection } from "@/components/collapsible-section";
 import type { RetrievalTraceView } from "@/domains/chat/types";
 
 export function ChatRetrievalTrace({
@@ -13,11 +14,11 @@ export function ChatRetrievalTrace({
   if (trace.queries.length === 0) return null;
 
   return (
-    <div className="mt-3 border-t border-border/70 pt-2.5">
-      <p className="mb-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-        <Search className="size-3" />
-        Retrieval
-      </p>
+    <CollapsibleSection
+      title="Retrieval"
+      icon={<Search className="size-3" />}
+      badge={trace.queries.length}
+    >
       <div className="space-y-1.5">
         {trace.queries.map((entry, index) => (
           <div
@@ -46,7 +47,7 @@ export function ChatRetrievalTrace({
           </div>
         ))}
       </div>
-    </div>
+    </CollapsibleSection>
   );
 }
 
