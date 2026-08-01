@@ -180,7 +180,19 @@ enough to focus the answer evidence.
 
 A Retrieval Query is the text sent to Knowhere retrieval. It can be generated
 from the latest user question plus recent chat context so Knowhere receives a
-self-contained query.
+self-contained query. Retrieval runs with `useAgentic: true`, `rerank: true`,
+and `internalRecallK: 30` so the LLM reranker compensates for BM25 keyword
+ranking. The harness system prompt teaches the agent to craft BM25-friendly
+queries: distinctive keywords, query expansion with synonyms/domain terms, and
+multiple focused `retrieve` calls for multi-part or ambiguous questions.
+
+## Retrieval Trace
+
+A Retrieval Trace is the transient record of every Retrieval Query issued while
+answering one user question: query text, namespace, hit count, cited chunk
+count, and top scores. It is attached to a fresh assistant Chat Message view
+and rendered by `ChatRetrievalTrace` under the sources section, but it is never
+persisted to the Chat Message row — reloading the thread drops it.
 
 ## Dashboard Auth
 
