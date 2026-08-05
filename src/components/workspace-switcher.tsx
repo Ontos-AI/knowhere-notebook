@@ -199,6 +199,11 @@ export function WorkspaceSwitcher({
       <WorkspaceApiKeysDialog
         isOpen={isApiKeysOpen}
         onOpenChange={setIsApiKeysOpen}
+        onKeysChanged={() => {
+          // Re-fetch SSR state so the dropdown sees the new key and its
+          // namespaces (knowhereKeyLabels changes → namespaces SWR refires).
+          router.refresh();
+        }}
         userName={userName}
       />
     </>

@@ -22,12 +22,14 @@ import type { WorkspaceApiKeyView } from "@/domains/workspace/client";
 export type WorkspaceApiKeysDialogProps = {
   readonly isOpen: boolean;
   readonly onOpenChange: (open: boolean) => void;
+  readonly onKeysChanged?: () => void;
   readonly userName?: string;
 };
 
 export function WorkspaceApiKeysDialog({
   isOpen,
   onOpenChange,
+  onKeysChanged,
   userName,
 }: WorkspaceApiKeysDialogProps): ReactElement {
   const [isAdding, setIsAdding] = useState(false);
@@ -59,6 +61,7 @@ export function WorkspaceApiKeysDialog({
           : "Key added.",
       );
       await mutate();
+      onKeysChanged?.();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not add the key.");
     }
@@ -67,6 +70,7 @@ export function WorkspaceApiKeysDialog({
   async function handleDelete(key: WorkspaceApiKeyView): Promise<void> {
     await workspaceClient.deleteUserApiKey(key.id);
     await mutate();
+    onKeysChanged?.();
   }
 
   return (
