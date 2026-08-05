@@ -1,19 +1,22 @@
 import "server-only"
 
 /**
- * OAuth2 provider registry. Each provider is configured entirely via env:
+ * Login provider registry. Each provider is configured entirely via env:
  *
+ * OAuth2 (redirect-based):
  *   OAUTH_GOOGLE_CLIENT_ID=…     OAUTH_GOOGLE_CLIENT_SECRET=…
  *   OAUTH_GITHUB_CLIENT_ID=…     OAUTH_GITHUB_CLIENT_SECRET=…
- *   OAUTH_<UPPER_NAME>_CLIENT_ID / _CLIENT_SECRET for generic providers
  *
- * A provider without its env pair is simply not offered. Custom scopes and
- * discovery URLs are optional env overrides per provider.
+ * Dashboard session handoff (same host, any port):
+ *   DASHBOARD_ORIGIN=http://localhost:3000
+ *
+ * A provider without its env pair is simply not offered.
  */
 
 export type OAuthProviderName = "google" | "github" | string
 
 export type OAuthProviderConfig = {
+  readonly kind: "oauth"
   readonly name: string
   readonly displayName: string
   readonly clientId: string
@@ -27,7 +30,29 @@ export type OAuthProviderConfig = {
   readonly nameKey: string
 }
 
-const PROVIDERS: readonly {
+/**
+ * Dashboard SSO: no redirect flow — the user is already logged into the
+ * Knowhere Dashboard on the same host (another port, or a shared parent
+ * domain via the Dashboard's AUTH_COOKIE_DOMAIN). The notebook forwards the
+ * incoming browser Cookie header to Dashboard's public `users.getCurrentUser`
+ * oRPC endpoint, which resolves the Better Auth session.
+ */
+export type DashboardProviderConfig = {
+  readonly kind: "dashboard"
+  readonly name: "dashboard"
+  readonly displayName: "Dashboard"
+  readonly dashboardOrigin: string
+}
+
+export type LoginProviderConfig = OAuthProviderConfig | DashboardProviderConfig
+
+/** Login-page view: just what the client needs to render the button. */
+export type LoginProviderView = {
+  readonly name: string
+  readonly displayName: string
+}
+
+const OAUTH_PROVIDERS: readonly {
   readonly name: string
   readonly displayName: string
   readonly envKey: string
@@ -66,7 +91,7 @@ const PROVIDERS: readonly {
 ]
 
 export function listOAuthProviders(): readonly OAuthProviderConfig[] {
-  return PROVIDERS.flatMap((provider) => {
+  return OAUTH_PROVIDERS.flatMap((provider) => {
     const clientId = process.env[`OAUTH_${provider.envKey}_CLIENT_ID`]?.trim()
     const clientSecret = process.env[
       `OAUTH_${provider.envKey}_CLIENT_SECRET`
@@ -74,6 +99,7 @@ export function listOAuthProviders(): readonly OAuthProviderConfig[] {
     if (!clientId || !clientSecret) return []
     return [
       {
+        kind: "oauth" as const,
         name: provider.name,
         displayName: provider.displayName,
         clientId,
@@ -93,4 +119,27 @@ export function listOAuthProviders(): readonly OAuthProviderConfig[] {
 export function getOAuthProvider(name: string): OAuthProviderConfig | null {
   const configured = listOAuthProviders()
   return configured.find((provider) => provider.name === name) ?? null
+}
+
+export function getDashboardProvider(): DashboardProviderConfig | null {
+  const dashboardOrigin = process.env.DASHBOARD_ORIGIN?.trim()
+  if (!dashboardOrigin) return null
+  return {
+    kind: "dashboard",
+    name: "dashboard",
+    displayName: "Dashboard",
+    dashboardOrigin,
+  }
+}
+
+/** Every provider that should be offered on the login page, in order. */
+export function listLoginProviders(): readonly LoginProviderView[] {
+  const oauth = listOAuthProviders().map((provider) => ({
+    name: provider.name,
+    displayName: provider.displayName,
+  }))
+  const dashboard = getDashboardProvider()
+    ? [{ name: "dashboard", displayName: "Dashboard" }]
+    : []
+  return [...dashboard, ...oauth]
 }

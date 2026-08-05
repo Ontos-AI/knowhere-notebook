@@ -21,9 +21,11 @@ export function LoginForm({
 }) {
   const [state, formAction, isPending] = useActionState(loginAction, initialState);
   const [oauthProvider, setOauthProvider] = useState<string | null>(null);
+  const [providerError, setProviderError] = useState<string | null>(null);
 
   async function handleOAuth(provider: string): Promise<void> {
     setOauthProvider(provider);
+    setProviderError(null);
     try {
       const response = await fetch(`/api/auth/${encodeURIComponent(provider)}/start`);
       const body = (await response.json()) as { url?: string; message?: string };
@@ -33,8 +35,10 @@ export function LoginForm({
         anchor.click();
         return;
       }
+      setProviderError(body.message ?? "Sign-in could not be started.");
       setOauthProvider(null);
     } catch {
+      setProviderError("Sign-in could not be started.");
       setOauthProvider(null);
     }
   }
@@ -53,10 +57,17 @@ export function LoginForm({
                 disabled={oauthProvider !== null}
                 onClick={() => void handleOAuth(provider.name)}
               >
-                {oauthProvider === provider.name ? "Redirecting…" : `Continue with ${provider.displayName}`}
+                {oauthProvider === provider.name
+                  ? "Redirecting…"
+                  : provider.name === "dashboard"
+                    ? "SSO (Dashboard)"
+                    : `Continue with ${provider.displayName}`}
               </Button>
             ))}
           </div>
+          {providerError ? (
+            <p className="text-xs font-semibold text-destructive">{providerError}</p>
+          ) : null}
           <Separator className="my-1" />
         </>
       ) : null}

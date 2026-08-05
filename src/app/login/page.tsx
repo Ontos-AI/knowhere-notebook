@@ -2,7 +2,7 @@ import { Suspense } from "react"
 import { NotebookLogoMark } from "@/components/notebook-logo-mark";
 import { Card, CardContent } from "@/components/ui/card";
 import { connection } from "next/server";
-import { listOAuthProviders } from "@/infrastructure/auth/oauth-providers";
+import { listLoginProviders } from "@/infrastructure/auth/oauth-providers";
 import { LoginForm } from "./login-form";
 
 export default function LoginPage() {
@@ -16,10 +16,7 @@ export default function LoginPage() {
 export async function LoginContent() {
   await connection()
 
-  const providers = listOAuthProviders().map((provider) => ({
-    name: provider.name,
-    displayName: provider.displayName,
-  }))
+  const providers = listLoginProviders()
 
   return (
     <div className="flex min-h-screen w-full items-center justify-center bg-[#fafafa] p-4 text-[#09090b]">

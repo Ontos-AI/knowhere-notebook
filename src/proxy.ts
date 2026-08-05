@@ -25,6 +25,7 @@ const PUBLIC_PATHS: readonly string[] = [
   "/favicon.ico",
   "/api/internal/health",
   "/api/sources/reconcile",
+  "/api/auth",
 ]
 
 const STATIC_EXTENSIONS = /\.(?:svg|png|jpe?g|gif|webp|ico|woff2?|ttf|eot|css|js|map|txt|xml|webmanifest|json|pdf)$/i

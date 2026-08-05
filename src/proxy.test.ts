@@ -66,4 +66,20 @@ describe("proxy", () => {
       "http://localhost:3001/login",
     );
   });
+
+  it("lets anonymous auth routes through (login flows)", () => {
+    const oauthStart = proxy(
+      new NextRequest("http://localhost:3001/api/auth/google/start"),
+    );
+    const oauthCallback = proxy(
+      new NextRequest("http://localhost:3001/api/auth/google/callback?code=x"),
+    );
+    const dashboardStart = proxy(
+      new NextRequest("http://localhost:3001/api/auth/dashboard/start"),
+    );
+
+    expect(oauthStart.status).toBe(200);
+    expect(oauthCallback.status).toBe(200);
+    expect(dashboardStart.status).toBe(200);
+  });
 });

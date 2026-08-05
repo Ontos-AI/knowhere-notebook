@@ -15,6 +15,8 @@ const oauthVerifierCookieName = "oauth-verifier"
 
 const oauthStateTtlSeconds = 10 * 60
 
+const DASHBOARD_SESSION_TIMEOUT_MS = 3_000
+
 type OAuthUserInfo = {
   readonly providerUserId: string
   readonly email: string | null
@@ -221,4 +223,181 @@ async function findOrCreateUser(
 
 function getString(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null
+}
+
+// ---- Dashboard session handoff --------------------------------------------
+
+export type DashboardLoginErrorCode =
+  | "no-dashboard-session"
+  | "email-collision"
+
+export class DashboardLoginError extends Error {
+  readonly code: DashboardLoginErrorCode
+
+  constructor(code: DashboardLoginErrorCode, message: string) {
+    super(message)
+    this.code = code
+  }
+}
+
+/** Dashboard's `users.getCurrentUser` response shape. */
+type DashboardUser = {
+  readonly id: string
+  readonly email: string | null
+  readonly name: string | null
+}
+
+type DashboardUserInfo = DashboardUser
+
+/**
+ * Log the user in via the Knowhere Dashboard's current session.
+ *
+ * The browser already sends the Dashboard's Better Auth session cookie to
+ * this app (cookies are not port-scoped: same host, any port; or a shared
+ * parent domain via the Dashboard's AUTH_COOKIE_DOMAIN). We forward the
+ * incoming Cookie header to Dashboard's public `users.getCurrentUser`
+ * oRPC endpoint, which resolves it to a user.
+ *
+ * Errors are thrown as `DashboardLoginError` with a machine-readable code:
+ * - "no-dashboard-session" — Dashboard has no session for this cookie
+ * - "email-collision" — the Dashboard email matches a Notebook user that
+ *   has a password; we never silently adopt a password-protected account
+ *
+ * Returns the destination app path on success.
+ */
+export async function loginWithDashboardSession(
+  cookieHeader: string,
+  dashboardOrigin: string,
+): Promise<string> {
+  const userInfo = await fetchDashboardCurrentUser(cookieHeader, dashboardOrigin)
+  if (!userInfo) {
+    throw new DashboardLoginError(
+      "no-dashboard-session",
+      "You are not logged into the Knowhere Dashboard.",
+    )
+  }
+
+  const user = await findOrCreateDashboardUser(userInfo)
+  await createSession(user.id)
+  return "/"
+}
+
+async function fetchDashboardCurrentUser(
+  cookieHeader: string,
+  dashboardOrigin: string,
+): Promise<DashboardUserInfo | null> {
+  const controller = new AbortController()
+  const timeout = setTimeout(
+    () => controller.abort(),
+    DASHBOARD_SESSION_TIMEOUT_MS,
+  )
+  try {
+    const response = await fetch(
+      `${dashboardOrigin.replace(/\/$/, "")}/api/orpc/users.getCurrentUser`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          cookie: cookieHeader,
+        },
+        body: "{}",
+        signal: controller.signal,
+      },
+    )
+    if (!response.ok) {
+      throw new DashboardLoginError(
+        "no-dashboard-session",
+        `Dashboard session check failed (status=${response.status}).`,
+      )
+    }
+    const body = (await response.json()) as {
+      json?: { user?: unknown }
+    }
+    const user = body.json?.user
+    if (
+      typeof user !== "object" ||
+      user === null ||
+      typeof (user as { id?: unknown }).id !== "string"
+    ) {
+      return null
+    }
+    return {
+      id: (user as { id: string }).id,
+      email: getString((user as { email?: unknown }).email),
+      name: getString((user as { name?: unknown }).name),
+    }
+  } catch (error) {
+    if (error instanceof DashboardLoginError) throw error
+    throw new DashboardLoginError(
+      "no-dashboard-session",
+      "Could not reach the Knowhere Dashboard for session check.",
+    )
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+async function findOrCreateDashboardUser(userInfo: DashboardUserInfo) {
+  // 1. Existing (dashboard, dashboardUserId) link → reuse that user.
+  const link = await databaseRuntime.runPromise(
+    accountLinksRepository.findByProviderAndProviderUserIdEffect(
+      "dashboard",
+      userInfo.id,
+    ),
+  )
+  if (link) {
+    const existing = await databaseRuntime.runPromise(
+      usersRepository.findByIdEffect(link.userId),
+    )
+    if (existing) return existing
+  }
+
+  // 2. Email collision policy: only adopt an existing user if they have no
+  //    password (pristine or OAuth-created). Never adopt a password-
+  //    protected account — that would be an account takeover.
+  const email = userInfo.email ?? `${userInfo.id}@dashboard.sso`
+  const byEmail = await databaseRuntime.runPromise(
+    usersRepository.findByEmailEffect(email),
+  )
+  if (byEmail) {
+    const passwordLink = await databaseRuntime.runPromise(
+      accountLinksRepository.findByUserIdAndProviderEffect(
+        byEmail.id,
+        "password",
+      ),
+    )
+    if (passwordLink?.passwordHash) {
+      throw new DashboardLoginError(
+        "email-collision",
+        `A Notebook user with the email "${email}" already has a password. ` +
+          "Remove that user or log in with the password instead.",
+      )
+    }
+    await databaseRuntime.runPromise(
+      accountLinksRepository.insertEffect({
+        userId: byEmail.id,
+        provider: "dashboard",
+        providerUserId: userInfo.id,
+        passwordHash: null,
+      }),
+    )
+    return byEmail
+  }
+
+  // 3. New user.
+  const created = await databaseRuntime.runPromise(
+    usersRepository.insertEffect({
+      email,
+      name: userInfo.name ?? null,
+    }),
+  )
+  await databaseRuntime.runPromise(
+    accountLinksRepository.insertEffect({
+      userId: created.id,
+      provider: "dashboard",
+      providerUserId: userInfo.id,
+      passwordHash: null,
+    }),
+  )
+  return created
 }
