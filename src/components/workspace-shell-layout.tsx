@@ -66,7 +66,6 @@ export type WorkspaceShellLayoutProps = {
   readonly chat: WorkspaceChatState
   readonly chatThreads: readonly ChatThreadView[]
   readonly citationListViewRequestId: number
-  readonly dashboardUrl?: string
   readonly activeWorkspace?: WorkspaceSwitcherWorkspace
   readonly workspaces?: readonly WorkspaceSwitcherWorkspace[]
   readonly knowhereKeyLabels?: readonly {
@@ -160,7 +159,6 @@ export function WorkspaceShellLayout(
   return (
     <div className="flex h-screen w-full flex-col overflow-hidden bg-background">
       <TopNav
-        dashboardUrl={props.dashboardUrl}
         analyticsContext={props.analyticsContext}
         hasChats={props.chatThreads.length > 0}
         hasSources={props.readySourceCount > 0}

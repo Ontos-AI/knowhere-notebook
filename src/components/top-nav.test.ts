@@ -1,15 +1,10 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from "@testing-library/react"
-import userEvent from "@testing-library/user-event"
 import { createElement } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-const mocks = vi.hoisted(() => ({
-  trackNotebookDashboardLinkClicked: vi.fn(),
-}))
-
-vi.mock("@/lib/posthog", () => ({
-  trackNotebookDashboardLinkClicked: mocks.trackNotebookDashboardLinkClicked,
+vi.mock("@/app/auth/logout/actions", () => ({
+  logoutAction: vi.fn(),
 }))
 
 import { ThemeProvider } from "@/components/theme-provider"
@@ -35,10 +30,10 @@ describe("TopNav", () => {
     vi.unstubAllGlobals()
   })
 
-  it("links to the configured Dashboard origin", async () => {
-    const user = userEvent.setup()
+  it("shows the user name and a sign-out button when a user is present", async () => {
     const topNavProps: TopNavProps = {
-      dashboardUrl: "https://dashboard.example.test",
+      userInitials: "GD",
+      userName: "Gordon",
     }
 
     render(
@@ -49,23 +44,19 @@ describe("TopNav", () => {
       ),
     )
 
-    const link = screen.getByRole("link", { name: "Open Dashboard" })
+    expect(screen.getByText("Gordon")).toBeTruthy()
+    expect(screen.getByRole("button", { name: "Sign out" })).toBeTruthy()
+  })
 
-    expect(link.getAttribute("href")).toBe("https://dashboard.example.test")
-    await user.click(link)
-    expect(mocks.trackNotebookDashboardLinkClicked).toHaveBeenCalledWith(
-      {
-        context: undefined,
-        targetUrl: "https://dashboard.example.test",
-        fromPage: "/",
-        hasSources: false,
-        hasChats: false,
-      },
+  it("does not show sign-out when no user is present", () => {
+    render(
+      createElement(
+        ThemeProvider,
+        { attribute: "class" },
+        createElement(TopNav, {}),
+      ),
     )
-    await user.click(screen.getByRole("button", { name: "Toggle theme" }))
 
-    expect(screen.getByRole("menuitem", { name: "Light" })).toBeTruthy()
-    expect(screen.getByRole("menuitem", { name: "Dark" })).toBeTruthy()
-    expect(screen.getByRole("menuitem", { name: "System" })).toBeTruthy()
+    expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull()
   })
 })

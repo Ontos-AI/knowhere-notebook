@@ -60,7 +60,6 @@ export type WorkspaceShellProps = {
   activeChatThreadId?: string | null
   chatMessages?: ChatMessageView[]
   chunkViewDocumentId?: string | null
-  dashboardUrl?: string
   initialPrefetchedChunksBySourceId?: Record<string, ParsedChunkView[]>
 }
 
@@ -87,7 +86,6 @@ function WorkspaceShellContent({
   activeChatThreadId,
   chatMessages: initialChatMessages,
   chunkViewDocumentId,
-  dashboardUrl,
   workspace,
   workspaces,
   knowhereKeyLabels,
@@ -203,7 +201,6 @@ function WorkspaceShellContent({
       chat={chatWorkflow.chat}
       chatThreads={chatWorkflow.chatThreads}
       desktopPanelWidths={desktopPanelWidths}
-      dashboardUrl={dashboardUrl}
       activeWorkspace={workspace}
       workspaces={workspaces ?? []}
       knowhereKeyLabels={knowhereKeyLabels ?? []}

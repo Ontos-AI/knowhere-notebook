@@ -34,7 +34,6 @@ type WorkspaceShellInitialState = {
   readonly activeChatThreadId?: string | null
   readonly chatMessages?: ChatMessageView[]
   readonly chatThreads?: ReturnType<typeof toChatThreadView>[]
-  readonly dashboardUrl?: string
   readonly initialPrefetchedChunksBySourceId?: Record<string, ParsedChunkView[]>
   readonly sources?: SourceView[]
   readonly user?: {
@@ -149,7 +148,6 @@ export const loadWorkspaceShellInitialStateEffect = (
 
     if (!context) {
       return {
-        dashboardUrl: resolveDashboardUrl(),
         sources: [],
         workspaces: [],
         knowhereKeyLabels: [],
@@ -266,7 +264,6 @@ export const loadWorkspaceShellInitialStateEffect = (
         },
         () => deps.listMaskedKnowhereKeys(),
       ),
-      dashboardUrl: resolveDashboardUrl(),
       sources: localizedSources.map((source) =>
         toSourceView(source, sourceOptions.get(source.id)),
       ),
@@ -289,10 +286,6 @@ export async function loadWorkspaceShellInitialState(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function resolveDashboardUrl(): string | undefined {
-  return process.env.DASHBOARD_ORIGIN
-}
 
 function listAllForUser(userId: string): Promise<readonly Workspace[]> {
   return databaseRuntime.runPromise(

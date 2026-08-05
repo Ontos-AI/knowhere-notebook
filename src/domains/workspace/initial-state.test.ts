@@ -26,7 +26,6 @@ describe("loadWorkspaceShellInitialState", () => {
   })
 
   it("returns an empty unauthenticated state when no session is present", async () => {
-    process.env.DASHBOARD_ORIGIN = "https://dashboard.example"
     const deps = createDependencies({
       getOptionalAuthenticated: vi.fn(async () => null),
     })
@@ -34,7 +33,6 @@ describe("loadWorkspaceShellInitialState", () => {
     const state = await loadWorkspaceShellInitialState(deps)
 
     expect(state).toEqual({
-      dashboardUrl: "https://dashboard.example",
       sources: [],
       workspaces: [],
       knowhereKeyLabels: [],
@@ -42,12 +40,19 @@ describe("loadWorkspaceShellInitialState", () => {
     expect(deps.listSourcesForWorkspace).not.toHaveBeenCalled()
   })
 
-  it("exposes the configured Dashboard origin to the shell", async () => {
-    process.env.DASHBOARD_ORIGIN = "https://dashboard.staging.example"
-
+  it("loads the workspace, sources, and key labels for an authenticated user", async () => {
     const state = await loadWorkspaceShellInitialState(createDependencies())
 
-    expect(state.dashboardUrl).toBe("https://dashboard.staging.example")
+    expect(state.user?.id).toBe("user_1")
+    expect(state.workspace).toEqual({
+      id: "workspace_1",
+      namespace: "notebook-workspace_1",
+      keyLabel: null,
+    })
+    expect(state.workspaces).toHaveLength(1)
+    expect(state.knowhereKeyLabels).toEqual([
+      { label: "default", mask: "sk_te••••st" },
+    ])
   })
 
   it("lists workspace sources without blocking on reconciliation", async () => {

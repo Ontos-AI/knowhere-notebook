@@ -140,22 +140,6 @@ export function trackNotebookAssistantQuestionSubmitted(input: {
   });
 }
 
-export function trackNotebookDashboardLinkClicked(input: {
-  readonly context?: AnalyticsContext;
-  readonly targetUrl: string;
-  readonly fromPage: string;
-  readonly hasSources: boolean;
-  readonly hasChats: boolean;
-}): Promise<void> {
-  return trackEvent("notebook_dashboard_link_clicked", {
-    ...buildBaseProperties(input.context),
-    from_page: input.fromPage,
-    target_url: input.targetUrl,
-    has_sources: input.hasSources,
-    has_chats: input.hasChats,
-  });
-}
-
 export function trackNotebookDocumentUploadFailed(input: {
   readonly context?: AnalyticsContext;
   readonly fileType: string | null;
