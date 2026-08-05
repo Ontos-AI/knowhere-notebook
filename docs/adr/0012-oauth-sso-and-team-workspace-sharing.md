@@ -59,6 +59,29 @@ passwords, and for team sharing so several users can work in one workspace
    owner's API keys; the owner's active key is used for the shared
    namespace (a member's own keys are only used when the member's *own*
    workspace resolves credentials).
+10. **Dashboard SSO is a session handoff, not OAuth.** When
+    `DASHBOARD_ORIGIN` is set, the login page offers "SSO (Dashboard)".
+    The Dashboard's Better Auth session cookie is host-scoped (ports are
+    ignored for cookies), so the browser already sends it to the notebook
+    on another port; `GET /api/auth/dashboard/start` forwards the full
+    cookie jar to the Dashboard's public `users.getCurrentUser` oRPC
+    endpoint and logs the user in via find-or-create. Linking is by
+    `(dashboard, providerUserId)`; on an email collision the notebook
+    adopts an existing user only when that user has no password
+    (pristine or OAuth-created) — a password-protected account is refused
+    with 409, since silently adopting it would be an account takeover.
+    Cross-host deployments work by setting the Dashboard's
+    `AUTH_COOKIE_DOMAIN` (Better Auth crossSubDomainCookies) so the same
+    session cookie reaches the notebook on a shared parent domain.
+11. **Cache Components changes GET-route prerendering.** With
+    `cacheComponents: true`, GET route handlers are prerendered at build
+    time: the Dashboard start route's early `getDashboardProvider()` 404
+    (env absent at build) was baked into a year-long static cache
+    (`x-nextjs-cache: HIT`, `s-maxage=31536000`) that ignored runtime
+    env. Fix: dynamic APIs (`cookies()`) must be reached before any early
+    return so prerendering terminates. `export const dynamic` is not
+    allowed under cacheComponents. The Google/GitHub start/callback
+    routes escaped this because they read `request.url` first.
 
 ## Consequences
 
