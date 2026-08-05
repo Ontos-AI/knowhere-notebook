@@ -1,10 +1,14 @@
 import "server-only"
 
-import { and, eq, sql } from "drizzle-orm"
+import { and, eq, inArray, isNull, sql } from "drizzle-orm"
 import { Effect } from "effect"
 
 import { DbClient } from "@/infrastructure/db"
-import { workspaces, type Workspace } from "@/infrastructure/db/schema"
+import {
+  workspaceMembers,
+  workspaces,
+  type Workspace,
+} from "@/infrastructure/db/schema"
 
 type WorkspaceRepository = {
   readonly findAllByUserIdEffect: (
@@ -28,18 +32,55 @@ type WorkspaceRepository = {
   readonly pingEffect: () => Effect.Effect<void, never, DbClient>
 }
 
+/**
+ * Workspaces the user can see: their own rows plus any they are a member
+ * of (Phase 4 team sharing).
+ */
 const findAllByUserIdEffect: WorkspaceRepository["findAllByUserIdEffect"] = (
   userId: string,
 ) =>
   Effect.gen(function* () {
     const db = yield* DbClient
-    return yield* Effect.promise(() =>
+    const owned = yield* Effect.promise(() =>
       db
         .select()
         .from(workspaces)
         .where(eq(workspaces.userId, userId))
         .orderBy(workspaces.createdAt),
     )
+    const memberWorkspaceIds = yield* Effect.promise(() =>
+      db
+        .select({ workspaceId: workspaceMembers.workspaceId })
+        .from(workspaceMembers)
+        .where(
+          and(
+            eq(workspaceMembers.userId, userId),
+            isNull(workspaceMembers.deletedAt),
+          ),
+        ),
+    )
+    if (memberWorkspaceIds.length === 0) return owned
+
+    const memberRows = yield* Effect.promise(() =>
+      db
+        .select()
+        .from(workspaces)
+        .where(
+          inArray(
+            workspaces.id,
+            memberWorkspaceIds.map((row) => row.workspaceId),
+          ),
+        ),
+    )
+    const seen = new Set(owned.map((workspace) => workspace.id))
+    return [
+      ...owned,
+      ...memberRows.filter((workspace) => {
+        if (seen.has(workspace.id)) return false
+        seen.add(workspace.id)
+        return true
+      }),
+    ]
   })
 
 const findByIdEffect: WorkspaceRepository["findByIdEffect"] = (id: string) =>
@@ -61,13 +102,36 @@ const findByIdAndUserIdEffect: WorkspaceRepository["findByIdAndUserIdEffect"] = 
 ) =>
   Effect.gen(function* () {
     const db = yield* DbClient
+    const owned = yield* Effect.promise(() =>
+      db
+        .select()
+        .from(workspaces)
+        .where(and(eq(workspaces.id, id), eq(workspaces.userId, userId)))
+        .limit(1),
+    )
+    if (owned[0]) return owned[0]
+
+    // Phase 4: members can access the workspace too.
+    const membership = yield* Effect.promise(() =>
+      db
+        .select()
+        .from(workspaceMembers)
+        .where(
+          and(
+            eq(workspaceMembers.workspaceId, id),
+            eq(workspaceMembers.userId, userId),
+            isNull(workspaceMembers.deletedAt),
+          ),
+        )
+        .limit(1),
+    )
+    if (membership.length === 0) return null
+
     const row = yield* Effect.promise(() =>
       db
         .select()
         .from(workspaces)
-        .where(
-          and(eq(workspaces.id, id), eq(workspaces.userId, userId)),
-        )
+        .where(eq(workspaces.id, id))
         .limit(1),
     )
     return row[0] ?? null

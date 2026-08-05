@@ -61,6 +61,37 @@ export type Workspace = typeof workspaces.$inferSelect;
 export type NewWorkspace = typeof workspaces.$inferInsert;
 
 /**
+ * Workspace membership for team sharing (Phase 4).
+ *
+ * `workspaces.user_id` remains the owner (implicit owner role). Members are
+ * invited by email; each membership row grants access to the workspace's
+ * sources/chats under the member's own user id.
+ */
+export const workspaceMembers = pgTable(
+  "workspace_members",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("workspace_members_workspace_id_idx").on(t.workspaceId),
+    index("workspace_members_user_id_idx").on(t.userId),
+    uniqueIndex("workspace_members_workspace_user_idx")
+      .on(t.workspaceId, t.userId),
+  ],
+);
+
+export type WorkspaceMember = typeof workspaceMembers.$inferSelect;
+export type NewWorkspaceMember = typeof workspaceMembers.$inferInsert;
+
+/**
  * Encrypted Knowhere API keys, owned by a user (not a workspace) — the
  * credential for any of the user's workspaces.
  *

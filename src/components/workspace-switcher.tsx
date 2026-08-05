@@ -6,7 +6,7 @@ import {
   useState,
 } from "react";
 import { useRouter } from "next/navigation";
-import { Check, ChevronDown, KeyRound, Loader2 } from "lucide-react";
+import { Check, ChevronDown, KeyRound, Loader2, Users } from "lucide-react";
 import useSWR from "swr";
 
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Spinner } from "@/components/ui/spinner";
 import { WorkspaceApiKeysDialog } from "@/components/workspace-api-keys-dialog";
+import { WorkspaceMembersDialog } from "@/components/workspace-members-dialog";
 import { workspaceClient } from "@/domains/workspace/client";
 import type {
   KnowhereKeyLabelView,
@@ -41,6 +42,7 @@ export function WorkspaceSwitcher({
 }: WorkspaceSwitcherProps): ReactElement {
   const router = useRouter();
   const [isApiKeysOpen, setIsApiKeysOpen] = useState(false);
+  const [isMembersOpen, setIsMembersOpen] = useState(false);
   const [creatingKeyLabel, setCreatingKeyLabel] = useState<string | null>(null);
   const [creatingNamespace, setCreatingNamespace] = useState<string | null>(
     null,
@@ -186,6 +188,18 @@ export function WorkspaceSwitcher({
             })
           )}
           <DropdownMenuSeparator />
+          {activeWorkspace ? (
+            <>
+              <DropdownMenuItem
+                onClick={() => setIsMembersOpen(true)}
+                className="flex items-center gap-2 text-xs font-semibold"
+              >
+                <Users className="size-3.5" />
+                Members…
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+            </>
+          ) : null}
           <DropdownMenuItem
             onClick={() => setIsApiKeysOpen(true)}
             className="flex items-center gap-2 text-xs font-semibold"
@@ -205,6 +219,12 @@ export function WorkspaceSwitcher({
           router.refresh();
         }}
         userName={userName}
+      />
+
+      <WorkspaceMembersDialog
+        workspaceId={activeWorkspace?.id}
+        isOpen={isMembersOpen}
+        onOpenChange={setIsMembersOpen}
       />
     </>
   );

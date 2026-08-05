@@ -7,6 +7,10 @@ import { Effect } from "effect"
 
 type WorkspaceRouteClientModule = {
   readonly deleteJson: <T>(url: string, body: unknown) => Promise<T>
+  readonly deleteJsonWithStatus: <T>(
+    url: string,
+    body: unknown,
+  ) => Promise<JsonRouteResponse<T>>
   readonly getJson: <T>(url: string) => Promise<T>
   readonly postJson: <T>(url: string, body: unknown) => Promise<T>
   readonly postJsonWithStatus: <T>(
@@ -61,6 +65,13 @@ function patchJsonWithStatus<T>(
   return requestJson<T>({ method: "PATCH", url, body })
 }
 
+function deleteJsonWithStatus<T>(
+  url: string,
+  body: unknown,
+): Promise<JsonRouteResponse<T>> {
+  return requestJson<T>({ method: "DELETE", url, body })
+}
+
 function requestJson<T>(
   input: JsonRequestInput,
 ): Promise<JsonRouteResponse<T>> {
@@ -107,6 +118,7 @@ function resolveSameOriginUrl(path: string): string {
 
 export const workspaceRouteClient: WorkspaceRouteClientModule = {
   deleteJson,
+  deleteJsonWithStatus,
   getJson,
   postJson,
   postJsonWithStatus,

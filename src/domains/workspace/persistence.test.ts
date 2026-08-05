@@ -24,7 +24,7 @@ type SelectBuilder = {
   from: ReturnType<typeof vi.fn>
   where: ReturnType<typeof vi.fn>
   orderBy: ReturnType<typeof vi.fn>
-  limit: (n: number) => Promise<Row[]>
+  limit: ReturnType<typeof vi.fn>
 }
 
 type InsertBuilder = {
@@ -59,12 +59,24 @@ type ChatRepositoryDbMock = {
 }
 
 function buildDbMock(storage: { row: Row | null }): DbMock {
-  function makeSelect(): SelectBuilder {
+  // `select()` returns all columns; `select({ workspaceId })` (with a
+  // columns object) is the workspace_members probe which should resolve to
+  // an empty result set in these tests.
+  function makeSelect(rows: () => unknown[]): SelectBuilder {
     const builder: SelectBuilder = {
       from: vi.fn(() => builder),
-      where: vi.fn(() => builder),
-      orderBy: vi.fn(async () => (storage.row ? [storage.row] : [])),
-      limit: vi.fn(async () => (storage.row ? [storage.row] : [])),
+      // `where` must stay chainable (`where(...).orderBy(...)` in the real
+      // query) yet also serve as the terminal for the members probe
+      // (`select({...}).from(members).where(...)`).
+      where: vi.fn(function (this: SelectBuilder) {
+        const chainable = Object.assign(Promise.resolve(rows()), {
+          orderBy: async () => rows(),
+          limit: async () => rows(),
+        })
+        return chainable
+      }),
+      orderBy: vi.fn(async () => rows()),
+      limit: vi.fn(async () => rows()),
     }
     return builder
   }
@@ -87,7 +99,11 @@ function buildDbMock(storage: { row: Row | null }): DbMock {
     return builder
   }
   return {
-    select: vi.fn(() => makeSelect()),
+    select: vi.fn((columns?: unknown) =>
+      columns
+        ? makeSelect(() => [])
+        : makeSelect(() => (storage.row ? [storage.row] : [])),
+    ),
     insert: vi.fn(() => makeInsert()),
   }
 }

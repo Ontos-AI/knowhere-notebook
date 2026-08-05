@@ -142,6 +142,9 @@ export const workspaceClient = {
   archiveSource,
   retrySource,
   archiveChatThread,
+  fetchWorkspaceMembers,
+  addWorkspaceMember,
+  removeWorkspaceMember,
 } as const
 
 async function fetchChunks(sourceId: string): Promise<ParsedChunkView[]> {
@@ -329,4 +332,51 @@ async function deleteUserApiKey(apiKeyId: string): Promise<void> {
     `/api/api-keys/${encodeURIComponent(apiKeyId)}`,
     {},
   )
+}
+
+export type WorkspaceMemberView = {
+  readonly userId: string
+  readonly email: string | null
+  readonly name: string | null
+}
+
+type WorkspaceMembersResponse = {
+  members?: WorkspaceMemberView[]
+  message?: string
+}
+
+async function fetchWorkspaceMembers(
+  workspaceId: string,
+): Promise<WorkspaceMemberView[]> {
+  const body = await workspaceRouteClient.getJson<WorkspaceMembersResponse>(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/members`,
+  )
+  return Array.isArray(body.members) ? body.members : []
+}
+
+async function addWorkspaceMember(
+  workspaceId: string,
+  email: string,
+): Promise<void> {
+  const response = await workspaceRouteClient.postJsonWithStatus<
+    WorkspaceMembersResponse
+  >(`/api/workspaces/${encodeURIComponent(workspaceId)}/members`, { email })
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(response.body.message ?? "Could not add the member.")
+  }
+}
+
+async function removeWorkspaceMember(
+  workspaceId: string,
+  userId: string,
+): Promise<void> {
+  const response = await workspaceRouteClient.deleteJsonWithStatus<{
+    message?: string
+  }>(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/members/${encodeURIComponent(userId)}`,
+    {},
+  )
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(response.body.message ?? "Could not remove the member.")
+  }
 }

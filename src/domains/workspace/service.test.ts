@@ -34,7 +34,13 @@ function buildWorkspaceDbMock(storage: {
   function makeSelect(): SelectBuilder {
     const builder: SelectBuilder = {
       from: vi.fn(() => builder),
-      where: vi.fn(() => builder),
+      where: vi.fn(function (this: SelectBuilder) {
+        const chainable = Object.assign(Promise.resolve([]), {
+          orderBy: async () => (storage.row ? [storage.row] : []),
+          limit: async () => (storage.row ? [storage.row] : []),
+        })
+        return chainable
+      }),
       orderBy: vi.fn(async () => (storage.row ? [storage.row] : [])),
       limit: vi.fn(async () => (storage.row ? [storage.row] : [])),
     }
