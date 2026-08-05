@@ -52,6 +52,7 @@ export const workspaces = pgTable(
     userId: text("user_id").notNull(),
     knowhereKeyLabel: text("knowhere_key_label"),
     namespace: text("namespace").notNull(),
+    activeKnowhereApiKeyId: uuid("active_knowhere_api_key_id"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -68,6 +69,40 @@ export const workspaces = pgTable(
 
 export type Workspace = typeof workspaces.$inferSelect;
 export type NewWorkspace = typeof workspaces.$inferInsert;
+
+/**
+ * Encrypted Knowhere API keys, one or more per workspace (for rotation).
+ *
+ * The raw key never touches the browser or the logs: the server encrypts it
+ * with AES-256-GCM (key from `KNOWHERE_KEY_ENCRYPTION_KEY`) before storing
+ * `cipher_blob` + `cipher_nonce`, and decrypts on demand only when a
+ * Knowhere request needs the credential.
+ */
+export const knowhereApiKeys = pgTable(
+  "knowhere_api_keys",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    label: text("label").notNull(),
+    cipherBlob: text("cipher_blob").notNull(),
+    cipherNonce: text("cipher_nonce").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("knowhere_api_keys_workspace_id_idx").on(t.workspaceId),
+    uniqueIndex("knowhere_api_keys_workspace_label_idx")
+      .on(t.workspaceId, t.label)
+      .where(sql`deleted_at IS NULL`),
+  ],
+);
+
+export type KnowhereApiKey = typeof knowhereApiKeys.$inferSelect;
+export type NewKnowhereApiKey = typeof knowhereApiKeys.$inferInsert;
 
 /**
  * One row per user-uploaded source. The row is the Notebook-owned record

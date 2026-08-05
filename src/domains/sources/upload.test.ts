@@ -11,6 +11,7 @@ const workspace: Workspace = {
   id: "8fca7b54-c2da-48f4-9668-a4b39fbc4d4c",
   userId: "user_1",
   knowhereKeyLabel: null,
+  activeKnowhereApiKeyId: null,
   namespace: "notebook-8fca7b54-c2da-48f4-9668-a4b39fbc4d4c",
   createdAt: new Date("2026-05-06T00:00:00Z"),
 };

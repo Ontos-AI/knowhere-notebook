@@ -6,7 +6,7 @@ import {
   useState,
 } from "react";
 import { useRouter } from "next/navigation";
-import { Boxes, Check, ChevronDown, Plus } from "lucide-react";
+import { Boxes, Check, ChevronDown, KeyRound, Plus } from "lucide-react";
 import useSWR from "swr";
 
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
+import { WorkspaceApiKeysDialog } from "@/components/workspace-api-keys-dialog";
 import { workspaceClient } from "@/domains/workspace/client";
 import type { WorkspaceView } from "@/domains/workspace/client";
 
@@ -58,6 +59,9 @@ export function WorkspaceSwitcher({
     keyLabel: null,
     namespace: null,
   });
+  const [apiKeysWorkspaceId, setApiKeysWorkspaceId] = useState<string | null>(
+    null,
+  );
   const [isActivatingId, setIsActivatingId] = useState<string | null>(null);
   const { data: keyNamespaces, isLoading: isLoadingKeyNamespaces } = useSWR(
     dialog.keyLabel
@@ -177,8 +181,27 @@ export function WorkspaceSwitcher({
             <Plus className="size-3.5" />
             New workspace…
           </DropdownMenuItem>
+          {activeWorkspace ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => setApiKeysWorkspaceId(activeWorkspace.id)}
+                className="flex items-center gap-2 text-xs"
+              >
+                <KeyRound className="size-3.5" />
+                API keys…
+              </DropdownMenuItem>
+            </>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <WorkspaceApiKeysDialog
+        workspaceId={apiKeysWorkspaceId}
+        onOpenChange={(open) => {
+          if (!open) setApiKeysWorkspaceId(null);
+        }}
+      />
 
       <Dialog
         open={dialog.isOpen}

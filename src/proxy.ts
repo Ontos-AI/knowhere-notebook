@@ -1,6 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { notebookSessionCookieName } from "@/infrastructure/auth/session-cookie-constants"
-import { knowhereApiKeyOverride } from "@/integrations/knowhere-api-key"
 
 /**
  * Edge-runtime proxy (renamed from middleware.ts in Next.js 16).
@@ -39,8 +38,6 @@ function isPublicPath(req: NextRequest): boolean {
 }
 
 export function proxy(req: NextRequest): NextResponse {
-  if (knowhereApiKeyOverride.hasApiKey()) return NextResponse.next()
-
   if (isPublicPath(req)) return NextResponse.next()
 
   if (req.cookies.get(notebookSessionCookieName)) return NextResponse.next()

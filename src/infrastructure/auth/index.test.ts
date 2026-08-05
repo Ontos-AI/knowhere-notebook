@@ -26,24 +26,17 @@ vi.mock("@/domains/workspace/database-runtime", () => ({
 }))
 
 /**
- * Tests for the Phase 2 auth module.
+ * Tests for the Phase 2+ auth module.
  *
  * The scope is intentionally narrow — we assert the Notebook-owned session
  * contract:
- *   - KNOWHERE_API_KEY dev mode short-circuits to the development user
  *   - no session cookie → null (no DB roundtrip)
  *   - a valid session id → session row → users row → AuthUser
  *   - expired / missing session or user → null
- *   - `requireUser` does not redirect in dev mode
+ *   - `requireUser` throws a redirect when unauthenticated
  */
 
 import { extractUser } from "."
-
-const developmentUser = {
-  id: "knowhere-api-key-dev-user",
-  email: null,
-  name: "Knowhere API Key Development",
-}
 
 describe("extractUser", () => {
   it("returns null when value is not an object", () => {
@@ -106,14 +99,6 @@ describe("getCurrentUser", () => {
     expect(repositoryMocks.runPromise).not.toHaveBeenCalled()
   })
 
-  it("returns the development user when KNOWHERE_API_KEY is configured", async () => {
-    process.env.KNOWHERE_API_KEY = "sk_dev_key"
-    const { getCurrentUser } = await loadWithCookie("")
-    const user = await getCurrentUser()
-    expect(user).toEqual(developmentUser)
-    expect(repositoryMocks.runPromise).not.toHaveBeenCalled()
-  })
-
   it("returns the user for a valid session cookie", async () => {
     repositoryMocks.findByIdEffect.mockReturnValue(
       Effect.succeed({
@@ -165,9 +150,8 @@ describe("getCurrentUser", () => {
     expect(await getCurrentUser()).toBeNull()
   })
 
-  it("allows requireUser without redirecting when KNOWHERE_API_KEY is configured", async () => {
-    process.env.KNOWHERE_API_KEY = "sk_dev_key"
+  it("throws a redirect when requireUser is called unauthenticated", async () => {
     const { requireUser } = await loadWithCookie("")
-    await expect(requireUser()).resolves.toEqual(developmentUser)
+    await expect(requireUser()).rejects.toThrow(/NEXT_REDIRECT/)
   })
 })

@@ -6,7 +6,9 @@ const mocks = vi.hoisted(() => ({
   runPromise: vi.fn(),
   getKnowhereKeyByLabel: vi.fn(),
   getDefaultKnowhereKey: vi.fn(),
-  getApiKey: vi.fn(),
+  getActiveForWorkspaceEffect: vi.fn(),
+  findByWorkspaceAndLabelEffect: vi.fn(),
+  decryptStoredEffect: vi.fn(),
 }))
 
 vi.mock("@/domains/workspace/repository", () => ({
@@ -21,15 +23,17 @@ vi.mock("@/domains/workspace/database-runtime", () => ({
   },
 }))
 
+vi.mock("@/infrastructure/auth/knowhere-api-keys-repository", () => ({
+  knowhereApiKeysRepository: {
+    getActiveForWorkspaceEffect: mocks.getActiveForWorkspaceEffect,
+    findByWorkspaceAndLabelEffect: mocks.findByWorkspaceAndLabelEffect,
+    decryptStoredEffect: mocks.decryptStoredEffect,
+  },
+}))
+
 vi.mock("@/integrations/knowhere-keys", () => ({
   getKnowhereKeyByLabel: mocks.getKnowhereKeyByLabel,
   getDefaultKnowhereKey: mocks.getDefaultKnowhereKey,
-}))
-
-vi.mock("@/integrations/knowhere-api-key", () => ({
-  knowhereApiKeyOverride: {
-    getApiKey: mocks.getApiKey,
-  },
 }))
 
 import { ensureApiKeyForWorkspace, isAuthError } from "./knowhere-credentials"
@@ -42,7 +46,11 @@ describe("ensureApiKeyForWorkspace", () => {
     )
     mocks.getKnowhereKeyByLabel.mockResolvedValue(null)
     mocks.getDefaultKnowhereKey.mockResolvedValue(null)
-    mocks.getApiKey.mockReturnValue(null)
+    mocks.getActiveForWorkspaceEffect.mockReturnValue(Effect.succeed(null))
+    mocks.findByWorkspaceAndLabelEffect.mockReturnValue(Effect.succeed(null))
+    mocks.decryptStoredEffect.mockReturnValue(
+      Effect.succeed("sk_decrypted_db_key"),
+    )
   })
 
   afterEach(() => {
@@ -91,13 +99,51 @@ describe("ensureApiKeyForWorkspace", () => {
     expect(mocks.getKnowhereKeyByLabel).toHaveBeenCalledWith("default")
   })
 
-  it("falls back to the env override when no key source matches", async () => {
-    mocks.findByIdEffect.mockReturnValue(Effect.succeed(null))
-    mocks.getApiKey.mockReturnValue("sk_env_key")
+  it("falls back to the file/env key source when no DB key matches", async () => {
+    mocks.findByIdEffect.mockReturnValue(
+      Effect.succeed({
+        id: "workspace_3",
+        userId: "user_1",
+        knowhereKeyLabel: null,
+        activeKnowhereApiKeyId: null,
+        namespace: "notebook-abc",
+        createdAt: new Date(),
+      }),
+    )
+    mocks.getDefaultKnowhereKey.mockResolvedValue({
+      label: "default",
+      apiKey: "sk_file_key",
+    })
 
     const apiKey = await ensureApiKeyForWorkspace("workspace_3")
 
-    expect(apiKey).toBe("sk_env_key")
+    expect(apiKey).toBe("sk_file_key")
+  })
+
+  it("decrypts the workspace's active DB key when one is set", async () => {
+    mocks.findByIdEffect.mockReturnValue(
+      Effect.succeed({
+        id: "workspace_db",
+        userId: "user_1",
+        knowhereKeyLabel: null,
+        activeKnowhereApiKeyId: "key_1",
+        namespace: "notebook-abc",
+        createdAt: new Date(),
+      }),
+    )
+    mocks.getActiveForWorkspaceEffect.mockReturnValue(
+      Effect.succeed({
+        id: "key_1",
+        workspaceId: "workspace_db",
+        label: "domainA",
+        createdAt: new Date(),
+      }),
+    )
+
+    const apiKey = await ensureApiKeyForWorkspace("workspace_db")
+
+    expect(apiKey).toBe("sk_decrypted_db_key")
+    expect(mocks.decryptStoredEffect).toHaveBeenCalled()
   })
 
   it("throws when no key is configured anywhere", async () => {

@@ -1,10 +1,9 @@
 import "server-only"
-
 import { headers } from "next/headers"
 import { redirect } from "next/navigation"
 import { Context, Effect, Layer } from "effect"
+
 import { logger } from "@/lib/logger"
-import { knowhereApiKeyOverride } from "@/integrations/knowhere-api-key"
 import { sessionCookieName } from "./session"
 import { databaseRuntime } from "@/domains/workspace/database-runtime"
 import { sessionsRepository } from "./sessions-repository"
@@ -15,14 +14,11 @@ export { sessionCookieName } from "./session"
 export { notebookSessionCookieName } from "./session-cookie-constants"
 
 /**
- * Auth helpers for Knowhere Notebook (Phase 2: Notebook-owned auth).
+ * Auth helpers for Knowhere Notebook (Phase 2+: Notebook-owned auth).
  *
  * Design:
  *   - Identity is Notebook-owned: a DB-backed session row keyed by the
  *     `notebook-session` cookie, joined to the `users` table.
- *   - Dev-mode bootstrap: when `KNOWHERE_API_KEY` (or `KNOWHERE_KEYS_FILE`)
- *     is set, the hardcoded development user short-circuits the DB lookup
- *     so a fresh self-hosted deployment works before any user is created.
  *   - `user === null` means "unauthenticated".
  */
 
@@ -85,14 +81,6 @@ export const authLayer = Layer.effect(
 // ---- Public API (Promise-based, for Next.js compatibility) ----------------
 
 export async function getCurrentUser(): Promise<AuthUser | null> {
-  const developmentUser = knowhereApiKeyOverride.getDevelopmentUser()
-  if (developmentUser) {
-    logger.info("auth: using KNOWHERE_API_KEY development user", {
-      userId: developmentUser.id,
-    })
-    return developmentUser
-  }
-
   const cookieHeader = (await headers()).get("cookie") ?? ""
   if (cookieHeader.length === 0) {
     logger.info("auth: getCurrentUser skipped (no session cookie)")
@@ -139,8 +127,6 @@ export async function requireUser(): Promise<AuthUser> {
  * re-verify on the server with `getCurrentUser` / `requireUser`.
  */
 export async function hasSessionCookie(): Promise<boolean> {
-  if (knowhereApiKeyOverride.hasApiKey()) return true
-
   const jar = await import("next/headers").then(({ cookies }) => cookies())
   return jar.get(sessionCookieName) !== undefined
 }

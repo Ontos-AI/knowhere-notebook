@@ -55,15 +55,15 @@ describe("proxy", () => {
     );
   });
 
-  it("allows protected app routes without a session when KNOWHERE_API_KEY is configured", () => {
-    process.env.KNOWHERE_API_KEY = "sk_dev_key";
-
+  it("redirects protected routes to /login when no session cookie is present", () => {
     const response = proxy(
       new NextRequest("http://localhost:3001/api/sources/source-1", {
         method: "PATCH",
       }),
     );
 
-    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(response.headers.get("location")).toBe(
+      "http://localhost:3001/login",
+    );
   });
 });

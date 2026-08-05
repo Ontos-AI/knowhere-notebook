@@ -1,8 +1,10 @@
 import "server-only"
 
+import { Effect } from "effect"
+
 import { databaseRuntime } from "@/domains/workspace/database-runtime"
 import { workspaceRepository } from "@/domains/workspace/repository"
-import { knowhereApiKeyOverride } from "@/integrations/knowhere-api-key"
+import { knowhereApiKeysRepository } from "@/infrastructure/auth/knowhere-api-keys-repository"
 import {
   getDefaultKnowhereKey,
   getKnowhereKeyByLabel,
@@ -11,21 +13,46 @@ import {
 /**
  * Resolve the credential used for Knowhere SDK calls.
  *
- * Order:
- * 1. Workspace-scoped key: look up the workspace row, read its
- *    `knowhereKeyLabel` (null → default), and resolve the key from the
- *    configured key source (`config/knowhere-keys.json`, falling back to
- *    the KNOWHERE_API_KEY env var). Keys are read server-side only.
- * 2. Legacy env override: single KNOWHERE_API_KEY when no key file is
- *    configured (today's behavior).
- *
- * Phase 2 removed the Dashboard JWT path: the Notebook is fully
- * self-contained for credentials (the Dashboard production path was
- * hard-cut).
+ * Order (Phase 3: DB-backed encrypted keys):
+ * 1. Active DB key for the workspace (workspaces.active_knowhere_api_key_id)
+ *    — decrypted on demand, never logged or sent to the browser.
+ * 2. A DB key whose label matches the workspace's `knowhereKeyLabel`.
+ * 3. File/env fallback (`config/knowhere-keys.json`, then KNOWHERE_API_KEY)
+ *    — kept as the bootstrap for fresh deployments before any UI key is
+ *    added.
  */
 export async function ensureApiKeyForWorkspace(
   workspaceId: string,
 ): Promise<string> {
+  const dbKey = await databaseRuntime
+    .runPromise(
+      Effect.gen(function* () {
+        const workspace = yield* workspaceRepository.findByIdEffect(workspaceId)
+        if (!workspace) return null
+
+        const active = yield* knowhereApiKeysRepository.getActiveForWorkspaceEffect(
+          workspaceId,
+        )
+        if (active) return active
+
+        if (workspace.knowhereKeyLabel) {
+          return yield* knowhereApiKeysRepository.findByWorkspaceAndLabelEffect(
+            workspaceId,
+            workspace.knowhereKeyLabel,
+          )
+        }
+        return null
+      }),
+    )
+    .catch(() => null)
+
+  if (dbKey) {
+    const apiKey = await databaseRuntime
+      .runPromise(knowhereApiKeysRepository.decryptStoredEffect(dbKey))
+      .catch(() => null)
+    if (apiKey) return apiKey
+  }
+
   const workspace = await databaseRuntime
     .runPromise(workspaceRepository.findByIdEffect(workspaceId))
     .catch(() => null)
@@ -38,12 +65,9 @@ export async function ensureApiKeyForWorkspace(
   const defaultKey = await getDefaultKnowhereKey()
   if (defaultKey) return defaultKey.apiKey
 
-  const apiKey = knowhereApiKeyOverride.getApiKey()
-  if (apiKey) return apiKey
-
   throw new Error(
-    "No Knowhere API key configured. Set KNOWHERE_API_KEY or provide " +
-      "config/knowhere-keys.json.",
+    "No Knowhere API key configured. Add one in the workspace settings, " +
+      "set KNOWHERE_API_KEY, or provide config/knowhere-keys.json.",
   )
 }
 

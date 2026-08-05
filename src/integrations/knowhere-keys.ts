@@ -21,11 +21,12 @@ export type MaskedKnowhereKey = {
  *    Re-read when the file mtime changes, so edits take effect without a
  *    restart.
  * 2. Fallback: the `KNOWHERE_API_KEY` env var as a single key labeled
- *    `"default"` (today's behavior).
+ *    `"default"` (bootstrap for fresh deployments before UI-managed DB
+ *    keys are added).
  *
- * Edge runtime (proxy.ts) cannot read files — it checks the env-only
- * `knowhereApiKeyOverride` for dev-mode presence. Server code should use
- * this module.
+ * The edge proxy only checks the session cookie; server code resolves
+ * credentials through this module or the DB-backed
+ * `knowhere-api-keys-repository`.
  */
 const defaultKeysFilePath = "./config/knowhere-keys.json"
 

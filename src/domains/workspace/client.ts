@@ -117,6 +117,19 @@ type CreateWorkspaceResponse = {
   message?: string
 }
 
+export type WorkspaceApiKeyView = {
+  id: string
+  label: string
+  createdAt: string
+  isActive: boolean
+}
+
+type WorkspaceApiKeysResponse = {
+  keys?: WorkspaceApiKeyView[]
+  key?: WorkspaceApiKeyView
+  message?: string
+}
+
 export const workspaceClient = {
   keys: workspaceClientKeys,
   fetchChunks,
@@ -133,6 +146,10 @@ export const workspaceClient = {
   fetchKnowhereKeyNamespaces,
   activateWorkspace,
   createWorkspace,
+  fetchWorkspaceApiKeys,
+  createWorkspaceApiKey,
+  setActiveWorkspaceApiKey,
+  deleteWorkspaceApiKey,
   archiveSource,
   retrySource,
   archiveChatThread,
@@ -310,4 +327,56 @@ async function createWorkspace(
     throw new Error("Could not create this workspace.")
   }
   return response.body.workspace
+}
+
+async function fetchWorkspaceApiKeys(
+  workspaceId: string,
+): Promise<WorkspaceApiKeyView[]> {
+  const body = await workspaceRouteClient.getJson<WorkspaceApiKeysResponse>(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/api-keys`,
+  )
+  return Array.isArray(body.keys) ? body.keys : []
+}
+
+async function createWorkspaceApiKey(
+  workspaceId: string,
+  label: string,
+  apiKey: string,
+): Promise<WorkspaceApiKeyView> {
+  const response = await workspaceRouteClient.postJsonWithStatus<
+    WorkspaceApiKeysResponse
+  >(`/api/workspaces/${encodeURIComponent(workspaceId)}/api-keys`, {
+    label,
+    apiKey,
+  })
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(
+      response.body.message ?? "Could not create this API key.",
+    )
+  }
+  if (!response.body.key) {
+    throw new Error("Could not create this API key.")
+  }
+  return response.body.key
+}
+
+async function setActiveWorkspaceApiKey(
+  workspaceId: string,
+  apiKeyId: string,
+  isActive: boolean,
+): Promise<void> {
+  await workspaceRouteClient.patchJson(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/api-keys/${encodeURIComponent(apiKeyId)}`,
+    { isActive },
+  )
+}
+
+async function deleteWorkspaceApiKey(
+  workspaceId: string,
+  apiKeyId: string,
+): Promise<void> {
+  await workspaceRouteClient.deleteJson(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/api-keys/${encodeURIComponent(apiKeyId)}`,
+    {},
+  )
 }
