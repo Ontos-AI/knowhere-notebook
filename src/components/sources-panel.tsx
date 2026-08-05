@@ -5,7 +5,7 @@ import {
   useMemo,
   useState,
 } from "react";
-import { ChevronLeft, ChevronRight, Database, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, Database, KeyRound, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -19,7 +19,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Spinner } from "@/components/ui/spinner";
-import { NamespaceDropdown } from "@/components/namespace-dropdown";
 import { WorkspaceSwitcher } from "@/components/workspace-switcher";
 import { sourcePanelState } from "@/components/source-panel-state";
 import { SourceRow } from "@/components/source-row";
@@ -33,20 +32,20 @@ export type SourcesPanelProps = {
   activeWorkspace?: {
     readonly id: string;
     readonly namespace: string;
-    readonly keyLabel: string | null;
+    readonly activeKeyLabel?: string | null;
   };
   workspaces?: readonly {
     readonly id: string;
     readonly namespace: string;
-    readonly keyLabel: string | null;
+    readonly activeKeyLabel?: string | null;
   }[];
   knowhereKeyLabels?: readonly {
+    readonly id: string;
     readonly label: string;
     readonly mask: string;
   }[];
   userName?: string;
   onSourceUploaded?: (source: SourceView) => void;
-  onSourcesLocalized?: (sources: readonly SourceView[]) => void;
   selectedSourceId?: string | null;
   onSelectSource?: (sourceId: string | null) => void;
   onToggleIncluded?: (sourceId: string, included: boolean) => void;
@@ -74,7 +73,6 @@ export function SourcesPanel({
   knowhereKeyLabels = [],
   userName,
   onSourceUploaded,
-  onSourcesLocalized,
   selectedSourceId = null,
   onSelectSource,
   onToggleIncluded,
@@ -200,7 +198,7 @@ export function SourcesPanel({
       </div>
       <ScrollArea className="flex-1">
         <div className={isNarrow ? "px-2 py-3" : "px-4 py-4"}>
-          {!isNarrow && workspaces.length > 0 ? (
+          {!isNarrow ? (
             <div className="mb-3">
               <WorkspaceSwitcher
                 activeWorkspace={activeWorkspace}
@@ -214,12 +212,14 @@ export function SourcesPanel({
             <h3 className="truncate text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
               Sources
             </h3>
-            {!isNarrow && onSourcesLocalized ? (
-              <NamespaceDropdown onSourcesLocalized={onSourcesLocalized} />
-            ) : null}
           </div>
 
-          {workspaceSources.length === 0 ? (
+          {!activeWorkspace ? (
+            <EmptySetupState
+              hasApiKeys={knowhereKeyLabels.length > 0}
+              userName={userName}
+            />
+          ) : workspaceSources.length === 0 ? (
             <EmptySourcesState />
           ) : (
             <div className="flex flex-col gap-1.5">
@@ -294,6 +294,32 @@ function EmptySourcesState(): ReactElement {
       </p>
       <p className="mt-1 max-w-[180px] text-[11px] text-muted-foreground">
         Upload a document to read its parsed chunks and ask questions.
+      </p>
+    </div>
+  );
+}
+
+function EmptySetupState({
+  hasApiKeys,
+  userName,
+}: {
+  readonly hasApiKeys: boolean;
+  readonly userName?: string;
+}): ReactElement {
+  return (
+    <div className="flex flex-col items-center justify-center px-4 py-10 text-center">
+      <div className="mb-3 flex size-10 items-center justify-center rounded-full bg-muted text-muted-foreground">
+        <KeyRound className="size-5" />
+      </div>
+      <p className="text-xs font-semibold text-foreground">
+        {hasApiKeys
+          ? "Pick a namespace to get started"
+          : `${userName ? `${userName}, a` : "A"}dd an API key to get started`}
+      </p>
+      <p className="mt-1 max-w-[220px] text-[11px] text-muted-foreground">
+        {hasApiKeys
+          ? "Choose a namespace from the dropdown above to open its documents."
+          : "Your API key connects a Knowhere domain. A default workspace is created automatically."}
       </p>
     </div>
   );

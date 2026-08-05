@@ -9,7 +9,6 @@ import { createSourceRouteService } from "./route-service";
 const workspace: Workspace = {
   id: "workspace_1",
   userId: "user_1",
-  knowhereKeyLabel: null,
   activeKnowhereApiKeyId: null,
   namespace: "notebook-workspace_1",
   createdAt: new Date("2026-05-10T00:00:00Z"),
@@ -112,7 +111,7 @@ describe("source route service", () => {
     );
   });
 
-  it("lists shared default and legacy namespace documents as lightweight remote sources", async () => {
+  it("lists workspace-namespace documents as lightweight remote sources", async () => {
     const localReadySource: Source = {
       ...source,
       id: "source_ready",
@@ -120,59 +119,31 @@ describe("source route service", () => {
       knowhereJobId: null,
       knowhereDocumentId: "doc_local",
     };
-    const listDocuments = vi
-      .fn()
-      .mockResolvedValueOnce({
-        documents: [
-          {
-            documentId: "doc_default",
-            namespace: "default",
-            status: "active",
-            sourceFileName: "cli.pdf",
-            documentMetadata: {
-              mimeType: "application/pdf",
-            },
-          },
-        ],
-        pagination: {
-          page: 1,
-          page_size: 200,
-          total: 2,
-          total_pages: 2,
+    const listDocuments = vi.fn().mockResolvedValueOnce({
+      documents: [
+        {
+          documentId: "doc_local",
+          namespace: workspace.namespace,
+          status: "active",
+          sourceFileName: "local-duplicate.pdf",
         },
-      })
-      .mockResolvedValueOnce({
-        documents: [
-          {
-            documentId: "doc_local",
-            namespace: "default",
-            status: "active",
-            sourceFileName: "local-duplicate.pdf",
+        {
+          documentId: "doc_new",
+          namespace: workspace.namespace,
+          status: "active",
+          sourceFileName: "new.pdf",
+          documentMetadata: {
+            mimeType: "application/pdf",
           },
-        ],
-        pagination: {
-          page: 2,
-          pageSize: 200,
-          total: 2,
-          totalPages: 2,
         },
-      })
-      .mockResolvedValueOnce({
-        documents: [
-          {
-            documentId: "doc_legacy",
-            namespace: workspace.namespace,
-            status: "active",
-            sourceFileName: "legacy.pdf",
-          },
-        ],
-        pagination: {
-          page: 1,
-          pageSize: 200,
-          total: 1,
-          totalPages: 1,
-        },
-      });
+      ],
+      pagination: {
+        page: 1,
+        pageSize: 200,
+        total: 2,
+        totalPages: 1,
+      },
+    });
     const knowhereClient = {
       documents: {
         archive: vi.fn(async () => undefined),
@@ -222,24 +193,14 @@ describe("source route service", () => {
 
     const result = await listing.listSources({ cookieHeader: "session=abc" });
 
+    expect(listDocuments).toHaveBeenCalledTimes(1);
     expect(listDocuments).toHaveBeenNthCalledWith(1, {
-      namespace: "default",
-      page: 1,
-      pageSize: 200,
-    });
-    expect(listDocuments).toHaveBeenNthCalledWith(2, {
-      namespace: "default",
-      page: 2,
-      pageSize: 200,
-    });
-    expect(listDocuments).toHaveBeenNthCalledWith(3, {
       namespace: workspace.namespace,
       page: 1,
       pageSize: 200,
     });
-    expect(localizeRemoteDocument).toHaveBeenCalledTimes(2);
-    expect(localizeRemoteDocument).toHaveBeenCalledWith(workspace.id, expect.objectContaining({ documentId: "doc_default" }));
-    expect(localizeRemoteDocument).toHaveBeenCalledWith(workspace.id, expect.objectContaining({ documentId: "doc_legacy" }));
+    expect(localizeRemoteDocument).toHaveBeenCalledTimes(1);
+    expect(localizeRemoteDocument).toHaveBeenCalledWith(workspace.id, expect.objectContaining({ documentId: "doc_new" }));
     expect(localizeRemoteDocument).not.toHaveBeenCalledWith(workspace.id, expect.objectContaining({ documentId: "doc_local" }));
     expect(result.body.sources).toEqual([
       expect.objectContaining({
@@ -249,20 +210,12 @@ describe("source route service", () => {
         status: "ready",
       }),
       expect.objectContaining({
-        id: "source_doc_default",
+        id: "source_doc_new",
         kind: "workspace",
-        title: "cli.pdf",
+        title: "new.pdf",
         mimeType: "application/pdf",
         status: "ready",
-        documentId: "doc_default",
-      }),
-      expect.objectContaining({
-        id: "source_doc_legacy",
-        kind: "workspace",
-        title: "legacy.pdf",
-        mimeType: "application/octet-stream",
-        status: "ready",
-        documentId: "doc_legacy",
+        documentId: "doc_new",
       }),
     ]);
   });

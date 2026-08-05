@@ -4,7 +4,7 @@ import { Effect } from "effect"
 
 import { ensureApiKeyForWorkspace } from "@/integrations/knowhere-credentials"
 import {
-  getCurrentUser,
+  getCurrentUser as getCurrentUserFromAuth,
   requireUser,
   type AuthUser,
 } from "@/infrastructure/auth"
@@ -33,17 +33,27 @@ const getAuthenticatedEffect = Effect.gen(function* () {
     const workspace = yield* Effect.tryPromise(() =>
       workspaceService.ensureWorkspace(user.id),
     )
+    if (!workspace) {
+      return yield* Effect.die(
+        new Error(
+          "No workspace for this user. The user must add an API key and " +
+            "pick a namespace first.",
+        ),
+      )
+    }
 
     return { user, workspace }
   })
 
 const getOptionalAuthenticatedEffect = Effect.gen(function* () {
-    const user = yield* Effect.tryPromise(() => getCurrentUser())
+    const user = yield* Effect.tryPromise(() => getCurrentUserFromAuth())
     if (!user) return null
 
     const workspace = yield* Effect.tryPromise(() =>
       workspaceService.ensureWorkspace(user.id),
     )
+    if (!workspace) return null
+
     return { user, workspace }
   })
 
@@ -75,6 +85,10 @@ async function getAuthenticated(): Promise<AuthenticatedNotebookContext> {
   return Effect.runPromise(getAuthenticatedEffect)
 }
 
+async function getCurrentUser(): Promise<AuthUser | null> {
+  return Effect.runPromise(Effect.tryPromise(() => getCurrentUserFromAuth()))
+}
+
 async function getOptionalAuthenticated(): Promise<AuthenticatedNotebookContext | null> {
   return Effect.runPromise(getOptionalAuthenticatedEffect)
 }
@@ -91,6 +105,7 @@ async function getClientForWorkspace(
 
 export const notebookRequestContext = {
   getAuthenticated,
+  getCurrentUser,
   getOptionalAuthenticated,
   getAuthenticatedWithClient,
   getClientForWorkspace,

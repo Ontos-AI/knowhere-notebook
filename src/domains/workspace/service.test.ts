@@ -85,15 +85,14 @@ afterEach(() => {
 })
 
 describe("workspaceService", () => {
-  it("ensures a workspace through the service seam", async () => {
+  it("returns null through the service seam when the user has no workspace", async () => {
     const storage: { row: WorkspaceRow | null } = { row: null }
     const dbMock = buildWorkspaceDbMock(storage)
 
     const { workspaceService } = await loadWorkspaceService(dbMock)
     const workspace = await workspaceService.ensureWorkspace("user_1")
 
-    expect(dbMock.insert).toHaveBeenCalledOnce()
-    expect(workspace.userId).toBe("user_1")
-    expect(workspace.namespace).toMatch(/^notebook-[0-9a-f-]{36}$/)
+    expect(workspace).toBeNull()
+    expect(dbMock.insert).not.toHaveBeenCalled()
   })
 })

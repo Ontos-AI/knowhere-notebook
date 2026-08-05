@@ -13,7 +13,7 @@ import type {
 } from "./source-upload-contracts"
 import { validateUploadFile } from "./validation"
 import { TempFile, tempFileLayer } from "@/lib/temp-files"
-import { getUploadNamespace } from "./namespace"
+import { getWorkspaceNamespace } from "./namespace"
 import { sourceFailureMessage } from "./failure-message"
 
 /**
@@ -50,7 +50,7 @@ export const uploadSourceToKnowhereEffect = (
           deps.knowhere.jobs.create({
             sourceType: "file",
             fileName: validation.title,
-            namespace: getUploadNamespace(),
+            namespace: getWorkspaceNamespace(workspace),
             documentMetadata: createNotebookDocumentMetadata({
               title: validation.title,
               mimeType: validation.mimeType,
@@ -119,7 +119,7 @@ export const uploadSourceBlobToKnowhereEffect = (
           sourceType: "url",
           sourceUrl: input.url,
           fileName: validation.title,
-          namespace: getUploadNamespace(),
+          namespace: getWorkspaceNamespace(workspace),
           documentMetadata: createNotebookDocumentMetadata({
             title: validation.title,
             mimeType: validation.mimeType,

@@ -10,45 +10,46 @@ import {
   type KnowhereApiKey,
 } from "@/infrastructure/db/schema"
 import { decryptSecret, encryptSecret } from "@/lib/secret-crypto"
+import { maskApiKey } from "@/integrations/knowhere-keys"
 
 export type StoredKnowhereApiKey = {
   readonly id: string
-  readonly workspaceId: string
+  readonly userId: string
   readonly label: string
+  readonly keyMask: string
   readonly createdAt: Date
 }
 
-export type DecryptedKnowhereApiKey = StoredKnowhereApiKey & {
-  readonly apiKey: string
-}
-
 type KnowhereApiKeysRepository = {
-  readonly createEffect: (input: {
-    readonly workspaceId: string
+  readonly createForUserEffect: (input: {
+    readonly userId: string
     readonly label: string
     readonly apiKey: string
   }) => Effect.Effect<KnowhereApiKey, never, DbClient>
-  readonly listByWorkspaceEffect: (
-    workspaceId: string,
+  readonly listByUserEffect: (
+    userId: string,
   ) => Effect.Effect<StoredKnowhereApiKey[], never, DbClient>
-  readonly findByWorkspaceAndLabelEffect: (
-    workspaceId: string,
-    label: string,
-  ) => Effect.Effect<StoredKnowhereApiKey | null, never, DbClient>
-  readonly findByIdAndWorkspaceEffect: (
+  readonly findByIdAndUserEffect: (
     id: string,
-    workspaceId: string,
+    userId: string,
   ) => Effect.Effect<StoredKnowhereApiKey | null, never, DbClient>
   readonly softDeleteEffect: (
     id: string,
-    workspaceId: string,
+    userId: string,
   ) => Effect.Effect<void, never, DbClient>
   readonly getActiveForWorkspaceEffect: (
     workspaceId: string,
   ) => Effect.Effect<StoredKnowhereApiKey | null, never, DbClient>
+  readonly firstForUserEffect: (
+    userId: string,
+  ) => Effect.Effect<StoredKnowhereApiKey | null, never, DbClient>
   readonly setActiveEffect: (
     workspaceId: string,
     apiKeyId: string | null,
+  ) => Effect.Effect<void, never, DbClient>
+  readonly clearActiveForKeyEffect: (
+    apiKeyId: string,
+    userId: string,
   ) => Effect.Effect<void, never, DbClient>
   readonly decryptStoredEffect: (
     stored: StoredKnowhereApiKey,
@@ -57,12 +58,15 @@ type KnowhereApiKeysRepository = {
 
 const toStored = (row: KnowhereApiKey): StoredKnowhereApiKey => ({
   id: row.id,
-  workspaceId: row.workspaceId,
+  userId: row.userId,
   label: row.label,
+  keyMask: row.keyMask,
   createdAt: row.createdAt,
 })
 
-const createEffect: KnowhereApiKeysRepository["createEffect"] = (input) =>
+const createForUserEffect: KnowhereApiKeysRepository["createForUserEffect"] = (
+  input,
+) =>
   Effect.gen(function* () {
     const db = yield* DbClient
     const encrypted = encryptSecret(input.apiKey)
@@ -70,8 +74,9 @@ const createEffect: KnowhereApiKeysRepository["createEffect"] = (input) =>
       db
         .insert(knowhereApiKeys)
         .values({
-          workspaceId: input.workspaceId,
+          userId: input.userId,
           label: input.label,
+          keyMask: maskApiKey(input.apiKey),
           cipherBlob: encrypted.cipherText,
           cipherNonce: encrypted.nonce,
         })
@@ -86,47 +91,28 @@ const createEffect: KnowhereApiKeysRepository["createEffect"] = (input) =>
     return row
   })
 
-const listByWorkspaceEffect: KnowhereApiKeysRepository["listByWorkspaceEffect"] =
-  (workspaceId: string) =>
-    Effect.gen(function* () {
-      const db = yield* DbClient
-      const rows = yield* Effect.promise(() =>
-        db
-          .select()
-          .from(knowhereApiKeys)
-          .where(
-            and(
-              eq(knowhereApiKeys.workspaceId, workspaceId),
-              isNull(knowhereApiKeys.deletedAt),
-            ),
-          )
-          .orderBy(knowhereApiKeys.createdAt),
-      )
-      return rows.map(toStored)
-    })
+const listByUserEffect: KnowhereApiKeysRepository["listByUserEffect"] = (
+  userId: string,
+) =>
+  Effect.gen(function* () {
+    const db = yield* DbClient
+    const rows = yield* Effect.promise(() =>
+      db
+        .select()
+        .from(knowhereApiKeys)
+        .where(
+          and(
+            eq(knowhereApiKeys.userId, userId),
+            isNull(knowhereApiKeys.deletedAt),
+          ),
+        )
+        .orderBy(knowhereApiKeys.createdAt),
+    )
+    return rows.map(toStored)
+  })
 
-const findByWorkspaceAndLabelEffect: KnowhereApiKeysRepository["findByWorkspaceAndLabelEffect"] =
-  (workspaceId: string, label: string) =>
-    Effect.gen(function* () {
-      const db = yield* DbClient
-      const rows = yield* Effect.promise(() =>
-        db
-          .select()
-          .from(knowhereApiKeys)
-          .where(
-            and(
-              eq(knowhereApiKeys.workspaceId, workspaceId),
-              eq(knowhereApiKeys.label, label),
-              isNull(knowhereApiKeys.deletedAt),
-            ),
-          )
-          .limit(1),
-      )
-      return rows[0] ? toStored(rows[0]) : null
-    })
-
-const findByIdAndWorkspaceEffect: KnowhereApiKeysRepository["findByIdAndWorkspaceEffect"] =
-  (id: string, workspaceId: string) =>
+const findByIdAndUserEffect: KnowhereApiKeysRepository["findByIdAndUserEffect"] =
+  (id: string, userId: string) =>
     Effect.gen(function* () {
       const db = yield* DbClient
       const rows = yield* Effect.promise(() =>
@@ -136,7 +122,7 @@ const findByIdAndWorkspaceEffect: KnowhereApiKeysRepository["findByIdAndWorkspac
           .where(
             and(
               eq(knowhereApiKeys.id, id),
-              eq(knowhereApiKeys.workspaceId, workspaceId),
+              eq(knowhereApiKeys.userId, userId),
               isNull(knowhereApiKeys.deletedAt),
             ),
           )
@@ -147,7 +133,7 @@ const findByIdAndWorkspaceEffect: KnowhereApiKeysRepository["findByIdAndWorkspac
 
 const softDeleteEffect: KnowhereApiKeysRepository["softDeleteEffect"] = (
   id: string,
-  workspaceId: string,
+  userId: string,
 ) =>
   Effect.gen(function* () {
     const db = yield* DbClient
@@ -158,7 +144,7 @@ const softDeleteEffect: KnowhereApiKeysRepository["softDeleteEffect"] = (
         .where(
           and(
             eq(knowhereApiKeys.id, id),
-            eq(knowhereApiKeys.workspaceId, workspaceId),
+            eq(knowhereApiKeys.userId, userId),
           ),
         ),
     )
@@ -185,7 +171,6 @@ const getActiveForWorkspaceEffect: KnowhereApiKeysRepository["getActiveForWorksp
           .where(
             and(
               eq(knowhereApiKeys.id, activeId),
-              eq(knowhereApiKeys.workspaceId, workspaceId),
               isNull(knowhereApiKeys.deletedAt),
             ),
           )
@@ -193,6 +178,27 @@ const getActiveForWorkspaceEffect: KnowhereApiKeysRepository["getActiveForWorksp
       )
       return rows[0] ? toStored(rows[0]) : null
     })
+
+const firstForUserEffect: KnowhereApiKeysRepository["firstForUserEffect"] = (
+  userId: string,
+) =>
+  Effect.gen(function* () {
+    const db = yield* DbClient
+    const rows = yield* Effect.promise(() =>
+      db
+        .select()
+        .from(knowhereApiKeys)
+        .where(
+          and(
+            eq(knowhereApiKeys.userId, userId),
+            isNull(knowhereApiKeys.deletedAt),
+          ),
+        )
+        .orderBy(knowhereApiKeys.createdAt)
+        .limit(1),
+    )
+    return rows[0] ? toStored(rows[0]) : null
+  })
 
 const setActiveEffect: KnowhereApiKeysRepository["setActiveEffect"] = (
   workspaceId: string,
@@ -208,6 +214,23 @@ const setActiveEffect: KnowhereApiKeysRepository["setActiveEffect"] = (
     )
   })
 
+const clearActiveForKeyEffect: KnowhereApiKeysRepository["clearActiveForKeyEffect"] =
+  (apiKeyId: string, userId: string) =>
+    Effect.gen(function* () {
+      const db = yield* DbClient
+      yield* Effect.promise(() =>
+        db
+          .update(workspaces)
+          .set({ activeKnowhereApiKeyId: null })
+          .where(
+            and(
+              eq(workspaces.userId, userId),
+              eq(workspaces.activeKnowhereApiKeyId, apiKeyId),
+            ),
+          ),
+      )
+    })
+
 const decryptStoredEffect: KnowhereApiKeysRepository["decryptStoredEffect"] = (
   stored: StoredKnowhereApiKey,
 ) =>
@@ -217,12 +240,7 @@ const decryptStoredEffect: KnowhereApiKeysRepository["decryptStoredEffect"] = (
       db
         .select()
         .from(knowhereApiKeys)
-        .where(
-          and(
-            eq(knowhereApiKeys.id, stored.id),
-            eq(knowhereApiKeys.workspaceId, stored.workspaceId),
-          ),
-        )
+        .where(eq(knowhereApiKeys.id, stored.id))
         .limit(1),
     )
     const row = rows[0]
@@ -238,12 +256,13 @@ const decryptStoredEffect: KnowhereApiKeysRepository["decryptStoredEffect"] = (
   })
 
 export const knowhereApiKeysRepository: KnowhereApiKeysRepository = {
-  createEffect,
-  listByWorkspaceEffect,
-  findByWorkspaceAndLabelEffect,
-  findByIdAndWorkspaceEffect,
+  createForUserEffect,
+  listByUserEffect,
+  findByIdAndUserEffect,
   softDeleteEffect,
   getActiveForWorkspaceEffect,
+  firstForUserEffect,
   setActiveEffect,
+  clearActiveForKeyEffect,
   decryptStoredEffect,
 }

@@ -72,7 +72,6 @@ export default function CitationDedupeTestPage() {
       }}
       workspace={{
         id: "workspace_playwright",
-        keyLabel: null,
         namespace: "notebook-playwright",
       }}
       sources={duplicateTitleSources}

@@ -27,6 +27,7 @@ describe("loadWorkspaceShellInitialState", () => {
 
   it("returns an empty unauthenticated state when no session is present", async () => {
     const deps = createDependencies({
+      getCurrentUser: vi.fn(async () => null),
       getOptionalAuthenticated: vi.fn(async () => null),
     })
 
@@ -47,11 +48,11 @@ describe("loadWorkspaceShellInitialState", () => {
     expect(state.workspace).toEqual({
       id: "workspace_1",
       namespace: "notebook-workspace_1",
-      keyLabel: null,
+      activeKeyLabel: null,
     })
     expect(state.workspaces).toHaveLength(1)
     expect(state.knowhereKeyLabels).toEqual([
-      { label: "default", mask: "sk_te••••st" },
+      { id: "key_1", label: "default", mask: "sk_te••••st" },
     ])
   })
 
@@ -228,13 +229,14 @@ function createDependencies(
 
   return {
     getClientForWorkspace: vi.fn(async () => ({ client, apiKey: "sk_test" })),
+    getCurrentUser: vi.fn(async () => user),
     getOptionalAuthenticated: vi.fn(async () => ({ user, workspace })),
     listChatThreads: vi.fn(async () => []),
     listMessages: vi.fn(async () => []),
     listSourcesForWorkspace: vi.fn(async () => []),
     listWorkspacesForUser: vi.fn(async () => [workspace]),
     listMaskedKnowhereKeys: vi.fn(async () => [
-      { label: "default", mask: "sk_te••••st" },
+      { id: "key_1", label: "default", mask: "sk_te••••st" },
     ]),
     localizeRemoteDocument: vi.fn(async () => makeSource("workspace_1")),
     reconcileSourcesForWorkspace: vi.fn(async () => []),
@@ -247,7 +249,6 @@ function makeWorkspace(): Workspace {
   return {
     id: "workspace_1",
     userId: "user_1",
-    knowhereKeyLabel: null,
     activeKnowhereApiKeyId: null,
     namespace: "notebook-workspace_1",
     createdAt: new Date("2026-05-10T00:00:00.000Z"),

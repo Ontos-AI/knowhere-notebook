@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   activateWorkspace: vi.fn(),
   createWorkspace: vi.fn(),
-  fetchKnowhereKeyNamespaces: vi.fn(),
+  fetchApiKeyNamespaces: vi.fn(),
   refresh: vi.fn(),
 }));
 
@@ -20,7 +20,8 @@ vi.mock("@/domains/workspace/client", () => ({
   workspaceClient: {
     activateWorkspace: mocks.activateWorkspace,
     createWorkspace: mocks.createWorkspace,
-    fetchKnowhereKeyNamespaces: mocks.fetchKnowhereKeyNamespaces,
+    fetchApiKeyNamespaces: mocks.fetchApiKeyNamespaces,
+    fetchUserApiKeys: vi.fn(async () => []),
   },
 }));
 
@@ -32,16 +33,9 @@ import { WorkspaceSwitcher } from "./workspace-switcher";
 
 const C = WorkspaceSwitcher as React.FC<Record<string, unknown>>;
 
-const workspaces = [
-  { id: "ws_a1", namespace: "quarterly", keyLabel: "domainA" },
-  { id: "ws_a2", namespace: "investor-decks", keyLabel: "domainA" },
-  { id: "ws_b1", namespace: "lab-papers", keyLabel: "domainB" },
-];
-
 const keyLabels = [
-  { label: "domainA", mask: "sk_8aB••••GVB8" },
-  { label: "domainB", mask: "sk_f3a••••e2" },
-  { label: "domainC", mask: "sk_77c••••d1" },
+  { id: "key_a", label: "domainA", mask: "sk_8aB••••GVB8" },
+  { id: "key_b", label: "domainB", mask: "sk_f3a••••e2" },
 ];
 
 describe("WorkspaceSwitcher", () => {
@@ -49,120 +43,105 @@ describe("WorkspaceSwitcher", () => {
     vi.clearAllMocks();
     mocks.activateWorkspace.mockResolvedValue(undefined);
     mocks.createWorkspace.mockResolvedValue({
-      id: "ws_c1",
-      namespace: "new-ns",
-      keyLabel: "domainC",
+      id: "ws_new",
+      namespace: "adobe",
+      activeKeyLabel: "domainA",
     });
-    mocks.fetchKnowhereKeyNamespaces.mockResolvedValue([
-      { namespace: "adobe", documentCount: 9 },
-      { namespace: "docx", documentCount: 9 },
-    ]);
+    mocks.fetchApiKeyNamespaces.mockImplementation((keyId: string) => {
+      if (keyId === "key_a") {
+        return Promise.resolve([
+          { namespace: "adobe", documentCount: 9 },
+          { namespace: "docx", documentCount: 9 },
+        ]);
+      }
+      return Promise.resolve([{ namespace: "lab-papers", documentCount: 3 }]);
+    });
   });
 
   afterEach(() => {
     cleanup();
   });
 
-  it("shows the active workspace label and lists workspaces grouped by domain", async () => {
+  it("shows 'key / namespace' for the active workspace and lists namespaces per key", async () => {
     const user = userEvent.setup();
-    render(
-      React.createElement(C, {
-        activeWorkspace: workspaces[0],
-        workspaces,
-        knowhereKeyLabels: keyLabels,
-      }),
-    );
-
-    expect(screen.getByText("domainA / quarterly")).toBeTruthy();
-
-    await user.click(screen.getByRole("button", { name: /domainA \/ quarterly/ }));
-
-    expect(await screen.findByText("investor-decks")).toBeTruthy();
-    expect(screen.getByText("domainB")).toBeTruthy();
-    expect(screen.getByText("lab-papers")).toBeTruthy();
-  });
-
-  it("shows '<username> / default' for a legacy workspace with a real user", () => {
     render(
       React.createElement(C, {
         activeWorkspace: {
-          id: "ws_legacy",
-          namespace: "notebook-83f3788f-53e9",
-          keyLabel: null,
+          id: "ws_a1",
+          namespace: "adobe",
+          activeKeyLabel: "domainA",
         },
-        workspaces: [
-          { id: "ws_legacy", namespace: "notebook-83f3788f-53e9", keyLabel: null },
-        ],
+        workspaces: [{ id: "ws_a1", namespace: "adobe" }],
         knowhereKeyLabels: keyLabels,
-        userName: "Gordon",
       }),
     );
 
-    expect(screen.getByText("Gordon / default")).toBeTruthy();
-    expect(screen.queryByText(/notebook-83f3788f/u)).toBeNull();
+    expect(screen.getByText("domainA / adobe")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: /domainA \/ adobe/ }));
+
+    expect(await screen.findByText("domainA")).toBeTruthy();
+    expect(await screen.findByText("docx")).toBeTruthy();
+    expect(await screen.findByText("domainB")).toBeTruthy();
+    expect(await screen.findByText("lab-papers")).toBeTruthy();
   });
 
-  it("activates a workspace and refreshes the router", async () => {
+  it("shows 'Add API key' when no keys are configured", () => {
+    render(
+      React.createElement(C, {
+        activeWorkspace: undefined,
+        workspaces: [],
+        knowhereKeyLabels: [],
+      }),
+    );
+
+    expect(screen.getByText("Add API key")).toBeTruthy();
+  });
+
+  it("creates a workspace by picking a namespace and refreshes", async () => {
     const user = userEvent.setup();
     render(
       React.createElement(C, {
-        activeWorkspace: workspaces[0],
-        workspaces,
+        activeWorkspace: {
+          id: "ws_a1",
+          namespace: "adobe",
+          activeKeyLabel: "domainA",
+        },
+        workspaces: [{ id: "ws_a1", namespace: "adobe" }],
         knowhereKeyLabels: keyLabels,
       }),
     );
 
-    await user.click(screen.getByRole("button", { name: /domainA \/ quarterly/ }));
-    await user.click(await screen.findByText("lab-papers"));
+    await user.click(screen.getByRole("button", { name: /domainA \/ adobe/ }));
+    await user.click(await screen.findByText("docx"));
 
     await waitFor(() => {
-      expect(mocks.activateWorkspace).toHaveBeenCalledWith("ws_b1");
+      expect(mocks.createWorkspace).toHaveBeenCalledWith("key_a", "docx");
       expect(mocks.refresh).toHaveBeenCalled();
     });
   });
 
-  it("creates a workspace for a key label and namespace pair", async () => {
+  it("labels an existing workspace as 'exists' and shows a check on the active one", async () => {
     const user = userEvent.setup();
-    let resolveNamespaces: (value: {
-      namespace: string;
-      documentCount: number;
-    }[]) => void = () => {};
-    mocks.fetchKnowhereKeyNamespaces.mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          resolveNamespaces = resolve;
-        }),
-    );
     render(
       React.createElement(C, {
-        activeWorkspace: workspaces[0],
-        workspaces,
+        activeWorkspace: {
+          id: "ws_a1",
+          namespace: "adobe",
+          activeKeyLabel: "domainA",
+        },
+        workspaces: [
+          { id: "ws_a1", namespace: "adobe" },
+          { id: "ws_a2", namespace: "docx" },
+        ],
         knowhereKeyLabels: keyLabels,
       }),
     );
 
-    await user.click(screen.getByRole("button", { name: /domainA \/ quarterly/ }));
-    await user.click(await screen.findByText("New workspace…"));
-
-    await user.click(await screen.findByRole("button", { name: /domainC/ }));
-    expect(await screen.findByText("Loading namespaces…")).toBeTruthy();
-
-    expect(mocks.fetchKnowhereKeyNamespaces).toHaveBeenCalledWith("domainC");
-
-    resolveNamespaces([
-      { namespace: "adobe", documentCount: 9 },
-      { namespace: "docx", documentCount: 9 },
-    ]);
-
-    await user.click(await screen.findByText("adobe"));
-
-    const createButton = screen.getByRole("button", { name: "Create workspace" });
-    expect((createButton as HTMLButtonElement).disabled).toBe(false);
-    await user.click(createButton);
+    await user.click(screen.getByRole("button", { name: /domainA \/ adobe/ }));
 
     await waitFor(() => {
-      expect(mocks.createWorkspace).toHaveBeenCalledWith("domainC", "adobe");
-      expect(mocks.refresh).toHaveBeenCalled();
+      expect(screen.getAllByText("exists")).toHaveLength(1);
     });
   });
 });

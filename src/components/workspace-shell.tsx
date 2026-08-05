@@ -44,14 +44,13 @@ export type WorkspaceShellProps = {
   workspace?: {
     id: string
     namespace: string
-    keyLabel: string | null
   }
   workspaces?: readonly {
     id: string
     namespace: string
-    keyLabel: string | null
   }[]
   knowhereKeyLabels?: readonly {
+    id: string
     label: string
     mask: string
   }[]
@@ -249,7 +248,6 @@ function WorkspaceShellContent({
       onSelectChatThread={chatWorkflow.handleSelectChatThread}
       onSourceSelected={handleSourceSelected}
       onSourceUploaded={handleSourceUploaded}
-      onSourcesLocalized={sourceWorkflow.handleSourcesLocalized}
       onToggleIncluded={sourceWorkflow.handleToggleIncluded}
     />
   )

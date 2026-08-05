@@ -129,47 +129,29 @@ describe("workspaceService.ensureWorkspace", () => {
     expect(dbMock.insert).not.toHaveBeenCalled()
   })
 
-  it("inserts a new workspace on the cold path with a derived namespace", async () => {
+  it("returns null when the user has no workspace (no auto-create)", async () => {
     const storage: { row: Row | null } = { row: null }
     const dbMock = buildDbMock(storage)
 
     const { workspaceService } = await loadWorkspaceService(dbMock)
     const got = await workspaceService.ensureWorkspace("user_2")
 
-    expect(dbMock.insert).toHaveBeenCalledOnce()
-    expect(got.userId).toBe("user_2")
-    expect(got.namespace).toMatch(/^notebook-[0-9a-f-]{36}$/)
+    expect(got).toBeNull()
+    expect(dbMock.insert).not.toHaveBeenCalled()
   })
 
-  it("is idempotent across concurrent first-time calls for the same user", async () => {
+  it("creates a workspace for a specific namespace", async () => {
     const storage: { row: Row | null } = { row: null }
     const dbMock = buildDbMock(storage)
 
     const { workspaceService } = await loadWorkspaceService(dbMock)
-    const [a, b] = await Promise.all([
-      workspaceService.ensureWorkspace("user_3"),
-      workspaceService.ensureWorkspace("user_3"),
-    ])
-
-    expect(a.id).toBe(b.id)
-    expect(a.namespace).toBe(b.namespace)
-    expect(a.userId).toBe("user_3")
-  })
-
-  it("creates a workspace for a specific (keyLabel, namespace) pair", async () => {
-    const storage: { row: Row | null } = { row: null }
-    const dbMock = buildDbMock(storage)
-
-    const { workspaceService } = await loadWorkspaceService(dbMock)
-    const got = await workspaceService.ensureWorkspaceForLabelAndNamespace(
+    const got = await workspaceService.ensureWorkspaceForNamespace(
       "user_1",
-      "domainA",
       "quarterly-reports",
     )
 
     expect(dbMock.insert).toHaveBeenCalledOnce()
     expect(got.userId).toBe("user_1")
-    expect(got.knowhereKeyLabel).toBe("domainA")
     expect(got.namespace).toBe("quarterly-reports")
   })
 })

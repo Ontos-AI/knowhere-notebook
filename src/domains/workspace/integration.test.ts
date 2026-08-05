@@ -120,7 +120,13 @@ describeIfDb("workspace helpers — integration", () => {
         import("../chat/thread-service"),
       ]);
     workspaceHelpers = {
-      ensureWorkspace: workspaceService.ensureWorkspace,
+      ensureWorkspace: async (userId: string) => {
+        const row = await workspaceService.ensureWorkspaceForNamespace(
+          userId,
+          `ns-${userId}`,
+        )
+        return row
+      },
       findSourceInWorkspace: sourceService.findInWorkspace,
       softDeleteSource: sourceService.softDelete,
       appendMessageToThread: chatThreadService.appendMessage,

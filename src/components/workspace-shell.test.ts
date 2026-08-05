@@ -25,7 +25,21 @@ vi.mock("@vercel/blob/client", () => ({
   upload: mocks.uploadBlob,
 }));
 
+vi.mock("next/navigation", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("next/navigation")>();
+  return {
+    ...actual,
+    useRouter: () => ({ refresh: vi.fn() }),
+  };
+});
+
 const C = WorkspaceShell as React.FC<Record<string, unknown>>;
+
+const shellWorkspaceProps = {
+  workspace: { id: "workspace_1", namespace: "adobe" },
+  workspaces: [{ id: "workspace_1", namespace: "adobe" }],
+  knowhereKeyLabels: [],
+};
 
 describe("WorkspaceShell", () => {
   beforeEach(() => {
@@ -125,6 +139,7 @@ describe("WorkspaceShell", () => {
 
     render(
       React.createElement(C, {
+        ...shellWorkspaceProps,
         chunkViewDocumentId: "doc_1",
         sources: [
           {
@@ -226,6 +241,7 @@ describe("WorkspaceShell", () => {
 
     render(
       React.createElement(C, {
+        ...shellWorkspaceProps,
         sources: [
           {
             id: "source_1",
@@ -345,6 +361,7 @@ describe("WorkspaceShell", () => {
 
     render(
       React.createElement(C, {
+        ...shellWorkspaceProps,
         sources: [
           {
             id: "source_1",
@@ -452,6 +469,7 @@ describe("WorkspaceShell", () => {
 
     render(
       React.createElement(C, {
+        ...shellWorkspaceProps,
         sources: [
           {
             id: "source_1",
@@ -522,6 +540,7 @@ describe("WorkspaceShell", () => {
   it("renders the most recent recovered chat on workspace load", () => {
     render(
       React.createElement(C, {
+        ...shellWorkspaceProps,
         sources: [
           {
             id: "source_1",
@@ -589,6 +608,7 @@ describe("WorkspaceShell", () => {
 
     render(
       React.createElement(C, {
+        ...shellWorkspaceProps,
         sources: [
           {
             id: "source_1",
@@ -685,7 +705,7 @@ describe("WorkspaceShell", () => {
     vi.stubGlobal("fetch", fetch);
     const user = userEvent.setup();
 
-    render(React.createElement(C, { sources: [] }));
+    render(React.createElement(C, { sources: [], ...shellWorkspaceProps }));
 
     await user.click(screen.getAllByRole("button", { name: "Upload Document" })[0]!);
     const input = document.querySelector("input[type='file']");
@@ -726,6 +746,7 @@ describe("WorkspaceShell", () => {
 
     render(
       React.createElement(C, {
+        ...shellWorkspaceProps,
         sources: [
           {
             id: "source_1",
@@ -805,6 +826,7 @@ describe("WorkspaceShell", () => {
 
     render(
       React.createElement(C, {
+        ...shellWorkspaceProps,
         sources: [
           {
             id: "source_1",

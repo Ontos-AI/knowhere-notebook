@@ -3,7 +3,7 @@ import { Effect } from "effect"
 import type { Source } from "@/infrastructure/db/schema"
 import type { SourceView } from "./types"
 import type { SourceStatus } from "./types"
-import { getCompatibleNamespaces, sharedLibraryNamespace } from "./namespace"
+import { defaultNamespace, getCompatibleNamespaces } from "./namespace"
 
 type RemoteDocument = {
   readonly documentId: string
@@ -237,7 +237,7 @@ function normalizeRemoteDocument(
   if (!documentId) return null
 
   const namespace =
-    getString(raw.namespace) ?? sharedLibraryNamespace
+    getString(raw.namespace) ?? defaultNamespace
   const sourceFileName = getString(
     raw.sourceFileName ?? raw.source_file_name,
   )

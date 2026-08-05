@@ -92,24 +92,18 @@ type NamespacesResponse = {
   namespaces?: NamespaceView[]
 }
 
-type LocalizeNamespaceResponse = {
-  sources?: SourceView[]
-  message?: string
-}
 
 export type KnowhereKeyLabelView = {
+  id: string
   label: string
   mask: string
 }
 
-type KnowhereKeysResponse = {
-  keys?: KnowhereKeyLabelView[]
-}
 
 export type WorkspaceView = {
   id: string
   namespace: string
-  keyLabel: string | null
+  activeKeyLabel?: string | null
 }
 
 type CreateWorkspaceResponse = {
@@ -117,16 +111,14 @@ type CreateWorkspaceResponse = {
   message?: string
 }
 
-export type WorkspaceApiKeyView = {
-  id: string
-  label: string
+export type WorkspaceApiKeyView = KnowhereKeyLabelView & {
   createdAt: string
-  isActive: boolean
 }
 
 type WorkspaceApiKeysResponse = {
   keys?: WorkspaceApiKeyView[]
   key?: WorkspaceApiKeyView
+  workspace?: WorkspaceView | null
   message?: string
 }
 
@@ -140,16 +132,13 @@ export const workspaceClient = {
   createChatThread,
   createChatDiagram,
   sendChatMessage,
-  fetchNamespaces,
-  localizeNamespace,
-  fetchKnowhereKeys,
-  fetchKnowhereKeyNamespaces,
+  fetchUserApiKeys,
+  createUserApiKey,
+  fetchApiKeyNamespaces,
   activateWorkspace,
   createWorkspace,
-  fetchWorkspaceApiKeys,
-  createWorkspaceApiKey,
   setActiveWorkspaceApiKey,
-  deleteWorkspaceApiKey,
+  deleteUserApiKey,
   archiveSource,
   retrySource,
   archiveChatThread,
@@ -268,40 +257,37 @@ function archiveChatThread(threadId: string): Promise<ArchiveResponse> {
   )
 }
 
-async function fetchNamespaces(): Promise<NamespaceView[]> {
-  const body = await workspaceRouteClient.getJson<NamespacesResponse>(
-    workspaceClientKeys.namespaces,
-  )
-  return Array.isArray(body.namespaces) ? body.namespaces : []
-}
-
-async function localizeNamespace(namespace: string): Promise<SourceView[]> {
-  const response = await workspaceRouteClient.postJsonWithStatus<
-    LocalizeNamespaceResponse
-  >(
-    `/api/namespaces/${encodeURIComponent(namespace)}/localize`,
-    {},
-  )
-  if (response.status < 200 || response.status >= 300) {
-    throw new Error(
-      response.body.message ?? "Could not import documents from this namespace.",
-    )
-  }
-  return Array.isArray(response.body.sources) ? response.body.sources : []
-}
-
-async function fetchKnowhereKeys(): Promise<KnowhereKeyLabelView[]> {
-  const body = await workspaceRouteClient.getJson<KnowhereKeysResponse>(
-    "/api/knowhere-keys",
+async function fetchUserApiKeys(): Promise<WorkspaceApiKeyView[]> {
+  const body = await workspaceRouteClient.getJson<WorkspaceApiKeysResponse>(
+    "/api/api-keys",
   )
   return Array.isArray(body.keys) ? body.keys : []
 }
 
-async function fetchKnowhereKeyNamespaces(
+async function createUserApiKey(
   label: string,
+  apiKey: string,
+): Promise<{ key: WorkspaceApiKeyView; workspace: WorkspaceView | null }> {
+  const response = await workspaceRouteClient.postJsonWithStatus<
+    WorkspaceApiKeysResponse
+  >("/api/api-keys", { label, apiKey })
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(response.body.message ?? "Could not add the API key.")
+  }
+  if (!response.body.key) {
+    throw new Error("Could not add the API key.")
+  }
+  return {
+    key: response.body.key,
+    workspace: response.body.workspace ?? null,
+  }
+}
+
+async function fetchApiKeyNamespaces(
+  apiKeyId: string,
 ): Promise<NamespaceView[]> {
   const body = await workspaceRouteClient.getJson<NamespacesResponse>(
-    `/api/knowhere-keys/${encodeURIComponent(label)}/namespaces`,
+    `/api/api-keys/${encodeURIComponent(apiKeyId)}/namespaces`,
   )
   return Array.isArray(body.namespaces) ? body.namespaces : []
 }
@@ -314,12 +300,12 @@ async function activateWorkspace(workspaceId: string): Promise<void> {
 }
 
 async function createWorkspace(
-  keyLabel: string,
+  keyId: string,
   namespace: string,
 ): Promise<WorkspaceView> {
   const response = await workspaceRouteClient.postJsonWithStatus<
     CreateWorkspaceResponse
-  >("/api/workspaces", { keyLabel, namespace })
+  >("/api/workspaces", { keyId, namespace })
   if (response.status < 200 || response.status >= 300) {
     throw new Error(response.body.message ?? "Could not create this workspace.")
   }
@@ -329,54 +315,18 @@ async function createWorkspace(
   return response.body.workspace
 }
 
-async function fetchWorkspaceApiKeys(
-  workspaceId: string,
-): Promise<WorkspaceApiKeyView[]> {
-  const body = await workspaceRouteClient.getJson<WorkspaceApiKeysResponse>(
-    `/api/workspaces/${encodeURIComponent(workspaceId)}/api-keys`,
-  )
-  return Array.isArray(body.keys) ? body.keys : []
-}
-
-async function createWorkspaceApiKey(
-  workspaceId: string,
-  label: string,
-  apiKey: string,
-): Promise<WorkspaceApiKeyView> {
-  const response = await workspaceRouteClient.postJsonWithStatus<
-    WorkspaceApiKeysResponse
-  >(`/api/workspaces/${encodeURIComponent(workspaceId)}/api-keys`, {
-    label,
-    apiKey,
-  })
-  if (response.status < 200 || response.status >= 300) {
-    throw new Error(
-      response.body.message ?? "Could not create this API key.",
-    )
-  }
-  if (!response.body.key) {
-    throw new Error("Could not create this API key.")
-  }
-  return response.body.key
-}
-
 async function setActiveWorkspaceApiKey(
   workspaceId: string,
   apiKeyId: string,
-  isActive: boolean,
 ): Promise<void> {
-  await workspaceRouteClient.patchJson(
-    `/api/workspaces/${encodeURIComponent(workspaceId)}/api-keys/${encodeURIComponent(apiKeyId)}`,
-    { isActive },
-  )
+  await workspaceRouteClient.patchJson(`/api/api-keys/${encodeURIComponent(apiKeyId)}`, {
+    workspaceId,
+  })
 }
 
-async function deleteWorkspaceApiKey(
-  workspaceId: string,
-  apiKeyId: string,
-): Promise<void> {
+async function deleteUserApiKey(apiKeyId: string): Promise<void> {
   await workspaceRouteClient.deleteJson(
-    `/api/workspaces/${encodeURIComponent(workspaceId)}/api-keys/${encodeURIComponent(apiKeyId)}`,
+    `/api/api-keys/${encodeURIComponent(apiKeyId)}`,
     {},
   )
 }

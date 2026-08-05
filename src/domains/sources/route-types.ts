@@ -203,7 +203,7 @@ type SourceRouteServiceDependencies = {
   readonly ensureApiKeyForWorkspace: (
     workspaceId: string,
   ) => Promise<string>
-  readonly ensureWorkspace: (userId: string) => Promise<Workspace>
+  readonly ensureWorkspace: (userId: string) => Promise<Workspace | null>
   readonly getCurrentUser: () => Promise<AuthUser | null>
   readonly getSourceViewOptionsBySourceId: (
     sources: readonly Source[],

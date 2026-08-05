@@ -17,14 +17,12 @@ type WorkspaceRepository = {
     id: string,
     userId: string,
   ) => Effect.Effect<Workspace | null, never, DbClient>
-  readonly findByUserIdAndLabelAndNamespaceEffect: (
+  readonly findByUserIdAndNamespaceEffect: (
     userId: string,
-    keyLabel: string,
     namespace: string,
   ) => Effect.Effect<Workspace | null, never, DbClient>
-  readonly insertForUserLabelNamespaceEffect: (
+  readonly insertForUserNamespaceEffect: (
     userId: string,
-    keyLabel: string | null,
     namespace: string,
   ) => Effect.Effect<void, never, DbClient>
   readonly pingEffect: () => Effect.Effect<void, never, DbClient>
@@ -75,8 +73,8 @@ const findByIdAndUserIdEffect: WorkspaceRepository["findByIdAndUserIdEffect"] = 
     return row[0] ?? null
   })
 
-const findByUserIdAndLabelAndNamespaceEffect: WorkspaceRepository["findByUserIdAndLabelAndNamespaceEffect"] =
-  (userId: string, keyLabel: string, namespace: string) =>
+const findByUserIdAndNamespaceEffect: WorkspaceRepository["findByUserIdAndNamespaceEffect"] =
+  (userId: string, namespace: string) =>
     Effect.gen(function* () {
       const db = yield* DbClient
       const row = yield* Effect.promise(() =>
@@ -86,7 +84,6 @@ const findByUserIdAndLabelAndNamespaceEffect: WorkspaceRepository["findByUserIdA
           .where(
             and(
               eq(workspaces.userId, userId),
-              eq(workspaces.knowhereKeyLabel, keyLabel),
               eq(workspaces.namespace, namespace),
             ),
           )
@@ -95,20 +92,16 @@ const findByUserIdAndLabelAndNamespaceEffect: WorkspaceRepository["findByUserIdA
       return row[0] ?? null
     })
 
-const insertForUserLabelNamespaceEffect: WorkspaceRepository["insertForUserLabelNamespaceEffect"] =
-  (userId: string, keyLabel: string | null, namespace: string) =>
+const insertForUserNamespaceEffect: WorkspaceRepository["insertForUserNamespaceEffect"] =
+  (userId: string, namespace: string) =>
     Effect.gen(function* () {
       const db = yield* DbClient
       yield* Effect.promise(() =>
         db
           .insert(workspaces)
-          .values({ userId, knowhereKeyLabel: keyLabel, namespace })
+          .values({ userId, namespace })
           .onConflictDoNothing({
-            target: [
-              workspaces.userId,
-              workspaces.knowhereKeyLabel,
-              workspaces.namespace,
-            ],
+            target: [workspaces.userId, workspaces.namespace],
           }),
       )
     })
@@ -123,7 +116,7 @@ export const workspaceRepository: WorkspaceRepository = {
   findAllByUserIdEffect,
   findByIdEffect,
   findByIdAndUserIdEffect,
-  findByUserIdAndLabelAndNamespaceEffect,
-  insertForUserLabelNamespaceEffect,
+  findByUserIdAndNamespaceEffect,
+  insertForUserNamespaceEffect,
   pingEffect,
 }

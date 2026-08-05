@@ -54,6 +54,24 @@ export async function listKnowhereNamespaces(
     }))
 }
 
+/**
+ * Probe whether an API key is valid by listing namespaces. 200 → valid;
+ * 401/403 (or any failure) → invalid. Used when a user adds a key.
+ */
+export async function validateKnowhereApiKey(
+  apiKey: string,
+): Promise<boolean> {
+  const baseURL = process.env.KNOWHERE_BASE_URL ?? "https://api.knowhere.com"
+  try {
+    const response = await fetch(`${baseURL}/v1/documents/namespaces`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    })
+    return response.ok
+  } catch {
+    return false
+  }
+}
+
 function wrapKnowhereClient(client: Knowhere): Knowhere {
   return new Proxy(client, {
     get(target, prop, receiver) {

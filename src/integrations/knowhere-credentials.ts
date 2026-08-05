@@ -5,18 +5,15 @@ import { Effect } from "effect"
 import { databaseRuntime } from "@/domains/workspace/database-runtime"
 import { workspaceRepository } from "@/domains/workspace/repository"
 import { knowhereApiKeysRepository } from "@/infrastructure/auth/knowhere-api-keys-repository"
-import {
-  getDefaultKnowhereKey,
-  getKnowhereKeyByLabel,
-} from "@/integrations/knowhere-keys"
+import { getDefaultKnowhereKey } from "@/integrations/knowhere-keys"
 
 /**
  * Resolve the credential used for Knowhere SDK calls.
  *
- * Order (Phase 3: DB-backed encrypted keys):
+ * Order (key-agnostic, user-scoped keys):
  * 1. Active DB key for the workspace (workspaces.active_knowhere_api_key_id)
  *    — decrypted on demand, never logged or sent to the browser.
- * 2. A DB key whose label matches the workspace's `knowhereKeyLabel`.
+ * 2. The user's first non-deleted key.
  * 3. File/env fallback (`config/knowhere-keys.json`, then KNOWHERE_API_KEY)
  *    — kept as the bootstrap for fresh deployments before any UI key is
  *    added.
@@ -35,13 +32,9 @@ export async function ensureApiKeyForWorkspace(
         )
         if (active) return active
 
-        if (workspace.knowhereKeyLabel) {
-          return yield* knowhereApiKeysRepository.findByWorkspaceAndLabelEffect(
-            workspaceId,
-            workspace.knowhereKeyLabel,
-          )
-        }
-        return null
+        return yield* knowhereApiKeysRepository.firstForUserEffect(
+          workspace.userId,
+        )
       }),
     )
     .catch(() => null)
@@ -53,20 +46,11 @@ export async function ensureApiKeyForWorkspace(
     if (apiKey) return apiKey
   }
 
-  const workspace = await databaseRuntime
-    .runPromise(workspaceRepository.findByIdEffect(workspaceId))
-    .catch(() => null)
-
-  if (workspace) {
-    const key = await getKnowhereKeyByLabel(workspace.knowhereKeyLabel ?? "default")
-    if (key) return key.apiKey
-  }
-
   const defaultKey = await getDefaultKnowhereKey()
   if (defaultKey) return defaultKey.apiKey
 
   throw new Error(
-    "No Knowhere API key configured. Add one in the workspace settings, " +
+    "No Knowhere API key configured. Add one via the API keys dialog, " +
       "set KNOWHERE_API_KEY, or provide config/knowhere-keys.json.",
   )
 }

@@ -20,6 +20,19 @@ vi.mock("@vercel/blob/client", () => ({
   upload: mocks.uploadBlob,
 }));
 
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: vi.fn() }),
+}));
+
+vi.mock("@/domains/workspace/client", () => ({
+  workspaceClient: {
+    fetchApiKeyNamespaces: vi.fn(async () => []),
+    activateWorkspace: vi.fn(async () => {}),
+    createWorkspace: vi.fn(async () => ({})),
+    fetchUserApiKeys: vi.fn(async () => []),
+  },
+}));
+
 import { SourcesPanel } from "./sources-panel";
 
 const C = SourcesPanel as React.FC<Record<string, unknown>>;
@@ -50,10 +63,19 @@ describe("SourcesPanel", () => {
     });
   });
 
+  function renderPanel(overrides: Record<string, unknown> = {}) {
+    return React.createElement(C, {
+      activeWorkspace: { id: "ws_1", namespace: "adobe" },
+      workspaces: [{ id: "ws_1", namespace: "adobe" }],
+      knowhereKeyLabels: [],
+      ...overrides,
+    });
+  }
+
   it("opens the upload dialog from the sidebar trigger", async () => {
     const user = userEvent.setup();
 
-    render(React.createElement(C, { sources: [] }));
+    render(renderPanel({ sources: [] }));
 
     await user.click(screen.getByRole("button", { name: "Upload Document" }));
 
@@ -66,7 +88,7 @@ describe("SourcesPanel", () => {
 
   it("keeps the narrow upload trigger visible as a primary icon button", () => {
     render(
-      React.createElement(C, {
+      renderPanel({
         isNarrow: true,
         sources: [],
       }),
@@ -85,7 +107,7 @@ describe("SourcesPanel", () => {
   it("keeps upload confirmation controls visible inside the dialog viewport", async () => {
     const user = userEvent.setup();
 
-    render(React.createElement(C, { sources: [] }));
+    render(renderPanel({ sources: [] }));
 
     await user.click(screen.getByRole("button", { name: "Upload Document" }));
 
@@ -103,14 +125,14 @@ describe("SourcesPanel", () => {
   it("uses plain product language for empty and upload states", async () => {
     const user = userEvent.setup();
 
-    const { container } = render(React.createElement(C, { sources: [] }));
+    const { container } = render(renderPanel({ sources: [] }));
 
     expect(screen.getByRole("heading", { name: "Sources" })).toBeTruthy();
     expect(screen.getAllByText("No sources yet.").length).toBeGreaterThan(0);
     expect(container.textContent).not.toMatch(/indexed|indexing|parsing/i);
 
     cleanup();
-    const opened = render(React.createElement(C, { sources: [] }));
+    const opened = render(renderPanel({ sources: [] }));
     await user.click(screen.getByRole("button", { name: "Upload Document" }));
 
     expect(
@@ -127,7 +149,7 @@ describe("SourcesPanel", () => {
     const onToggleIncluded = vi.fn();
 
     render(
-      React.createElement(C, {
+      renderPanel({
         sources: [
           {
             id: "source_1",
@@ -160,7 +182,7 @@ describe("SourcesPanel", () => {
       makeReadySource(index + 1),
     );
 
-    render(React.createElement(C, { sources }));
+    render(renderPanel({ sources }));
 
     expect(screen.getByText("source-01.pdf")).toBeTruthy();
     expect(screen.getByText("source-25.pdf")).toBeTruthy();
@@ -183,7 +205,7 @@ describe("SourcesPanel", () => {
     );
 
     render(
-      React.createElement(C, {
+      renderPanel({
         sources,
         selectedSourceId: "source_26",
       }),
@@ -198,7 +220,7 @@ describe("SourcesPanel", () => {
 
   it("hides source actions that are not wired", () => {
     render(
-      React.createElement(C, {
+      renderPanel({
         sources: [
           {
             id: "source_1",
@@ -224,7 +246,7 @@ describe("SourcesPanel", () => {
     const onArchiveSource = vi.fn();
 
     render(
-      React.createElement(C, {
+      renderPanel({
         sources: [
           {
             id: "source_1",
@@ -246,7 +268,7 @@ describe("SourcesPanel", () => {
 
   it("shows row-level loading while a source archive API action is pending", () => {
     render(
-      React.createElement(C, {
+      renderPanel({
         sources: [
           {
             id: "source_1",
@@ -272,7 +294,7 @@ describe("SourcesPanel", () => {
     const onRetrySource = vi.fn();
 
     render(
-      React.createElement(C, {
+      renderPanel({
         sources: [
           {
             id: "source_1",
@@ -448,7 +470,7 @@ describe("SourcesPanel", () => {
     });
     vi.stubGlobal("fetch", fetch);
 
-    render(React.createElement(C, { sources: [] }));
+    render(renderPanel({ sources: [] }));
 
     await user.click(screen.getByRole("button", { name: "Upload Document" }));
     const input = document.querySelector("input[type='file']");

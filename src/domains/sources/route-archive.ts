@@ -45,6 +45,11 @@ const archiveSourceEffect = (
     const workspace = yield* Effect.tryPromise(() =>
       deps.ensureWorkspace(user.id),
     )
+    if (!workspace) {
+      return routeResult.badRequest(
+        "No workspace yet — pick a namespace from the dropdown.",
+      )
+    }
 
     const source = yield* Effect.tryPromise(() =>
       deps.sourceService.findInWorkspace(workspace.id, input.sourceId),

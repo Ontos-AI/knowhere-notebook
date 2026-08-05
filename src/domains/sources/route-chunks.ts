@@ -56,6 +56,9 @@ const loadSourceChunksEffect = (
     const workspace = yield* Effect.tryPromise(() =>
       deps.ensureWorkspace(user.id),
     )
+    if (!workspace) {
+      return sourceNotFound()
+    }
     const source = yield* Effect.tryPromise(() =>
       deps.sourceService.findInWorkspace(workspace.id, input.sourceId),
     )
@@ -116,6 +119,7 @@ const loadRemoteChunkPageEffect = (
     const workspace = yield* Effect.tryPromise(() =>
       deps.ensureWorkspace(user.id),
     )
+    if (!workspace) return null
     const client = yield* Effect.tryPromise(() =>
       getClientForWorkspace(workspace.id, input.cookieHeader, deps),
     )

@@ -30,7 +30,7 @@ import type {
 type WorkspaceSwitcherWorkspace = {
   readonly id: string
   readonly namespace: string
-  readonly keyLabel: string | null
+  readonly activeKeyLabel?: string | null
 }
 
 export type PanelId = "sources" | "chat"
@@ -69,6 +69,7 @@ export type WorkspaceShellLayoutProps = {
   readonly activeWorkspace?: WorkspaceSwitcherWorkspace
   readonly workspaces?: readonly WorkspaceSwitcherWorkspace[]
   readonly knowhereKeyLabels?: readonly {
+    readonly id: string
     readonly label: string
     readonly mask: string
   }[]
@@ -130,7 +131,6 @@ export type WorkspaceShellLayoutProps = {
   readonly onSelectChatThread: (threadId: string) => void
   readonly onSourceSelected: (sourceId: string | null) => void
   readonly onSourceUploaded: (source: SourceView) => void
-  readonly onSourcesLocalized?: (sources: readonly SourceView[]) => void
   readonly onToggleIncluded: (sourceId: string, included: boolean) => void
 }
 
@@ -207,7 +207,6 @@ export function WorkspaceShellLayout(
                 analyticsContext={props.analyticsContext}
                 sourceCountSnapshot={props.sources.length}
                 onSourceUploaded={props.onSourceUploaded}
-                onSourcesLocalized={props.onSourcesLocalized}
                 selectedSourceId={props.selectedSourceId}
                 onSelectSource={props.onSourceSelected}
                 onToggleIncluded={props.onToggleIncluded}
@@ -295,7 +294,6 @@ export function WorkspaceShellLayout(
           analyticsContext={props.analyticsContext}
           sourceCountSnapshot={props.sources.length}
           onSourceUploaded={props.onSourceUploaded}
-          onSourcesLocalized={props.onSourcesLocalized}
           selectedSourceId={props.selectedSourceId}
           onSelectSource={props.onSourceSelected}
           onToggleIncluded={props.onToggleIncluded}

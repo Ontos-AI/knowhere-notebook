@@ -4,6 +4,10 @@ import { cleanup, render, screen, within } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { WorkspaceShellLayout } from "./workspace-shell-layout"
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: vi.fn() }),
+}))
 import { workspaceShellState } from "./workspace-shell-state"
 
 const C = WorkspaceShellLayout as React.FC<Record<string, unknown>>
@@ -183,6 +187,9 @@ describe("WorkspaceShellLayout", () => {
   it("keeps normal source rows usable at narrow pre-sidebar widths", () => {
     render(
       React.createElement(C, {
+        activeWorkspace: { id: "workspace_1", namespace: "adobe" },
+        workspaces: [{ id: "workspace_1", namespace: "adobe" }],
+        knowhereKeyLabels: [],
         archivingSourceIds: [],
         archivingThreadIds: [],
         chat: {

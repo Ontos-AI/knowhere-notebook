@@ -33,24 +33,18 @@ import {
  */
 
 /**
- * Workspaces: the persistence unit for a domain-scoped document set.
+ * Workspaces: the persistence unit for a namespace-scoped document set.
  *
- * A workspace binds one user to one Knowhere document domain: the
- * `knowhere_key_label` selects which configured API key (domain) the
- * workspace authenticates with, and `namespace` is the Knowhere namespace
- * under that domain the workspace's sources live in. One workspace per
- * (user, key label, namespace) tuple.
- *
- * Legacy rows created before multi-domain support have a null
- * `knowhere_key_label` (uses the default key) and an auto-generated
- * `notebook-<uuid>` namespace; they keep working unchanged.
+ * A workspace binds one user to one Knowhere namespace. The credential used
+ * to access that namespace is the mutable `active_knowhere_api_key_id`
+ * pointer (key-agnostic: the user can re-point it to any of their API keys
+ * at any time). One workspace per (user, namespace) tuple.
  */
 export const workspaces = pgTable(
   "workspaces",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     userId: text("user_id").notNull(),
-    knowhereKeyLabel: text("knowhere_key_label"),
     namespace: text("namespace").notNull(),
     activeKnowhereApiKeyId: uuid("active_knowhere_api_key_id"),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -59,11 +53,7 @@ export const workspaces = pgTable(
   },
   (t) => [
     index("workspaces_user_id_idx").on(t.userId),
-    uniqueIndex("workspaces_user_label_namespace_idx").on(
-      t.userId,
-      t.knowhereKeyLabel,
-      t.namespace,
-    ),
+    uniqueIndex("workspaces_user_namespace_idx").on(t.userId, t.namespace),
   ],
 );
 
@@ -71,21 +61,24 @@ export type Workspace = typeof workspaces.$inferSelect;
 export type NewWorkspace = typeof workspaces.$inferInsert;
 
 /**
- * Encrypted Knowhere API keys, one or more per workspace (for rotation).
+ * Encrypted Knowhere API keys, owned by a user (not a workspace) — the
+ * credential for any of the user's workspaces.
  *
  * The raw key never touches the browser or the logs: the server encrypts it
  * with AES-256-GCM (key from `KNOWHERE_KEY_ENCRYPTION_KEY`) before storing
  * `cipher_blob` + `cipher_nonce`, and decrypts on demand only when a
- * Knowhere request needs the credential.
+ * Knowhere request needs the credential. `key_mask` is computed once at
+ * save time so listing keys never needs to decrypt.
  */
 export const knowhereApiKeys = pgTable(
   "knowhere_api_keys",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    workspaceId: uuid("workspace_id")
+    userId: uuid("user_id")
       .notNull()
-      .references(() => workspaces.id, { onDelete: "cascade" }),
+      .references(() => users.id, { onDelete: "cascade" }),
     label: text("label").notNull(),
+    keyMask: text("key_mask").notNull(),
     cipherBlob: text("cipher_blob").notNull(),
     cipherNonce: text("cipher_nonce").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -94,9 +87,9 @@ export const knowhereApiKeys = pgTable(
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
   (t) => [
-    index("knowhere_api_keys_workspace_id_idx").on(t.workspaceId),
-    uniqueIndex("knowhere_api_keys_workspace_label_idx")
-      .on(t.workspaceId, t.label)
+    index("knowhere_api_keys_user_id_idx").on(t.userId),
+    uniqueIndex("knowhere_api_keys_user_label_idx")
+      .on(t.userId, t.label)
       .where(sql`deleted_at IS NULL`),
   ],
 );

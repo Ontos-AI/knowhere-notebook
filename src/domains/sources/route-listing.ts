@@ -64,6 +64,9 @@ const listSourcesEffect = (
     const workspace = yield* Effect.tryPromise(() =>
       deps.ensureWorkspace(user.id),
     )
+    if (!workspace) {
+      return routeResult.ok({ sources: [] })
+    }
     const listedSources = yield* Effect.tryPromise(() =>
       deps.listSourcesForWorkspace(workspace.id),
     )

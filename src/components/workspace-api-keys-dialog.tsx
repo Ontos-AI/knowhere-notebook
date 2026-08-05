@@ -20,76 +20,83 @@ import { workspaceClient } from "@/domains/workspace/client";
 import type { WorkspaceApiKeyView } from "@/domains/workspace/client";
 
 export type WorkspaceApiKeysDialogProps = {
-  readonly workspaceId: string | null;
+  readonly isOpen: boolean;
   readonly onOpenChange: (open: boolean) => void;
+  readonly userName?: string;
 };
 
 export function WorkspaceApiKeysDialog({
-  workspaceId,
+  isOpen,
   onOpenChange,
+  userName,
 }: WorkspaceApiKeysDialogProps): ReactElement {
   const [isAdding, setIsAdding] = useState(false);
   const [label, setLabel] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [addedInfo, setAddedInfo] = useState<string | null>(null);
   const { data: keys, isLoading, mutate } = useSWR(
-    workspaceId ? ["workspace-api-keys", workspaceId] : null,
-    ([, id]: readonly [string, string]) =>
-      workspaceClient.fetchWorkspaceApiKeys(id),
+    isOpen ? ["user-api-keys"] : null,
+    () => workspaceClient.fetchUserApiKeys(),
     { revalidateOnFocus: false },
   );
 
   async function handleAdd(): Promise<void> {
-    if (!workspaceId || !label.trim() || !apiKey.trim()) return;
+    if (!label.trim() || !apiKey.trim()) return;
     setError(null);
+    setAddedInfo(null);
     try {
-      await workspaceClient.createWorkspaceApiKey(
-        workspaceId,
+      const result = await workspaceClient.createUserApiKey(
         label.trim(),
         apiKey.trim(),
       );
       setLabel("");
       setApiKey("");
       setIsAdding(false);
+      setAddedInfo(
+        result.workspace
+          ? `Workspace '${label.trim()} / ${result.workspace.namespace}' is ready.`
+          : "Key added.",
+      );
       await mutate();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not add the key.");
     }
   }
 
-  async function handleSetActive(key: WorkspaceApiKeyView): Promise<void> {
-    if (!workspaceId) return;
-    await workspaceClient.setActiveWorkspaceApiKey(
-      workspaceId,
-      key.id,
-      !key.isActive,
-    );
-    await mutate();
-  }
-
   async function handleDelete(key: WorkspaceApiKeyView): Promise<void> {
-    if (!workspaceId) return;
-    await workspaceClient.deleteWorkspaceApiKey(workspaceId, key.id);
+    await workspaceClient.deleteUserApiKey(key.id);
     await mutate();
   }
 
   return (
     <Dialog
-      open={workspaceId !== null}
+      open={isOpen}
       onOpenChange={(open) => {
-        if (!open) onOpenChange(false);
+        if (!open) {
+          onOpenChange(false);
+          setError(null);
+          setAddedInfo(null);
+        }
       }}
     >
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>API keys</DialogTitle>
           <DialogDescription>
-            Knowhere credentials for this workspace. Keys are encrypted at
-            rest and never shown again after saving.
+            {userName ? `${userName}'s Knowhere credentials. ` : ""}Keys are
+            encrypted at rest and never shown again after saving. Adding a key
+            creates its `{`label / default`}` workspace.
           </DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-3 py-2">
+          {addedInfo ? (
+            <p className="rounded-md bg-primary/10 px-2.5 py-1.5 text-xs font-semibold text-primary">
+              {addedInfo}
+            </p>
+          ) : null}
+
           {isLoading ? (
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <Spinner className="size-3.5" />
@@ -105,43 +112,27 @@ export function WorkspaceApiKeysDialog({
                   <p className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
                     <KeyRound className="size-3.5 shrink-0 text-muted-foreground" />
                     {key.label}
-                    {key.isActive ? (
-                      <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-primary">
-                        active
-                      </span>
-                    ) : null}
                   </p>
-                  <p className="mt-0.5 text-[10px] text-muted-foreground">
-                    Added {new Date(key.createdAt).toLocaleDateString()}
+                  <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
+                    {key.mask} · added {new Date(key.createdAt).toLocaleDateString()}
                   </p>
                 </div>
-                <div className="flex shrink-0 items-center gap-1">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="h-7 px-2 text-[11px]"
-                    disabled={key.isActive}
-                    onClick={() => void handleSetActive(key)}
-                  >
-                    {key.isActive ? "Active" : "Activate"}
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    className="h-7 px-2 text-muted-foreground hover:text-destructive"
-                    aria-label={`Delete ${key.label}`}
-                    onClick={() => void handleDelete(key)}
-                  >
-                    <Trash2 className="size-3.5" />
-                  </Button>
-                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 px-2 text-muted-foreground hover:text-destructive"
+                  aria-label={`Delete ${key.label}`}
+                  onClick={() => void handleDelete(key)}
+                >
+                  <Trash2 className="size-3.5" />
+                </Button>
               </div>
             ))
           ) : (
             <p className="text-xs text-muted-foreground">
-              No API keys yet. Add one to connect this workspace to Knowhere.
+              No API keys yet. Add one to connect to Knowhere — a
+              `{`label / default`}` workspace is created automatically.
             </p>
           )}
 
@@ -201,10 +192,7 @@ export function WorkspaceApiKeysDialog({
               </Button>
             </>
           ) : (
-            <Button
-              type="button"
-              onClick={() => setIsAdding(true)}
-            >
+            <Button type="button" onClick={() => setIsAdding(true)}>
               <Plus className="size-3.5" />
               Add key
             </Button>

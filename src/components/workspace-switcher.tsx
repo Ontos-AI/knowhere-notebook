@@ -6,7 +6,7 @@ import {
   useState,
 } from "react";
 import { useRouter } from "next/navigation";
-import { Boxes, Check, ChevronDown, KeyRound, Plus } from "lucide-react";
+import { Check, ChevronDown, KeyRound, Loader2 } from "lucide-react";
 import useSWR from "swr";
 
 import { Button } from "@/components/ui/button";
@@ -18,33 +18,19 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
 import { WorkspaceApiKeysDialog } from "@/components/workspace-api-keys-dialog";
 import { workspaceClient } from "@/domains/workspace/client";
-import type { WorkspaceView } from "@/domains/workspace/client";
+import type {
+  KnowhereKeyLabelView,
+  WorkspaceView,
+} from "@/domains/workspace/client";
 
 export type WorkspaceSwitcherProps = {
   readonly activeWorkspace?: WorkspaceView;
-  readonly knowhereKeyLabels?: readonly {
-    readonly label: string;
-    readonly mask: string;
-  }[];
+  readonly knowhereKeyLabels?: readonly KnowhereKeyLabelView[];
   readonly userName?: string;
   readonly workspaces?: readonly WorkspaceView[];
-};
-
-type NewWorkspaceDialogState = {
-  readonly isOpen: boolean;
-  readonly keyLabel: string | null;
-  readonly namespace: string | null;
 };
 
 export function WorkspaceSwitcher({
@@ -54,65 +40,64 @@ export function WorkspaceSwitcher({
   workspaces = [],
 }: WorkspaceSwitcherProps): ReactElement {
   const router = useRouter();
-  const [dialog, setDialog] = useState<NewWorkspaceDialogState>({
-    isOpen: false,
-    keyLabel: null,
-    namespace: null,
-  });
-  const [apiKeysWorkspaceId, setApiKeysWorkspaceId] = useState<string | null>(
+  const [isApiKeysOpen, setIsApiKeysOpen] = useState(false);
+  const [creatingKeyLabel, setCreatingKeyLabel] = useState<string | null>(null);
+  const [creatingNamespace, setCreatingNamespace] = useState<string | null>(
     null,
   );
-  const [isActivatingId, setIsActivatingId] = useState<string | null>(null);
-  const { data: keyNamespaces, isLoading: isLoadingKeyNamespaces } = useSWR(
-    dialog.keyLabel
-      ? ["knowhere-key-namespaces", dialog.keyLabel]
+  const { data: keyNamespacesByKeyId, isLoading: isLoadingNamespaces } = useSWR(
+    knowhereKeyLabels.length > 0
+      ? ["all-key-namespaces", knowhereKeyLabels.map((k) => k.id).join(",")]
       : null,
-    ([, label]: readonly [string, string]) =>
-      workspaceClient.fetchKnowhereKeyNamespaces(label),
+    async ([, ids]: readonly [string, string]) => {
+      const results = await Promise.all(
+        ids
+          .split(",")
+          .map(async (keyId) => ({
+            keyId,
+            namespaces: await workspaceClient.fetchApiKeyNamespaces(keyId),
+          })),
+      )
+      return Object.fromEntries(
+        results.map((entry) => [entry.keyId, entry.namespaces]),
+      )
+    },
     { revalidateOnFocus: false },
   );
 
-  const workspacesByKeyLabel = useMemo(() => {
-    const grouped = new Map<string, WorkspaceView[]>();
+  const workspacesByNamespace = useMemo(() => {
+    const byNamespace = new Map<string, WorkspaceView>()
     for (const workspace of workspaces) {
-      const keyLabel = workspace.keyLabel ?? "default";
-      const group = grouped.get(keyLabel) ?? [];
-      group.push(workspace);
-      grouped.set(keyLabel, group);
+      byNamespace.set(workspace.namespace, workspace)
     }
-    return grouped;
-  }, [workspaces]);
+    return byNamespace
+  }, [workspaces])
 
-  async function handleActivate(workspaceId: string): Promise<void> {
-    if (isActivatingId !== null) return;
-    setIsActivatingId(workspaceId);
+  const triggerText = activeWorkspace
+    ? `${activeWorkspace.activeKeyLabel ?? "default"} / ${activeWorkspace.namespace}`
+    : knowhereKeyLabels.length === 0
+      ? "Add API key"
+      : "Pick a workspace"
+
+  async function handlePickNamespace(
+    keyLabel: string,
+    namespace: string,
+  ): Promise<void> {
+    if (creatingKeyLabel !== null) return
+    setCreatingKeyLabel(keyLabel)
+    setCreatingNamespace(namespace)
     try {
-      await workspaceClient.activateWorkspace(workspaceId);
-      router.refresh();
+      const key = knowhereKeyLabels.find((k) => k.label === keyLabel)
+      if (!key) return
+      await workspaceClient.createWorkspace(key.id, namespace)
+      router.refresh()
     } catch {
-      setIsActivatingId(null);
+      // Error swallowed; dropdown stays open.
+    } finally {
+      setCreatingKeyLabel(null)
+      setCreatingNamespace(null)
     }
   }
-
-  async function handleCreate(): Promise<void> {
-    if (!dialog.keyLabel || !dialog.namespace) return;
-    try {
-      await workspaceClient.createWorkspace(dialog.keyLabel, dialog.namespace);
-      router.refresh();
-    } catch {
-      setDialog((current) => ({ ...current, isOpen: false }));
-    }
-  }
-
-  const activeLabel = activeWorkspace?.keyLabel ?? "default";
-  const activeDisplayName = getWorkspaceDisplayName(
-    activeWorkspace,
-    activeLabel,
-    userName,
-  );
-  const labelWithoutWorkspace = knowhereKeyLabels.filter(
-    (key) => !workspacesByKeyLabel.has(key.label),
-  );
 
   return (
     <>
@@ -123,225 +108,111 @@ export function WorkspaceSwitcher({
             size="sm"
             className="inline-flex h-8 w-full shrink-0 items-center gap-1.5 rounded-md border border-border/80 bg-background px-2 text-[11px] font-semibold text-foreground shadow-xs hover:bg-muted"
           >
-            <Boxes className="size-3.5 shrink-0" />
-            <span className="min-w-0 truncate">
-              {activeWorkspace
-                ? activeDisplayName
-                : "Select workspace"}
-            </span>
+            <KeyRound className="size-3.5 shrink-0" />
+            <span className="min-w-0 truncate">{triggerText}</span>
             <ChevronDown className="size-3 shrink-0" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="max-h-80 w-72 overflow-y-auto">
-          <DropdownMenuLabel className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
-            Workspaces
-          </DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          {workspaces.length === 0 ? (
-            <DropdownMenuItem disabled className="text-xs text-muted-foreground">
-              No workspaces yet
+        <DropdownMenuContent
+          align="start"
+          className="max-h-80 w-72 overflow-y-auto"
+        >
+          {knowhereKeyLabels.length === 0 ? (
+            <DropdownMenuItem
+              disabled
+              className="text-xs text-muted-foreground"
+            >
+              Add an API key to browse namespaces.
+            </DropdownMenuItem>
+          ) : isLoadingNamespaces ? (
+            <DropdownMenuItem disabled>
+              <Spinner className="mr-2 size-3.5" />
+              Loading namespaces…
             </DropdownMenuItem>
           ) : (
-            Array.from(workspacesByKeyLabel.entries()).map(
-              ([keyLabel, grouped]) => (
-                <div key={keyLabel}>
-                  {keyLabel !== "default" && (
-                    <DropdownMenuLabel className="px-2 pt-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                      {keyLabel}
-                    </DropdownMenuLabel>
-                  )}
-                  {grouped.map((workspace) => (
+            knowhereKeyLabels.map((key) => {
+              const namespaces = keyNamespacesByKeyId?.[key.id] ?? []
+              return (
+                <div key={key.id}>
+                  <DropdownMenuLabel className="px-2 pt-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                    {key.label}
+                    <span className="ml-1 font-mono text-[9px] font-normal opacity-70">
+                      {key.mask}
+                    </span>
+                  </DropdownMenuLabel>
+                  {namespaces.map((ns) => {
+                    const existing = workspacesByNamespace.get(ns.namespace)
+                    const isActive =
+                      existing?.id === activeWorkspace?.id
+                    const isCreating =
+                      creatingKeyLabel === key.label &&
+                      creatingNamespace === ns.namespace
+                    return (
+                      <DropdownMenuItem
+                        key={`${key.id}:${ns.namespace}`}
+                        disabled={isCreating || creatingKeyLabel !== null}
+                        onClick={() =>
+                          void handlePickNamespace(key.label, ns.namespace)
+                        }
+                        className="flex items-center justify-between gap-2 text-xs"
+                      >
+                        <span className="min-w-0 truncate font-medium">
+                          {ns.namespace}
+                        </span>
+                        {isCreating ? (
+                          <Loader2 className="size-3.5 shrink-0 animate-spin" />
+                        ) : isActive ? (
+                          <Check className="size-3.5 shrink-0 text-primary" />
+                        ) : existing ? (
+                          <span className="shrink-0 text-[10px] text-muted-foreground">
+                            exists
+                          </span>
+                        ) : (
+                          <PlusIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                        )}
+                      </DropdownMenuItem>
+                    )
+                  })}
+                  {namespaces.length === 0 ? (
                     <DropdownMenuItem
-                      key={workspace.id}
-                      disabled={isActivatingId !== null}
-                      onClick={() => void handleActivate(workspace.id)}
-                      className="flex items-center justify-between gap-2 text-xs"
+                      disabled
+                      className="text-[11px] text-muted-foreground"
                     >
-                      <span className="min-w-0 truncate font-medium">
-                        {workspace.namespace}
-                      </span>
-                      {workspace.id === activeWorkspace?.id ? (
-                        <Check className="size-3.5 shrink-0 text-primary" />
-                      ) : isActivatingId === workspace.id ? (
-                        <Spinner className="size-3.5 shrink-0" />
-                      ) : null}
+                      No namespaces for this key.
                     </DropdownMenuItem>
-                  ))}
+                  ) : null}
                 </div>
-              ),
-            )
+              )
+            })
           )}
           <DropdownMenuSeparator />
           <DropdownMenuItem
-            onClick={() =>
-              setDialog({ isOpen: true, keyLabel: null, namespace: null })
-            }
+            onClick={() => setIsApiKeysOpen(true)}
             className="flex items-center gap-2 text-xs font-semibold"
           >
-            <Plus className="size-3.5" />
-            New workspace…
+            <KeyRound className="size-3.5" />
+            API keys…
           </DropdownMenuItem>
-          {activeWorkspace ? (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={() => setApiKeysWorkspaceId(activeWorkspace.id)}
-                className="flex items-center gap-2 text-xs"
-              >
-                <KeyRound className="size-3.5" />
-                API keys…
-              </DropdownMenuItem>
-            </>
-          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
 
       <WorkspaceApiKeysDialog
-        workspaceId={apiKeysWorkspaceId}
-        onOpenChange={(open) => {
-          if (!open) setApiKeysWorkspaceId(null);
-        }}
+        isOpen={isApiKeysOpen}
+        onOpenChange={setIsApiKeysOpen}
+        userName={userName}
       />
-
-      <Dialog
-        open={dialog.isOpen}
-        onOpenChange={(open) => {
-          if (!open) {
-            setDialog({ isOpen: false, keyLabel: null, namespace: null });
-          }
-        }}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>New workspace</DialogTitle>
-            <DialogDescription>
-              Pick a domain (API key) and a namespace under it.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-2">
-            <div className="grid gap-1.5">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-                Domain
-              </span>
-              <div className="flex flex-wrap gap-1.5">
-                {knowhereKeyLabels.length === 0 ? (
-                  <span className="text-xs text-muted-foreground">
-                    No API keys configured.
-                  </span>
-                ) : (
-                  knowhereKeyLabels.map((key) => (
-                    <Button
-                      key={key.label}
-                      type="button"
-                      size="sm"
-                      variant={dialog.keyLabel === key.label ? "default" : "outline"}
-                      className="text-[11px]"
-                      onClick={() =>
-                        setDialog((current) => ({
-                          ...current,
-                          keyLabel: key.label,
-                          namespace: null,
-                        }))
-                      }
-                    >
-                      {key.label}
-                      <span className="ml-1 font-mono text-[10px] opacity-70">
-                        {key.mask}
-                      </span>
-                    </Button>
-                  ))
-                )}
-              </div>
-            </div>
-            {dialog.keyLabel && (
-              <div className="grid gap-1.5">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-                  Namespace
-                </span>
-                {isLoadingKeyNamespaces ? (
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Spinner className="size-3.5" />
-                    Loading namespaces…
-                  </div>
-                ) : keyNamespaces && keyNamespaces.length > 0 ? (
-                  <div className="flex max-h-40 flex-wrap gap-1.5 overflow-y-auto">
-                    {keyNamespaces.map((ns) => (
-                      <Button
-                        key={ns.namespace}
-                        type="button"
-                        size="sm"
-                        variant={
-                          dialog.namespace === ns.namespace
-                            ? "default"
-                            : "outline"
-                        }
-                        className="text-[11px]"
-                        onClick={() =>
-                          setDialog((current) => ({
-                            ...current,
-                            namespace: ns.namespace,
-                          }))
-                        }
-                      >
-                        {ns.namespace}
-                        <span className="ml-1 text-[10px] opacity-70">
-                          {ns.documentCount}
-                        </span>
-                      </Button>
-                    ))}
-                  </div>
-                ) : (
-                  <span className="text-xs text-muted-foreground">
-                    No namespaces available for this key.
-                  </span>
-                )}
-              </div>
-            )}
-          </div>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() =>
-                setDialog({ isOpen: false, keyLabel: null, namespace: null })
-              }
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              disabled={!dialog.keyLabel || !dialog.namespace}
-              onClick={() => void handleCreate()}
-            >
-              Create workspace
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {labelWithoutWorkspace.length > 0 && (
-        <p className="mt-1 px-0.5 text-[10px] text-muted-foreground">
-          {labelWithoutWorkspace.map((key) => key.label).join(", ")}: add a
-          workspace to browse those documents
-        </p>
-      )}
     </>
   );
 }
 
-/**
- * Display name for a workspace. Legacy rows (null keyLabel) use the
- * authenticated user's name when available so the switcher reads
- * "<username> / default" instead of a raw notebook-<uuid> namespace.
- */
-function getWorkspaceDisplayName(
-  workspace: WorkspaceView | undefined,
-  activeLabel: string,
-  userName: string | undefined,
-): string {
-  if (!workspace) return "Select workspace";
-  if (workspace.keyLabel === null && userName) {
-    return `${userName} / ${activeLabel}`;
-  }
-  return `${activeLabel} / ${workspace.namespace}`;
+function PlusIcon({
+  className,
+}: {
+  readonly className?: string;
+}): ReactElement {
+  return (
+    <span className={className} aria-hidden="true">
+      +
+    </span>
+  );
 }

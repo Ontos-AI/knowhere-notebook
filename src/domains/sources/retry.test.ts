@@ -8,7 +8,6 @@ import { retrySourceToKnowhereEffect } from "./retry"
 const workspace: Workspace = {
   id: "workspace_1",
   userId: "user_1",
-  knowhereKeyLabel: null,
   activeKnowhereApiKeyId: null,
   namespace: "notebook-workspace_1",
   createdAt: new Date("2026-05-10T00:00:00Z"),
@@ -53,7 +52,7 @@ describe("retrySourceToKnowhereEffect", () => {
       sourceUrl:
         "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
       fileName: "notes.pdf",
-      namespace: "default",
+      namespace: "notebook-workspace_1",
       documentMetadata: {
         createdByClient: "notebook",
         sourceFileName: "notes.pdf",

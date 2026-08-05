@@ -66,6 +66,11 @@ const uploadSourceEffect = (
     const workspace = yield* Effect.tryPromise(() =>
       deps.ensureWorkspace(user.id),
     )
+    if (!workspace) {
+      return routeResult.badRequest(
+        "No workspace yet — pick a namespace from the dropdown.",
+      )
+    }
     const apiKey = yield* Effect.tryPromise(() =>
       deps.ensureApiKeyForWorkspace(workspace.id),
     )

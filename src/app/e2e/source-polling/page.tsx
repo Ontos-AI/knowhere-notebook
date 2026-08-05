@@ -22,7 +22,6 @@ export default function SourcePollingTestPage() {
       }}
       workspace={{
         id: "workspace_playwright",
-        keyLabel: null,
         namespace: "notebook-playwright",
       }}
       sources={[pendingSource]}

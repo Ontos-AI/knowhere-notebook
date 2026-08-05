@@ -20,7 +20,6 @@ type WorkspaceSourceWorkflow = {
   readonly handleRetrySource: (sourceId: string) => Promise<void>
   readonly handleSelectedSourceChange: (sourceId: string | null) => void
   readonly handleSourceUploaded: (source: SourceView) => void
-  readonly handleSourcesLocalized: (sources: readonly SourceView[]) => void
   readonly handleToggleIncluded: (sourceId: string, included: boolean) => void
   readonly readySourceCount: number
   readonly retryingSourceIds: string[]
@@ -102,23 +101,6 @@ export function useWorkspaceSourceWorkflow({
     void mutateSources()
   }
 
-  function handleSourcesLocalized(sources: readonly SourceView[]): void {
-    if (sources.length === 0) return
-    void mutateSources(
-      (current) => {
-        const existing = current ?? sourceRows
-        const newIds = new Set(sources.map((s) => s.id))
-        const merged = [
-          ...existing.filter((s) => !newIds.has(s.id)),
-          ...sources,
-        ]
-        return merged
-      },
-      { revalidate: false },
-    )
-    void mutateSources()
-  }
-
   function handleToggleIncluded(sourceId: string, included: boolean): void {
     setSourceExclusionById((current) => ({
       ...current,
@@ -193,7 +175,6 @@ export function useWorkspaceSourceWorkflow({
     handleRetrySource,
     handleSelectedSourceChange,
     handleSourceUploaded,
-    handleSourcesLocalized,
     handleToggleIncluded,
     readySourceCount,
     retryingSourceIds,

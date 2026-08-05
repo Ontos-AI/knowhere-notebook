@@ -28,7 +28,7 @@ import { logger } from "@/lib/logger"
 import { notebookRequestContext } from "./request-context"
 import { workspaceRepository } from "./repository"
 import { databaseRuntime } from "./database-runtime"
-import { listMaskedKnowhereKeys } from "@/integrations/knowhere-keys"
+import { knowhereApiKeysRepository } from "@/infrastructure/auth/knowhere-api-keys-repository"
 
 type WorkspaceShellInitialState = {
   readonly activeChatThreadId?: string | null
@@ -44,14 +44,15 @@ type WorkspaceShellInitialState = {
   readonly workspace?: {
     readonly id: string
     readonly namespace: string
-    readonly keyLabel: string | null
+    readonly activeKeyLabel: string | null
   }
   readonly workspaces?: readonly {
     readonly id: string
     readonly namespace: string
-    readonly keyLabel: string | null
+    readonly activeKeyLabel: string | null
   }[]
   readonly knowhereKeyLabels?: readonly {
+    readonly id: string
     readonly label: string
     readonly mask: string
   }[]
@@ -84,6 +85,7 @@ type WorkspaceShellInitialStateDependencies = {
     readonly apiKey: string
     readonly client: WorkspaceShellInitialStateClient
   }>
+  readonly getCurrentUser: () => Promise<AuthUser | null>
   readonly getOptionalAuthenticated: () => Promise<{
     readonly user: AuthUser
     readonly workspace: Workspace
@@ -101,8 +103,8 @@ type WorkspaceShellInitialStateDependencies = {
   readonly listWorkspacesForUser: (
     userId: string,
   ) => Promise<readonly Workspace[]>
-  readonly listMaskedKnowhereKeys: () => Promise<
-    readonly { label: string; mask: string }[]
+  readonly listMaskedKnowhereKeys: (userId: string) => Promise<
+    readonly { id: string; label: string; mask: string }[]
   >
   readonly localizeRemoteDocument: typeof sourceWorkflowRuntime.localizeRemoteDocument
   readonly reconcileSourcesForWorkspace: (
@@ -118,6 +120,7 @@ type WorkspaceShellInitialStateDependencies = {
 
 const defaultDependencies: WorkspaceShellInitialStateDependencies = {
   getClientForWorkspace: notebookRequestContext.getClientForWorkspace,
+  getCurrentUser: notebookRequestContext.getCurrentUser,
   getOptionalAuthenticated: notebookRequestContext.getOptionalAuthenticated,
   listChatThreads: chatThreadService.listForWorkspace,
   listMessages: chatThreadService.listMessages,
@@ -138,6 +141,29 @@ export const loadWorkspaceShellInitialStateEffect = (
   deps: WorkspaceShellInitialStateDependencies = defaultDependencies,
 ) =>
   Effect.gen(function* () {
+    const user = yield* effectOperation.tryPromise(
+      {
+        context: workspaceInitialStateContext,
+        operation: "getCurrentUser",
+      },
+      () => deps.getCurrentUser(),
+    )
+    if (!user) {
+      return {
+        sources: [],
+        workspaces: [],
+        knowhereKeyLabels: [],
+      }
+    }
+
+    const workspacesForUser = yield* effectOperation.tryPromise(
+      {
+        context: workspaceInitialStateContext,
+        operation: "listWorkspacesForUser",
+      },
+      () => deps.listWorkspacesForUser(user.id),
+    )
+
     const context = yield* effectOperation.tryPromise(
       {
         context: workspaceInitialStateContext,
@@ -146,15 +172,38 @@ export const loadWorkspaceShellInitialStateEffect = (
       () => deps.getOptionalAuthenticated(),
     )
 
+    const userKeys = yield* effectOperation.tryPromise(
+      {
+        context: workspaceInitialStateContext,
+        operation: "listMaskedKnowhereKeys",
+      },
+      () => deps.listMaskedKnowhereKeys(user.id),
+    )
+    const workspaceView = (row: Workspace) => ({
+      id: row.id,
+      namespace: row.namespace,
+      activeKeyLabel:
+        userKeys.find((key) => key.id === row.activeKnowhereApiKeyId)?.label ??
+        null,
+    })
+
+    // Authenticated but no workspace yet: new users must add an API key and
+    // pick a namespace before any workspace exists.
     if (!context) {
       return {
+        user: {
+          id: user.id,
+          name: user.name ?? null,
+          email: user.email ?? null,
+        },
+        workspace: undefined,
+        workspaces: workspacesForUser.map(workspaceView),
+        knowhereKeyLabels: userKeys,
         sources: [],
-        workspaces: [],
-        knowhereKeyLabels: [],
       }
     }
 
-    const { user, workspace } = context
+    const { workspace } = context
     const listedSources = yield* effectOperation.tryPromise(
       {
         context: workspaceInitialStateContext,
@@ -241,29 +290,9 @@ export const loadWorkspaceShellInitialStateEffect = (
         name: user.name ?? null,
         email: user.email ?? null,
       },
-      workspace: {
-        id: workspace.id,
-        namespace: workspace.namespace,
-        keyLabel: workspace.knowhereKeyLabel,
-      },
-      workspaces: (yield* effectOperation.tryPromise(
-        {
-          context: workspaceInitialStateContext,
-          operation: "listWorkspacesForUser",
-        },
-        () => deps.listWorkspacesForUser(user.id),
-      )).map((row) => ({
-        id: row.id,
-        namespace: row.namespace,
-        keyLabel: row.knowhereKeyLabel,
-      })),
-      knowhereKeyLabels: yield* effectOperation.tryPromise(
-        {
-          context: workspaceInitialStateContext,
-          operation: "listMaskedKnowhereKeys",
-        },
-        () => deps.listMaskedKnowhereKeys(),
-      ),
+      workspace: workspaceView(workspace),
+      workspaces: workspacesForUser.map(workspaceView),
+      knowhereKeyLabels: userKeys,
       sources: localizedSources.map((source) =>
         toSourceView(source, sourceOptions.get(source.id)),
       ),
@@ -292,10 +321,18 @@ function listAllForUser(userId: string): Promise<readonly Workspace[]> {
     workspaceRepository.findAllByUserIdEffect(userId),
   )
 }
-function listMaskedKnowhereKeysDefault(): Promise<
-  readonly { label: string; mask: string }[]
-> {
-  return listMaskedKnowhereKeys()
+function listMaskedKnowhereKeysDefault(
+  userId: string,
+): Promise<readonly { id: string; label: string; mask: string }[]> {
+  return databaseRuntime
+    .runPromise(knowhereApiKeysRepository.listByUserEffect(userId))
+    .then((keys) =>
+      keys.map((key) => ({
+        id: key.id,
+        label: key.label,
+        mask: key.keyMask,
+      })),
+    )
 }
 
 function getWorkspaceSourcesNeedingKnowhereChunkCount(

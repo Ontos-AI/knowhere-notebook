@@ -2,33 +2,40 @@ import type { NextResponse } from "next/server"
 
 import { withApiErrorResponse } from "@/lib/api-error-response"
 import { getCurrentUser } from "@/infrastructure/auth"
-import { getKnowhereKeyByLabel } from "@/integrations/knowhere-keys"
+import { databaseRuntime } from "@/domains/workspace/database-runtime"
+import { knowhereApiKeysRepository } from "@/infrastructure/auth/knowhere-api-keys-repository"
 import { listKnowhereNamespaces } from "@/integrations/knowhere"
 import { nextRouteResponse } from "@/lib/next-route-response"
 import { routeResult } from "@/lib/route-result"
 
 export async function GET(
   _request: Request,
-  { params }: { params: Promise<{ label: string }> },
+  { params }: { params: Promise<{ apiKeyId: string }> },
 ): Promise<NextResponse> {
   return withApiErrorResponse(
-    "knowhere-keys:namespaces",
+    "api-keys:namespaces",
     async () => {
-      const { label } = await params
-      const decodedLabel = decodeURIComponent(label)
+      const { apiKeyId } = await params
       const user = await getCurrentUser()
       if (!user) {
         return nextRouteResponse.toNextResponse(
           routeResult.badRequest("Not authenticated."),
         )
       }
-      const key = await getKnowhereKeyByLabel(decodedLabel)
+
+      const key = await databaseRuntime.runPromise(
+        knowhereApiKeysRepository.findByIdAndUserEffect(apiKeyId, user.id),
+      )
       if (!key) {
         return nextRouteResponse.toNextResponse(
-          routeResult.error(404, `Key label '${decodedLabel}' not found.`),
+          routeResult.error(404, "API key not found."),
         )
       }
-      const namespaces = await listKnowhereNamespaces(key.apiKey)
+
+      const apiKey = await databaseRuntime.runPromise(
+        knowhereApiKeysRepository.decryptStoredEffect(key),
+      )
+      const namespaces = await listKnowhereNamespaces(apiKey)
       return nextRouteResponse.toNextResponse(routeResult.ok({ namespaces }))
     },
     "Could not list namespaces for this key.",
