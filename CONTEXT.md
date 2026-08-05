@@ -18,11 +18,13 @@ key and keep working unchanged.
 ## Knowhere Key Label
 
 A Knowhere Key Label identifies one configured Knowhere API key (a "domain").
-Keys are defined in `config/knowhere-keys.json` as `{ label, apiKey }` entries,
-read server-side by `src/integrations/knowhere-keys.ts` (mtime-cached, so edits
-take effect without a restart). When the file is absent, `KNOWHERE_API_KEY` env
-is treated as a single key labeled `"default"`. The API never exposes full keys
-to the browser — only masked labels (`sk_8aB••••GVB8`).
+Since Phase 3, keys are managed per workspace through the "API keys…" dialog:
+stored AES-256-GCM encrypted in the `knowhere_api_keys` table and decrypted
+on demand by `ensureApiKeyForWorkspace`. `workspaces.active_knowhere_api_key_id`
+selects the active key. The `config/knowhere-keys.json` file (or
+`KNOWHERE_API_KEY` env as a single `"default"` key) remains as a bootstrap
+fallback for fresh deployments. The API never exposes full keys to the
+browser — only masked labels (`sk_8aB••••GVB8`).
 
 ## Workspace Shell
 
