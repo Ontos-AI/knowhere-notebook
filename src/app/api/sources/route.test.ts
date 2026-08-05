@@ -24,7 +24,7 @@ vi.mock("next/headers", () => ({
   headers: vi.fn(async () => new Headers({ cookie: "session=abc" })),
 }));
 
-vi.mock("@/integrations/dashboard/api-key-service", () => ({
+vi.mock("@/integrations/knowhere-credentials", () => ({
   ensureApiKeyForWorkspace: mocks.ensureApiKeyForWorkspace,
 }));
 
@@ -116,7 +116,6 @@ describe("POST /api/sources", () => {
     expect(response.status).toBe(201);
     expect(mocks.ensureApiKeyForWorkspace).toHaveBeenCalledWith(
       workspace.id,
-      "session=abc",
     );
     expect(mocks.uploadSourceToKnowhere).toHaveBeenCalledWith(
       workspace,

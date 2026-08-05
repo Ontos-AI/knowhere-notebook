@@ -6,9 +6,6 @@ import type { ReactElement } from "react";
 import { logoutAction } from "@/app/auth/logout/actions";
 
 export type TopNavProps = {
-  analyticsContext?: unknown;
-  hasChats?: boolean;
-  hasSources?: boolean;
   userInitials?: string;
   userName?: string;
   userTierLabel?: string;
@@ -16,9 +13,6 @@ export type TopNavProps = {
 };
 
 export function TopNav({
-  analyticsContext: _analyticsContext,
-  hasChats: _hasChats = false,
-  hasSources: _hasSources = false,
   userInitials,
   userName,
   userTierLabel,

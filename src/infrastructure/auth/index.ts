@@ -3,8 +3,6 @@ import "server-only"
 import { headers } from "next/headers"
 import { redirect } from "next/navigation"
 import { Context, Effect, Layer } from "effect"
-
-import { authURLs } from "./urls"
 import { logger } from "@/lib/logger"
 import { knowhereApiKeyOverride } from "@/integrations/knowhere-api-key"
 import { sessionCookieName } from "./session"
@@ -132,10 +130,7 @@ export async function requireUser(): Promise<AuthUser> {
   const user = await getCurrentUser()
   if (user !== null) return user
 
-  const notebookUrl =
-    process.env.NOTEBOOK_PUBLIC_URL ??
-    authURLs.resolveNotebookPublicURLFromHeaders(await headers())
-  redirect(`/login?callbackURL=${encodeURIComponent(notebookUrl)}`)
+  redirect("/login")
 }
 
 /**

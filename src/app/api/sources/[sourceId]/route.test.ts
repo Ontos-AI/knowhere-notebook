@@ -26,7 +26,7 @@ vi.mock("@vercel/blob", () => ({
   del: mocks.deleteBlob,
 }));
 
-vi.mock("@/integrations/dashboard/api-key-service", () => ({
+vi.mock("@/integrations/knowhere-credentials", () => ({
   ensureApiKeyForWorkspace: mocks.ensureApiKeyForWorkspace,
 }));
 
@@ -93,7 +93,6 @@ describe("PATCH /api/sources/[sourceId]", () => {
     });
     expect(mocks.ensureApiKeyForWorkspace).toHaveBeenCalledWith(
       "workspace_1",
-      "session=abc",
     );
     expect(mocks.makeKnowhereClient).toHaveBeenCalledWith("jwt_123");
     expect(mocks.archive).toHaveBeenCalledWith("doc_123");

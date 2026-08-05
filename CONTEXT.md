@@ -226,17 +226,26 @@ from `public/data/chat-prompt-templates.json` by `usePromptTemplates`, so
 self-hosted deployments can override them by bind-mounting their own JSON into
 the container without a rebuild.
 
-## Dashboard Auth
+## Notebook Auth
 
-Dashboard Auth is the source of truth for identity. Notebook forwards the
-incoming Dashboard session cookie to Dashboard oRPC endpoints and does not
-decode Dashboard session tokens itself.
+Notebook Auth is Notebook's own identity system (ADR 0010). A `User` is a
+row in the `users` table; login credentials attach via `AccountLink` rows
+(one per provider, `password_hash` for the "password" provider). A `Session`
+is a DB row whose id rides the `notebook-session` cookie (HttpOnly, 30-day
+TTL); `getCurrentUser` joins sessions × users on every request. Users are
+admin-provisioned (no public signup); login is the local `/login` Server
+Action and logout deletes the session row. `KNOWHERE_API_KEY` /
+`KNOWHERE_KEYS_FILE` still short-circuit to the development user as a
+bootstrap.
 
-## Dashboard Service JWT
+## Knowhere Credential
 
-A Dashboard Service JWT is a short-lived token issued by Dashboard and passed
-to the Knowhere SDK for per-request access. Notebook does not create or store
-Knowhere API keys.
+A Knowhere Credential is the API key used to call Knowhere. It is resolved
+per workspace by `ensureApiKeyForWorkspace`
+(`src/integrations/knowhere-credentials.ts`): the workspace's
+`knowhereKeyLabel` picks a key from `config/knowhere-keys.json` (falling
+back to `KNOWHERE_API_KEY` env). The Dashboard JWT path was removed in the
+Phase 2 hard-cut — the Notebook never requests or stores Dashboard tokens.
 
 ## Route Service
 

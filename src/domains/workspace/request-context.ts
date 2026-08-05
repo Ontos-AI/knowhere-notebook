@@ -1,9 +1,8 @@
 import "server-only"
 
 import { Effect } from "effect"
-import { headers } from "next/headers"
 
-import { ensureApiKeyForWorkspace } from "@/integrations/dashboard/api-key-service"
+import { ensureApiKeyForWorkspace } from "@/integrations/knowhere-credentials"
 import {
   getCurrentUser,
   requireUser,
@@ -60,10 +59,8 @@ const getAuthenticatedWithClientEffect = Effect.gen(function* () {
 
 const getClientForWorkspaceEffect = (workspace: Workspace) =>
   Effect.gen(function* () {
-    const cookieHeader =
-      (yield* Effect.tryPromise(() => headers())).get("cookie") ?? ""
     const apiKey = yield* Effect.tryPromise(() =>
-      ensureApiKeyForWorkspace(workspace.id, cookieHeader),
+      ensureApiKeyForWorkspace(workspace.id),
     )
     const client = makeKnowhereClient(apiKey)
 

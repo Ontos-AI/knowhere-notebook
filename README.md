@@ -13,7 +13,7 @@ Upload documents, explore parsed content, and ask questions about your knowledge
    - Chat (one of):
      - `AI_GATEWAY_API_KEY` — Vercel AI Gateway key (optional `CHAT_MODEL` override, default `google/gemini-3-flash`), or
      - `CHAT_BASE_URL` + `CHAT_API_KEY` + `CHAT_MODEL` — any OpenAI-compatible endpoint (e.g. DeepSeek, local Xinference/vLLM). `CHAT_MODEL` is required in this mode.
-   - `KNOWHERE_API_KEY` — optional development override that skips Dashboard auth and calls Knowhere directly
+    - `KNOWHERE_API_KEY` — optional dev bootstrap key that enables the deterministic local user (see Authentication below)
    - `NEXT_PUBLIC_POSTHOG_KEY` — PostHog Project API key for front-end event tracking
    - `NEXT_PUBLIC_POSTHOG_HOST` — PostHog ingestion host (default `https://us.i.posthog.com`)
 
@@ -102,28 +102,25 @@ container can reach the host services.
 are served straight from Knowhere. This is what lets self-hosted / local
 deployments work without a Blob store.
 
-## Dashboard Auth Integration
+## Authentication
 
-Notebook treats Dashboard as the auth source of truth. Server-side auth calls
-forward the incoming session cookie to Dashboard oRPC endpoints, including
-`/api/orpc/users/getCurrentUser` and `/api/orpc/users/issueServiceJwt`.
+Notebook owns its authentication (ADR 0010): users, provider account links,
+and DB-backed sessions live in Notebook's Postgres. The `notebook-session`
+cookie carries the session id.
 
-For local development, setting server-side `KNOWHERE_API_KEY` switches Notebook
-into API-key mode. In that mode the app uses a deterministic local development
-user, skips Dashboard redirects and JWT issuance, and passes the configured key
-directly to the Knowhere SDK. Leave it unset for production and normal
-Dashboard-authenticated staging flows.
-
-Dashboard chooses its oRPC handler by request shape and `Content-Type`.
-When using Effect's `HttpClientRequest.bodyText`, pass
-`"application/json"` as the body content type. Setting the header before
-`bodyText("{}")` is not enough because `bodyText` overwrites it with
-`text/plain`. If that happens, Dashboard can return a successful OpenAPI-shaped
-response instead of the RPC envelope, and Notebook will log a 200
-`schema mismatch` followed by `no valid session`.
-
-Use `setEmptyJsonBody` from `src/integrations/dashboard/orpc-request.ts` for empty
-Dashboard oRPC POST bodies.
+- **Create a user** (admin-provisioned, no public signup):
+  ```bash
+  pnpm exec tsx --tsconfig tsconfig.scripts.json scripts/create-user.ts \
+    you@example.com "a-strong-password" --name "You"
+  ```
+- **Login** at `/login` (email + password, Argon2id hashing). **Logout** is
+  the top-nav sign-out button.
+- **Dev bootstrap:** setting `KNOWHERE_API_KEY` (or providing
+  `config/knowhere-keys.json`) still short-circuits to a deterministic
+  local development user so a fresh deployment works before any user is
+  created. This bootstrap is removed once DB-backed keys land.
+- Multi-domain API keys: see `config/knowhere-keys.json` and the
+  Workspace switcher in the sources panel.
 
 ## Project Structure
 
@@ -133,7 +130,7 @@ src/
 ├── components/       # React components and shadcn/ui primitives
 ├── domains/          # Product domains: chat, chunks, sources, workspace
 ├── infrastructure/   # Owned platform concerns: auth and database access
-├── integrations/     # External systems: Dashboard and Knowhere
+├── integrations/     # External systems: Knowhere
 └── lib/              # Small cross-cutting utilities
 ```
 

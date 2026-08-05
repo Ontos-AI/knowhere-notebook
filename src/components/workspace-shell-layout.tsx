@@ -159,9 +159,6 @@ export function WorkspaceShellLayout(
   return (
     <div className="flex h-screen w-full flex-col overflow-hidden bg-background">
       <TopNav
-        analyticsContext={props.analyticsContext}
-        hasChats={props.chatThreads.length > 0}
-        hasSources={props.readySourceCount > 0}
         userInitials={props.user ? initialsOf(props.user) : undefined}
         userName={
           props.user ? (props.user.name ?? props.user.email ?? undefined) : undefined

@@ -202,7 +202,6 @@ type SourceRouteServiceDependencies = {
   readonly deleteBlob: (pathname: string) => Promise<unknown>
   readonly ensureApiKeyForWorkspace: (
     workspaceId: string,
-    cookieHeader: string,
   ) => Promise<string>
   readonly ensureWorkspace: (userId: string) => Promise<Workspace>
   readonly getCurrentUser: () => Promise<AuthUser | null>

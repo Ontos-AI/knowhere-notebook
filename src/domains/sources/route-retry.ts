@@ -59,7 +59,7 @@ const retrySourceEffect = (
     }
 
     const apiKey = yield* Effect.tryPromise(() =>
-      deps.ensureApiKeyForWorkspace(workspace.id, input.cookieHeader),
+      deps.ensureApiKeyForWorkspace(workspace.id),
     )
     const client = deps.makeKnowhereClient(apiKey)
     const retriedSource = yield* Effect.tryPromise(() =>

@@ -101,7 +101,6 @@ describe("source route service", () => {
     });
     expect(ensureApiKeyForWorkspace).toHaveBeenCalledWith(
       workspace.id,
-      "session=abc",
     );
     expect(listSourcesForWorkspace).toHaveBeenCalledWith(workspace.id);
     expect(reconcileSourcesForWorkspace).not.toHaveBeenCalled();
@@ -442,7 +441,6 @@ describe("source route service", () => {
     });
     expect(ensureApiKeyForWorkspace).toHaveBeenCalledWith(
       workspace.id,
-      "session=abc",
     );
     expect(uploadSourceToKnowhere).toHaveBeenCalledWith(
       workspace,
@@ -528,7 +526,6 @@ describe("source route service", () => {
     });
     expect(ensureApiKeyForWorkspace).toHaveBeenCalledWith(
       workspace.id,
-      "session=abc",
     );
     expect(retrySourceToKnowhere).toHaveBeenCalledWith(
       workspace,

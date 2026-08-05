@@ -20,7 +20,7 @@ vi.mock("next/headers", () => ({
   headers: vi.fn(async () => new Headers({ cookie: "session=abc" })),
 }))
 
-vi.mock("@/integrations/dashboard/api-key-service", () => ({
+vi.mock("@/integrations/knowhere-credentials", () => ({
   ensureApiKeyForWorkspace: mocks.ensureApiKeyForWorkspace,
 }))
 
@@ -259,7 +259,6 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
     expect(mocks.findSourceInWorkspace).not.toHaveBeenCalled()
     expect(mocks.ensureApiKeyForWorkspace).toHaveBeenCalledWith(
       "workspace_1",
-      "session=abc",
     )
     expect(mocks.localizeRemoteDocument).toHaveBeenCalledWith(
       "workspace_1",

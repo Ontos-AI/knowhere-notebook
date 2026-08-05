@@ -6,7 +6,7 @@ import {
   loadChunkPageForSource,
   loadChunksForSource,
 } from "@/domains/chunks/server"
-import { ensureApiKeyForWorkspace } from "@/integrations/dashboard/api-key-service"
+import { ensureApiKeyForWorkspace } from "@/integrations/knowhere-credentials"
 import { makeKnowhereClient as makeDefaultKnowhereClient } from "@/integrations/knowhere"
 import { getCurrentUser, requireUser } from "@/infrastructure/auth"
 import { workspaceService } from "@/domains/workspace/service"
@@ -74,7 +74,7 @@ async function getClientForWorkspace(
     "ensureApiKeyForWorkspace" | "makeKnowhereClient"
   >,
 ): Promise<SourceRouteKnowhereClient> {
-  const apiKey = await deps.ensureApiKeyForWorkspace(workspaceId, cookieHeader)
+  const apiKey = await deps.ensureApiKeyForWorkspace(workspaceId)
   return deps.makeKnowhereClient(apiKey)
 }
 
