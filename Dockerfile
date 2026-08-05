@@ -35,6 +35,10 @@ RUN addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+# Bind-mount target for config/knowhere-keys.json (see AGENTS.md). Created
+# up front so `-v ...:/app/config/knowhere-keys.json:ro` works without a
+# rebuild, and owned by the non-root nextjs user for the fallback file.
+RUN mkdir -p /app/config && chown nextjs:nodejs /app/config
 USER nextjs
 EXPOSE 3000
 CMD ["node", "server.js"]

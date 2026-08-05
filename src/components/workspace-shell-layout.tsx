@@ -27,6 +27,12 @@ import type {
   SourceView,
 } from "@/domains/sources/types"
 
+type WorkspaceSwitcherWorkspace = {
+  readonly id: string
+  readonly namespace: string
+  readonly keyLabel: string | null
+}
+
 export type PanelId = "sources" | "chat"
 
 type DesktopPanelKey = keyof typeof workspaceShellState.minimumDesktopPanelWidths
@@ -61,6 +67,12 @@ export type WorkspaceShellLayoutProps = {
   readonly chatThreads: readonly ChatThreadView[]
   readonly citationListViewRequestId: number
   readonly dashboardUrl?: string
+  readonly activeWorkspace?: WorkspaceSwitcherWorkspace
+  readonly workspaces?: readonly WorkspaceSwitcherWorkspace[]
+  readonly knowhereKeyLabels?: readonly {
+    readonly label: string
+    readonly mask: string
+  }[]
   readonly desktopPanelWidths: Readonly<DesktopPanelWidths>
   readonly focusedChunk: FocusedChunkState
   readonly hasMessages: boolean
@@ -193,6 +205,9 @@ export function WorkspaceShellLayout(
               <SourcesPanel
                 sources={[...props.sources]}
                 isNarrow={isSourcesPanelNarrow}
+                activeWorkspace={props.activeWorkspace}
+                workspaces={props.workspaces ?? []}
+                knowhereKeyLabels={props.knowhereKeyLabels ?? []}
                 analyticsContext={props.analyticsContext}
                 sourceCountSnapshot={props.sources.length}
                 onSourceUploaded={props.onSourceUploaded}
@@ -277,6 +292,9 @@ export function WorkspaceShellLayout(
       >
         <SourcesPanel
           sources={[...props.sources]}
+          activeWorkspace={props.activeWorkspace}
+          workspaces={props.workspaces ?? []}
+          knowhereKeyLabels={props.knowhereKeyLabels ?? []}
           analyticsContext={props.analyticsContext}
           sourceCountSnapshot={props.sources.length}
           onSourceUploaded={props.onSourceUploaded}

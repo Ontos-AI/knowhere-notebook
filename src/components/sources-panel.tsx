@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Spinner } from "@/components/ui/spinner";
 import { NamespaceDropdown } from "@/components/namespace-dropdown";
+import { WorkspaceSwitcher } from "@/components/workspace-switcher";
 import { sourcePanelState } from "@/components/source-panel-state";
 import { SourceRow } from "@/components/source-row";
 import { SourceUploadDialog } from "@/components/source-upload-dialog";
@@ -29,6 +30,20 @@ import type { AnalyticsContext } from "@/lib/posthog";
 export type SourcesPanelProps = {
   readonly isNarrow?: boolean;
   sources: SourceView[];
+  activeWorkspace?: {
+    readonly id: string;
+    readonly namespace: string;
+    readonly keyLabel: string | null;
+  };
+  workspaces?: readonly {
+    readonly id: string;
+    readonly namespace: string;
+    readonly keyLabel: string | null;
+  }[];
+  knowhereKeyLabels?: readonly {
+    readonly label: string;
+    readonly mask: string;
+  }[];
   onSourceUploaded?: (source: SourceView) => void;
   onSourcesLocalized?: (sources: readonly SourceView[]) => void;
   selectedSourceId?: string | null;
@@ -53,6 +68,9 @@ type SourcePageState = {
 export function SourcesPanel({
   isNarrow = false,
   sources = [],
+  activeWorkspace,
+  workspaces = [],
+  knowhereKeyLabels = [],
   onSourceUploaded,
   onSourcesLocalized,
   selectedSourceId = null,
@@ -180,6 +198,15 @@ export function SourcesPanel({
       </div>
       <ScrollArea className="flex-1">
         <div className={isNarrow ? "px-2 py-3" : "px-4 py-4"}>
+          {!isNarrow && workspaces.length > 0 ? (
+            <div className="mb-3">
+              <WorkspaceSwitcher
+                activeWorkspace={activeWorkspace}
+                knowhereKeyLabels={knowhereKeyLabels}
+                workspaces={workspaces}
+              />
+            </div>
+          ) : null}
           <div className="mb-3 flex items-center justify-between gap-2">
             <h3 className="truncate text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
               Sources

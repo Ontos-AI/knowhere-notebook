@@ -5,9 +5,24 @@ terms when naming modules, tests, and route workflows.
 
 ## Workspace
 
-A Workspace is the Notebook-owned tenant container for a Dashboard user. It
-stores the local source metadata, chat threads, and the Knowhere namespace used
-for retrieval. Workspace creation is idempotent per Dashboard user.
+A Workspace is the Notebook-owned tenant container that binds one user to one
+document domain: it stores local source metadata, chat threads, and the pair
+`(knowhereKeyLabel, namespace)` — the configured API key (domain) that
+authenticates Knowhere access, and the Knowhere namespace under that domain
+whose documents the workspace's sources live in. One workspace per
+(user, keyLabel, namespace) tuple. The active workspace is selected by the
+`notebook-ws` cookie (falls back to the user's first workspace, then a legacy
+`notebook-<uuid>` default). Legacy rows with a null key label use the default
+key and keep working unchanged.
+
+## Knowhere Key Label
+
+A Knowhere Key Label identifies one configured Knowhere API key (a "domain").
+Keys are defined in `config/knowhere-keys.json` as `{ label, apiKey }` entries,
+read server-side by `src/integrations/knowhere-keys.ts` (mtime-cached, so edits
+take effect without a restart). When the file is absent, `KNOWHERE_API_KEY` env
+is treated as a single key labeled `"default"`. The API never exposes full keys
+to the browser — only masked labels (`sk_8aB••••GVB8`).
 
 ## Workspace Shell
 

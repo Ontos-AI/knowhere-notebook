@@ -97,6 +97,26 @@ type LocalizeNamespaceResponse = {
   message?: string
 }
 
+export type KnowhereKeyLabelView = {
+  label: string
+  mask: string
+}
+
+type KnowhereKeysResponse = {
+  keys?: KnowhereKeyLabelView[]
+}
+
+export type WorkspaceView = {
+  id: string
+  namespace: string
+  keyLabel: string | null
+}
+
+type CreateWorkspaceResponse = {
+  workspace?: WorkspaceView
+  message?: string
+}
+
 export const workspaceClient = {
   keys: workspaceClientKeys,
   fetchChunks,
@@ -109,6 +129,10 @@ export const workspaceClient = {
   sendChatMessage,
   fetchNamespaces,
   localizeNamespace,
+  fetchKnowhereKeys,
+  fetchKnowhereKeyNamespaces,
+  activateWorkspace,
+  createWorkspace,
   archiveSource,
   retrySource,
   archiveChatThread,
@@ -247,4 +271,43 @@ async function localizeNamespace(namespace: string): Promise<SourceView[]> {
     )
   }
   return Array.isArray(response.body.sources) ? response.body.sources : []
+}
+
+async function fetchKnowhereKeys(): Promise<KnowhereKeyLabelView[]> {
+  const body = await workspaceRouteClient.getJson<KnowhereKeysResponse>(
+    "/api/knowhere-keys",
+  )
+  return Array.isArray(body.keys) ? body.keys : []
+}
+
+async function fetchKnowhereKeyNamespaces(
+  label: string,
+): Promise<NamespaceView[]> {
+  const body = await workspaceRouteClient.getJson<NamespacesResponse>(
+    `/api/knowhere-keys/${encodeURIComponent(label)}/namespaces`,
+  )
+  return Array.isArray(body.namespaces) ? body.namespaces : []
+}
+
+async function activateWorkspace(workspaceId: string): Promise<void> {
+  await workspaceRouteClient.postJson(
+    "/api/workspaces/activate",
+    { workspaceId },
+  )
+}
+
+async function createWorkspace(
+  keyLabel: string,
+  namespace: string,
+): Promise<WorkspaceView> {
+  const response = await workspaceRouteClient.postJsonWithStatus<
+    CreateWorkspaceResponse
+  >("/api/workspaces", { keyLabel, namespace })
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(response.body.message ?? "Could not create this workspace.")
+  }
+  if (!response.body.workspace) {
+    throw new Error("Could not create this workspace.")
+  }
+  return response.body.workspace
 }

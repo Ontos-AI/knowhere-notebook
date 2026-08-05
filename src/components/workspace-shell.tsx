@@ -44,7 +44,17 @@ export type WorkspaceShellProps = {
   workspace?: {
     id: string
     namespace: string
+    keyLabel: string | null
   }
+  workspaces?: readonly {
+    id: string
+    namespace: string
+    keyLabel: string | null
+  }[]
+  knowhereKeyLabels?: readonly {
+    label: string
+    mask: string
+  }[]
   sources?: SourceView[]
   chatThreads?: ChatThreadView[]
   activeChatThreadId?: string | null
@@ -79,6 +89,8 @@ function WorkspaceShellContent({
   chunkViewDocumentId,
   dashboardUrl,
   workspace,
+  workspaces,
+  knowhereKeyLabels,
   initialPrefetchedChunksBySourceId,
 }: WorkspaceShellProps): ReactElement {
   const [mobilePanel, setMobilePanel] = useState<PanelId>("chat")
@@ -192,6 +204,9 @@ function WorkspaceShellContent({
       chatThreads={chatWorkflow.chatThreads}
       desktopPanelWidths={desktopPanelWidths}
       dashboardUrl={dashboardUrl}
+      activeWorkspace={workspace}
+      workspaces={workspaces ?? []}
+      knowhereKeyLabels={knowhereKeyLabels ?? []}
       citationListViewRequestId={citationFocus.citationListViewRequestId}
       focusedChunk={citationFocus.focusedChunk}
       hasMessages={hasMessages}
