@@ -1,171 +1,93 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { Effect } from "effect"
 
-const nextCacheMocks = vi.hoisted(() => ({
-  cacheLife: vi.fn(),
-  cacheTag: vi.fn(),
+const repositoryMocks = vi.hoisted(() => ({
+  findByIdEffect: vi.fn(),
+  findUserByIdEffect: vi.fn(),
+  runPromise: vi.fn(),
 }))
 
-vi.mock("next/cache", () => nextCacheMocks)
+vi.mock("./sessions-repository", () => ({
+  sessionsRepository: {
+    findByIdEffect: repositoryMocks.findByIdEffect,
+  },
+}))
+
+vi.mock("./users-repository", () => ({
+  usersRepository: {
+    findByIdEffect: repositoryMocks.findUserByIdEffect,
+  },
+}))
+
+vi.mock("@/domains/workspace/database-runtime", () => ({
+  databaseRuntime: {
+    runPromise: repositoryMocks.runPromise,
+  },
+}))
 
 /**
- * Tests for the auth module.
+ * Tests for the Phase 2 auth module.
  *
- * The scope is intentionally narrow — we assert the contract with
- * Dashboard as Pi laid it out:
- *   - forward the incoming Cookie header verbatim
- *   - hit Dashboard's getCurrentUser oRPC endpoint server-side
- *   - treat `body.json.user === null` (or missing, or HTTP error, or
- *     malformed body, or network failure) as "anonymous"
- *   - never decode a JWT ourselves
- *
- * `requireUser`'s redirect behavior is not unit-tested here because
- * `next/navigation`'s `redirect` throws a framework-internal error that
- * is awkward to assert against in isolation; it is covered by the
- * Playwright flow added in a later PR.
+ * The scope is intentionally narrow — we assert the Notebook-owned session
+ * contract:
+ *   - KNOWHERE_API_KEY dev mode short-circuits to the development user
+ *   - no session cookie → null (no DB roundtrip)
+ *   - a valid session id → session row → users row → AuthUser
+ *   - expired / missing session or user → null
+ *   - `requireUser` does not redirect in dev mode
  */
 
-import { extractUser, sessionCookieNames } from "."
+import { extractUser } from "."
 
-const SESSION_PATH = "/api/orpc/users/getCurrentUser"
-
-type ParsedLogLine = {
-  readonly body?: unknown
-  readonly msg?: unknown
-}
-
-function getHeaderValue(headers: HeadersInit | undefined, name: string): string | null {
-  if (headers === undefined) return null
-  if (headers instanceof Headers) return headers.get(name)
-
-  const lowerName = name.toLowerCase()
-  if (Array.isArray(headers)) {
-    const pair = headers.find(([key]) => key.toLowerCase() === lowerName)
-    return pair?.[1] ?? null
-  }
-
-  const entry = Object.entries(headers).find(
-    ([key]) => key.toLowerCase() === lowerName,
-  )
-  return entry?.[1] ?? null
-}
-
-async function readBodyText(body: BodyInit | null | undefined): Promise<string | null> {
-  if (body === undefined || body === null) return null
-  if (typeof body === "string") return body
-  if (body instanceof Blob) return await body.text()
-  if (body instanceof URLSearchParams) return body.toString()
-  if (body instanceof ArrayBuffer) return new TextDecoder().decode(body)
-  if (ArrayBuffer.isView(body)) {
-    const bytes = new Uint8Array(body.buffer, body.byteOffset, body.byteLength)
-    return new TextDecoder().decode(bytes)
-  }
-  return null
+const developmentUser = {
+  id: "knowhere-api-key-dev-user",
+  email: null,
+  name: "Knowhere API Key Development",
 }
 
 describe("extractUser", () => {
-  it("returns null when body is not an object", () => {
+  it("returns null when value is not an object", () => {
     expect(extractUser(null)).toBeNull()
     expect(extractUser(undefined)).toBeNull()
     expect(extractUser("nope")).toBeNull()
     expect(extractUser(42)).toBeNull()
   })
 
-  it("returns null when json envelope is missing", () => {
+  it("returns null when id is missing or empty", () => {
     expect(extractUser({})).toBeNull()
-    expect(extractUser({ data: { user: { id: "u1" } } })).toBeNull()
-  })
-
-  it("returns null when user is missing or explicitly null", () => {
-    expect(extractUser({ json: {} })).toBeNull()
-    expect(extractUser({ json: { user: null } })).toBeNull()
-  })
-
-  it("returns null when user.id is missing or empty", () => {
-    expect(extractUser({ json: { user: {} } })).toBeNull()
-    expect(extractUser({ json: { user: { id: "" } } })).toBeNull()
-    expect(extractUser({ json: { user: { id: 42 } } })).toBeNull()
+    expect(extractUser({ id: "" })).toBeNull()
+    expect(extractUser({ id: 42 })).toBeNull()
   })
 
   it("returns the user with id, email, and name when present", () => {
-    const got = extractUser({
-      json: {
-        user: { id: "user_123", email: "a@b.com", name: "Teacher" },
-      },
-    })
-    expect(got).toEqual({
-      id: "user_123",
+    expect(extractUser({ id: "u1", email: "a@b.com", name: "Ada" })).toEqual({
+      id: "u1",
       email: "a@b.com",
-      name: "Teacher",
+      name: "Ada",
     })
   })
 
   it("coerces missing optional fields to null", () => {
-    const got = extractUser({ json: { user: { id: "u1" } } })
-    expect(got).toEqual({ id: "u1", email: null, name: null })
-  })
-
-  it("tolerates extra fields without failing", () => {
-    const got = extractUser({
-      json: {
-        user: {
-          id: "u1",
-          email: "x@y",
-          name: "N",
-          someFutureField: "anything",
-        },
-      },
-      meta: { traceId: "abc" },
-    })
-    expect(got?.id).toBe("u1")
-  })
-})
-
-describe("sessionCookieNames", () => {
-  const originalEnv = process.env.SESSION_COOKIE_NAMES
-  afterEach(() => {
-    if (originalEnv === undefined) delete process.env.SESSION_COOKIE_NAMES
-    else process.env.SESSION_COOKIE_NAMES = originalEnv
-  })
-
-  it("defaults to the Better Auth session cookie names", () => {
-    delete process.env.SESSION_COOKIE_NAMES
-    expect(sessionCookieNames()).toEqual([
-      "better-auth.session_token",
-      "__Secure-better-auth.session_token",
-    ])
-  })
-
-  it("honors a comma-separated override from env", () => {
-    process.env.SESSION_COOKIE_NAMES = "my-cookie, other-cookie ,x"
-    expect(sessionCookieNames()).toEqual(["my-cookie", "other-cookie", "x"])
-  })
-
-  it("falls back to defaults when the override is blank", () => {
-    process.env.SESSION_COOKIE_NAMES = "   "
-    expect(sessionCookieNames()).toEqual([
-      "better-auth.session_token",
-      "__Secure-better-auth.session_token",
-    ])
+    expect(extractUser({ id: "u1" })).toEqual({ id: "u1", email: null, name: null })
   })
 })
 
 describe("getCurrentUser", () => {
-  const originalFetch = globalThis.fetch
-  const originalOrigin = process.env.DASHBOARD_ORIGIN
   const originalApiKey = process.env.KNOWHERE_API_KEY
 
   beforeEach(() => {
     vi.resetModules()
-    process.env.DASHBOARD_ORIGIN = "https://dashboard.example.test"
     delete process.env.KNOWHERE_API_KEY
+    repositoryMocks.runPromise.mockReset()
+    repositoryMocks.findByIdEffect.mockReset()
+    repositoryMocks.findUserByIdEffect.mockReset()
+    // Run the effect for real so the mocked repository Effects are executed.
+    repositoryMocks.runPromise.mockImplementation((effect: Effect.Effect<unknown, never, never>) =>
+      Effect.runPromise(effect),
+    )
   })
 
   afterEach(() => {
-    globalThis.fetch = originalFetch
-    nextCacheMocks.cacheLife.mockClear()
-    nextCacheMocks.cacheTag.mockClear()
-    if (originalOrigin === undefined) delete process.env.DASHBOARD_ORIGIN
-    else process.env.DASHBOARD_ORIGIN = originalOrigin
     if (originalApiKey === undefined) delete process.env.KNOWHERE_API_KEY
     else process.env.KNOWHERE_API_KEY = originalApiKey
   })
@@ -178,170 +100,74 @@ describe("getCurrentUser", () => {
     return await import(".")
   }
 
-  it("returns null when no Cookie header is present (no roundtrip)", async () => {
-    const fetchSpy = vi.fn<typeof fetch>()
-    globalThis.fetch = fetchSpy
+  it("returns null when no Cookie header is present", async () => {
     const { getCurrentUser } = await loadWithCookie("")
-    const got = await getCurrentUser()
-    expect(got).toBeNull()
-    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(await getCurrentUser()).toBeNull()
+    expect(repositoryMocks.runPromise).not.toHaveBeenCalled()
   })
 
   it("returns the development user when KNOWHERE_API_KEY is configured", async () => {
     process.env.KNOWHERE_API_KEY = "sk_dev_key"
-    delete process.env.DASHBOARD_ORIGIN
-    const fetchSpy = vi.fn<typeof fetch>()
-    globalThis.fetch = fetchSpy
     const { getCurrentUser } = await loadWithCookie("")
-
     const user = await getCurrentUser()
+    expect(user).toEqual(developmentUser)
+    expect(repositoryMocks.runPromise).not.toHaveBeenCalled()
+  })
 
-    expect(user).toEqual({
-      id: "knowhere-api-key-dev-user",
-      email: null,
-      name: "Knowhere API Key Development",
-    })
-    expect(fetchSpy).not.toHaveBeenCalled()
+  it("returns the user for a valid session cookie", async () => {
+    repositoryMocks.findByIdEffect.mockReturnValue(
+      Effect.succeed({
+        id: "session_1",
+        userId: "user_1",
+        expiresAt: new Date(Date.now() + 100_000),
+        createdAt: new Date(),
+      }),
+    )
+    repositoryMocks.findUserByIdEffect.mockReturnValue(
+      Effect.succeed({
+        id: "user_1",
+        email: "ada@example.com",
+        name: "Ada",
+        emailVerifiedAt: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        deletedAt: null,
+      }),
+    )
+    const { getCurrentUser } = await loadWithCookie("notebook-session=session_1")
+    const user = await getCurrentUser()
+    expect(user).toEqual({ id: "user_1", email: "ada@example.com", name: "Ada" })
+  })
+
+  it("returns null when the session row is missing", async () => {
+    repositoryMocks.findByIdEffect.mockReturnValue(Effect.succeed(null))
+    const { getCurrentUser } = await loadWithCookie("notebook-session=missing")
+    expect(await getCurrentUser()).toBeNull()
+  })
+
+  it("returns null when the session's user row is missing", async () => {
+    repositoryMocks.findByIdEffect.mockReturnValue(
+      Effect.succeed({
+        id: "session_1",
+        userId: "user_gone",
+        expiresAt: new Date(Date.now() + 100_000),
+        createdAt: new Date(),
+      }),
+    )
+    repositoryMocks.findUserByIdEffect.mockReturnValue(Effect.succeed(null))
+    const { getCurrentUser } = await loadWithCookie("notebook-session=session_1")
+    expect(await getCurrentUser()).toBeNull()
+  })
+
+  it("returns null on DB failure without throwing", async () => {
+    repositoryMocks.runPromise.mockRejectedValue(new Error("db down"))
+    const { getCurrentUser } = await loadWithCookie("notebook-session=session_1")
+    expect(await getCurrentUser()).toBeNull()
   })
 
   it("allows requireUser without redirecting when KNOWHERE_API_KEY is configured", async () => {
     process.env.KNOWHERE_API_KEY = "sk_dev_key"
-    delete process.env.DASHBOARD_ORIGIN
     const { requireUser } = await loadWithCookie("")
-
-    await expect(requireUser()).resolves.toEqual({
-      id: "knowhere-api-key-dev-user",
-      email: null,
-      name: "Knowhere API Key Development",
-    })
-  })
-
-  it("POSTs to the Dashboard oRPC endpoint with the incoming Cookie", async () => {
-    const expectedUrl = `https://dashboard.example.test${SESSION_PATH}`
-    const fetchSpy = vi.fn<typeof fetch>().mockResolvedValue(
-      new Response(
-        JSON.stringify({ json: { user: { id: "u1", email: "a@b" } } }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      ),
-    )
-    globalThis.fetch = fetchSpy
-    const { getCurrentUser } = await loadWithCookie(
-      "better-auth.session_token=abc; other=val",
-    )
-    const user = await getCurrentUser()
-    expect(user).toEqual({ id: "u1", email: "a@b", name: null })
-    expect(fetchSpy).toHaveBeenCalledOnce()
-    const [req, init] = fetchSpy.mock.calls[0]!
-    const requestUrl =
-      req instanceof Request ? req.url
-      : req instanceof URL ? req.href
-      : typeof req === "string" ? req
-      : String(req)
-    expect(requestUrl).toBe(expectedUrl)
-    const requestHeaders =
-      req instanceof Request ? req.headers : (init as RequestInit | undefined)?.headers
-    expect(getHeaderValue(requestHeaders, "cookie")).toBe(
-      "better-auth.session_token=abc; other=val",
-    )
-    expect(getHeaderValue(requestHeaders, "content-type")).toContain(
-      "application/json",
-    )
-    expect(await readBodyText((init as RequestInit | undefined)?.body)).toBe("{}")
-  })
-
-  it("does not reuse a stale user after Dashboard invalidates the session", async () => {
-    const fetchSpy = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({ json: { user: { id: "u1", email: "a@b" } } }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ json: { user: null } }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
-      )
-    globalThis.fetch = fetchSpy
-    const { getCurrentUser } = await loadWithCookie(
-      "better-auth.session_token=abc",
-    )
-
-    await expect(getCurrentUser()).resolves.toEqual({
-      id: "u1",
-      email: "a@b",
-      name: null,
-    })
-    await expect(getCurrentUser()).resolves.toBeNull()
-    expect(fetchSpy).toHaveBeenCalledTimes(2)
-    expect(nextCacheMocks.cacheLife).not.toHaveBeenCalled()
-    expect(nextCacheMocks.cacheTag).not.toHaveBeenCalled()
-  })
-
-  it("returns null on Dashboard non-2xx response", async () => {
-    globalThis.fetch = vi
-      .fn<typeof fetch>()
-      .mockResolvedValue(new Response("oops", { status: 503 }))
-    const { getCurrentUser } = await loadWithCookie("session=x")
-    expect(await getCurrentUser()).toBeNull()
-  })
-
-  it("returns null on network error without throwing", async () => {
-    globalThis.fetch = vi
-      .fn<typeof fetch>()
-      .mockRejectedValue(new Error("network down"))
-    const { getCurrentUser } = await loadWithCookie("session=x")
-    await expect(getCurrentUser()).resolves.toBeNull()
-  })
-
-  it("returns null when the response body is not JSON", async () => {
-    globalThis.fetch = vi
-      .fn<typeof fetch>()
-      .mockResolvedValue(new Response("not-json", { status: 200 }))
-    const { getCurrentUser } = await loadWithCookie("session=x")
-    expect(await getCurrentUser()).toBeNull()
-  })
-
-  it("returns null when body.json.user is null", async () => {
-    globalThis.fetch = vi.fn<typeof fetch>().mockResolvedValue(
-      new Response(JSON.stringify({ json: { user: null } }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      }),
-    )
-    const { getCurrentUser } = await loadWithCookie("session=x")
-    expect(await getCurrentUser()).toBeNull()
-  })
-
-  it("logs the JSON body when Dashboard returns an unexpected response shape", async () => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined)
-    try {
-      globalThis.fetch = vi.fn<typeof fetch>().mockResolvedValue(
-        new Response(JSON.stringify({ user: { id: "u1" } }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
-      )
-      const { getCurrentUser } = await loadWithCookie("session=x")
-
-      expect(await getCurrentUser()).toBeNull()
-
-      const line = String(warnSpy.mock.calls[0]?.[0] ?? "")
-      const parsed = JSON.parse(line) as ParsedLogLine
-      expect(parsed.msg).toBe(
-        "dashboard: POST /api/orpc/users/getCurrentUser -> schema mismatch",
-      )
-      expect(parsed.body).toBe(JSON.stringify({ user: { id: "u1" } }))
-    } finally {
-      warnSpy.mockRestore()
-    }
-  })
-
-  it("throws when DASHBOARD_ORIGIN is not configured", async () => {
-    delete process.env.DASHBOARD_ORIGIN
-    const { getCurrentUser } = await loadWithCookie("session=x")
-    await expect(getCurrentUser()).rejects.toThrow(/DASHBOARD_ORIGIN/)
+    await expect(requireUser()).resolves.toEqual(developmentUser)
   })
 })

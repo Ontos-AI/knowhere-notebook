@@ -237,3 +237,95 @@ export const chatMessages = pgTable(
 
 export type ChatMessage = typeof chatMessages.$inferSelect;
 export type NewChatMessage = typeof chatMessages.$inferInsert;
+
+/**
+ * Notebook-owned users. Created by the admin CLI (scripts/create-user.ts)
+ * in Phase 2; OAuth/SSO links attach via `account_links`.
+ *
+ * `email` is unique and serves as the login handle. `email_verified_at`
+ * is set once email verification exists (deferred; null for now).
+ */
+export const users = pgTable(
+  "users",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    email: text("email").notNull().unique(),
+    name: text("name"),
+    emailVerifiedAt: timestamp("email_verified_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => [index("users_email_idx").on(t.email)],
+);
+
+export type User = typeof users.$inferSelect;
+export type NewUser = typeof users.$inferInsert;
+
+/**
+ * Credential links for modular auth providers.
+ *
+ * One row per (user, provider) pair — a user can sign in with password
+ * AND Google/GitHub later. `password_hash` lives here (only for the
+ * "password" provider), keeping OAuth-only users hash-free.
+ */
+export const accountLinks = pgTable(
+  "account_links",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull(),
+    providerUserId: text("provider_user_id"),
+    passwordHash: text("password_hash"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("account_links_user_provider_idx").on(t.userId, t.provider),
+    uniqueIndex("account_links_provider_provider_user_idx").on(
+      t.provider,
+      t.providerUserId,
+    ),
+  ],
+);
+
+export type AccountLink = typeof accountLinks.$inferSelect;
+export type NewAccountLink = typeof accountLinks.$inferInsert;
+
+/**
+ * DB-backed sessions: one row per active login, revocable server-side.
+ *
+ * The `notebook-session` cookie holds the session id; `getCurrentUser`
+ * joins this table to `users` on every request. Expired rows are ignored
+ * (and swept opportunistically).
+ */
+export const sessions = pgTable(
+  "sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("sessions_user_id_idx").on(t.userId),
+    index("sessions_expires_at_idx").on(t.expiresAt),
+  ],
+);
+
+export type Session = typeof sessions.$inferSelect;
+export type NewSession = typeof sessions.$inferInsert;

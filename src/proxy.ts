@@ -1,6 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server"
-import { authURLs } from "@/infrastructure/auth/urls"
-import { sessionCookieNames } from "@/infrastructure/auth/session-cookie-names"
+import { notebookSessionCookieName } from "@/infrastructure/auth/session-cookie-constants"
 import { knowhereApiKeyOverride } from "@/integrations/knowhere-api-key"
 
 /**
@@ -8,18 +7,18 @@ import { knowhereApiKeyOverride } from "@/integrations/knowhere-api-key"
  *
  * Purpose: cheap short-circuit for obviously-anonymous requests to
  * protected routes. If no session cookie is present, redirect to the
- * Dashboard login page without making any DB or upstream calls.
+ * local login page without making any DB or upstream calls.
  *
  * This is NOT the authoritative auth check. A present cookie is never
- * trusted here — the real verification happens in `src/infrastructure/auth`.
- * via the Dashboard oRPC lookup. The proxy only catches the easy case
- * where there's nothing to verify.
+ * trusted here — the real verification happens in `src/infrastructure/auth`
+ * via the DB session lookup. The proxy only catches the easy case where
+ * there's nothing to verify.
  */
 
 /**
  * Routes that stay accessible without a session. Everything else under
- * `/` is considered app-protected and will redirect to Dashboard login
- * when no cookie is present.
+ * `/` is considered app-protected and will redirect to login when no
+ * cookie is present.
  */
 const PUBLIC_PATHS: readonly string[] = [
   "/",
@@ -44,21 +43,9 @@ export function proxy(req: NextRequest): NextResponse {
 
   if (isPublicPath(req)) return NextResponse.next()
 
-  for (const name of sessionCookieNames()) {
-    if (req.cookies.get(name)) return NextResponse.next()
-  }
+  if (req.cookies.get(notebookSessionCookieName)) return NextResponse.next()
 
-  const origin = process.env.DASHBOARD_ORIGIN
-  if (!origin) {
-    return NextResponse.redirect(new URL("/login", req.url))
-  }
-  const loginUrl = `${origin}/login`
-
-  const notebookUrl =
-    process.env.NOTEBOOK_PUBLIC_URL ?? new URL(req.url).origin
-  return NextResponse.redirect(
-    authURLs.buildDashboardLoginURL(loginUrl, notebookUrl),
-  )
+  return NextResponse.redirect(new URL("/login", req.url))
 }
 
 export const config = {
