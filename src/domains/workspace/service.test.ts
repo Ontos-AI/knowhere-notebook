@@ -6,6 +6,7 @@ import type { Db } from "@/infrastructure/db"
 type WorkspaceRow = {
   id: string
   userId: string
+  knowhereKeyLabel: string | null
   namespace: string
   createdAt: Date
 }
@@ -13,6 +14,7 @@ type WorkspaceRow = {
 type SelectBuilder = {
   from: ReturnType<typeof vi.fn>
   where: ReturnType<typeof vi.fn>
+  orderBy: ReturnType<typeof vi.fn>
   limit: (limit: number) => Promise<WorkspaceRow[]>
 }
 
@@ -33,6 +35,7 @@ function buildWorkspaceDbMock(storage: {
     const builder: SelectBuilder = {
       from: vi.fn(() => builder),
       where: vi.fn(() => builder),
+      orderBy: vi.fn(async () => (storage.row ? [storage.row] : [])),
       limit: vi.fn(async () => (storage.row ? [storage.row] : [])),
     }
     return builder
@@ -45,6 +48,7 @@ function buildWorkspaceDbMock(storage: {
           storage.row = {
             id: crypto.randomUUID(),
             userId: values.userId,
+            knowhereKeyLabel: values.knowhereKeyLabel ?? null,
             namespace: values.namespace,
             createdAt: new Date(),
           }

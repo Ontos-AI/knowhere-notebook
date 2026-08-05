@@ -366,6 +366,7 @@ function makeWorkspace(overrides: Partial<Workspace> = {}): Workspace {
   return {
     id: "workspace_1",
     userId: "user_1",
+    knowhereKeyLabel: null,
     namespace: "notebook-workspace_1",
     createdAt: new Date("2026-05-06T00:00:00Z"),
     ...overrides,

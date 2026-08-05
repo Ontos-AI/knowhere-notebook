@@ -12,11 +12,18 @@ import { chatRepository } from "../chat/repository"
  * which runs only when `TEST_DATABASE_URL` is set.
  */
 
-type Row = { id: string; userId: string; namespace: string; createdAt: Date }
+type Row = {
+  id: string
+  userId: string
+  knowhereKeyLabel: string | null
+  namespace: string
+  createdAt: Date
+}
 
 type SelectBuilder = {
   from: ReturnType<typeof vi.fn>
   where: ReturnType<typeof vi.fn>
+  orderBy: ReturnType<typeof vi.fn>
   limit: (n: number) => Promise<Row[]>
 }
 
@@ -56,6 +63,7 @@ function buildDbMock(storage: { row: Row | null }): DbMock {
     const builder: SelectBuilder = {
       from: vi.fn(() => builder),
       where: vi.fn(() => builder),
+      orderBy: vi.fn(async () => (storage.row ? [storage.row] : [])),
       limit: vi.fn(async () => (storage.row ? [storage.row] : [])),
     }
     return builder
@@ -67,6 +75,7 @@ function buildDbMock(storage: { row: Row | null }): DbMock {
           storage.row = {
             id: crypto.randomUUID(),
             userId: values.userId,
+            knowhereKeyLabel: values.knowhereKeyLabel ?? null,
             namespace: values.namespace,
             createdAt: new Date(),
           }
@@ -106,6 +115,7 @@ describe("workspaceService.ensureWorkspace", () => {
     const existing: Row = {
       id: "ws_1",
       userId: "user_1",
+      knowhereKeyLabel: null,
       namespace: "notebook-existing",
       createdAt: new Date(),
     }
@@ -144,6 +154,23 @@ describe("workspaceService.ensureWorkspace", () => {
     expect(a.id).toBe(b.id)
     expect(a.namespace).toBe(b.namespace)
     expect(a.userId).toBe("user_3")
+  })
+
+  it("creates a workspace for a specific (keyLabel, namespace) pair", async () => {
+    const storage: { row: Row | null } = { row: null }
+    const dbMock = buildDbMock(storage)
+
+    const { workspaceService } = await loadWorkspaceService(dbMock)
+    const got = await workspaceService.ensureWorkspaceForLabelAndNamespace(
+      "user_1",
+      "domainA",
+      "quarterly-reports",
+    )
+
+    expect(dbMock.insert).toHaveBeenCalledOnce()
+    expect(got.userId).toBe("user_1")
+    expect(got.knowhereKeyLabel).toBe("domainA")
+    expect(got.namespace).toBe("quarterly-reports")
   })
 })
 

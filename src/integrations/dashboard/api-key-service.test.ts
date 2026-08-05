@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const nextCacheMocks = vi.hoisted(() => ({
   cacheLife: vi.fn(),
@@ -6,6 +6,29 @@ const nextCacheMocks = vi.hoisted(() => ({
 }))
 
 vi.mock("next/cache", () => nextCacheMocks)
+
+const workspaceRepoMocks = vi.hoisted(() => ({
+  findByIdEffect: vi.fn(),
+}))
+
+vi.mock("@/domains/workspace/repository", () => ({
+  workspaceRepository: workspaceRepoMocks,
+}))
+
+const databaseRuntimeMocks = vi.hoisted(() => ({
+  runPromise: vi.fn(),
+}))
+
+vi.mock("@/domains/workspace/database-runtime", () => ({
+  databaseRuntime: databaseRuntimeMocks,
+}))
+
+const knowhereKeysMocks = vi.hoisted(() => ({
+  getKnowhereKeyByLabel: vi.fn(),
+  getDefaultKnowhereKey: vi.fn(),
+}))
+
+vi.mock("@/integrations/knowhere-keys", () => knowhereKeysMocks)
 
 import {
   ensureApiKeyForWorkspace,
@@ -219,6 +242,15 @@ describe("ensureApiKeyForWorkspace", () => {
   const originalApiKey = process.env.KNOWHERE_API_KEY
   const originalOrigin = process.env.DASHBOARD_ORIGIN
 
+  beforeEach(() => {
+    databaseRuntimeMocks.runPromise.mockReset()
+    databaseRuntimeMocks.runPromise.mockResolvedValue(null)
+    knowhereKeysMocks.getKnowhereKeyByLabel.mockReset()
+    knowhereKeysMocks.getKnowhereKeyByLabel.mockResolvedValue(null)
+    knowhereKeysMocks.getDefaultKnowhereKey.mockReset()
+    knowhereKeysMocks.getDefaultKnowhereKey.mockResolvedValue(null)
+  })
+
   afterEach(() => {
     globalThis.fetch = originalFetch
     if (originalApiKey === undefined) delete process.env.KNOWHERE_API_KEY
@@ -237,6 +269,55 @@ describe("ensureApiKeyForWorkspace", () => {
     const apiKey = await ensureApiKeyForWorkspace("workspace_1", "")
 
     expect(apiKey).toBe("sk_dev_key")
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it("resolves the workspace's knowhereKeyLabel from the key source", async () => {
+    databaseRuntimeMocks.runPromise.mockResolvedValue({
+      id: "workspace_1",
+      userId: "user_1",
+      knowhereKeyLabel: "domainA",
+      namespace: "quarterly",
+      createdAt: new Date(),
+    })
+    knowhereKeysMocks.getKnowhereKeyByLabel.mockResolvedValue({
+      label: "domainA",
+      apiKey: "sk_domain_a",
+    })
+    const fetchSpy = vi.fn<typeof fetch>()
+    globalThis.fetch = fetchSpy
+
+    const apiKey = await ensureApiKeyForWorkspace("workspace_1", "")
+
+    expect(apiKey).toBe("sk_domain_a")
+    expect(knowhereKeysMocks.getKnowhereKeyByLabel).toHaveBeenCalledWith(
+      "domainA",
+    )
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it("falls back to the default key when the workspace label is missing", async () => {
+    databaseRuntimeMocks.runPromise.mockResolvedValue({
+      id: "workspace_2",
+      userId: "user_1",
+      knowhereKeyLabel: null,
+      namespace: "notebook-abc",
+      createdAt: new Date(),
+    })
+    knowhereKeysMocks.getKnowhereKeyByLabel.mockResolvedValue(null)
+    knowhereKeysMocks.getDefaultKnowhereKey.mockResolvedValue({
+      label: "default",
+      apiKey: "sk_default",
+    })
+    const fetchSpy = vi.fn<typeof fetch>()
+    globalThis.fetch = fetchSpy
+
+    const apiKey = await ensureApiKeyForWorkspace("workspace_2", "")
+
+    expect(apiKey).toBe("sk_default")
+    expect(knowhereKeysMocks.getKnowhereKeyByLabel).toHaveBeenCalledWith(
+      "default",
+    )
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 })

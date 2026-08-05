@@ -36,6 +36,8 @@ describe("loadWorkspaceShellInitialState", () => {
     expect(state).toEqual({
       dashboardUrl: "https://dashboard.example",
       sources: [],
+      workspaces: [],
+      knowhereKeyLabels: [],
     })
     expect(deps.listSourcesForWorkspace).not.toHaveBeenCalled()
   })
@@ -225,6 +227,10 @@ function createDependencies(
     listChatThreads: vi.fn(async () => []),
     listMessages: vi.fn(async () => []),
     listSourcesForWorkspace: vi.fn(async () => []),
+    listWorkspacesForUser: vi.fn(async () => [workspace]),
+    listMaskedKnowhereKeys: vi.fn(async () => [
+      { label: "default", mask: "sk_te••••st" },
+    ]),
     localizeRemoteDocument: vi.fn(async () => makeSource("workspace_1")),
     reconcileSourcesForWorkspace: vi.fn(async () => []),
     sourceViewOptionsBySourceId: vi.fn(() => Effect.succeed(new Map())),
@@ -236,6 +242,7 @@ function makeWorkspace(): Workspace {
   return {
     id: "workspace_1",
     userId: "user_1",
+    knowhereKeyLabel: null,
     namespace: "notebook-workspace_1",
     createdAt: new Date("2026-05-10T00:00:00.000Z"),
   }

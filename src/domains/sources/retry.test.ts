@@ -8,6 +8,7 @@ import { retrySourceToKnowhereEffect } from "./retry"
 const workspace: Workspace = {
   id: "workspace_1",
   userId: "user_1",
+  knowhereKeyLabel: null,
   namespace: "notebook-workspace_1",
   createdAt: new Date("2026-05-10T00:00:00Z"),
 }

@@ -9,6 +9,12 @@ import {
 } from "@effect/platform"
 import { logger } from "@/lib/logger"
 import { knowhereApiKeyOverride } from "@/integrations/knowhere-api-key"
+import {
+  getDefaultKnowhereKey,
+  getKnowhereKeyByLabel,
+} from "@/integrations/knowhere-keys"
+import { workspaceRepository } from "@/domains/workspace/repository"
+import { databaseRuntime } from "@/domains/workspace/database-runtime"
 import { setEmptyJsonBody } from "./orpc-request"
 import { formatUnknownForLog } from "@/lib/format-log-value"
 
@@ -139,13 +145,33 @@ export async function fetchKnowhereJwt(
 }
 
 /**
- * Resolve the credential used for Knowhere SDK calls. Development can
- * short-circuit Dashboard JWT issuance by setting KNOWHERE_API_KEY.
+ * Resolve the credential used for Knowhere SDK calls.
+ *
+ * Order:
+ * 1. Workspace-scoped key: look up the workspace row, read its
+ *    `knowhereKeyLabel` (null → default), and resolve the key from the
+ *    configured key source (`config/knowhere-keys.json`, falling back to
+ *    the KNOWHERE_API_KEY env var). Keys are read server-side only.
+ * 2. Legacy env override: single KNOWHERE_API_KEY when no key file is
+ *    configured (today's behavior).
+ * 3. Dashboard JWT issuance for the authenticated user (production).
  */
 export async function ensureApiKeyForWorkspace(
-  _workspaceId: string,
+  workspaceId: string,
   cookieHeader: string,
 ): Promise<string> {
+  const workspace = await databaseRuntime
+    .runPromise(workspaceRepository.findByIdEffect(workspaceId))
+    .catch(() => null)
+
+  if (workspace) {
+    const key = await getKnowhereKeyByLabel(workspace.knowhereKeyLabel ?? "default")
+    if (key) return key.apiKey
+  }
+
+  const defaultKey = await getDefaultKnowhereKey()
+  if (defaultKey) return defaultKey.apiKey
+
   const apiKey = knowhereApiKeyOverride.getApiKey()
   if (apiKey) return apiKey
 

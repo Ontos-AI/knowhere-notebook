@@ -33,23 +33,37 @@ import {
  */
 
 /**
- * One workspace per user for the MVP. `user_id` is the Dashboard user id
- * as returned by `users.getCurrentUser` (not a Notebook-local id).
+ * Workspaces: the persistence unit for a domain-scoped document set.
  *
- * `namespace` is the Knowhere namespace this workspace's sources all live
- * in. It is derived once from the workspace id and never mutated.
+ * A workspace binds one user to one Knowhere document domain: the
+ * `knowhere_key_label` selects which configured API key (domain) the
+ * workspace authenticates with, and `namespace` is the Knowhere namespace
+ * under that domain the workspace's sources live in. One workspace per
+ * (user, key label, namespace) tuple.
+ *
+ * Legacy rows created before multi-domain support have a null
+ * `knowhere_key_label` (uses the default key) and an auto-generated
+ * `notebook-<uuid>` namespace; they keep working unchanged.
  */
 export const workspaces = pgTable(
   "workspaces",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    userId: text("user_id").notNull().unique(),
-    namespace: text("namespace").notNull().unique(),
+    userId: text("user_id").notNull(),
+    knowhereKeyLabel: text("knowhere_key_label"),
+    namespace: text("namespace").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
   },
-  (t) => [index("workspaces_user_id_idx").on(t.userId)],
+  (t) => [
+    index("workspaces_user_id_idx").on(t.userId),
+    uniqueIndex("workspaces_user_label_namespace_idx").on(
+      t.userId,
+      t.knowhereKeyLabel,
+      t.namespace,
+    ),
+  ],
 );
 
 export type Workspace = typeof workspaces.$inferSelect;

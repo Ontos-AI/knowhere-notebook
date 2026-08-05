@@ -26,6 +26,9 @@ import type {
 import { effectOperation } from "@/lib/effect-operation"
 import { logger } from "@/lib/logger"
 import { notebookRequestContext } from "./request-context"
+import { workspaceRepository } from "./repository"
+import { databaseRuntime } from "./database-runtime"
+import { listMaskedKnowhereKeys } from "@/integrations/knowhere-keys"
 
 type WorkspaceShellInitialState = {
   readonly activeChatThreadId?: string | null
@@ -42,7 +45,17 @@ type WorkspaceShellInitialState = {
   readonly workspace?: {
     readonly id: string
     readonly namespace: string
+    readonly keyLabel: string | null
   }
+  readonly workspaces?: readonly {
+    readonly id: string
+    readonly namespace: string
+    readonly keyLabel: string | null
+  }[]
+  readonly knowhereKeyLabels?: readonly {
+    readonly label: string
+    readonly mask: string
+  }[]
 }
 
 const workspaceInitialStateContext = "Workspace initial state"
@@ -86,6 +99,12 @@ type WorkspaceShellInitialStateDependencies = {
   readonly listSourcesForWorkspace: (
     workspaceId: string,
   ) => Promise<readonly Source[]>
+  readonly listWorkspacesForUser: (
+    userId: string,
+  ) => Promise<readonly Workspace[]>
+  readonly listMaskedKnowhereKeys: () => Promise<
+    readonly { label: string; mask: string }[]
+  >
   readonly localizeRemoteDocument: typeof sourceWorkflowRuntime.localizeRemoteDocument
   readonly reconcileSourcesForWorkspace: (
     workspace: Workspace,
@@ -104,6 +123,8 @@ const defaultDependencies: WorkspaceShellInitialStateDependencies = {
   listChatThreads: chatThreadService.listForWorkspace,
   listMessages: chatThreadService.listMessages,
   listSourcesForWorkspace: sourceWorkflowRuntime.listForWorkspace,
+  listWorkspacesForUser: listAllForUser,
+  listMaskedKnowhereKeys: listMaskedKnowhereKeysDefault,
   localizeRemoteDocument: sourceWorkflowRuntime.localizeRemoteDocument,
   reconcileSourcesForWorkspace: reconcileDefaultSourcesForWorkspace,
   startBackgroundReconciliation: defaultStartBackgroundReconciliation,
@@ -130,6 +151,8 @@ export const loadWorkspaceShellInitialStateEffect = (
       return {
         dashboardUrl: resolveDashboardUrl(),
         sources: [],
+        workspaces: [],
+        knowhereKeyLabels: [],
       }
     }
 
@@ -223,7 +246,26 @@ export const loadWorkspaceShellInitialStateEffect = (
       workspace: {
         id: workspace.id,
         namespace: workspace.namespace,
+        keyLabel: workspace.knowhereKeyLabel,
       },
+      workspaces: (yield* effectOperation.tryPromise(
+        {
+          context: workspaceInitialStateContext,
+          operation: "listWorkspacesForUser",
+        },
+        () => deps.listWorkspacesForUser(user.id),
+      )).map((row) => ({
+        id: row.id,
+        namespace: row.namespace,
+        keyLabel: row.knowhereKeyLabel,
+      })),
+      knowhereKeyLabels: yield* effectOperation.tryPromise(
+        {
+          context: workspaceInitialStateContext,
+          operation: "listMaskedKnowhereKeys",
+        },
+        () => deps.listMaskedKnowhereKeys(),
+      ),
       dashboardUrl: resolveDashboardUrl(),
       sources: localizedSources.map((source) =>
         toSourceView(source, sourceOptions.get(source.id)),
@@ -250,6 +292,17 @@ export async function loadWorkspaceShellInitialState(
 
 function resolveDashboardUrl(): string | undefined {
   return process.env.DASHBOARD_ORIGIN
+}
+
+function listAllForUser(userId: string): Promise<readonly Workspace[]> {
+  return databaseRuntime.runPromise(
+    workspaceRepository.findAllByUserIdEffect(userId),
+  )
+}
+function listMaskedKnowhereKeysDefault(): Promise<
+  readonly { label: string; mask: string }[]
+> {
+  return listMaskedKnowhereKeys()
 }
 
 function getWorkspaceSourcesNeedingKnowhereChunkCount(
