@@ -7,6 +7,7 @@ import { databaseRuntime } from "@/domains/workspace/database-runtime"
 import { workspaceRepository } from "@/domains/workspace/repository"
 import { knowhereApiKeysRepository } from "@/infrastructure/auth/knowhere-api-keys-repository"
 import { validateKnowhereApiKey } from "@/integrations/knowhere"
+import { activeWorkspaceCookieName } from "@/domains/workspace/service"
 import { nextRouteResponse } from "@/lib/next-route-response"
 import { routeResult } from "@/lib/route-result"
 
@@ -118,7 +119,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         )
       }
 
-      return nextRouteResponse.toNextResponse(
+      const response = nextRouteResponse.toNextResponse(
         routeResult.ok({
           key: {
             id: created.id,
@@ -131,6 +132,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             : null,
         }),
       )
+      if (homeWorkspace) {
+        // Make the home workspace active immediately so the next SSR load
+        // (router.refresh on the client) lands on it with a fresh thread.
+        response.cookies.set(activeWorkspaceCookieName, homeWorkspace.id, {
+          httpOnly: false,
+          sameSite: "lax",
+          path: "/",
+          maxAge: 60 * 60 * 24 * 365,
+        })
+      }
+      return response
     },
     "Could not add the API key.",
   )

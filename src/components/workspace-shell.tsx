@@ -73,7 +73,10 @@ export function WorkspaceShell(props: WorkspaceShellProps): ReactElement {
         revalidateOnReconnect: false,
       }}
     >
-      <WorkspaceShellContent {...props} />
+      <WorkspaceShellContent
+        key={props.workspace?.id ?? "no-workspace"}
+        {...props}
+      />
     </SWRConfig>
   )
 }

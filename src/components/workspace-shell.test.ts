@@ -579,6 +579,51 @@ describe("WorkspaceShell", () => {
     expect(desktopChatPanel.getByText("This is the recovered answer.")).toBeTruthy();
   });
 
+  it("resets chat state when the active workspace changes (no stale thread)", () => {
+    const first = render(
+      React.createElement(C, {
+        ...shellWorkspaceProps,
+        sources: [],
+        chatThreads: [
+          {
+            id: "thread_1",
+            title: "Old workspace chat",
+            createdAt: "2026-05-06T00:00:00.000Z",
+            updatedAt: "2026-05-06T00:00:00.000Z",
+          },
+        ],
+        activeChatThreadId: "thread_1",
+        chatMessages: [
+          {
+            id: "message_1",
+            role: "user",
+            content: "Old workspace question",
+          },
+        ],
+      }),
+    );
+
+    const desktopChatPanel = within(screen.getByTestId("desktop-chat-panel"));
+    expect(desktopChatPanel.getByText("Old workspace question")).toBeTruthy();
+
+    // Simulate adding a new API key: a brand-new workspace is activated.
+    first.rerender(
+      React.createElement(C, {
+        workspace: { id: "workspace_2", namespace: "default" },
+        workspaces: [{ id: "workspace_2", namespace: "default" }],
+        knowhereKeyLabels: [],
+        sources: [],
+        chatThreads: [],
+        activeChatThreadId: null,
+        chatMessages: [],
+      }),
+    );
+
+    const refreshedPanel = within(screen.getByTestId("desktop-chat-panel"));
+    expect(refreshedPanel.queryByText("Old workspace question")).toBeNull();
+    expect(refreshedPanel.queryByText("This is the recovered answer.")).toBeNull();
+  });
+
   it("loads an old chat when selected from history", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
       const path = getRequestPath(input);
