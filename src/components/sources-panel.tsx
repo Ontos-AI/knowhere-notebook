@@ -44,6 +44,7 @@ export type SourcesPanelProps = {
     readonly label: string;
     readonly mask: string;
   }[];
+  userName?: string;
   onSourceUploaded?: (source: SourceView) => void;
   onSourcesLocalized?: (sources: readonly SourceView[]) => void;
   selectedSourceId?: string | null;
@@ -71,6 +72,7 @@ export function SourcesPanel({
   activeWorkspace,
   workspaces = [],
   knowhereKeyLabels = [],
+  userName,
   onSourceUploaded,
   onSourcesLocalized,
   selectedSourceId = null,
@@ -203,6 +205,7 @@ export function SourcesPanel({
               <WorkspaceSwitcher
                 activeWorkspace={activeWorkspace}
                 knowhereKeyLabels={knowhereKeyLabels}
+                userName={userName}
                 workspaces={workspaces}
               />
             </div>

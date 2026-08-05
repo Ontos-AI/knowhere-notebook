@@ -36,6 +36,7 @@ export type WorkspaceSwitcherProps = {
     readonly label: string;
     readonly mask: string;
   }[];
+  readonly userName?: string;
   readonly workspaces?: readonly WorkspaceView[];
 };
 
@@ -48,6 +49,7 @@ type NewWorkspaceDialogState = {
 export function WorkspaceSwitcher({
   activeWorkspace,
   knowhereKeyLabels = [],
+  userName,
   workspaces = [],
 }: WorkspaceSwitcherProps): ReactElement {
   const router = useRouter();
@@ -99,6 +101,11 @@ export function WorkspaceSwitcher({
   }
 
   const activeLabel = activeWorkspace?.keyLabel ?? "default";
+  const activeDisplayName = getWorkspaceDisplayName(
+    activeWorkspace,
+    activeLabel,
+    userName,
+  );
   const labelWithoutWorkspace = knowhereKeyLabels.filter(
     (key) => !workspacesByKeyLabel.has(key.label),
   );
@@ -115,7 +122,7 @@ export function WorkspaceSwitcher({
             <Boxes className="size-3.5 shrink-0" />
             <span className="min-w-0 truncate">
               {activeWorkspace
-                ? `${activeLabel} / ${activeWorkspace.namespace}`
+                ? activeDisplayName
                 : "Select workspace"}
             </span>
             <ChevronDown className="size-3 shrink-0" />
@@ -297,4 +304,21 @@ export function WorkspaceSwitcher({
       )}
     </>
   );
+}
+
+/**
+ * Display name for a workspace. Legacy rows (null keyLabel) use the
+ * authenticated user's name when available so the switcher reads
+ * "<username> / default" instead of a raw notebook-<uuid> namespace.
+ */
+function getWorkspaceDisplayName(
+  workspace: WorkspaceView | undefined,
+  activeLabel: string,
+  userName: string | undefined,
+): string {
+  if (!workspace) return "Select workspace";
+  if (workspace.keyLabel === null && userName) {
+    return `${userName} / ${activeLabel}`;
+  }
+  return `${activeLabel} / ${workspace.namespace}`;
 }

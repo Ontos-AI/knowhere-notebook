@@ -82,6 +82,26 @@ describe("WorkspaceSwitcher", () => {
     expect(screen.getByText("lab-papers")).toBeTruthy();
   });
 
+  it("shows '<username> / default' for a legacy workspace with a real user", () => {
+    render(
+      React.createElement(C, {
+        activeWorkspace: {
+          id: "ws_legacy",
+          namespace: "notebook-83f3788f-53e9",
+          keyLabel: null,
+        },
+        workspaces: [
+          { id: "ws_legacy", namespace: "notebook-83f3788f-53e9", keyLabel: null },
+        ],
+        knowhereKeyLabels: keyLabels,
+        userName: "Gordon",
+      }),
+    );
+
+    expect(screen.getByText("Gordon / default")).toBeTruthy();
+    expect(screen.queryByText(/notebook-83f3788f/u)).toBeNull();
+  });
+
   it("activates a workspace and refreshes the router", async () => {
     const user = userEvent.setup();
     render(

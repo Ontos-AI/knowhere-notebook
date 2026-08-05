@@ -201,6 +201,7 @@ export function WorkspaceShellLayout(
                 sources={[...props.sources]}
                 isNarrow={isSourcesPanelNarrow}
                 activeWorkspace={props.activeWorkspace}
+                userName={props.user ? (props.user.name ?? props.user.email ?? undefined) : undefined}
                 workspaces={props.workspaces ?? []}
                 knowhereKeyLabels={props.knowhereKeyLabels ?? []}
                 analyticsContext={props.analyticsContext}
@@ -288,6 +289,7 @@ export function WorkspaceShellLayout(
         <SourcesPanel
           sources={[...props.sources]}
           activeWorkspace={props.activeWorkspace}
+          userName={props.user ? (props.user.name ?? props.user.email ?? undefined) : undefined}
           workspaces={props.workspaces ?? []}
           knowhereKeyLabels={props.knowhereKeyLabels ?? []}
           analyticsContext={props.analyticsContext}

@@ -1,12 +1,8 @@
 import { Suspense } from "react"
-import { useActionState } from "react";
 import { NotebookLogoMark } from "@/components/notebook-logo-mark";
 import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { connection } from "next/server";
-import { loginAction, type LoginActionState } from "./actions";
+import { LoginForm } from "./login-form";
 
 export default function LoginPage() {
   return (
@@ -14,44 +10,6 @@ export default function LoginPage() {
       <LoginContent />
     </Suspense>
   )
-}
-
-const initialState: LoginActionState = { error: null };
-
-function LoginForm() {
-  const [state, formAction, isPending] = useActionState(loginAction, initialState);
-
-  return (
-    <form action={formAction} className="grid gap-4">
-      <div className="grid gap-1.5">
-        <Label htmlFor="email">Email</Label>
-        <Input
-          id="email"
-          name="email"
-          type="email"
-          autoComplete="email"
-          required
-          placeholder="you@example.com"
-        />
-      </div>
-      <div className="grid gap-1.5">
-        <Label htmlFor="password">Password</Label>
-        <Input
-          id="password"
-          name="password"
-          type="password"
-          autoComplete="current-password"
-          required
-        />
-      </div>
-      {state.error ? (
-        <p className="text-xs font-semibold text-destructive">{state.error}</p>
-      ) : null}
-      <Button type="submit" className="w-full" disabled={isPending}>
-        {isPending ? "Signing in…" : "Sign in"}
-      </Button>
-    </form>
-  );
 }
 
 export async function LoginContent() {

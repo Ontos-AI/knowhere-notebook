@@ -18,7 +18,7 @@ export async function verifyPassword(
   passwordHash: string,
 ): Promise<boolean> {
   try {
-    return await verify(password, passwordHash, passwordHashOptions)
+    return await verify(passwordHash, password, passwordHashOptions)
   } catch {
     return false
   }
