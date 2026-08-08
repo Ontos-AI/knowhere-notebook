@@ -5,6 +5,9 @@ const mocks = vi.hoisted(() => ({
   loggerInfo: vi.fn(),
   loggerWarn: vi.fn(),
   trigger: vi.fn(),
+  makeKnowhereClient: vi.fn(),
+  pollSourceReconciliation: vi.fn(),
+  markSourceReadyAfterReconciliation: vi.fn(),
 }))
 
 vi.mock("@upstash/workflow", () => ({
@@ -19,6 +22,15 @@ vi.mock("@/lib/logger", () => ({
     info: mocks.loggerInfo,
     warn: mocks.loggerWarn,
   },
+}))
+
+vi.mock("@/integrations/knowhere", () => ({
+  makeKnowhereClient: mocks.makeKnowhereClient,
+}))
+
+vi.mock("./source-reconcile-workflow", () => ({
+  pollSourceReconciliation: mocks.pollSourceReconciliation,
+  markSourceReadyAfterReconciliation: mocks.markSourceReadyAfterReconciliation,
 }))
 
 describe("startBackgroundReconciliation", () => {
@@ -87,5 +99,78 @@ describe("startBackgroundReconciliation", () => {
       )}`,
       retries: 3,
     })
+  })
+
+  it("polls locally and marks the source ready when QStash is not configured", async () => {
+    vi.useFakeTimers()
+    mocks.makeKnowhereClient.mockReturnValue({ client: "client_1" })
+    mocks.pollSourceReconciliation.mockResolvedValueOnce({
+      kind: "waiting",
+      jobId: "job_1",
+      jobStatus: "processing",
+    })
+    mocks.pollSourceReconciliation.mockResolvedValueOnce({
+      kind: "ready-to-prepare",
+      jobId: "job_1",
+      documentId: "doc_1",
+    })
+    mocks.markSourceReadyAfterReconciliation.mockResolvedValue({
+      status: "ready",
+    })
+
+    const { startBackgroundReconciliation } = await import(
+      "./background-reconcile"
+    )
+
+    await startBackgroundReconciliation(
+      "workspace_1",
+      "source_1",
+      "knowhere_key",
+    )
+
+    // First attempt runs immediately (waiting), then the poll loop waits
+    // before the next attempt.
+    expect(mocks.pollSourceReconciliation).toHaveBeenCalledTimes(1)
+    expect(mocks.makeKnowhereClient).toHaveBeenCalledWith("knowhere_key")
+    expect(mocks.trigger).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(3_000)
+
+    expect(mocks.pollSourceReconciliation).toHaveBeenCalledTimes(2)
+    expect(mocks.markSourceReadyAfterReconciliation).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      sourceId: "source_1",
+      documentId: "doc_1",
+    })
+  })
+
+  it("does not start a duplicate local poller for the same source", async () => {
+    vi.useFakeTimers()
+    mocks.makeKnowhereClient.mockReturnValue({ client: "client_1" })
+    mocks.pollSourceReconciliation.mockResolvedValue({
+      kind: "waiting",
+      jobId: "job_1",
+      jobStatus: "processing",
+    })
+
+    const { startBackgroundReconciliation } = await import(
+      "./background-reconcile"
+    )
+
+    await startBackgroundReconciliation(
+      "workspace_1",
+      "source_1",
+      "knowhere_key",
+    )
+    await startBackgroundReconciliation(
+      "workspace_1",
+      "source_1",
+      "knowhere_key",
+    )
+
+    expect(mocks.pollSourceReconciliation).toHaveBeenCalledTimes(1)
+
+    await vi.advanceTimersByTimeAsync(3_000)
+    expect(mocks.pollSourceReconciliation).toHaveBeenCalledTimes(2)
   })
 })
