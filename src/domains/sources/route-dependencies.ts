@@ -10,6 +10,8 @@ import { ensureApiKeyForWorkspace } from "@/integrations/knowhere-credentials"
 import { makeKnowhereClient as makeDefaultKnowhereClient } from "@/integrations/knowhere"
 import { getCurrentUser, requireUser } from "@/infrastructure/auth"
 import { workspaceService } from "@/domains/workspace/service"
+import { workspaceRepository } from "@/domains/workspace/repository"
+import { databaseRuntime } from "@/domains/workspace/database-runtime"
 import { sourceViewOptionsBySourceId as getDefaultSourceViewOptionsBySourceId } from "./counts"
 import { reconcileSourcesForWorkspace as reconcileDefaultSourcesForWorkspace } from "./reconcile"
 import { sourceWorkflowRuntime } from "./workflow-runtime"
@@ -24,6 +26,10 @@ const defaultDependencies: SourceRouteServiceDependencies = {
   deleteBlob: del,
   ensureApiKeyForWorkspace,
   ensureWorkspace: workspaceService.ensureWorkspace,
+  findWorkspaceByIdAndUserId: (workspaceId, userId) =>
+    databaseRuntime.runPromise(
+      workspaceRepository.findByIdAndUserIdEffect(workspaceId, userId),
+    ),
   getCurrentUser,
   getSourceViewOptionsBySourceId: (sources, client) =>
     getDefaultSourceViewOptionsBySourceId(

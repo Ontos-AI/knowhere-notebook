@@ -383,7 +383,7 @@ describe("ChunksPanel", () => {
     );
 
     for (let i = 0; i < 7; i += 1) {
-      fireEvent.wheel(surface, { deltaY: 120 });
+      fireEvent.wheel(surface, { deltaY: 120, ctrlKey: true });
     }
 
     const zoomedOutSurfaceMinimumWidth = Number.parseInt(
@@ -421,6 +421,7 @@ describe("ChunksPanel", () => {
     const surface = screen.getByTestId("chunk-section-tree-zoom-surface");
     const zoomInEvent = new WheelEvent("wheel", {
       cancelable: true,
+      ctrlKey: true,
       deltaY: -120,
     });
 
@@ -431,7 +432,7 @@ describe("ChunksPanel", () => {
     expect(zoomInEvent.defaultPrevented).toBe(true);
     expect(tree.style.transform).toBe("scale(1.1)");
 
-    fireEvent.wheel(surface, { deltaY: 120 });
+    fireEvent.wheel(surface, { deltaY: 120, ctrlKey: true });
 
     expect(tree.style.transform).toBe("scale(1)");
   });
@@ -865,7 +866,7 @@ describe("ChunksPanel", () => {
     });
   });
 
-  it("renders image chunks and moves resolved connection targets first", async () => {
+  it("renders image chunks and focuses the resolved connection target alone", async () => {
     mockVisibleVirtualViewport();
 
     const user = userEvent.setup();
@@ -924,11 +925,9 @@ describe("ChunksPanel", () => {
       expect(focusedRow?.getAttribute("data-index")).toBe("0");
       expect(focusedRow?.getAttribute("data-focused-chunk")).toBe("true");
     });
-    expect(
-      screen
-        .getByRole("button", { name: "Missing" })
-        .getAttribute("aria-disabled"),
-    ).toBe("true");
+    // The unresolved reference lives on text_1, which is hidden once the
+    // image is focused.
+    expect(screen.queryByTestId("chunk-card-shell-text_1")).toBeNull();
   });
 
   it("lets in-chunk table references override the current citation focus", async () => {
@@ -1059,7 +1058,7 @@ describe("ChunksPanel", () => {
     // the focused chunk reorders to index 0 (already checked above).
   });
 
-  it("remeasures a tall focused chunk after citation reordering", async () => {
+  it("remeasures a tall focused chunk shown alone after citation focus", async () => {
     mockVirtualViewportWithChunkHeights({
       chunk_1: 120,
       table_3: 520,
@@ -1108,14 +1107,16 @@ describe("ChunksPanel", () => {
       const focusedRow = screen
         .getByTestId("chunk-card-shell-table_3")
         .closest<HTMLElement>("[data-index]");
-      const followingRow = screen
-        .getByTestId("chunk-card-shell-chunk_1")
-        .closest<HTMLElement>("[data-index]");
 
       expect(focusedRow?.getAttribute("data-index")).toBe("0");
-      expect(followingRow?.getAttribute("data-index")).toBe("1");
-      expect(followingRow?.style.transform).toBe("translateY(520px)");
+      expect(focusedRow?.getAttribute("data-focused-chunk")).toBe("true");
     });
+
+    // Only the focused chunk is shown — the rest of the document is hidden.
+    expect(
+      screen.queryByTestId("chunk-card-shell-chunk_1"),
+    ).toBeNull();
+    expect(screen.queryByTestId("chunk-card-shell-chunk_2")).toBeNull();
   });
 
   it("reapplies the start position after the focused chunk layout pass", async () => {

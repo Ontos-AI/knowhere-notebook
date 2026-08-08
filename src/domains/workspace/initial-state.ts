@@ -56,6 +56,9 @@ type WorkspaceShellInitialState = {
     readonly label: string
     readonly mask: string
   }[]
+  /** Whether Vercel Blob is configured (BLOB_READ_WRITE_TOKEN). When false,
+   *  uploads use the direct multipart path to /api/sources. */
+  readonly isBlobConfigured?: boolean
 }
 
 const workspaceInitialStateContext = "Workspace initial state"
@@ -199,6 +202,7 @@ export const loadWorkspaceShellInitialStateEffect = (
         workspace: undefined,
         workspaces: workspacesForUser.map(workspaceView),
         knowhereKeyLabels: userKeys,
+        isBlobConfigured: isBlobConfigured(),
         sources: [],
       }
     }
@@ -293,6 +297,7 @@ export const loadWorkspaceShellInitialStateEffect = (
       workspace: workspaceView(workspace),
       workspaces: workspacesForUser.map(workspaceView),
       knowhereKeyLabels: userKeys,
+      isBlobConfigured: isBlobConfigured(),
       sources: localizedSources.map((source) =>
         toSourceView(source, sourceOptions.get(source.id)),
       ),
@@ -320,6 +325,12 @@ function listAllForUser(userId: string): Promise<readonly Workspace[]> {
   return databaseRuntime.runPromise(
     workspaceRepository.findAllByUserIdEffect(userId),
   )
+}
+
+/** True when Vercel Blob storage is configured (chunk cache + staged uploads). */
+function isBlobConfigured(): boolean {
+  const token = process.env.BLOB_READ_WRITE_TOKEN?.trim()
+  return Boolean(token && token.length > 0)
 }
 function listMaskedKnowhereKeysDefault(
   userId: string,

@@ -40,10 +40,11 @@ export type SourcesPanelProps = {
     readonly activeKeyLabel?: string | null;
   }[];
   knowhereKeyLabels?: readonly {
-    readonly id: string;
-    readonly label: string;
-    readonly mask: string;
+    readonly id: string
+    readonly label: string
+    readonly mask: string
   }[];
+  isBlobConfigured?: boolean;
   userName?: string;
   onSourceUploaded?: (source: SourceView) => void;
   selectedSourceId?: string | null;
@@ -71,6 +72,7 @@ export function SourcesPanel({
   activeWorkspace,
   workspaces = [],
   knowhereKeyLabels = [],
+  isBlobConfigured = true,
   userName,
   onSourceUploaded,
   selectedSourceId = null,
@@ -168,6 +170,10 @@ export function SourcesPanel({
             onSourceUploaded={onSourceUploaded}
             analyticsContext={analyticsContext}
             sourceCountSnapshot={sourceCountSnapshot}
+            isBlobConfigured={isBlobConfigured}
+            activeWorkspace={activeWorkspace}
+            workspaces={workspaces}
+            knowhereKeyLabels={knowhereKeyLabels}
             renderTrigger={({ isUploading, onClick, onDragOver, onDrop }) => (
               <Button
                 type="button"
@@ -193,6 +199,10 @@ export function SourcesPanel({
             onSourceUploaded={onSourceUploaded}
             analyticsContext={analyticsContext}
             sourceCountSnapshot={sourceCountSnapshot}
+            isBlobConfigured={isBlobConfigured}
+            activeWorkspace={activeWorkspace}
+            workspaces={workspaces}
+            knowhereKeyLabels={knowhereKeyLabels}
           />
         )}
       </div>

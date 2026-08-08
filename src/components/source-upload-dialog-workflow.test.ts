@@ -63,7 +63,7 @@ describe("useSourceUploadDialogWorkflow", () => {
     await waitFor(() => {
       expect(onSourceUploaded).toHaveBeenCalledWith(uploadedSource);
     });
-    expect(uploadSource).toHaveBeenCalledWith(file);
+    expect(uploadSource).toHaveBeenCalledWith(file, true, undefined);
     expect(mocks.trackNotebookDocumentUploadCompleted).toHaveBeenCalledWith({
       context: undefined,
       uploadedCount: 1,

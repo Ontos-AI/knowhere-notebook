@@ -113,6 +113,10 @@ type ListSourcesInput = {
 type UploadSourceInput = {
   readonly cookieHeader: string
   readonly upload: SourceUploadRequest
+  /** Optional target workspace (upload destination). Defaults to the active
+   *  workspace; when set it must belong to the current user (owned or
+   *  member). */
+  readonly workspaceId?: string
   readonly onUploadFinished?: () => void
 }
 
@@ -204,6 +208,10 @@ type SourceRouteServiceDependencies = {
     workspaceId: string,
   ) => Promise<string>
   readonly ensureWorkspace: (userId: string) => Promise<Workspace | null>
+  readonly findWorkspaceByIdAndUserId: (
+    workspaceId: string,
+    userId: string,
+  ) => Promise<Workspace | null>
   readonly getCurrentUser: () => Promise<AuthUser | null>
   readonly getSourceViewOptionsBySourceId: (
     sources: readonly Source[],

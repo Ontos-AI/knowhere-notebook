@@ -62,6 +62,7 @@ export type ChunksPanelProps = {
   onLoadMore?: () => void;
   onLoadAllChunks?: () => void;
   onClose?: () => void;
+  onClearFocus?: () => void;
   onLoginClick?: () => void;
   onSourceUploaded?: (source: SourceView) => void;
   analyticsContext?: AnalyticsContext;
@@ -90,6 +91,7 @@ export function ChunksPanel({
   onLoadMore,
   onLoadAllChunks,
   onClose,
+  onClearFocus,
   onLoginClick,
   onSourceUploaded,
   analyticsContext,
@@ -288,26 +290,43 @@ export function ChunksPanel({
         </div>
         <div className="flex min-w-0 shrink-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
           {visibleView === "parsed" && chunks.length > 0 ? (
-            <div
-              role="group"
-              aria-label="Chunk display"
-              className="flex shrink-0 rounded-lg border border-border bg-muted/40 p-0.5"
-            >
-              <button
-                type="button"
-                onClick={handleListModeSelected}
-                className={viewToggleClassName(chunkDisplayMode === "list")}
+            <>
+              {activeFocusedChunkId ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  data-testid="show-all-chunks-button"
+                  onClick={() => {
+                    requestChunkFocus(null);
+                    onClearFocus?.();
+                  }}
+                  className="shrink-0"
+                >
+                  Show all chunks
+                </Button>
+              ) : null}
+              <div
+                role="group"
+                aria-label="Chunk display"
+                className="flex shrink-0 rounded-lg border border-border bg-muted/40 p-0.5"
               >
-                List
-              </button>
-              <button
-                type="button"
-                onClick={handleTreeModeSelected}
-                className={viewToggleClassName(chunkDisplayMode === "tree")}
-              >
-                Tree
-              </button>
-            </div>
+                <button
+                  type="button"
+                  onClick={handleListModeSelected}
+                  className={viewToggleClassName(chunkDisplayMode === "list")}
+                >
+                  List
+                </button>
+                <button
+                  type="button"
+                  onClick={handleTreeModeSelected}
+                  className={viewToggleClassName(chunkDisplayMode === "tree")}
+                >
+                  Tree
+                </button>
+              </div>
+            </>
           ) : null}
           {onClose ? (
             <Button
@@ -561,6 +580,11 @@ function ChunkSectionTree({
     if (!zoomSurface) return;
 
     const handleWheelZoom = (event: WheelEvent): void => {
+      // Only zoom on Ctrl/Cmd+wheel (trackpad pinch sends ctrl+wheel). Plain
+      // wheel events pass through to the enclosing ScrollArea so expanding a
+      // section past the pane height scrolls normally instead of zooming.
+      if (!event.ctrlKey && !event.metaKey) return;
+
       if (event.deltaY === 0) return;
 
       event.preventDefault();

@@ -88,7 +88,6 @@ type MirrorableChunkAsset = {
 
 const documentChunkPageSize = 200
 const visibleChunkPageMode: ChunkPageMode = "visible"
-const structureChunkPageMode: ChunkPageMode = "structure"
 const maximumMirroredAssetsPerWarmStep = 50
 const maximumWarmStepDurationMs = 45_000
 const assetMirrorConcurrency = 10
@@ -141,12 +140,15 @@ export const loadChunksForSource = (
     let totalPages = 1
 
     do {
+      // Visible mode (asset URLs + table/image HTML enrichment) so chunks
+      // served through the load-all path — citation focus and the section
+      // tree — render real content, not summaries.
       const chunkPage = yield* loadChunkPageForSource(source, client, {
         page,
         pageSize: documentChunkPageSize,
       }, {
         ...options,
-        mode: structureChunkPageMode,
+        mode: options.mode ?? visibleChunkPageMode,
       })
       chunks.push(...chunkPage.chunks)
       totalPages = chunkPage.pagination.totalPages

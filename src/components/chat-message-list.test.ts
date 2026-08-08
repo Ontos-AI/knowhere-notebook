@@ -159,8 +159,9 @@ describe("ChatMessageList", () => {
     expect(screen.queryByText("Retrieval")).toBeNull();
   });
 
-  it("renders citations in a bottom source area as file chips", async () => {
+  it("renders citations in a bottom source area as file chips and inline markers as links", async () => {
     const user = userEvent.setup();
+    const onCitationClick = vi.fn();
 
     render(
       React.createElement(ChatMessageList, {
@@ -205,14 +206,29 @@ describe("ChatMessageList", () => {
             ],
           },
         ],
-        onCitationClick: vi.fn(),
+        onCitationClick,
       }),
     );
 
-    expect(screen.getByText("Capital expenditure appears in the appendix."))
-      .toBeTruthy();
-    expect(screen.queryByText(/Source 1/u)).toBeNull();
-    expect(screen.queryByText(/Source 3/u)).toBeNull();
+    expect(
+      screen.getByText((text) => text.startsWith("Capital expenditure appears")),
+    ).toBeTruthy();
+    // Inline markers become [n] links instead of being stripped.
+    const inlineLinks = screen.getAllByRole("button", {
+      name: /^Open referenced chunk /u,
+    });
+    expect(inlineLinks).toHaveLength(2);
+    expect(inlineLinks[0]!.textContent).toBe("1");
+    expect(inlineLinks[1]!.textContent).toBe("3");
+
+    await user.click(inlineLinks[0]!);
+    expect(onCitationClick).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: expect.objectContaining({ documentId: "doc_1" }),
+      }),
+      "assistant_1:0",
+    );
+
     expandSection("Sources");
     const sourceChips = screen.getAllByRole("button", {
       name: "Open source spacex-s1.pdf",
@@ -228,7 +244,7 @@ describe("ChatMessageList", () => {
     );
   });
 
-  it("removes description-only source labels without changing other markdown whitespace", () => {
+  it("converts description-only source labels into inline links without changing other markdown whitespace", () => {
     render(
       React.createElement(ChatMessageList, {
         messages: [
@@ -256,11 +272,15 @@ describe("ChatMessageList", () => {
             ],
           },
         ],
+        onCitationClick: vi.fn(),
       }),
     );
 
-    expect(screen.getByText("Revenue improved.")).toBeTruthy();
-    expect(screen.queryByText(/Source 1/u)).toBeNull();
+    expect(screen.getByText((text) => text.startsWith("Revenue improved"))).toBeTruthy();
+    const inlineLink = screen.getByRole("button", {
+      name: "Open referenced chunk assistant_1:0",
+    });
+    expect(inlineLink.textContent).toBe("1");
     expect(document.querySelector("code.language-ts")?.textContent).toContain(
       "const  value = 1;",
     );

@@ -63,7 +63,7 @@ describe("useChunksPanelWorkflow", () => {
     expect(result.current.visibleChunks[0]?.chunkId).toBe("chunk_1")
   })
 
-  it("records local reference focus and places the referenced chunk first", () => {
+  it("records local reference focus and shows only the referenced chunk", () => {
     const { result } = renderHook(() =>
       useChunksPanelWorkflow(
         makeInput({
@@ -83,7 +83,6 @@ describe("useChunksPanelWorkflow", () => {
     expect(result.current.activeFocusedChunkId).toBe("chunk_2")
     expect(result.current.visibleChunks.map((chunk) => chunk.chunkId)).toEqual([
       "chunk_2",
-      "chunk_1",
     ])
   })
 

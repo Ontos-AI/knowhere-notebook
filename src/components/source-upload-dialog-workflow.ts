@@ -27,7 +27,14 @@ type SourceUploadResponse = {
   readonly body: SourceUploadResponseBody;
 };
 
-type UploadSource = (file: File) => Promise<SourceUploadResponse>;
+type UploadSource = (
+  file: File,
+  isBlobConfigured: boolean,
+  workspaceId?: string,
+) => Promise<SourceUploadResponse>;
+
+/** Resolves the workspace the upload should land in (may create it first). */
+type ResolveUploadTarget = () => Promise<string | undefined>;
 
 type SourceUploadDialogMessage = {
   readonly isSuccess: boolean;
@@ -38,6 +45,8 @@ type SourceUploadDialogWorkflowInput = {
   readonly analyticsContext?: AnalyticsContext;
   readonly onSourceUploaded?: (source: SourceView) => void;
   readonly sourceCountBefore?: number;
+  readonly isBlobConfigured?: boolean;
+  readonly resolveUploadTarget?: ResolveUploadTarget;
   readonly uploadSource?: UploadSource;
 };
 
@@ -62,6 +71,8 @@ export function useSourceUploadDialogWorkflow({
   analyticsContext,
   onSourceUploaded,
   sourceCountBefore = 0,
+  isBlobConfigured = true,
+  resolveUploadTarget,
   uploadSource = postSourceUpload,
 }: SourceUploadDialogWorkflowInput): SourceUploadDialogWorkflow {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -94,7 +105,14 @@ export function useSourceUploadDialogWorkflow({
     setMessage(null);
 
     try {
-      const response = await uploadSource(file);
+      const targetWorkspaceId = resolveUploadTarget
+        ? await resolveUploadTarget()
+        : undefined;
+      const response = await uploadSource(
+        file,
+        isBlobConfigured,
+        targetWorkspaceId,
+      );
       const { body } = response;
 
       if (!isSuccessfulStatus(response.status) || !body.source) {

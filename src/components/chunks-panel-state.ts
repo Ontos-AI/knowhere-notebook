@@ -55,22 +55,16 @@ function getChunksWithFocusedFirst(
   chunks: readonly ParsedChunkView[],
   focusedChunkId: string | null,
 ): readonly ParsedChunkView[] {
-  const orderedChunks = getChunksOrderedByPageNumber(
-    dedupeChunksById(chunks),
-  )
-  if (!focusedChunkId) return orderedChunks
+  if (!focusedChunkId) {
+    return getChunksOrderedByPageNumber(dedupeChunksById(chunks))
+  }
 
-  const focusedIndex = orderedChunks.findIndex(
+  // When a specific chunk is focused (citation click or tree leaf click),
+  // show only that chunk — not the whole document reordered with it on top.
+  const focusedChunk = dedupeChunksById(chunks).find(
     (chunk) => chunk.chunkId === focusedChunkId,
   )
-  if (focusedIndex <= 0) return orderedChunks
-
-  const focusedChunk = orderedChunks[focusedIndex]!
-  return [
-    focusedChunk,
-    ...orderedChunks.slice(0, focusedIndex),
-    ...orderedChunks.slice(focusedIndex + 1),
-  ]
+  return focusedChunk ? [focusedChunk] : []
 }
 
 function getChunksOrderedByPageNumber(

@@ -73,6 +73,7 @@ export type WorkspaceShellLayoutProps = {
     readonly label: string
     readonly mask: string
   }[]
+  readonly isBlobConfigured?: boolean
   readonly desktopPanelWidths: Readonly<DesktopPanelWidths>
   readonly focusedChunk: FocusedChunkState
   readonly hasMessages: boolean
@@ -107,6 +108,7 @@ export type WorkspaceShellLayoutProps = {
     citationId: string,
   ) => void | Promise<void>
   readonly onCloseChunksOverlay: () => void
+  readonly onClearChunkFocus?: () => void
   readonly onCreateChatThread: () => void | Promise<void>
   readonly onDesktopLayoutElementChange: (element: HTMLDivElement | null) => void
   readonly onDesktopPanelElementChange: (
@@ -204,6 +206,7 @@ export function WorkspaceShellLayout(
                 userName={props.user ? (props.user.name ?? props.user.email ?? undefined) : undefined}
                 workspaces={props.workspaces ?? []}
                 knowhereKeyLabels={props.knowhereKeyLabels ?? []}
+                isBlobConfigured={props.isBlobConfigured ?? false}
                 analyticsContext={props.analyticsContext}
                 sourceCountSnapshot={props.sources.length}
                 onSourceUploaded={props.onSourceUploaded}
@@ -360,6 +363,7 @@ export function WorkspaceShellLayout(
             onLoadAllChunks={props.onLoadAllChunks}
             onLoadMore={props.onLoadMoreChunks}
             onClose={props.onCloseChunksOverlay}
+            onClearFocus={props.onClearChunkFocus}
             onSourceUploaded={props.onSourceUploaded}
             analyticsContext={props.analyticsContext}
             sourceCountSnapshot={props.sources.length}

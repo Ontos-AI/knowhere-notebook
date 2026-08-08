@@ -20,19 +20,41 @@ type SourceUploadResponse = {
 
 export async function postSourceUpload(
   file: File,
+  isBlobConfigured = true,
+  workspaceId?: string,
 ): Promise<SourceUploadResponse> {
-  return postBlobBackedSourceUpload(file);
+  // Vercel Blob staging is only available when BLOB_READ_WRITE_TOKEN is set
+  // (self-hosted deployments usually don't have it). Without it, fall back to
+  // a direct multipart upload to /api/sources, which the server always
+  // supports.
+  return isBlobConfigured
+    ? postBlobBackedSourceUpload(file, workspaceId)
+    : postDirectFileUpload(file, workspaceId);
 }
 
 async function postBlobBackedSourceUpload(
   file: File,
+  workspaceId?: string,
 ): Promise<SourceUploadResponse> {
   return stagedUploadWorkflow.upload(file, {
     cleanupBlob: cleanupSourceBlobUpload,
     getPathname: getSourceUploadBlobPathname,
-    postMetadata: postSourceBlobUpload,
+    postMetadata: (input) => postSourceBlobUpload(input, workspaceId),
     uploadBlob: uploadSourceBlob,
   });
+}
+
+async function postDirectFileUpload(
+  file: File,
+  workspaceId?: string,
+): Promise<SourceUploadResponse> {
+  const formData = new FormData();
+  formData.append("file", file);
+  if (workspaceId) formData.append("workspaceId", workspaceId);
+  return workspaceRouteClient.postFormDataWithStatus<SourceUploadResponseBody>(
+    "/api/sources",
+    formData,
+  );
 }
 
 async function uploadSourceBlob(input: {
@@ -60,13 +82,16 @@ async function uploadSourceBlob(input: {
   };
 }
 
-async function postSourceBlobUpload(input: {
-  readonly pathname: string;
-  readonly url: string;
-  readonly fileName: string;
-  readonly mimeType: string;
-  readonly sizeBytes: number;
-}): Promise<SourceUploadResponse> {
+async function postSourceBlobUpload(
+  input: {
+    readonly pathname: string;
+    readonly url: string;
+    readonly fileName: string;
+    readonly mimeType: string;
+    readonly sizeBytes: number;
+  },
+  workspaceId?: string,
+): Promise<SourceUploadResponse> {
   return workspaceRouteClient.postJsonWithStatus<SourceUploadResponseBody>(
     "/api/sources",
     {
@@ -78,6 +103,7 @@ async function postSourceBlobUpload(input: {
         mimeType: input.mimeType,
         sizeBytes: input.sizeBytes,
       },
+      ...(workspaceId ? { workspaceId } : {}),
     },
   );
 }

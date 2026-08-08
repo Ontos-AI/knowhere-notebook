@@ -54,6 +54,7 @@ export type WorkspaceShellProps = {
     label: string
     mask: string
   }[]
+  isBlobConfigured?: boolean
   sources?: SourceView[]
   chatThreads?: ChatThreadView[]
   activeChatThreadId?: string | null
@@ -91,6 +92,7 @@ function WorkspaceShellContent({
   workspace,
   workspaces,
   knowhereKeyLabels,
+  isBlobConfigured,
   initialPrefetchedChunksBySourceId,
 }: WorkspaceShellProps): ReactElement {
   const [mobilePanel, setMobilePanel] = useState<PanelId>("chat")
@@ -157,6 +159,10 @@ function WorkspaceShellContent({
     setIsChunksOverlayVisible(false)
   }
 
+  function handleClearChunkFocus(): void {
+    citationFocus.requestChunkFocus(null)
+  }
+
   const hasMessages = chatWorkflow.chat.messages.length > 0
   const didTrackFirstDocumentRef = useRef(false)
   const analyticsContextRef = useRef(analyticsContext)
@@ -206,6 +212,7 @@ function WorkspaceShellContent({
       activeWorkspace={workspace}
       workspaces={workspaces ?? []}
       knowhereKeyLabels={knowhereKeyLabels ?? []}
+      isBlobConfigured={isBlobConfigured ?? false}
       citationListViewRequestId={citationFocus.citationListViewRequestId}
       focusedChunk={citationFocus.focusedChunk}
       hasMessages={hasMessages}
@@ -237,6 +244,7 @@ function WorkspaceShellContent({
         citationFocus.handleCitationClick(citation, citationId)
       }}
       onCloseChunksOverlay={handleCloseChunksOverlay}
+      onClearChunkFocus={handleClearChunkFocus}
       onCreateChatThread={chatWorkflow.handleCreateChatThread}
       onDesktopLayoutElementChange={handleDesktopLayoutElementChange}
       onDesktopPanelElementChange={handleDesktopPanelElementChange}
