@@ -28,8 +28,49 @@ describe("ChatComposer", () => {
     await user.type(input, "  Summarize this document  ");
     await user.click(screen.getByRole("button", { name: "Send message" }));
 
-    expect(onSend).toHaveBeenCalledWith("Summarize this document");
+    expect(onSend).toHaveBeenCalledWith("Summarize this document", {
+      useAgentic: true,
+    });
     expect(input.value).toBe("");
+  });
+
+  it("defaults to agentic retrieval enabled and explains the toggle", async () => {
+    const user = userEvent.setup();
+
+    render(React.createElement(ChatComposer));
+
+    const toggle = screen.getByRole("button", {
+      name: "Toggle agentic retrieval",
+    });
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+
+    await user.hover(toggle);
+
+    const tooltip = await screen.findByRole("tooltip");
+    expect(tooltip.textContent).toContain(
+      "Agentic retrieval plans document selection and navigation",
+    );
+  });
+
+  it("sends useAgentic false after toggling agentic retrieval off", async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn();
+
+    render(React.createElement(ChatComposer, { onSend }));
+
+    const toggle = screen.getByRole("button", {
+      name: "Toggle agentic retrieval",
+    });
+    await user.click(toggle);
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+
+    const input = getComposerTextArea();
+    await user.type(input, "Quick summary");
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+
+    expect(onSend).toHaveBeenCalledWith("Quick summary", {
+      useAgentic: false,
+    });
   });
 
   it("caps long prompts and resets the composer after sending", async () => {

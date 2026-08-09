@@ -6,7 +6,10 @@ import {
   type ReactElement,
 } from "react";
 import { History, Plus } from "lucide-react";
-import { ChatComposer } from "@/components/chat-composer";
+import {
+  ChatComposer,
+  type ChatSendOptions,
+} from "@/components/chat-composer";
 import { ChatHistorySheet } from "@/components/chat-history-sheet";
 import {
   ChatMessageList,
@@ -47,7 +50,7 @@ export type ChatPanelProps = {
   messages: ChatMessageView[];
   threads: ChatThreadView[];
   activeThreadId?: string | null;
-  onSend?: (text: string) => void;
+  onSend?: (text: string, options: ChatSendOptions) => void;
   onNewChat?: () => void;
   onThreadSelect?: (threadId: string) => void;
   onThreadArchive?: (threadId: string) => void;
@@ -152,7 +155,10 @@ export function ChatPanel({
     }
   }
 
-  function handleComposerSend(text: string): void {
+  function handleComposerSend(
+    text: string,
+    options: ChatSendOptions,
+  ): void {
     if (isCreateDiagramCommand(text)) {
       void handleCreateDiagramCommand();
       return;
@@ -165,7 +171,7 @@ export function ChatPanel({
       sourceCountSnapshot: sourceCount,
       messageLength: text.length,
     });
-    onSend?.(text);
+    onSend?.(text, options);
   }
 
   return (

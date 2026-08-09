@@ -104,6 +104,7 @@ describe("chat route services", () => {
       body: {
         message: " Summarize it ",
         threadId: "thread_1",
+        useAgentic: true,
         excludedSourceIds: ["source_skipped", null],
       },
     })
@@ -126,6 +127,7 @@ describe("chat route services", () => {
         sources: [readySource],
         question: "Summarize it",
         threadId: "thread_1",
+        useAgentic: true,
         excludedSourceIds: ["source_skipped"],
         retrieval: client.retrieval,
         generateAnswer: mocks.generateAgenticOutputManifest,
