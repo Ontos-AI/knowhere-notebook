@@ -16,7 +16,7 @@ export type AgentTask =
   | "correct_previous"
   | "clarify"
 
-export type TargetModality = "text" | "image" | "table"
+export type TargetModality = "text" | "image" | "table" | "page"
 
 export type GroundingPolicy =
   | "must_use_sources"
@@ -98,6 +98,8 @@ export type EvidenceChunk = {
   readonly contentPreview: string
   readonly chunkType: string
   readonly score: number | null
+  /** Parser-provided chunk identifier when returned by the API. */
+  readonly chunkId?: string
   readonly source: {
     readonly documentId?: string | null
     readonly sourceFileName?: string | null

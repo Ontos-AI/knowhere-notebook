@@ -140,6 +140,7 @@ function toAgenticRetrievalTargetContent(
   modalities: readonly TargetModality[],
 ): AgenticRetrievalTargetContent {
   const requestedModalities = new Set(modalities)
+  if (requestedModalities.has("page")) return "page"
   if (requestedModalities.has("image") && requestedModalities.has("text")) {
     return "text_image"
   }

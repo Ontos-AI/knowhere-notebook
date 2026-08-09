@@ -47,6 +47,7 @@ const MAX_CITATION_RESULTS = 20
 const KNOWHERE_RESPONSE_TEXT_LOG_LIMIT = 200
 const KNOWHERE_CHUNK_LOG_LIMIT = 100
 const NO_RESULTS_ANSWER = "I couldn't find that in your sources."
+const NULLISH_ANSWER_PATTERN = /^(?:null|undefined)$/i
 const HARNESS_VALIDATION_FAILURE_ANSWER =
   "I couldn't safely finish that response because the agent output did not pass Notebook's validation checks. Please try again."
 const RAW_URL_PATTERN = /https?:\/\/[^\s)\]}>"']+/g
@@ -60,6 +61,7 @@ const RETRIEVAL_TARGET_CONTENT_DATA_TYPES: Readonly<
   table: 4,
   text_image: 5,
   text_table: 6,
+  page: 7,
 } as const
 
 type RetrievalDataType = NonNullable<RetrievalQueryParams["dataType"]>
@@ -268,6 +270,9 @@ export const answerQuestionWithRetrieval = (
         hardenedArtifacts: hardenedMedia.artifacts,
       }),
     })
+    const finalAnswer = looksLikeNullishAnswer(answer)
+      ? NO_RESULTS_ANSWER
+      : answer
     const citationResults = hardenedMedia.results
     const displayArtifacts = hardenedMedia.artifacts ?? []
     const retrievalTrace = buildRetrievalTrace({
@@ -284,8 +289,8 @@ export const answerQuestionWithRetrieval = (
       retrievalQueryCount: retrievalTrace?.queries.length ?? 0,
     })
     return {
-      answer,
-      citations: toChatCitationViews(citationResults, answer),
+      answer: finalAnswer,
+      citations: toChatCitationViews(citationResults, finalAnswer),
       artifacts: displayArtifacts,
       retrievalTrace,
     }
@@ -547,6 +552,11 @@ function sanitizeGeneratedAnswer({
   results,
 }: GeneratedAnswerSanitizerInput): string {
   return removeRetrievedMediaAssetUrls(answer, results)
+}
+
+function looksLikeNullishAnswer(answer: string): boolean {
+  const trimmed = answer.trim()
+  return trimmed.length === 0 || NULLISH_ANSWER_PATTERN.test(trimmed)
 }
 
 function formatKnowhereQueryResponseForLog(
@@ -858,6 +868,7 @@ function mapManifestCitationsToResults(
       content: chunk.content,
       chunkType: chunk.chunkType,
       score: chunk.score,
+      ...(chunk.chunkId ? { chunkId: chunk.chunkId } : {}),
       ...(chunk.assetUrl ? { assetUrl: chunk.assetUrl } : {}),
       source: {
         documentId: chunk.source.documentId ?? undefined,
@@ -954,6 +965,7 @@ function toRetrievalResultFromEvidenceChunk(
     content: chunk.content,
     chunkType: chunk.chunkType,
     score: chunk.score,
+    ...(chunk.chunkId ? { chunkId: chunk.chunkId } : {}),
     ...(chunk.assetUrl ? { assetUrl: chunk.assetUrl } : {}),
     source: {
       documentId: chunk.source.documentId ?? undefined,
@@ -986,6 +998,7 @@ function collectRetrievalResults(
         content: "",
         chunkType: chunk.chunkType,
         score: null,
+        ...(chunk.chunkId ? { chunkId: chunk.chunkId } : {}),
         ...(chunk.assetUrl ? { assetUrl: chunk.assetUrl } : {}),
         source: {
           documentId: chunk.documentId,

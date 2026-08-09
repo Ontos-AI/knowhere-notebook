@@ -1,11 +1,14 @@
 /**
  * Chat citation / retrieval hit. Mirrors RetrievalResult from the SDK.
- * No chunkId here; retrieval does not expose one.
+ * chunkId is the parser-provided chunk identifier returned by retrieval
+ * when available; it lets citations resolve to page chunks by id even
+ * when content is a snippet window.
  */
 export type RetrievalResultView = {
   readonly content: string
   readonly chunkType: string
   readonly score: number | null
+  readonly chunkId?: string
   readonly assetUrl?: string
   readonly source: {
     readonly documentId?: string | null

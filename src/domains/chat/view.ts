@@ -53,6 +53,7 @@ function toPersistedCitationViews(value: unknown): ChatCitationView[] | undefine
       {
         chunkType: getString(item.chunkType) ?? "text",
         score: getNumber(item.score) ?? 0,
+        chunkId: getString(item.chunkId),
         assetUrl: getString(item.assetUrl),
         description: getString(item.description),
         source: {

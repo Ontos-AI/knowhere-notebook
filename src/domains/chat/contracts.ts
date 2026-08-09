@@ -30,6 +30,7 @@ export type AgenticRetrievalTargetContent =
   | "table"
   | "text_image"
   | "text_table"
+  | "page"
 
 export type AgenticRetrievalPlan = {
   targetContent: AgenticRetrievalTargetContent

@@ -106,6 +106,71 @@ describe("answerQuestionWithRetrieval", () => {
     });
   });
 
+  it("never renders a literal null/undefined or empty string as the answer", async () => {
+    const retrieval = {
+      query: vi.fn().mockResolvedValue({
+        results: [],
+        evidenceText: "",
+        referencedChunks: [],
+        namespace: "notebook-workspace",
+        query: "Gordon",
+        routerUsed: "workflow_single_step",
+        answerText: null,
+      }),
+    };
+    const sources = [makeSource()];
+
+    for (const nullishAnswer of ["null", "undefined", "  null  ", "", "   "]) {
+      const generateAnswer = vi.fn(async () =>
+        makeHarnessRunResult(nullishAnswer),
+      );
+      const answer = await Effect.runPromise(
+        answerQuestionWithRetrieval({
+          question: "Gordon",
+          namespace: "notebook-workspace",
+          sources,
+          excludedSourceIds: [],
+          retrieval,
+          generateAnswer,
+          messages: [],
+        }),
+      );
+      expect(answer.answer).toBe("I couldn't find that in your sources.");
+    }
+  });
+
+  it("keeps a real answer containing the word null", async () => {
+    const retrieval = {
+      query: vi.fn().mockResolvedValue({
+        results: [],
+        evidenceText: "",
+        referencedChunks: [],
+        namespace: "notebook-workspace",
+        query: "Gordon",
+        routerUsed: "workflow_single_step",
+        answerText: null,
+      }),
+    };
+    const sources = [makeSource()];
+    const generateAnswer = vi.fn(async () =>
+      makeHarnessRunResult("Gordon is listed as null in the directory."),
+    );
+    const answer = await Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "Gordon",
+        namespace: "notebook-workspace",
+        sources,
+        excludedSourceIds: [],
+        retrieval,
+        generateAnswer,
+        messages: [],
+      }),
+    );
+    expect(answer.answer).toBe(
+      "Gordon is listed as null in the directory.",
+    );
+  });
+
   it("does not carry no-evidence metadata from default into a successful legacy namespace result", async () => {
     const legacyResult = makeRetrievalResult({
       source: {
@@ -531,6 +596,70 @@ describe("answerQuestionWithRetrieval", () => {
         },
       },
     ]);
+  });
+
+  it("maps a page-targeted retrieval query to dataType 7", async () => {
+    const pageResult = makeRetrievalResult({
+      content: "CHEUNG Hon-lam Gordon 2835 2147",
+      chunkType: "page",
+      chunkId: "parser_page_1",
+      source: {
+        documentId: "doc_directory",
+        sourceFileName: "directory.pdf",
+        sectionPath: "Page 3",
+      },
+    });
+    const retrieval = {
+      query: vi.fn().mockResolvedValue({
+        results: [pageResult],
+        evidenceText: "Directory evidence.",
+        referencedChunks: [],
+        namespace: "notebook-workspace",
+        query: "Gordon phone number",
+        routerUsed: "workflow_single_step",
+        answerText: null,
+      }),
+    };
+    const generateAnswer = vi.fn(async ({ searchSources }) => {
+      await searchSources({
+        query: "Gordon phone number",
+        targetContent: "page",
+      });
+      return makeHarnessRunResult("Gordon can be reached at 2835 2147.");
+    });
+
+    const answer = await Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "What is Gordon's phone number?",
+        namespace: "notebook-workspace",
+        sources: [
+          makeSource({
+            id: "source_directory",
+            title: "directory.pdf",
+            knowhereDocumentId: "doc_directory",
+          }),
+        ],
+        excludedSourceIds: [],
+        retrieval,
+        generateAnswer,
+        messages: [],
+      }),
+    );
+
+    expect(retrieval.query).toHaveBeenCalledWith({
+      namespace: "notebook-workspace",
+      query: "Gordon phone number",
+      topK: 8,
+      useAgentic: true,
+      rerank: true,
+      internalRecallK: 30,
+      dataType: 7,
+    });
+    expect(answer.answer).toBe("Gordon can be reached at 2835 2147.");
+    expect(answer.citations[0]).toMatchObject({
+      chunkId: "parser_page_1",
+      chunkType: "page",
+    });
   });
 
   it("hardens citation and artifact asset URLs before returning the answer", async () => {
@@ -1611,6 +1740,7 @@ describe("answerQuestionWithRetrieval", () => {
         content: "",
         chunkType: "image",
         score: null,
+        chunkId: "chunk_1",
         assetUrl: "https://blob.example/images/launch.jpg",
         source: {
           documentId: "doc_spacex",

@@ -97,6 +97,53 @@ describe("agent harness runtime", () => {
     ])
   })
 
+  it("accepts a page modality and passes it through to retrieval", async () => {
+    const query = vi.fn<RetrievalCapability["query"]>().mockResolvedValue(
+      makeRetrievalResponse(),
+    )
+    const state: {
+      intent?: IntentFrame
+      contextPolicy?: ContextPolicy
+      toolCalls?: HarnessToolCallTrace[]
+    } = {}
+    const tools = createHarnessTools({
+      state,
+      ledger: createEvidenceLedger(),
+      retrieval: { query },
+      recentTurns: [],
+    })
+
+    await executeTool(tools.declareIntent, {
+      task: "answer",
+      dependsOnPreviousTurn: false,
+      retrievalNeeded: "yes",
+      targetModalities: ["page"],
+      constraints: {},
+      groundingPolicy: "must_use_sources",
+    })
+    await executeTool(tools.setContextPolicy, {
+      carryHistory: "none",
+      reason: "Unrelated follow-up.",
+      activePriorTurnIds: [],
+    })
+    const result = await executeTool(tools.retrieve, {
+      query: "Gordon phone number",
+      modalities: ["page"],
+    })
+
+    expect(result).toMatchObject({ ok: true, retrievalCount: 1 })
+    expect(query).toHaveBeenCalledWith(
+      expect.objectContaining({ modalities: ["page"] }),
+    )
+  })
+
+  it("guides the planner to page modalities for directory-style lookups", () => {
+    const prompt = buildHarnessSystemPrompt(makeTurnInput())
+
+    expect(prompt).toContain("directory-style lookups")
+    expect(prompt).toContain("set retrieve modalities to ['page']")
+  })
+
   it("blocks finalize until intent and context policy are declared", async () => {
     const state: {
       intent?: IntentFrame

@@ -9,6 +9,7 @@ import {
   loadChunksForSource,
   resolveChunkConnectionTargets,
   resolveCitationChunk,
+  resolveCitationChunkByContent,
   toParsedChunkView,
 } from "."
 import type { ChatCitationView } from "@/domains/chat/types"
@@ -517,6 +518,94 @@ describe("resolveCitationChunk", () => {
     );
 
     expect(chunk).toBeNull();
+  });
+
+  it("resolves a snippet-window citation to its page chunk by chunkId", () => {
+    const chunk = resolveCitationChunk(
+      makeRetrievalResultView({
+        content: "…window around CHEUNG Hon-lam Gordon…",
+        chunkId: "parser_page_1",
+        source: {
+          documentId: "doc_123",
+          sourceFileName: "directory.pdf",
+          sectionPath: "Page 3",
+        },
+      }),
+      [
+        makeParsedChunkView({
+          chunkId: "row_page_1",
+          parserChunkId: "parser_page_1",
+          type: "page",
+          sectionPath: "Page 3",
+          content: "CHEUNG Hon-lam Gordon 2835 2147",
+        }),
+        makeParsedChunkView({
+          chunkId: "row_page_2",
+          parserChunkId: "parser_page_2",
+          type: "page",
+          sectionPath: "Page 4",
+          content: "YUEN Chun-cheung Gordon 3752 8030",
+        }),
+      ],
+    );
+
+    expect(chunk?.chunkId).toBe("row_page_1");
+  });
+
+  it("prefers a chunkId match over a content excerpt match on a different chunk", () => {
+    const chunk = resolveCitationChunk(
+      makeRetrievalResultView({
+        content: "exact sentence from the second chunk",
+        chunkId: "parser_first",
+        source: {
+          documentId: "doc_123",
+          sourceFileName: "notes.txt",
+          sectionPath: "Shared Section",
+        },
+      }),
+      [
+        makeParsedChunkView({
+          chunkId: "chunk_first",
+          parserChunkId: "parser_first",
+          sectionPath: "Shared Section",
+          content: "different sentence from the first chunk",
+        }),
+        makeParsedChunkView({
+          chunkId: "chunk_second",
+          parserChunkId: "parser_second",
+          sectionPath: "More Specific Section",
+          content: "prefix exact sentence from the second chunk suffix",
+        }),
+      ],
+    );
+
+    expect(chunk?.chunkId).toBe("chunk_first");
+  });
+});
+
+describe("resolveCitationChunkByContent", () => {
+  it("resolves by chunkId when the loaded chunk set is partial", () => {
+    const chunk = resolveCitationChunkByContent(
+      makeRetrievalResultView({
+        content: "…snippet window without an excerpt match…",
+        chunkId: "parser_page_1",
+        source: {
+          documentId: "doc_123",
+          sourceFileName: "directory.pdf",
+          sectionPath: "Page 3",
+        },
+      }),
+      [
+        makeParsedChunkView({
+          chunkId: "row_page_1",
+          parserChunkId: "parser_page_1",
+          type: "page",
+          content: "CHEUNG Hon-lam Gordon 2835 2147",
+        }),
+      ],
+    );
+
+    expect(chunk?.chunkId).toBe("row_page_1");
   });
 });
 
