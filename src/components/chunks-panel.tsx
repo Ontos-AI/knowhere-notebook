@@ -18,6 +18,8 @@ import {
   type HierarchyPointNode,
 } from "d3-hierarchy";
 import {
+  ChevronDown,
+  ChevronRight,
   FilePlus2,
   Layers,
   RotateCcw,
@@ -59,6 +61,8 @@ export type ChunksPanelProps = {
   hasMoreChunks?: boolean;
   onLoadMore?: () => void;
   onLoadAllChunks?: () => void;
+  onClose?: () => void;
+  onClearFocus?: () => void;
   onLoginClick?: () => void;
   onSourceUploaded?: (source: SourceView) => void;
   analyticsContext?: AnalyticsContext;
@@ -86,20 +90,18 @@ export function ChunksPanel({
   hasMoreChunks = false,
   onLoadMore,
   onLoadAllChunks,
+  onClose,
+  onClearFocus,
   onLoginClick,
   onSourceUploaded,
   analyticsContext,
   sourceCountSnapshot = 0,
 }: Partial<ChunksPanelProps> = {}) {
-  const originalPreviewCacheKey = selectedSourceFile?.url ?? null;
   const isOriginalPreviewAvailable =
     sourceOriginalPreviewModel.canPreviewOriginalFile(
       selectedSource,
       selectedSourceFile,
     );
-  const [mountedOriginalPreviewKey, setMountedOriginalPreviewKey] = useState<
-    string | null
-  >(null);
   const [chunkDisplayModeState, setChunkDisplayModeState] =
     useState<ChunkDisplayModeState>(() => ({
       handledCitationListViewRequestId: citationListViewRequestId,
@@ -112,11 +114,8 @@ export function ChunksPanel({
   const {
     activeFocusedChunkId,
     handleChunkSelected: selectChunk,
-    handleOriginalViewSelected: selectOriginalView,
-    handleParsedViewSelected,
     handleViewportScroll,
     hasOriginalFile,
-    hasOriginalView,
     measureVirtualChunkElement,
     originalTargetPageNumber,
     originalTargetPageRequestId,
@@ -143,23 +142,12 @@ export function ChunksPanel({
     file: selectedSourceFile,
   });
 
-  const rememberOriginalPreview = useCallback((): void => {
-    if (originalPreviewCacheKey) {
-      setMountedOriginalPreviewKey(originalPreviewCacheKey);
-    }
-  }, [originalPreviewCacheKey]);
-
   const handleChunkSelected = useCallback(
     (chunk: ParsedChunkView): void => {
-      rememberOriginalPreview();
       selectChunk(chunk);
     },
-    [rememberOriginalPreview, selectChunk],
+    [selectChunk],
   );
-  const handleOriginalViewSelected = useCallback((): void => {
-    rememberOriginalPreview();
-    selectOriginalView();
-  }, [rememberOriginalPreview, selectOriginalView]);
   const handleListModeSelected = useCallback((): void => {
     setChunkDisplayModeState({
       handledCitationListViewRequestId: citationListViewRequestId,
@@ -239,10 +227,7 @@ export function ChunksPanel({
       ? "list"
       : chunkDisplayModeState.mode;
   const headerTitle = focusedChunkId ? "Referenced Chunks" : "Parsed Chunks";
-  const shouldMountOriginalPreview =
-    visibleView === "original" ||
-    (originalPreviewCacheKey !== null &&
-      mountedOriginalPreviewKey === originalPreviewCacheKey);
+  const shouldMountOriginalPreview = visibleView === "original";
   const isTreeModeVisible =
     visibleView === "parsed" && chunkDisplayMode === "tree";
   const headerSubtitle = visibleView === "original" ? (
@@ -305,44 +290,54 @@ export function ChunksPanel({
         </div>
         <div className="flex min-w-0 shrink-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
           {visibleView === "parsed" && chunks.length > 0 ? (
-            <div
-              role="group"
-              aria-label="Chunk display"
-              className="flex shrink-0 rounded-lg border border-border bg-muted/40 p-0.5"
-            >
-              <button
-                type="button"
-                onClick={handleListModeSelected}
-                className={viewToggleClassName(chunkDisplayMode === "list")}
+            <>
+              {activeFocusedChunkId ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  data-testid="show-all-chunks-button"
+                  onClick={() => {
+                    requestChunkFocus(null);
+                    onClearFocus?.();
+                  }}
+                  className="shrink-0"
+                >
+                  Show all chunks
+                </Button>
+              ) : null}
+              <div
+                role="group"
+                aria-label="Chunk display"
+                className="flex shrink-0 rounded-lg border border-border bg-muted/40 p-0.5"
               >
-                List
-              </button>
-              <button
-                type="button"
-                onClick={handleTreeModeSelected}
-                className={viewToggleClassName(chunkDisplayMode === "tree")}
-              >
-                Tree
-              </button>
-            </div>
+                <button
+                  type="button"
+                  onClick={handleListModeSelected}
+                  className={viewToggleClassName(chunkDisplayMode === "list")}
+                >
+                  List
+                </button>
+                <button
+                  type="button"
+                  onClick={handleTreeModeSelected}
+                  className={viewToggleClassName(chunkDisplayMode === "tree")}
+                >
+                  Tree
+                </button>
+              </div>
+            </>
           ) : null}
-          {hasOriginalView ? (
-            <div className="flex shrink-0 rounded-lg border border-border bg-muted/40 p-0.5">
-              <button
-                type="button"
-                onClick={handleParsedViewSelected}
-                className={viewToggleClassName(visibleView === "parsed")}
-              >
-                Parsed
-              </button>
-              <button
-                type="button"
-                onClick={handleOriginalViewSelected}
-                className={viewToggleClassName(visibleView === "original")}
-              >
-                Original
-              </button>
-            </div>
+          {onClose ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={onClose}
+              className="shrink-0"
+            >
+              Close
+            </Button>
           ) : null}
         </div>
       </header>
@@ -528,14 +523,33 @@ function ChunkSectionTree({
     useState<SectionTreePan>(initialSectionTreePan);
   const [sectionTreeDragState, setSectionTreeDragState] =
     useState<SectionTreeDragState | null>(null);
+  const [expandedNodeIds, setExpandedNodeIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
   const sectionTreeZoomSurfaceRef = useRef<HTMLDivElement | null>(null);
   const sectionTree = useMemo(
     () => chunksPanelState.buildSectionTree(chunks, sourceTitle),
     [chunks, sourceTitle],
   );
+  const isNodeExpanded = useCallback(
+    (node: RenderableChunkTreeNode): boolean =>
+      node.kind === "root" || expandedNodeIds.has(node.id),
+    [expandedNodeIds],
+  );
+  const handleNodeToggle = useCallback((nodeId: string): void => {
+    setExpandedNodeIds((current) => {
+      const next = new Set(current);
+      if (next.has(nodeId)) {
+        next.delete(nodeId);
+      } else {
+        next.add(nodeId);
+      }
+      return next;
+    });
+  }, []);
   const layout = useMemo(
-    () => getChunkSectionTreeLayout(sectionTree),
-    [sectionTree],
+    () => getChunkSectionTreeLayout(sectionTree, isNodeExpanded),
+    [sectionTree, isNodeExpanded],
   );
   const scaledLayoutWidth: number = Math.round(
     (layout.width * zoomPercent) / 100,
@@ -566,6 +580,11 @@ function ChunkSectionTree({
     if (!zoomSurface) return;
 
     const handleWheelZoom = (event: WheelEvent): void => {
+      // Only zoom on Ctrl/Cmd+wheel (trackpad pinch sends ctrl+wheel). Plain
+      // wheel events pass through to the enclosing ScrollArea so expanding a
+      // section past the pane height scrolls normally instead of zooming.
+      if (!event.ctrlKey && !event.metaKey) return;
+
       if (event.deltaY === 0) return;
 
       event.preventDefault();
@@ -672,6 +691,8 @@ function ChunkSectionTree({
               xOffset={layout.xOffset}
               yOffset={layout.yOffset}
               onChunkFocus={onChunkFocus}
+              onNodeToggle={handleNodeToggle}
+              isExpanded={isNodeExpanded(node.data)}
             />
           ))}
         </div>
@@ -766,12 +787,16 @@ function SectionTreeItem({
   xOffset,
   yOffset,
   onChunkFocus,
+  onNodeToggle,
+  isExpanded,
 }: {
   readonly focusedChunkId: string | null;
   readonly node: HierarchyPointNode<RenderableChunkTreeNode>;
   readonly xOffset: number;
   readonly yOffset: number;
   readonly onChunkFocus: (chunkId: string | null) => void;
+  readonly onNodeToggle: (nodeId: string) => void;
+  readonly isExpanded: boolean;
 }): ReactNode {
   const itemStyle: CSSProperties = {
     left: node.y + yOffset,
@@ -781,11 +806,15 @@ function SectionTreeItem({
   };
   const isFocusedChunk =
     node.data.kind === "chunk" && node.data.chunk?.chunkId === focusedChunkId;
+  const hasChildren = node.data.children.length > 0;
+  const isToggleable =
+    node.data.kind === "section" && hasChildren;
 
   return (
     <div
       role="treeitem"
       aria-label={getTreeItemAriaLabel(node.data)}
+      aria-expanded={isToggleable ? isExpanded : undefined}
       aria-level={node.depth + 1}
       aria-selected={isFocusedChunk ? true : undefined}
       className="min-w-0"
@@ -816,9 +845,20 @@ function SectionTreeItem({
             node.data.kind === "root"
               ? "border-primary/25 bg-primary/10"
               : "border-border bg-background-secondary",
+            isToggleable ? "cursor-pointer transition-colors hover:border-primary/30 hover:bg-accent/40" : null,
           )}
+          onClick={
+            isToggleable ? () => onNodeToggle(node.data.id) : undefined
+          }
         >
-          <span className="truncate text-xs font-bold text-foreground">
+          <span className="flex items-center gap-1 truncate text-xs font-bold text-foreground">
+            {isToggleable ? (
+              isExpanded ? (
+                <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
+              ) : (
+                <ChevronRight className="size-3 shrink-0 text-muted-foreground" />
+              )
+            ) : null}
             {node.data.label}
           </span>
           <span className="mt-1 text-[11px] font-medium text-muted-foreground">
@@ -839,11 +879,15 @@ function isInteractiveSectionTreeTarget(target: EventTarget): boolean {
 
 function getChunkSectionTreeLayout(
   sectionTree: ChunkSectionTreeNode,
+  isExpanded: (node: RenderableChunkTreeNode) => boolean,
 ): ChunkSectionTreeLayout {
   const renderableTree = toRenderableChunkTreeNode(sectionTree);
   const root = hierarchy<RenderableChunkTreeNode>(
     renderableTree,
-    (node) => (node.children.length > 0 ? [...node.children] : undefined),
+    (node) =>
+      node.children.length > 0 && isExpanded(node)
+        ? [...node.children]
+        : undefined,
   );
   const positionedRoot = createD3Tree<RenderableChunkTreeNode>()
     .nodeSize([sectionTreeRowGap, sectionTreeColumnGap])(root);

@@ -366,6 +366,7 @@ function makeWorkspace(overrides: Partial<Workspace> = {}): Workspace {
   return {
     id: "workspace_1",
     userId: "user_1",
+      activeKnowhereApiKeyId: null,
     namespace: "notebook-workspace_1",
     createdAt: new Date("2026-05-06T00:00:00Z"),
     ...overrides,
@@ -387,7 +388,6 @@ function makeSource(overrides: Partial<Source> = {}): Source {
     stagedBlobUrl: null,
     originalBlobPathname: null,
     originalBlobUrl: null,
-    demoKey: null,
     createdAt: new Date("2026-05-06T00:00:00Z"),
     updatedAt: new Date("2026-05-06T00:00:00Z"),
     deletedAt: null,
@@ -400,7 +400,6 @@ function makeThread(overrides: Partial<ChatThread> = {}): ChatThread {
     id: "thread_1",
     workspaceId: "workspace_1",
     title: "Chat title",
-    demoKey: null,
     createdAt: new Date("2026-05-06T00:00:00Z"),
     updatedAt: new Date("2026-05-06T00:00:00Z"),
     deletedAt: null,

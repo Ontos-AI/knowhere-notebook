@@ -5,7 +5,7 @@ import {
   parseChatDiagramRequestBody,
 } from "@/domains/chat/diagram"
 import { notebookRequestContext } from "@/domains/workspace/request-context"
-import { isAuthError } from "@/integrations/dashboard/api-key-service"
+import { isAuthError } from "@/integrations/knowhere-credentials"
 import { summarizeUnknownError } from "@/lib/format-log-value"
 import { logger } from "@/lib/logger"
 import { nextRouteResponse } from "@/lib/next-route-response"

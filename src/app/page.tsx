@@ -1,4 +1,5 @@
 import { Suspense } from "react"
+import { redirect } from "next/navigation"
 import { WorkspaceShell } from "@/components/workspace-shell"
 import { loadWorkspaceShellInitialState } from "@/domains/workspace/initial-state"
 import { effectOperation } from "@/lib/effect-operation"
@@ -17,6 +18,9 @@ export default function Home() {
 export async function HomeContent() {
   await connection()
   const initialState = await loadWorkspaceInitialState()
+  if (!initialState.user) {
+    redirect("/login")
+  }
   return <WorkspaceShell {...initialState} />
 }
 

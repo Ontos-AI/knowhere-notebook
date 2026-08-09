@@ -1,19 +1,12 @@
 import { Effect } from "effect"
 
-import { demoView } from "@/domains/demo/view"
-import {
-  getMaterializedDemoSourceViewOptionsBySourceId,
-  getWorkspaceSourcesNeedingKnowhereChunkCount,
-  resolveWorkspaceDemoSources,
-} from "@/domains/demo/workspace-source-resolution"
 import { routeResult } from "@/lib/route-result"
 import { logger } from "@/lib/logger"
-import { knowhereDemoApi } from "@/integrations/knowhere-demo"
 import { toSourceView } from "./view"
 import {
   startBackgroundReconciliation as defaultStartBackgroundReconciliation,
 } from "./background-reconcile"
-import { listRemoteLibrarySourceViews } from "./remote-library"
+import { localizeRemoteLibrarySources } from "./remote-library"
 import type { Source } from "@/infrastructure/db/schema"
 import type {
   JsonRouteResult,
@@ -31,13 +24,9 @@ type RouteListingDependencies = Pick<
   | "listSourcesForWorkspace"
   | "makeKnowhereClient"
 > & {
-  readonly demoApi: Pick<
-    SourceRouteServiceDependencies["demoApi"],
-    "fetchCatalog"
-  >
   readonly sourceService: Pick<
     SourceRouteServiceDependencies["sourceService"],
-    "listHiddenDemoSourceIds" | "localizeRemoteDocument"
+    "localizeRemoteDocument"
   >
   readonly reconcileSourcesForWorkspace: SourceRouteServiceDependencies[
     "reconcileSourcesForWorkspace"
@@ -69,37 +58,41 @@ const listSourcesEffect = (
   Effect.gen(function* () {
     const user = yield* Effect.tryPromise(() => deps.getCurrentUser())
     if (!user) {
-      const catalog = yield* Effect.tryPromise(() => deps.demoApi.fetchCatalog())
-      return routeResult.ok({
-        sources: catalog.sources.map(demoView.toSourceView),
-      })
+      return routeResult.ok({ sources: [] })
     }
 
-    const catalog = yield* Effect.tryPromise(() =>
-      knowhereDemoApi.fetchOptionalCatalog(deps.demoApi.fetchCatalog),
-    )
     const workspace = yield* Effect.tryPromise(() =>
       deps.ensureWorkspace(user.id),
     )
+    if (!workspace) {
+      return routeResult.ok({ sources: [] })
+    }
     const listedSources = yield* Effect.tryPromise(() =>
       deps.listSourcesForWorkspace(workspace.id),
     )
     const apiKey = yield* Effect.tryPromise(() =>
-      deps.ensureApiKeyForWorkspace(workspace.id, input.cookieHeader),
+      deps.ensureApiKeyForWorkspace(workspace.id),
     )
     const client = deps.makeKnowhereClient(apiKey)
     const sources = listedSources
-    const demoSourceResolution = resolveWorkspaceDemoSources(sources, catalog)
-    const workspaceSources = demoSourceResolution.workspaceSources
-    const remoteSourceViews = yield* listRemoteLibrarySourceViews({
+    const workspaceSources = sources
+    const localizedSources = yield* localizeRemoteLibrarySources({
       workspace,
       client,
-      localSources: demoSourceResolution.workspaceSources,
+      localSources: workspaceSources,
+      localizeDocument: (document) =>
+        deps.sourceService.localizeRemoteDocument(workspace.id, {
+          documentId: document.documentId,
+          namespace: document.namespace,
+          status: document.status,
+          title: document.title,
+          mimeType: document.mimeType,
+          sizeBytes: document.sizeBytes,
+          revisionKey: document.revisionKey ?? null,
+        }),
     })
     const sourcesNeedingKnowhereChunkCount =
-      getWorkspaceSourcesNeedingKnowhereChunkCount(workspaceSources)
-    const materializedDemoSourceOptions =
-      getMaterializedDemoSourceViewOptionsBySourceId(workspaceSources, catalog)
+      getWorkspaceSourcesNeedingKnowhereChunkCount(localizedSources)
     yield* Effect.sync(() =>
       triggerBackgroundReconciliationForParsingSources({
         workspaceId: workspace.id,
@@ -114,37 +107,23 @@ const listSourcesEffect = (
       sourcesNeedingKnowhereChunkCount,
       client,
     )
-    const hiddenDemoSourceIds = new Set(
-      yield* Effect.tryPromise(() =>
-        deps.sourceService.listHiddenDemoSourceIds(workspace.id),
-      ),
-    )
-    const visibleDemoSources = catalog.sources
-      .filter(
-        (source) =>
-          !demoSourceResolution.materializedDemoSourceIds.has(
-            source.demoSourceId,
-          ),
-      )
-      .filter((source) => !hiddenDemoSourceIds.has(source.demoSourceId))
-      .map(demoView.toSourceView)
 
     return routeResult.ok({
-      sources: [
-        ...visibleDemoSources,
-        ...workspaceSources.map((source) =>
-          toSourceView(
-            source,
-            materializedDemoSourceOptions.get(source.id) ??
-              sourceOptions.get(source.id),
-          ),
-        ),
-        ...remoteSourceViews,
-      ],
+      sources: localizedSources.map((source) =>
+        toSourceView(source, sourceOptions.get(source.id)),
+      ),
     })
   })
 
 export { createRouteListing }
+
+function getWorkspaceSourcesNeedingKnowhereChunkCount(
+  sources: readonly Source[],
+): readonly Source[] {
+  return sources.filter(
+    (source) => source.status === "ready" && source.knowhereDocumentId,
+  )
+}
 
 function triggerBackgroundReconciliationForParsingSources(input: {
   readonly workspaceId: string

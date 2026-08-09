@@ -9,7 +9,6 @@ export type AnalyticsContext = {
   readonly workspaceId?: string;
   readonly workspaceNamespace?: string;
   readonly userId?: string;
-  readonly isGuest?: boolean;
 };
 
 type AnalyticsEnvelope = {
@@ -66,7 +65,6 @@ function buildBaseProperties(context?: AnalyticsContext): Properties {
     workspace_id: context?.workspaceId,
     workspace_namespace: context?.workspaceNamespace,
     user_id: context?.userId,
-    is_guest: context?.isGuest,
   };
 }
 
@@ -139,22 +137,6 @@ export function trackNotebookAssistantQuestionSubmitted(input: {
     selected_sources_count: input.selectedSourcesCount,
     source_count_snapshot: input.sourceCountSnapshot,
     message_length: input.messageLength,
-  });
-}
-
-export function trackNotebookDashboardLinkClicked(input: {
-  readonly context?: AnalyticsContext;
-  readonly targetUrl: string;
-  readonly fromPage: string;
-  readonly hasSources: boolean;
-  readonly hasChats: boolean;
-}): Promise<void> {
-  return trackEvent("notebook_dashboard_link_clicked", {
-    ...buildBaseProperties(input.context),
-    from_page: input.fromPage,
-    target_url: input.targetUrl,
-    has_sources: input.hasSources,
-    has_chats: input.hasChats,
   });
 }
 

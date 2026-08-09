@@ -41,6 +41,11 @@ const retrySourceEffect = (
     const workspace = yield* Effect.tryPromise(() =>
       deps.ensureWorkspace(user.id),
     )
+    if (!workspace) {
+      return routeResult.badRequest(
+        "No workspace yet — pick a namespace from the dropdown.",
+      )
+    }
 
     const source = yield* Effect.tryPromise(() =>
       deps.sourceService.findInWorkspace(workspace.id, input.sourceId),
@@ -59,7 +64,7 @@ const retrySourceEffect = (
     }
 
     const apiKey = yield* Effect.tryPromise(() =>
-      deps.ensureApiKeyForWorkspace(workspace.id, input.cookieHeader),
+      deps.ensureApiKeyForWorkspace(workspace.id),
     )
     const client = deps.makeKnowhereClient(apiKey)
     const retriedSource = yield* Effect.tryPromise(() =>

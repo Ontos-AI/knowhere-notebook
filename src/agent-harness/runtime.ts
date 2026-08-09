@@ -44,7 +44,7 @@ type HarnessToolState = {
   toolCalls?: HarnessToolCallTrace[]
 }
 
-const targetModalitySchema = z.enum(["text", "image", "table"])
+const targetModalitySchema = z.enum(["text", "image", "table", "page"])
 
 const intentFrameSchema = z.object({
   task: z.enum([
@@ -155,9 +155,15 @@ export async function runAgentHarness(
   let manifest = buildFallbackManifest("")
   let validationErrors: readonly string[] = []
   let revisionsUsed = 0
+  let llmCallCount = 0
+  let inputTokens = 0
+  let outputTokens = 0
 
   for (let attempt = 0; ; attempt += 1) {
     const response = await agent.generate({ messages })
+    llmCallCount += response.steps?.length ?? 0
+    inputTokens += response.totalUsage?.inputTokens ?? 0
+    outputTokens += response.totalUsage?.outputTokens ?? 0
     manifest =
       state.finalizedManifest ?? buildFallbackManifest(response.text.trim())
 
@@ -201,6 +207,9 @@ export async function runAgentHarness(
       toolCalls: [...(state.toolCalls ?? [])],
       validationErrors,
       revisionsUsed,
+      llmCallCount,
+      inputTokens,
+      outputTokens,
     },
   }
 }
@@ -620,6 +629,12 @@ export function buildHarnessSystemPrompt(turn: AgentTurnInput): string {
     "- If the user corrects a previous answer, set carryHistory to repair_previous, read the relevant prior turn, then re-retrieve and re-answer using the correction.",
     "- If the user uses references like this document, that image, or the previous answer, choose referential_only or full_recent and read the prior turn you depend on.",
     "",
+    "Retrieval rules:",
+    "- KNOWHERE retrieval is keyword-based (BM25). Use exact terms and distinctive keywords likely to appear in the documents; avoid vague paraphrases.",
+    "- Expand queries with synonyms, acronyms, and domain terms that might appear in the sources (for example brand names, metric names, table headers).",
+    "- For multi-part or ambiguous questions, call retrieve more than once with different query phrasings, one per distinct aspect, and combine evidence from all calls.",
+    "- Prefer multiple focused queries over one long unfocused query.",
+    "- For directory-style lookups (people, phone numbers, addresses, office locations, contact details), set retrieve modalities to ['page'] so KNOWHERE retrieves whole pages where this information lives.",
     "Output rules:",
     "- Final output is the OutputManifest passed to finalize, not freeform tool JSON or trailing text.",
     "- artifacts with display=true are the exact images/tables shown. Never display every candidate; honor constraints.desiredCount / maxCount.",

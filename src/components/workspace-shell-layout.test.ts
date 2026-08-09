@@ -4,6 +4,10 @@ import { cleanup, render, screen, within } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { WorkspaceShellLayout } from "./workspace-shell-layout"
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: vi.fn() }),
+}))
 import { workspaceShellState } from "./workspace-shell-state"
 
 const C = WorkspaceShellLayout as React.FC<Record<string, unknown>>
@@ -31,7 +35,6 @@ describe("WorkspaceShellLayout", () => {
         hasMessages: false,
         hasMoreSelectedChunks: false,
         isCreatingThread: false,
-        isGuest: false,
         isSelectedAllChunksLoading: false,
         isSelectedChunksLoading: false,
         isSelectedChunksLoadingMore: false,
@@ -61,7 +64,6 @@ describe("WorkspaceShellLayout", () => {
         onDesktopPanelResizeStart: vi.fn(),
         onLoadAllChunks: vi.fn(),
         onLoadMoreChunks: vi.fn(),
-        onLoginClick: vi.fn(),
         onMobilePanelChange: vi.fn(),
         onSelectChatThread: vi.fn(),
         onSourceSelected: vi.fn(),
@@ -76,7 +78,7 @@ describe("WorkspaceShellLayout", () => {
     expect(screen.getByTestId("desktop-sources-panel").style.width).toBe(
       "350px",
     )
-    expect(screen.getByTestId("desktop-chat-panel").style.width).toBe("420px")
+    expect(screen.getByTestId("desktop-chat-panel").style.width).toBe("800px")
   })
 
   it("renders compact sidebars when the side panels are collapsed", () => {
@@ -106,14 +108,13 @@ describe("WorkspaceShellLayout", () => {
         ],
         desktopPanelWidths: {
           sources: workspaceShellState.collapsedDesktopPanelWidth,
-          chunks: 960,
+          
           chat: workspaceShellState.collapsedDesktopPanelWidth,
         },
         focusedChunk: { chunkId: null, requestId: 0 },
         hasMessages: false,
         hasMoreSelectedChunks: false,
         isCreatingThread: false,
-        isGuest: false,
         isSelectedAllChunksLoading: false,
         isSelectedChunksLoading: false,
         isSelectedChunksLoadingMore: false,
@@ -121,7 +122,7 @@ describe("WorkspaceShellLayout", () => {
         minimumDesktopPanelWidth:
           workspaceShellState.getMinimumDesktopPanelWidth({
             sources: workspaceShellState.collapsedDesktopPanelWidth,
-            chunks: 960,
+            
             chat: workspaceShellState.collapsedDesktopPanelWidth,
           }),
         mobilePanel: "chat",
@@ -156,7 +157,6 @@ describe("WorkspaceShellLayout", () => {
         onDesktopPanelResizeStart: vi.fn(),
         onLoadAllChunks: vi.fn(),
         onLoadMoreChunks: vi.fn(),
-        onLoginClick: vi.fn(),
         onMobilePanelChange: vi.fn(),
         onSelectChatThread: handleChatThreadSelected,
         onSourceSelected: handleSourceSelected,
@@ -187,6 +187,9 @@ describe("WorkspaceShellLayout", () => {
   it("keeps normal source rows usable at narrow pre-sidebar widths", () => {
     render(
       React.createElement(C, {
+        activeWorkspace: { id: "workspace_1", namespace: "adobe" },
+        workspaces: [{ id: "workspace_1", namespace: "adobe" }],
+        knowhereKeyLabels: [],
         archivingSourceIds: [],
         archivingThreadIds: [],
         chat: {
@@ -200,14 +203,13 @@ describe("WorkspaceShellLayout", () => {
         chatThreads: [],
         desktopPanelWidths: {
           sources: 180,
-          chunks: 900,
+          
           chat: 180,
         },
         focusedChunk: { chunkId: null, requestId: 0 },
         hasMessages: false,
         hasMoreSelectedChunks: false,
         isCreatingThread: false,
-        isGuest: false,
         isSelectedAllChunksLoading: false,
         isSelectedChunksLoading: false,
         isSelectedChunksLoadingMore: false,
@@ -215,7 +217,7 @@ describe("WorkspaceShellLayout", () => {
         minimumDesktopPanelWidth:
           workspaceShellState.getMinimumDesktopPanelWidth({
             sources: 180,
-            chunks: 900,
+            
             chat: 180,
           }),
         mobilePanel: "chat",
@@ -250,7 +252,6 @@ describe("WorkspaceShellLayout", () => {
         onDesktopPanelResizeStart: vi.fn(),
         onLoadAllChunks: vi.fn(),
         onLoadMoreChunks: vi.fn(),
-        onLoginClick: vi.fn(),
         onMobilePanelChange: vi.fn(),
         onSelectChatThread: vi.fn(),
         onSourceSelected: vi.fn(),

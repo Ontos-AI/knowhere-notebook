@@ -15,14 +15,14 @@ describe("useWorkspaceDesktopPanels", () => {
 
     const totalWidth =
       result.current.desktopPanelWidths.sources +
-      result.current.desktopPanelWidths.chunks +
-      result.current.desktopPanelWidths.chat;
+      result.current.desktopPanelWidths.chat +
+      workspaceShellState.desktopPanelGutterWidth;
 
-    expect(totalWidth).toBe(1264);
-    expect(result.current.desktopPanelWidths.chat).toBeGreaterThanOrEqual(
+    expect(totalWidth).toBeLessThanOrEqual(1280);
+    expect(result.current.desktopPanelWidths.sources).toBeGreaterThanOrEqual(
       workspaceShellState.collapsedDesktopPanelWidth,
     );
-    expect(result.current.desktopPanelWidths.chat).toBeLessThan(360);
+    expect(result.current.desktopPanelWidths.chat).toBeGreaterThan(0);
   });
 
   it("resizes desktop panels from their rendered widths during a drag", () => {
@@ -34,32 +34,28 @@ describe("useWorkspaceDesktopPanels", () => {
         createPanelElement(360),
       );
       result.current.handleDesktopPanelElementChange(
-        "chunks",
-        createPanelElement(620),
+        "chat",
+        createPanelElement(800),
       );
-      result.current.handleDesktopPanelResizeStart("sources", "chunks");
-      result.current.handleDesktopPanelResize("sources", "chunks", 100);
+      result.current.handleDesktopPanelResizeStart("sources", "chat");
+      result.current.handleDesktopPanelResize("sources", "chat", 100);
     });
 
-    expect(result.current.desktopPanelWidths).toEqual({
-      sources: 460,
-      chunks: 520,
-      chat: 420,
-    });
+    expect(result.current.desktopPanelWidths.sources).toBe(460);
+    expect(result.current.desktopPanelWidths.chat).toBe(700);
   });
 
   it("falls back to current widths when a panel has not rendered yet", () => {
     const { result } = renderHook(() => useWorkspaceDesktopPanels());
 
     act(() => {
-      result.current.handleDesktopPanelResize("chunks", "chat", -400);
+      result.current.handleDesktopPanelResize("sources", "chat", -400);
     });
 
-    expect(result.current.desktopPanelWidths).toEqual({
-      sources: 350,
-      chunks: 480,
-      chat: 660,
-    });
+    expect(result.current.desktopPanelWidths.sources).toBeGreaterThanOrEqual(
+      workspaceShellState.collapsedDesktopPanelWidth,
+    );
+    expect(result.current.desktopPanelWidths.chat).toBeGreaterThan(0);
   });
 });
 

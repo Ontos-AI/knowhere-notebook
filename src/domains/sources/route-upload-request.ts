@@ -17,11 +17,19 @@ type SourceUploadRequest =
       readonly message: string
     }
 
-type SourceRouteUploadRequestModule = {
-  readonly read: (request: Request) => Promise<SourceUploadRequest>
+type SourceRouteUploadRequestInput = {
+  readonly workspaceId?: string
 }
 
-async function read(request: Request): Promise<SourceUploadRequest> {
+type SourceRouteUploadRequestModule = {
+  readonly read: (
+    request: Request,
+  ) => Promise<SourceUploadRequest & SourceRouteUploadRequestInput>
+}
+
+async function read(
+  request: Request,
+): Promise<SourceUploadRequest & SourceRouteUploadRequestInput> {
   const contentType = request.headers.get("content-type") ?? ""
   if (contentType.includes("application/json")) {
     return readBlobBackedUpload(request)
@@ -32,25 +40,36 @@ async function read(request: Request): Promise<SourceUploadRequest> {
 
 async function readBlobBackedUpload(
   request: Request,
-): Promise<SourceUploadRequest> {
-  const body = (await request.json()) as unknown
+): Promise<SourceUploadRequest & SourceRouteUploadRequestInput> {
+  const body = (await request.json()) as Record<string, unknown>
   const input = parseSourceBlobUploadBody(body)
   if (!input) return missingUpload()
 
-  return { type: "blob", input }
+  const workspaceId =
+    typeof body.workspaceId === "string" && body.workspaceId.length > 0
+      ? body.workspaceId
+      : undefined
+
+  return { type: "blob", input, workspaceId }
 }
 
 async function readMultipartFileUpload(
   request: Request,
-): Promise<SourceUploadRequest> {
+): Promise<SourceUploadRequest & SourceRouteUploadRequestInput> {
   const formData = await request.formData()
   const file = formData.get("file")
   if (!(file instanceof File) || file.size === 0) return missingUpload()
 
-  return { type: "file", file }
+  const workspaceIdValue = formData.get("workspaceId")
+  const workspaceId =
+    typeof workspaceIdValue === "string" && workspaceIdValue.length > 0
+      ? workspaceIdValue
+      : undefined
+
+  return { type: "file", file, workspaceId }
 }
 
-function missingUpload(): SourceUploadRequest {
+function missingUpload(): SourceUploadRequest & SourceRouteUploadRequestInput {
   return {
     type: "error",
     message: "Choose a document to upload.",

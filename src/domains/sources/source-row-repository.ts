@@ -357,7 +357,6 @@ async function localizeRemoteDocumentWithDb(
     stagedBlobUrl: null,
     originalBlobPathname: null,
     originalBlobUrl: null,
-    demoKey: null,
   }
 
   const [source] = await db

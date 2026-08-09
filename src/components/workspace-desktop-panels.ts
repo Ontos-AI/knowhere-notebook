@@ -6,7 +6,7 @@ import { workspaceShellState } from "@/components/workspace-shell-state";
 
 type DesktopPanelKey = keyof typeof workspaceShellState.minimumDesktopPanelWidths;
 type DesktopPanelWidths = Record<DesktopPanelKey, number>;
-type DesktopSidePanelKey = Exclude<DesktopPanelKey, "chunks">;
+type DesktopSidePanelKey = DesktopPanelKey;
 
 type DesktopPanelResizeDrag = {
   readonly leftPanel: DesktopPanelKey;
@@ -42,13 +42,12 @@ export function useWorkspaceDesktopPanels(): WorkspaceDesktopPanels {
   const [desktopPanelWidths, setDesktopPanelWidths] =
     useState<DesktopPanelWidths>({
       ...workspaceShellState.defaultDesktopPanelWidths,
-  });
+    });
   const desktopLayoutResizeObserver = useRef<ResizeObserver | null>(null);
   const desktopPanelElements = useRef<
     Record<DesktopPanelKey, HTMLDivElement | null>
   >({
     sources: null,
-    chunks: null,
     chat: null,
   });
   const desktopPanelResizeDrag = useRef<DesktopPanelResizeDrag | null>(null);

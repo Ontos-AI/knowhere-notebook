@@ -33,27 +33,100 @@ import {
  */
 
 /**
- * One workspace per user for the MVP. `user_id` is the Dashboard user id
- * as returned by `users.getCurrentUser` (not a Notebook-local id).
+ * Workspaces: the persistence unit for a namespace-scoped document set.
  *
- * `namespace` is the Knowhere namespace this workspace's sources all live
- * in. It is derived once from the workspace id and never mutated.
+ * A workspace binds one user to one Knowhere namespace. The credential used
+ * to access that namespace is the mutable `active_knowhere_api_key_id`
+ * pointer (key-agnostic: the user can re-point it to any of their API keys
+ * at any time). One workspace per (user, namespace) tuple.
  */
 export const workspaces = pgTable(
   "workspaces",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    userId: text("user_id").notNull().unique(),
-    namespace: text("namespace").notNull().unique(),
+    userId: text("user_id").notNull(),
+    namespace: text("namespace").notNull(),
+    activeKnowhereApiKeyId: uuid("active_knowhere_api_key_id"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
   },
-  (t) => [index("workspaces_user_id_idx").on(t.userId)],
+  (t) => [
+    index("workspaces_user_id_idx").on(t.userId),
+    uniqueIndex("workspaces_user_namespace_idx").on(t.userId, t.namespace),
+  ],
 );
 
 export type Workspace = typeof workspaces.$inferSelect;
 export type NewWorkspace = typeof workspaces.$inferInsert;
+
+/**
+ * Workspace membership for team sharing (Phase 4).
+ *
+ * `workspaces.user_id` remains the owner (implicit owner role). Members are
+ * invited by email; each membership row grants access to the workspace's
+ * sources/chats under the member's own user id.
+ */
+export const workspaceMembers = pgTable(
+  "workspace_members",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("workspace_members_workspace_id_idx").on(t.workspaceId),
+    index("workspace_members_user_id_idx").on(t.userId),
+    uniqueIndex("workspace_members_workspace_user_idx")
+      .on(t.workspaceId, t.userId),
+  ],
+);
+
+export type WorkspaceMember = typeof workspaceMembers.$inferSelect;
+export type NewWorkspaceMember = typeof workspaceMembers.$inferInsert;
+
+/**
+ * Encrypted Knowhere API keys, owned by a user (not a workspace) — the
+ * credential for any of the user's workspaces.
+ *
+ * The raw key never touches the browser or the logs: the server encrypts it
+ * with AES-256-GCM (key from `KNOWHERE_KEY_ENCRYPTION_KEY`) before storing
+ * `cipher_blob` + `cipher_nonce`, and decrypts on demand only when a
+ * Knowhere request needs the credential. `key_mask` is computed once at
+ * save time so listing keys never needs to decrypt.
+ */
+export const knowhereApiKeys = pgTable(
+  "knowhere_api_keys",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    label: text("label").notNull(),
+    keyMask: text("key_mask").notNull(),
+    cipherBlob: text("cipher_blob").notNull(),
+    cipherNonce: text("cipher_nonce").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("knowhere_api_keys_user_id_idx").on(t.userId),
+    uniqueIndex("knowhere_api_keys_user_label_idx")
+      .on(t.userId, t.label)
+      .where(sql`deleted_at IS NULL`),
+  ],
+);
+
+export type KnowhereApiKey = typeof knowhereApiKeys.$inferSelect;
+export type NewKnowhereApiKey = typeof knowhereApiKeys.$inferInsert;
 
 /**
  * One row per user-uploaded source. The row is the Notebook-owned record
@@ -74,8 +147,6 @@ export type NewWorkspace = typeof workspaces.$inferInsert;
  *                         and download path
  *   - `staged_blob_*`   — legacy temporary Blob staging pointer retained for
  *                         older rows during the PR #28 transition
- *   - `demo_key`    — canonical demo source identifier when this row is a
- *                     materialized API-owned demo copy
  *   - `deleted_at`   — soft delete timestamp; reads filter it out
  *
  * Indexes:
@@ -101,7 +172,6 @@ export const sources = pgTable(
     stagedBlobUrl: text("staged_blob_url"),
     originalBlobPathname: text("original_blob_pathname"),
     originalBlobUrl: text("original_blob_url"),
-    demoKey: text("demo_key"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -115,7 +185,6 @@ export const sources = pgTable(
       .on(t.workspaceId, t.createdAt.desc())
       .where(sql`deleted_at IS NULL`),
     index("sources_workspace_status_idx").on(t.workspaceId, t.status),
-    uniqueIndex("sources_workspace_demo_key_idx").on(t.workspaceId, t.demoKey),
     uniqueIndex("sources_workspace_document_idx")
       .on(t.workspaceId, t.knowhereDocumentId)
       .where(sql`knowhere_document_id IS NOT NULL AND deleted_at IS NULL`),
@@ -124,39 +193,6 @@ export const sources = pgTable(
 
 export type Source = typeof sources.$inferSelect;
 export type NewSource = typeof sources.$inferInsert;
-
-/**
- * User presentation state for canonical demo sources before they are copied
- * into a real workspace source.
- */
-export const demoSourceVisibilities = pgTable(
-  "demo_source_visibilities",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    workspaceId: uuid("workspace_id")
-      .notNull()
-      .references(() => workspaces.id, { onDelete: "cascade" }),
-    demoSourceId: text("demo_source_id").notNull(),
-    hiddenAt: timestamp("hidden_at", { withTimezone: true }),
-    deletedAt: timestamp("deleted_at", { withTimezone: true }),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-  },
-  (t) => [
-    uniqueIndex("demo_source_visibilities_workspace_source_idx").on(
-      t.workspaceId,
-      t.demoSourceId,
-    ),
-    index("demo_source_visibilities_workspace_idx").on(t.workspaceId),
-  ],
-);
-
-export type DemoSourceVisibility = typeof demoSourceVisibilities.$inferSelect;
-export type NewDemoSourceVisibility = typeof demoSourceVisibilities.$inferInsert;
 
 /**
  * Notebook-owned parse-result artifact index for one source.
@@ -192,8 +228,7 @@ export type SourceParseResult = typeof sourceParseResults.$inferSelect;
 export type NewSourceParseResult = typeof sourceParseResults.$inferInsert;
 
 /**
- * A chat thread is a conversation within a workspace. `demo_key` is retained
- * for legacy seeded demo conversations.
+ * A chat thread is a conversation within a workspace.
  */
 export const chatThreads = pgTable(
   "chat_threads",
@@ -203,7 +238,6 @@ export const chatThreads = pgTable(
       .notNull()
       .references(() => workspaces.id, { onDelete: "cascade" }),
     title: text("title"),
-    demoKey: text("demo_key"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -219,10 +253,6 @@ export const chatThreads = pgTable(
     index("chat_threads_workspace_updated_idx")
       .on(t.workspaceId, t.updatedAt.desc())
       .where(sql`deleted_at IS NULL`),
-    uniqueIndex("chat_threads_workspace_demo_key_idx").on(
-      t.workspaceId,
-      t.demoKey,
-    ),
   ],
 );
 
@@ -266,3 +296,95 @@ export const chatMessages = pgTable(
 
 export type ChatMessage = typeof chatMessages.$inferSelect;
 export type NewChatMessage = typeof chatMessages.$inferInsert;
+
+/**
+ * Notebook-owned users. Created by the admin CLI (scripts/create-user.ts)
+ * in Phase 2; OAuth/SSO links attach via `account_links`.
+ *
+ * `email` is unique and serves as the login handle. `email_verified_at`
+ * is set once email verification exists (deferred; null for now).
+ */
+export const users = pgTable(
+  "users",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    email: text("email").notNull().unique(),
+    name: text("name"),
+    emailVerifiedAt: timestamp("email_verified_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => [index("users_email_idx").on(t.email)],
+);
+
+export type User = typeof users.$inferSelect;
+export type NewUser = typeof users.$inferInsert;
+
+/**
+ * Credential links for modular auth providers.
+ *
+ * One row per (user, provider) pair — a user can sign in with password
+ * AND Google/GitHub later. `password_hash` lives here (only for the
+ * "password" provider), keeping OAuth-only users hash-free.
+ */
+export const accountLinks = pgTable(
+  "account_links",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull(),
+    providerUserId: text("provider_user_id"),
+    passwordHash: text("password_hash"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("account_links_user_provider_idx").on(t.userId, t.provider),
+    uniqueIndex("account_links_provider_provider_user_idx").on(
+      t.provider,
+      t.providerUserId,
+    ),
+  ],
+);
+
+export type AccountLink = typeof accountLinks.$inferSelect;
+export type NewAccountLink = typeof accountLinks.$inferInsert;
+
+/**
+ * DB-backed sessions: one row per active login, revocable server-side.
+ *
+ * The `notebook-session` cookie holds the session id; `getCurrentUser`
+ * joins this table to `users` on every request. Expired rows are ignored
+ * (and swept opportunistically).
+ */
+export const sessions = pgTable(
+  "sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("sessions_user_id_idx").on(t.userId),
+    index("sessions_expires_at_idx").on(t.expiresAt),
+  ],
+);
+
+export type Session = typeof sessions.$inferSelect;
+export type NewSession = typeof sessions.$inferInsert;

@@ -32,6 +32,13 @@ export type ChunkKnowhereClient = {
         totalPages?: number
       }
     }>
+    getChunk?(
+      documentId: string,
+      chunkId: string,
+      params?: { includeAssetUrls?: boolean },
+    ): Promise<{
+      chunk: DocumentChunk & { assetUrl?: string | null }
+    }>
   }
 }
 

@@ -10,6 +10,7 @@ import type { Workspace } from "@/infrastructure/db/schema";
 const workspace: Workspace = {
   id: "8fca7b54-c2da-48f4-9668-a4b39fbc4d4c",
   userId: "user_1",
+  activeKnowhereApiKeyId: null,
   namespace: "notebook-8fca7b54-c2da-48f4-9668-a4b39fbc4d4c",
   createdAt: new Date("2026-05-06T00:00:00Z"),
 };
@@ -29,7 +30,6 @@ function makeSource(overrides: Partial<Source> = {}): Source {
     stagedBlobUrl: null,
     originalBlobPathname: null,
     originalBlobUrl: null,
-    demoKey: null,
     createdAt: new Date("2026-05-06T00:00:00Z"),
     updatedAt: new Date("2026-05-06T00:00:00Z"),
     deletedAt: null,
@@ -109,7 +109,7 @@ describe("uploadSourceToKnowhere", () => {
     expect(deps.knowhere.jobs.create).toHaveBeenCalledWith({
       sourceType: "file",
       fileName: "notes.pdf",
-      namespace: "default",
+      namespace: "notebook-8fca7b54-c2da-48f4-9668-a4b39fbc4d4c",
       documentMetadata: {
         createdByClient: "notebook",
         sourceFileName: "notes.pdf",
@@ -320,7 +320,7 @@ describe("uploadSourceToKnowhere", () => {
       sourceType: "url",
       sourceUrl: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
       fileName: "large.pdf",
-      namespace: "default",
+      namespace: "notebook-8fca7b54-c2da-48f4-9668-a4b39fbc4d4c",
       documentMetadata: {
         createdByClient: "notebook",
         sourceFileName: "large.pdf",

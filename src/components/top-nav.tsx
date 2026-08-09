@@ -1,18 +1,11 @@
 import { NotebookLogoMark } from "@/components/notebook-logo-mark";
 import { Separator } from "@/components/ui/separator";
 import { ThemeToggle } from "@/components/theme-toggle";
-import {
-  trackNotebookDashboardLinkClicked,
-  type AnalyticsContext,
-} from "@/lib/posthog";
-import { ExternalLink } from "lucide-react";
+import { LogOut } from "lucide-react";
 import type { ReactElement } from "react";
+import { logoutAction } from "@/app/auth/logout/actions";
 
 export type TopNavProps = {
-  dashboardUrl?: string | null;
-  analyticsContext?: AnalyticsContext;
-  hasChats?: boolean;
-  hasSources?: boolean;
   userInitials?: string;
   userName?: string;
   userTierLabel?: string;
@@ -20,10 +13,6 @@ export type TopNavProps = {
 };
 
 export function TopNav({
-  dashboardUrl,
-  analyticsContext,
-  hasChats = false,
-  hasSources = false,
   userInitials,
   userName,
   userTierLabel,
@@ -45,28 +34,6 @@ export function TopNav({
         </span>
       </div>
       <div className="flex shrink-0 items-center gap-2 lg:gap-3">
-        {dashboardUrl ? (
-          <a
-            href={dashboardUrl}
-            aria-label="Open Dashboard"
-            onClick={() => {
-              void trackNotebookDashboardLinkClicked({
-                context: analyticsContext,
-                targetUrl: dashboardUrl,
-                fromPage:
-                  typeof window !== "undefined"
-                    ? window.location.pathname
-                    : "notebook",
-                hasSources,
-                hasChats,
-              });
-            }}
-            className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8e51ff]/25"
-          >
-            <span className="hidden sm:inline">Dashboard</span>
-            <ExternalLink className="hidden size-3.5 sm:block" strokeWidth={1.75} />
-          </a>
-        ) : null}
         <ThemeToggle />
         {userInitials && (
           <>
@@ -85,6 +52,16 @@ export function TopNav({
             <div className="flex size-8 items-center justify-center rounded-full bg-muted text-xs font-bold text-foreground">
               {userInitials}
             </div>
+            <form action={logoutAction}>
+              <button
+                type="submit"
+                aria-label="Sign out"
+                title="Sign out"
+                className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25"
+              >
+                <LogOut className="size-4" />
+              </button>
+            </form>
           </>
         )}
       </div>

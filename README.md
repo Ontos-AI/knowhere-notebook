@@ -10,8 +10,10 @@ Upload documents, explore parsed content, and ask questions about your knowledge
    ```
 
 2. Fill in your API keys in `.env.local`:
-   - `AI_GATEWAY_API_KEY` — your Vercel AI Gateway key for chat (optional `CHAT_MODEL` override)
-   - `KNOWHERE_API_KEY` — optional development override that skips Dashboard auth and calls Knowhere directly
+   - Chat (one of):
+     - `AI_GATEWAY_API_KEY` — Vercel AI Gateway key (optional `CHAT_MODEL` override, default `google/gemini-3-flash`), or
+     - `CHAT_BASE_URL` + `CHAT_API_KEY` + `CHAT_MODEL` — any OpenAI-compatible endpoint (e.g. DeepSeek, local Xinference/vLLM). `CHAT_MODEL` is required in this mode.
+    - `KNOWHERE_API_KEY` — optional dev bootstrap key that enables the deterministic local user (see Authentication below)
    - `NEXT_PUBLIC_POSTHOG_KEY` — PostHog Project API key for front-end event tracking
    - `NEXT_PUBLIC_POSTHOG_HOST` — PostHog ingestion host (default `https://us.i.posthog.com`)
 
@@ -63,7 +65,7 @@ GA4 field and event alignment guidance lives in `docs/ga4-alignment.md`.
 ## Tech Stack
 
 - **Framework**: [Next.js 16](https://nextjs.org) with App Router and Server Components
-- **AI**: [Vercel AI SDK](https://sdk.vercel.ai) + [Vercel AI Gateway](https://vercel.com/docs/ai-gateway)
+- **AI**: [Vercel AI SDK](https://sdk.vercel.ai) via the [Vercel AI Gateway](https://vercel.com/docs/ai-gateway) or any OpenAI-compatible endpoint (see `docs/adr/0007-chat-provider-abstraction.md`)
 - **Knowledge**: [Knowhere Node.js SDK](https://github.com/Ontos-AI/knowhere-sdk) for document parsing and retrieval
 - **UI**: [shadcn/ui](https://ui.shadcn.com) + Tailwind CSS 4
 - **Icons**: [Lucide](https://lucide.dev)
@@ -76,28 +78,49 @@ The CI workflow runs lint, typecheck, tests, and build on pull requests targetin
 After changes are merged to `main`, the release workflow creates a date-based
 GitHub Release with a source archive and build metadata.
 
-## Dashboard Auth Integration
+## Deployment (Docker)
 
-Notebook treats Dashboard as the auth source of truth. Server-side auth calls
-forward the incoming session cookie to Dashboard oRPC endpoints, including
-`/api/orpc/users/getCurrentUser` and `/api/orpc/users/issueServiceJwt`.
+Notebook ships as a standalone Next.js image built with `output: "standalone"`.
 
-For local development, setting server-side `KNOWHERE_API_KEY` switches Notebook
-into API-key mode. In that mode the app uses a deterministic local development
-user, skips Dashboard redirects and JWT issuance, and passes the configured key
-directly to the Knowhere SDK. Leave it unset for production and normal
-Dashboard-authenticated staging flows.
+```bash
+docker build -t knowhere-notebook:dev .
+docker run -d --name knowhere-notebook -p 3000:3000 \
+  --env-file .env.docker knowhere-notebook:dev
+```
 
-Dashboard chooses its oRPC handler by request shape and `Content-Type`.
-When using Effect's `HttpClientRequest.bodyText`, pass
-`"application/json"` as the body content type. Setting the header before
-`bodyText("{}")` is not enough because `bodyText` overwrites it with
-`text/plain`. If that happens, Dashboard can return a successful OpenAPI-shaped
-response instead of the RPC envelope, and Notebook will log a 200
-`schema mismatch` followed by `no valid session`.
+The image runs the traced standalone server as a non-root user on port 3000.
+Provide the same variables as `.env.local` (via a gitignored `.env.docker`):
+`KNOWHERE_API_KEY`/`KNOWHERE_BASE_URL`, `DATABASE_URL`/`DATABASE_DRIVER`, and
+chat config (`AI_GATEWAY_API_KEY` or `CHAT_BASE_URL`+`CHAT_API_KEY`+`CHAT_MODEL`).
 
-Use `setEmptyJsonBody` from `src/integrations/dashboard/orpc-request.ts` for empty
-Dashboard oRPC POST bodies.
+When running against a Knowhere stack on the host (Docker Desktop / OrbStack),
+use `host.docker.internal` in `KNOWHERE_BASE_URL` and `DATABASE_URL` so the
+container can reach the host services.
+
+**Vercel Blob is optional.** The chunk-page cache is backed by Vercel Blob when
+`BLOB_READ_WRITE_TOKEN` is set; without it, the cache is disabled and chunks
+are served straight from Knowhere. This is what lets self-hosted / local
+deployments work without a Blob store.
+
+## Authentication
+
+Notebook owns its authentication (ADR 0010): users, provider account links,
+and DB-backed sessions live in Notebook's Postgres. The `notebook-session`
+cookie carries the session id.
+
+- **Create a user** (admin-provisioned, no public signup):
+  ```bash
+  pnpm exec tsx --tsconfig tsconfig.scripts.json scripts/create-user.ts \
+    you@example.com "a-strong-password" --name "You"
+  ```
+- **Login** at `/login` (email + password, Argon2id hashing). **Logout** is
+  the top-nav sign-out button.
+- **Dev bootstrap:** setting `KNOWHERE_API_KEY` (or providing
+  `config/knowhere-keys.json`) still short-circuits to a deterministic
+  local development user so a fresh deployment works before any user is
+  created. This bootstrap is removed once DB-backed keys land.
+- Multi-domain API keys: see `config/knowhere-keys.json` and the
+  Workspace switcher in the sources panel.
 
 ## Project Structure
 
@@ -107,6 +130,13 @@ src/
 ├── components/       # React components and shadcn/ui primitives
 ├── domains/          # Product domains: chat, chunks, sources, workspace
 ├── infrastructure/   # Owned platform concerns: auth and database access
-├── integrations/     # External systems: Dashboard and Knowhere
+├── integrations/     # External systems: Knowhere
 └── lib/              # Small cross-cutting utilities
 ```
+
+## Desktop Layout
+
+Two-panel (sources | chat) with a resize handle. Parsed chunks and the
+Official Library are full-screen overlays, triggered by the tree icon on a
+source row or a citation reference in chat.
+

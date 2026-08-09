@@ -63,6 +63,8 @@ describe("workspaceChatState", () => {
       },
     );
 
+    expect(optimistic.pendingStatusText).toBe("Searching sources…");
+
     const failed = workspaceChatState.failSend(optimistic, "pending-1");
 
     expect(failed).toEqual({

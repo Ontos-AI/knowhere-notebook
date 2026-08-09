@@ -6,11 +6,12 @@ import {
   loadChunkPageForSource,
   loadChunksForSource,
 } from "@/domains/chunks/server"
-import { ensureApiKeyForWorkspace } from "@/integrations/dashboard/api-key-service"
+import { ensureApiKeyForWorkspace } from "@/integrations/knowhere-credentials"
 import { makeKnowhereClient as makeDefaultKnowhereClient } from "@/integrations/knowhere"
-import { knowhereDemoApi } from "@/integrations/knowhere-demo"
 import { getCurrentUser, requireUser } from "@/infrastructure/auth"
 import { workspaceService } from "@/domains/workspace/service"
+import { workspaceRepository } from "@/domains/workspace/repository"
+import { databaseRuntime } from "@/domains/workspace/database-runtime"
 import { sourceViewOptionsBySourceId as getDefaultSourceViewOptionsBySourceId } from "./counts"
 import { reconcileSourcesForWorkspace as reconcileDefaultSourcesForWorkspace } from "./reconcile"
 import { sourceWorkflowRuntime } from "./workflow-runtime"
@@ -23,9 +24,12 @@ import type {
 
 const defaultDependencies: SourceRouteServiceDependencies = {
   deleteBlob: del,
-  demoApi: knowhereDemoApi,
   ensureApiKeyForWorkspace,
   ensureWorkspace: workspaceService.ensureWorkspace,
+  findWorkspaceByIdAndUserId: (workspaceId, userId) =>
+    databaseRuntime.runPromise(
+      workspaceRepository.findByIdAndUserIdEffect(workspaceId, userId),
+    ),
   getCurrentUser,
   getSourceViewOptionsBySourceId: (sources, client) =>
     getDefaultSourceViewOptionsBySourceId(
@@ -46,13 +50,9 @@ const defaultDependencies: SourceRouteServiceDependencies = {
   sourceService: {
     findInWorkspace: defaultSourceService.findInWorkspace,
     getParseAssetUrls: defaultSourceService.getParseAssetUrls,
-    hideDemoSource: defaultSourceService.hideDemoSource,
-    listHiddenDemoSourceIds: defaultSourceService.listHiddenDemoSourceIds,
     localizeRemoteDocument: defaultSourceService.localizeRemoteDocument,
     updateSourceRevisionKey: defaultSourceService.updateSourceRevisionKey,
     softDelete: defaultSourceService.softDelete,
-    upsertMaterializedDemoSource:
-      defaultSourceService.upsertMaterializedDemoSource,
     retrySourceToKnowhere: defaultSourceService.retrySourceToKnowhere,
     uploadSourceBlobToKnowhere: defaultSourceService.uploadSourceBlobToKnowhere,
     uploadSourceToKnowhere: defaultSourceService.uploadSourceToKnowhere,
@@ -65,10 +65,6 @@ function createSourceRouteDependencies(
   return {
     ...defaultDependencies,
     ...overrides,
-    demoApi: {
-      ...defaultDependencies.demoApi,
-      ...overrides.demoApi,
-    },
     sourceService: {
       ...defaultDependencies.sourceService,
       ...overrides.sourceService,
@@ -84,7 +80,7 @@ async function getClientForWorkspace(
     "ensureApiKeyForWorkspace" | "makeKnowhereClient"
   >,
 ): Promise<SourceRouteKnowhereClient> {
-  const apiKey = await deps.ensureApiKeyForWorkspace(workspaceId, cookieHeader)
+  const apiKey = await deps.ensureApiKeyForWorkspace(workspaceId)
   return deps.makeKnowhereClient(apiKey)
 }
 

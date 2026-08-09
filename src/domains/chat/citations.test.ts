@@ -31,6 +31,29 @@ describe("toChatCitationViews", () => {
       { ...secondResult, description: "margin expansion" },
     ])
   })
+
+  it("carries the parser chunkId through to the citation view", () => {
+    const pageResult = makeRetrievalResult({
+      content: "CHEUNG Hon-lam Gordon 2835 2147",
+      chunkType: "page",
+      chunkId: "parser_page_1",
+    })
+
+    const citations = toChatCitationViews([pageResult], "Gordon is listed [Source 1: directory].")
+
+    expect(citations[0]).toMatchObject({
+      chunkId: "parser_page_1",
+      chunkType: "page",
+    })
+  })
+
+  it("omits chunkId when the retrieval result does not carry one", () => {
+    const result = makeRetrievalResult()
+
+    const citations = toChatCitationViews([result], "")
+
+    expect("chunkId" in (citations[0] ?? {})).toBe(false)
+  })
 })
 
 function makeRetrievalResult(

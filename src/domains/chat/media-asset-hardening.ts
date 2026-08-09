@@ -8,7 +8,6 @@ import type {
   ChatCitationView,
 } from "@/domains/chat/types"
 import type { Source } from "@/infrastructure/db/schema"
-import { knowhereDemoApi } from "@/integrations/knowhere-demo"
 import { logger } from "@/lib/logger"
 import type { LoadSourceAssetUrls } from "./media-assets"
 import { resolveAssetUrlFromReferenceText } from "./media-assets"
@@ -79,12 +78,6 @@ type HardeningContext = {
   readonly hardenedAssetUrlByKey: Map<string, Promise<string>>
   readonly blobStore: ChatMediaAssetBlobStore
   readonly fetchAsset: FetchChatMediaAsset
-}
-
-type DemoAssetRoute = {
-  readonly demoSourceId: string
-  readonly encodedAssetPath: string
-  readonly decodedAssetPath: string
 }
 
 const chatAssetsDirectoryName = "chat-assets"
@@ -339,20 +332,6 @@ async function copyAssetToBlob(input: {
 }
 
 function resolveAssetFetchRequest(assetUrl: string): AssetFetchRequest | null {
-  const demoAsset = parseDemoAssetRoute(assetUrl)
-  if (demoAsset) {
-    return {
-      fetchUrl: knowhereDemoApi.resolveApiURL(
-        `/api/v1/demo/sources/${encodeURIComponent(
-          demoAsset.demoSourceId,
-        )}/assets/${demoAsset.encodedAssetPath}`,
-      ),
-      canonicalKey: `demo:${demoAsset.demoSourceId}:${demoAsset.decodedAssetPath}`,
-      sourceSegment: `demo-${toSafePathSegment(demoAsset.demoSourceId)}`,
-      suggestedFileName: getPathBasename(demoAsset.decodedAssetPath),
-    }
-  }
-
   const absoluteUrl = parseAbsoluteHttpUrl(assetUrl)
   if (!absoluteUrl) return null
 
@@ -361,27 +340,6 @@ function resolveAssetFetchRequest(assetUrl: string): AssetFetchRequest | null {
     canonicalKey: `url:${absoluteUrl.origin}${absoluteUrl.pathname}`,
     sourceSegment: `external-${hashText(absoluteUrl.origin).slice(0, 16)}`,
     suggestedFileName: getPathBasename(absoluteUrl.pathname),
-  }
-}
-
-function parseDemoAssetRoute(assetUrl: string): DemoAssetRoute | null {
-  const pathname = getAssetUrlPathname(assetUrl)
-  const match = /^\/api\/demo-sources\/([^/]+)\/assets\/(.+)$/.exec(pathname)
-  const encodedDemoSourceId = match?.[1]
-  const encodedAssetPath = match?.[2]
-  if (!encodedDemoSourceId || !encodedAssetPath) return null
-
-  const demoSourceId = decodeUrlComponent(encodedDemoSourceId)
-  const assetPathSegments = encodedAssetPath
-    .split("/")
-    .map(decodeUrlComponent)
-    .filter((segment): boolean => segment.length > 0)
-  if (!demoSourceId || assetPathSegments.length === 0) return null
-
-  return {
-    demoSourceId,
-    encodedAssetPath: assetPathSegments.map(encodeURIComponent).join("/"),
-    decodedAssetPath: assetPathSegments.join("/"),
   }
 }
 

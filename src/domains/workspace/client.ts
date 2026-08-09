@@ -1,4 +1,5 @@
 import type { ChatDiagramSpec } from "@/domains/chat/diagram"
+import type { RetrievalOverrides } from "@/domains/chat/contracts"
 import type {
   ChatMessageView,
   ChatThreadView,
@@ -12,7 +13,7 @@ const workspaceClientKeys = {
   chatThreads: "/api/chat/threads",
   chatDiagram: "/api/chat/diagram",
   chat: "/api/chat",
-  materializeDemoSources: "/api/demo-sources/materialize",
+  namespaces: "/api/namespaces",
   archiveSource: "archive-source",
   retrySource: "retry-source",
   archiveChatThread: "archive-chat-thread",
@@ -46,10 +47,7 @@ type ChatMessageRequest = {
   message: string
   threadId?: string
   excludedSourceIds: string[]
-}
-
-type MaterializeDemoSourcesRequest = {
-  demoSourceIds: string[]
+  retrievalParams?: RetrievalOverrides
 }
 
 type SourcesResponse = {
@@ -85,6 +83,45 @@ type RetrySourceResponse = {
   message?: string
 }
 
+type NamespaceView = {
+  namespace: string
+  documentCount: number
+}
+
+type NamespacesResponse = {
+  namespaces?: NamespaceView[]
+}
+
+
+export type KnowhereKeyLabelView = {
+  id: string
+  label: string
+  mask: string
+}
+
+
+export type WorkspaceView = {
+  id: string
+  namespace: string
+  activeKeyLabel?: string | null
+}
+
+type CreateWorkspaceResponse = {
+  workspace?: WorkspaceView
+  message?: string
+}
+
+export type WorkspaceApiKeyView = KnowhereKeyLabelView & {
+  createdAt: string
+}
+
+type WorkspaceApiKeysResponse = {
+  keys?: WorkspaceApiKeyView[]
+  key?: WorkspaceApiKeyView
+  workspace?: WorkspaceView | null
+  message?: string
+}
+
 export const workspaceClient = {
   keys: workspaceClientKeys,
   fetchChunks,
@@ -95,10 +132,19 @@ export const workspaceClient = {
   createChatThread,
   createChatDiagram,
   sendChatMessage,
-  materializeDemoSources,
+  fetchUserApiKeys,
+  createUserApiKey,
+  fetchApiKeyNamespaces,
+  activateWorkspace,
+  createWorkspace,
+  setActiveWorkspaceApiKey,
+  deleteUserApiKey,
   archiveSource,
   retrySource,
   archiveChatThread,
+  fetchWorkspaceMembers,
+  addWorkspaceMember,
+  removeWorkspaceMember,
 } as const
 
 async function fetchChunks(sourceId: string): Promise<ParsedChunkView[]> {
@@ -180,24 +226,6 @@ function sendChatMessage(
   )
 }
 
-async function materializeDemoSources(
-  input: MaterializeDemoSourcesRequest,
-): Promise<SourceView[]> {
-  const response = await workspaceRouteClient.postJsonWithStatus<
-    SourcesResponse & { readonly message?: string }
-  >(
-    workspaceClientKeys.materializeDemoSources,
-    input,
-  )
-  if (response.status < 200 || response.status >= 300) {
-    throw new Error(
-      response.body.message ?? "Demo sources could not be prepared right now.",
-    )
-  }
-  const body = response.body
-  return Array.isArray(body.sources) ? body.sources : []
-}
-
 function archiveSource(sourceId: string): Promise<ArchiveResponse> {
   return workspaceRouteClient.patchJson(
     `/api/sources/${encodeURIComponent(sourceId)}`,
@@ -230,4 +258,125 @@ function archiveChatThread(threadId: string): Promise<ArchiveResponse> {
       archived: true,
     },
   )
+}
+
+async function fetchUserApiKeys(): Promise<WorkspaceApiKeyView[]> {
+  const body = await workspaceRouteClient.getJson<WorkspaceApiKeysResponse>(
+    "/api/api-keys",
+  )
+  return Array.isArray(body.keys) ? body.keys : []
+}
+
+async function createUserApiKey(
+  label: string,
+  apiKey: string,
+): Promise<{ key: WorkspaceApiKeyView; workspace: WorkspaceView | null }> {
+  const response = await workspaceRouteClient.postJsonWithStatus<
+    WorkspaceApiKeysResponse
+  >("/api/api-keys", { label, apiKey })
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(response.body.message ?? "Could not add the API key.")
+  }
+  if (!response.body.key) {
+    throw new Error("Could not add the API key.")
+  }
+  return {
+    key: response.body.key,
+    workspace: response.body.workspace ?? null,
+  }
+}
+
+async function fetchApiKeyNamespaces(
+  apiKeyId: string,
+): Promise<NamespaceView[]> {
+  const body = await workspaceRouteClient.getJson<NamespacesResponse>(
+    `/api/api-keys/${encodeURIComponent(apiKeyId)}/namespaces`,
+  )
+  return Array.isArray(body.namespaces) ? body.namespaces : []
+}
+
+async function activateWorkspace(workspaceId: string): Promise<void> {
+  await workspaceRouteClient.postJson(
+    "/api/workspaces/activate",
+    { workspaceId },
+  )
+}
+
+async function createWorkspace(
+  keyId: string,
+  namespace: string,
+): Promise<WorkspaceView> {
+  const response = await workspaceRouteClient.postJsonWithStatus<
+    CreateWorkspaceResponse
+  >("/api/workspaces", { keyId, namespace })
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(response.body.message ?? "Could not create this workspace.")
+  }
+  if (!response.body.workspace) {
+    throw new Error("Could not create this workspace.")
+  }
+  return response.body.workspace
+}
+
+async function setActiveWorkspaceApiKey(
+  workspaceId: string,
+  apiKeyId: string,
+): Promise<void> {
+  await workspaceRouteClient.patchJson(`/api/api-keys/${encodeURIComponent(apiKeyId)}`, {
+    workspaceId,
+  })
+}
+
+async function deleteUserApiKey(apiKeyId: string): Promise<void> {
+  await workspaceRouteClient.deleteJson(
+    `/api/api-keys/${encodeURIComponent(apiKeyId)}`,
+    {},
+  )
+}
+
+export type WorkspaceMemberView = {
+  readonly userId: string
+  readonly email: string | null
+  readonly name: string | null
+}
+
+type WorkspaceMembersResponse = {
+  members?: WorkspaceMemberView[]
+  message?: string
+}
+
+async function fetchWorkspaceMembers(
+  workspaceId: string,
+): Promise<WorkspaceMemberView[]> {
+  const body = await workspaceRouteClient.getJson<WorkspaceMembersResponse>(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/members`,
+  )
+  return Array.isArray(body.members) ? body.members : []
+}
+
+async function addWorkspaceMember(
+  workspaceId: string,
+  email: string,
+): Promise<void> {
+  const response = await workspaceRouteClient.postJsonWithStatus<
+    WorkspaceMembersResponse
+  >(`/api/workspaces/${encodeURIComponent(workspaceId)}/members`, { email })
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(response.body.message ?? "Could not add the member.")
+  }
+}
+
+async function removeWorkspaceMember(
+  workspaceId: string,
+  userId: string,
+): Promise<void> {
+  const response = await workspaceRouteClient.deleteJsonWithStatus<{
+    message?: string
+  }>(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/members/${encodeURIComponent(userId)}`,
+    {},
+  )
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(response.body.message ?? "Could not remove the member.")
+  }
 }

@@ -4,27 +4,17 @@ import { Effect } from "effect"
 
 import type { ChatMessageView } from "@/domains/chat/types"
 import type { ParsedChunkView } from "@/domains/chunks/types"
-import { demoView } from "@/domains/demo/view"
-import {
-  getMaterializedDemoSourceViewOptionsBySourceId,
-  getWorkspaceSourcesNeedingKnowhereChunkCount,
-  resolveWorkspaceDemoSources,
-} from "@/domains/demo/workspace-source-resolution"
 import { chatThreadService } from "@/domains/chat/thread-service"
 import { toChatMessageView, toChatThreadView } from "@/domains/chat/view"
 import { sourceViewOptionsBySourceId as getSourceViewOptionsBySourceId } from "@/domains/sources/counts"
-import { listRemoteLibrarySourceViews } from "@/domains/sources/remote-library"
+import { localizeRemoteLibrarySources } from "@/domains/sources/remote-library"
 import { reconcileSourcesForWorkspace as reconcileDefaultSourcesForWorkspace } from "@/domains/sources/reconcile"
-import { sourceService } from "@/domains/sources/service"
 import {
   startBackgroundReconciliation as defaultStartBackgroundReconciliation,
 } from "@/domains/sources/background-reconcile"
 import { sourceWorkflowRuntime } from "@/domains/sources/workflow-runtime"
 
-import type {
-  OfficialLibrarySourceView,
-  SourceView,
-} from "@/domains/sources/types"
+import type { SourceView } from "@/domains/sources/types"
 import { toSourceView } from "@/domains/sources/view"
 import type { AuthUser } from "@/infrastructure/auth"
 import type {
@@ -33,24 +23,18 @@ import type {
   Source,
   Workspace,
 } from "@/infrastructure/db/schema"
-import {
-  knowhereDemoApi,
-  type DemoCatalog,
-  type OfficialLibrarySource,
-} from "@/integrations/knowhere-demo"
 import { effectOperation } from "@/lib/effect-operation"
 import { logger } from "@/lib/logger"
 import { notebookRequestContext } from "./request-context"
+import { workspaceRepository } from "./repository"
+import { databaseRuntime } from "./database-runtime"
+import { knowhereApiKeysRepository } from "@/infrastructure/auth/knowhere-api-keys-repository"
 
 type WorkspaceShellInitialState = {
   readonly activeChatThreadId?: string | null
   readonly chatMessages?: ChatMessageView[]
   readonly chatThreads?: ReturnType<typeof toChatThreadView>[]
-  readonly dashboardUrl?: string
   readonly initialPrefetchedChunksBySourceId?: Record<string, ParsedChunkView[]>
-  readonly isGuest?: boolean
-  readonly loginUrl?: string
-  readonly officialLibrarySources?: OfficialLibrarySourceView[]
   readonly sources?: SourceView[]
   readonly user?: {
     readonly id: string
@@ -60,37 +44,24 @@ type WorkspaceShellInitialState = {
   readonly workspace?: {
     readonly id: string
     readonly namespace: string
+    readonly activeKeyLabel: string | null
   }
+  readonly workspaces?: readonly {
+    readonly id: string
+    readonly namespace: string
+    readonly activeKeyLabel: string | null
+  }[]
+  readonly knowhereKeyLabels?: readonly {
+    readonly id: string
+    readonly label: string
+    readonly mask: string
+  }[]
+  /** Whether Vercel Blob is configured (BLOB_READ_WRITE_TOKEN). When false,
+   *  uploads use the direct multipart path to /api/sources. */
+  readonly isBlobConfigured?: boolean
 }
 
-// Aligned with workspaceClientConfig.sourceChunkPageSize so the SSR
-// prefetch doesn't overlap with the first client-side page request.
-const DEMO_CHUNK_PREFETCH_PAGE_SIZE = 50
 const workspaceInitialStateContext = "Workspace initial state"
-
-async function getDemoChunksForSource(
-  demoSourceId: string,
-): Promise<ParsedChunkView[]> {
-  const chunkPage = await knowhereDemoApi.fetchChunkPage({
-    demoSourceId,
-    page: 1,
-    pageSize: DEMO_CHUNK_PREFETCH_PAGE_SIZE,
-  })
-  // Only title and documentId are consumed by toParsedChunkView,
-  // so a minimal SourceView is sufficient.
-  const sourceView: SourceView = {
-    id: chunkPage.demoSourceId,
-    kind: "demo",
-    demoSourceId: chunkPage.demoSourceId,
-    title: chunkPage.title,
-    mimeType: chunkPage.mimeType,
-    status: "ready",
-    documentId: chunkPage.canonicalDocumentId,
-  }
-  return chunkPage.chunks.map((chunk) =>
-    demoView.toParsedChunkView(sourceView, chunk),
-  )
-}
 
 type WorkspaceShellInitialStateClient =
   Parameters<typeof getSourceViewOptionsBySourceId>[1] &
@@ -111,29 +82,20 @@ type WorkspaceShellInitialStateClient =
   }
 
 type WorkspaceShellInitialStateDependencies = {
-  readonly fetchDemoCatalog: () => Promise<DemoCatalog>
   readonly getClientForWorkspace: (
     workspace: Workspace,
   ) => Promise<{
     readonly apiKey: string
     readonly client: WorkspaceShellInitialStateClient
   }>
-  readonly getGuest: () => Promise<{ readonly loginUrl: string }>
+  readonly getCurrentUser: () => Promise<AuthUser | null>
   readonly getOptionalAuthenticated: () => Promise<{
     readonly user: AuthUser
     readonly workspace: Workspace
   } | null>
-  readonly ensureDemoChatThread: (
-    workspaceId: string,
-    catalog: DemoCatalog,
-  ) => Promise<{
-    readonly thread: ChatThread
-    readonly messages: readonly ChatMessage[]
-  } | null>
   readonly listChatThreads: (
     workspaceId: string,
   ) => Promise<readonly ChatThread[]>
-  readonly listHiddenDemoSourceIds: (workspaceId: string) => Promise<string[]>
   readonly listMessages: (
     workspaceId: string,
     threadId: string,
@@ -141,6 +103,13 @@ type WorkspaceShellInitialStateDependencies = {
   readonly listSourcesForWorkspace: (
     workspaceId: string,
   ) => Promise<readonly Source[]>
+  readonly listWorkspacesForUser: (
+    userId: string,
+  ) => Promise<readonly Workspace[]>
+  readonly listMaskedKnowhereKeys: (userId: string) => Promise<
+    readonly { id: string; label: string; mask: string }[]
+  >
+  readonly localizeRemoteDocument: typeof sourceWorkflowRuntime.localizeRemoteDocument
   readonly reconcileSourcesForWorkspace: (
     workspace: Workspace,
     client: WorkspaceShellInitialStateClient,
@@ -153,15 +122,15 @@ type WorkspaceShellInitialStateDependencies = {
 }
 
 const defaultDependencies: WorkspaceShellInitialStateDependencies = {
-  fetchDemoCatalog: knowhereDemoApi.fetchCatalog,
   getClientForWorkspace: notebookRequestContext.getClientForWorkspace,
-  getGuest: notebookRequestContext.getGuest,
+  getCurrentUser: notebookRequestContext.getCurrentUser,
   getOptionalAuthenticated: notebookRequestContext.getOptionalAuthenticated,
-  ensureDemoChatThread: chatThreadService.ensureDemo,
   listChatThreads: chatThreadService.listForWorkspace,
-  listHiddenDemoSourceIds: sourceService.listHiddenDemoSourceIds,
   listMessages: chatThreadService.listMessages,
   listSourcesForWorkspace: sourceWorkflowRuntime.listForWorkspace,
+  listWorkspacesForUser: listAllForUser,
+  listMaskedKnowhereKeys: listMaskedKnowhereKeysDefault,
+  localizeRemoteDocument: sourceWorkflowRuntime.localizeRemoteDocument,
   reconcileSourcesForWorkspace: reconcileDefaultSourcesForWorkspace,
   startBackgroundReconciliation: defaultStartBackgroundReconciliation,
   sourceViewOptionsBySourceId: getSourceViewOptionsBySourceId,
@@ -175,6 +144,29 @@ export const loadWorkspaceShellInitialStateEffect = (
   deps: WorkspaceShellInitialStateDependencies = defaultDependencies,
 ) =>
   Effect.gen(function* () {
+    const user = yield* effectOperation.tryPromise(
+      {
+        context: workspaceInitialStateContext,
+        operation: "getCurrentUser",
+      },
+      () => deps.getCurrentUser(),
+    )
+    if (!user) {
+      return {
+        sources: [],
+        workspaces: [],
+        knowhereKeyLabels: [],
+      }
+    }
+
+    const workspacesForUser = yield* effectOperation.tryPromise(
+      {
+        context: workspaceInitialStateContext,
+        operation: "listWorkspacesForUser",
+      },
+      () => deps.listWorkspacesForUser(user.id),
+    )
+
     const context = yield* effectOperation.tryPromise(
       {
         context: workspaceInitialStateContext,
@@ -183,79 +175,45 @@ export const loadWorkspaceShellInitialStateEffect = (
       () => deps.getOptionalAuthenticated(),
     )
 
+    const userKeys = yield* effectOperation.tryPromise(
+      {
+        context: workspaceInitialStateContext,
+        operation: "listMaskedKnowhereKeys",
+      },
+      () => deps.listMaskedKnowhereKeys(user.id),
+    )
+    const workspaceView = (row: Workspace) => ({
+      id: row.id,
+      namespace: row.namespace,
+      activeKeyLabel:
+        userKeys.find((key) => key.id === row.activeKnowhereApiKeyId)?.label ??
+        null,
+    })
+
+    // Authenticated but no workspace yet: new users must add an API key and
+    // pick a namespace before any workspace exists.
     if (!context) {
-      const demoCatalog = yield* effectOperation.tryPromise(
-        {
-          context: workspaceInitialStateContext,
-          operation: "fetchDemoCatalog",
-        },
-        () => deps.fetchDemoCatalog(),
-      )
-      const guestContext = yield* effectOperation.tryPromise(
-        {
-          context: workspaceInitialStateContext,
-          operation: "getGuest",
-        },
-        () => deps.getGuest(),
-      )
-
-      const firstDemoSource = demoCatalog.sources[0]
-      let initialPrefetchedChunksBySourceId: Record<
-        string,
-        ParsedChunkView[]
-      > = {}
-      if (firstDemoSource) {
-        const chunks = yield* Effect.catchAll(
-          effectOperation.tryPromise(
-            {
-              context: workspaceInitialStateContext,
-              operation: "getDemoChunksForSource",
-            },
-            () => getDemoChunksForSource(firstDemoSource.demoSourceId),
-          ),
-          () => Effect.succeed([] as ParsedChunkView[]),
-        )
-        if (chunks.length > 0) {
-          initialPrefetchedChunksBySourceId = {
-            [firstDemoSource.demoSourceId]: chunks,
-          }
-        }
-      }
-
       return {
-        isGuest: true,
-        officialLibrarySources: toOfficialLibrarySourceViews(demoCatalog),
-        sources: demoCatalog.sources.map(demoView.toSourceView),
-        chatMessages: demoView.toChatMessages(demoCatalog),
-        dashboardUrl: resolveDashboardUrl(),
-        initialPrefetchedChunksBySourceId,
-        loginUrl: guestContext.loginUrl,
+        user: {
+          id: user.id,
+          name: user.name ?? null,
+          email: user.email ?? null,
+        },
+        workspace: undefined,
+        workspaces: workspacesForUser.map(workspaceView),
+        knowhereKeyLabels: userKeys,
+        isBlobConfigured: isBlobConfigured(),
+        sources: [],
       }
     }
 
-    const { user, workspace } = context
-    const demoCatalog = yield* effectOperation.tryPromise(
-      {
-        context: workspaceInitialStateContext,
-        operation: "fetchOptionalCatalog",
-      },
-      () => knowhereDemoApi.fetchOptionalCatalog(deps.fetchDemoCatalog),
-    )
+    const { workspace } = context
     const listedSources = yield* effectOperation.tryPromise(
       {
         context: workspaceInitialStateContext,
         operation: "listSourcesForWorkspace",
       },
       () => deps.listSourcesForWorkspace(workspace.id),
-    )
-    const hiddenDemoSourceIds = new Set(
-      yield* effectOperation.tryPromise(
-        {
-          context: workspaceInitialStateContext,
-          operation: "listHiddenDemoSourceIds",
-        },
-        () => deps.listHiddenDemoSourceIds(workspace.id),
-      ),
     )
     const listedChatThreads = yield* effectOperation.tryPromise(
       {
@@ -264,31 +222,16 @@ export const loadWorkspaceShellInitialStateEffect = (
       },
       () => deps.listChatThreads(workspace.id),
     )
-    const seededDemoChatThread =
-      listedChatThreads.length === 0
-        ? yield* effectOperation.tryPromise(
-            {
-              context: workspaceInitialStateContext,
-              operation: "ensureDemoChatThread",
-            },
-            () => deps.ensureDemoChatThread(workspace.id, demoCatalog),
-          )
-        : null
-    const chatThreads = seededDemoChatThread
-      ? [seededDemoChatThread.thread]
-      : listedChatThreads
-    const activeChatThread = chatThreads[0] ?? null
-    const activeChatMessages = seededDemoChatThread
-      ? seededDemoChatThread.messages
-      : activeChatThread
-        ? yield* effectOperation.tryPromise(
-            {
-              context: workspaceInitialStateContext,
-              operation: "listMessages",
-            },
-            () => deps.listMessages(workspace.id, activeChatThread.id),
-          )
-        : []
+    const activeChatThread = listedChatThreads[0] ?? null
+    const activeChatMessages = activeChatThread
+      ? yield* effectOperation.tryPromise(
+          {
+            context: workspaceInitialStateContext,
+            operation: "listMessages",
+          },
+          () => deps.listMessages(workspace.id, activeChatThread.id),
+        )
+      : []
     const chatMessages = activeChatMessages
       ? activeChatMessages.map((message) => toChatMessageView(message))
       : []
@@ -299,45 +242,31 @@ export const loadWorkspaceShellInitialStateEffect = (
       },
       () => deps.getClientForWorkspace(workspace),
     )
-    const sources = yield* effectOperation.tryPromise(
+    const sources = listedSources
+    const workspaceSources = sources
+    const localizedSources = yield* effectOperation.addContext(
       {
         context: workspaceInitialStateContext,
-        operation: "useListedSourcesForWorkspace",
+        operation: "localizeRemoteLibrarySources",
       },
-      () => Promise.resolve(listedSources),
-    )
-    const demoSourceResolution = resolveWorkspaceDemoSources(
-      sources,
-      demoCatalog,
-    )
-    const visibleDemoCatalogSources = demoCatalog.sources
-      .filter(
-        (source) =>
-          !demoSourceResolution.materializedDemoSourceIds.has(
-            source.demoSourceId,
-          ),
-      )
-      .filter((source) => !hiddenDemoSourceIds.has(source.demoSourceId))
-    const demoSources = visibleDemoCatalogSources.map(demoView.toSourceView)
-    const workspaceSources = demoSourceResolution.workspaceSources
-    const remoteSourceViews = yield* effectOperation.addContext(
-      {
-        context: workspaceInitialStateContext,
-        operation: "listRemoteLibrarySourceViews",
-      },
-      listRemoteLibrarySourceViews({
+      localizeRemoteLibrarySources({
         workspace,
         client,
-        localSources: demoSourceResolution.workspaceSources,
+        localSources: workspaceSources,
+        localizeDocument: (document) =>
+          deps.localizeRemoteDocument(workspace.id, {
+            documentId: document.documentId,
+            namespace: document.namespace,
+            status: document.status,
+            title: document.title,
+            mimeType: document.mimeType,
+            sizeBytes: document.sizeBytes,
+            revisionKey: document.revisionKey ?? null,
+          }),
       }),
     )
     const sourcesNeedingKnowhereChunkCount =
-      getWorkspaceSourcesNeedingKnowhereChunkCount(workspaceSources)
-    const materializedDemoSourceOptions =
-      getMaterializedDemoSourceViewOptionsBySourceId(
-        workspaceSources,
-        demoCatalog,
-      )
+      getWorkspaceSourcesNeedingKnowhereChunkCount(localizedSources)
     yield* Effect.sync(() =>
       triggerBackgroundReconciliationForParsingSources({
         workspaceId: workspace.id,
@@ -365,24 +294,14 @@ export const loadWorkspaceShellInitialStateEffect = (
         name: user.name ?? null,
         email: user.email ?? null,
       },
-      workspace: {
-        id: workspace.id,
-        namespace: workspace.namespace,
-      },
-      dashboardUrl: resolveDashboardUrl(),
-      sources: [
-        ...demoSources,
-        ...workspaceSources.map((source) =>
-          toSourceView(
-            source,
-            materializedDemoSourceOptions.get(source.id) ??
-              sourceOptions.get(source.id),
-          ),
-        ),
-        ...remoteSourceViews,
-      ],
-      officialLibrarySources: toOfficialLibrarySourceViews(demoCatalog),
-      chatThreads: chatThreads.map(toChatThreadView),
+      workspace: workspaceView(workspace),
+      workspaces: workspacesForUser.map(workspaceView),
+      knowhereKeyLabels: userKeys,
+      isBlobConfigured: isBlobConfigured(),
+      sources: localizedSources.map((source) =>
+        toSourceView(source, sourceOptions.get(source.id)),
+      ),
+      chatThreads: listedChatThreads.map(toChatThreadView),
       activeChatThreadId: activeChatThread?.id ?? null,
       chatMessages,
     }
@@ -402,8 +321,37 @@ export async function loadWorkspaceShellInitialState(
 // Helpers
 // ---------------------------------------------------------------------------
 
-function resolveDashboardUrl(): string | undefined {
-  return process.env.DASHBOARD_ORIGIN
+function listAllForUser(userId: string): Promise<readonly Workspace[]> {
+  return databaseRuntime.runPromise(
+    workspaceRepository.findAllByUserIdEffect(userId),
+  )
+}
+
+/** True when Vercel Blob storage is configured (chunk cache + staged uploads). */
+function isBlobConfigured(): boolean {
+  const token = process.env.BLOB_READ_WRITE_TOKEN?.trim()
+  return Boolean(token && token.length > 0)
+}
+function listMaskedKnowhereKeysDefault(
+  userId: string,
+): Promise<readonly { id: string; label: string; mask: string }[]> {
+  return databaseRuntime
+    .runPromise(knowhereApiKeysRepository.listByUserEffect(userId))
+    .then((keys) =>
+      keys.map((key) => ({
+        id: key.id,
+        label: key.label,
+        mask: key.keyMask,
+      })),
+    )
+}
+
+function getWorkspaceSourcesNeedingKnowhereChunkCount(
+  sources: readonly Source[],
+): readonly Source[] {
+  return sources.filter(
+    (source) => source.status === "ready" && source.knowhereDocumentId,
+  )
 }
 
 function triggerBackgroundReconciliationForParsingSources(input: {
@@ -434,40 +382,4 @@ function triggerBackgroundReconciliationForParsingSources(input: {
         })
       })
   }
-}
-
-function toOfficialLibrarySourceViews(
-  catalog: DemoCatalog,
-): OfficialLibrarySourceView[] {
-  const categoryLabelById = new Map(
-    catalog.officialLibrary.categories.map((category) => [
-      category.categoryId,
-      category.label,
-    ]),
-  )
-  return catalog.officialLibrary.sources
-    .filter(isReadyOfficialLibrarySource)
-    .map((source) => ({
-      librarySourceId: source.librarySourceId,
-      categoryId: source.categoryId,
-      categoryLabel:
-        categoryLabelById.get(source.categoryId) ?? source.categoryId,
-      title: source.title,
-      sourceUrl: source.sourceUrl,
-      mimeType: source.mimeType,
-      status: source.status,
-      demoSourceId: source.demoSourceId,
-      ...(source.chunkCount !== undefined
-        ? { chunkCount: source.chunkCount }
-        : {}),
-    }))
-}
-
-function isReadyOfficialLibrarySource(
-  source: OfficialLibrarySource,
-): source is OfficialLibrarySource & {
-  readonly status: "ready"
-  readonly demoSourceId: string
-} {
-  return source.status === "ready" && source.demoSourceId !== undefined
 }

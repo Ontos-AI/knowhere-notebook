@@ -4,7 +4,7 @@ import { createElement, type ReactNode } from "react"
 import { SWRConfig } from "swr"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import type { ChatThreadView } from "@/domains/chat/types"
+import type { ChatMessageView, ChatThreadView } from "@/domains/chat/types"
 import type { SourceView } from "@/domains/sources/types"
 
 const mocks = vi.hoisted(() => ({
@@ -12,7 +12,6 @@ const mocks = vi.hoisted(() => ({
   createChatThread: vi.fn(),
   fetchChatThread: vi.fn(),
   fetchChatThreads: vi.fn(),
-  materializeDemoSources: vi.fn(),
   sendChatMessage: vi.fn(),
 }))
 
@@ -27,7 +26,6 @@ vi.mock("@/domains/workspace/client", () => ({
     createChatThread: mocks.createChatThread,
     fetchChatThread: mocks.fetchChatThread,
     fetchChatThreads: mocks.fetchChatThreads,
-    materializeDemoSources: mocks.materializeDemoSources,
     sendChatMessage: mocks.sendChatMessage,
   },
 }))
@@ -108,90 +106,12 @@ describe("useWorkspaceChatWorkflow", () => {
       },
     ])
   })
-
-  it("shows a retryable error without sending chat when demo materialization fails", async () => {
-    const demoSource = makeSource({
-      id: "demo-tsla-q4-2025",
-      kind: "demo",
-      demoSourceId: "demo-tsla-q4-2025",
-    })
-    const onSourcesMaterialized = vi.fn()
-    mocks.fetchChatThreads.mockResolvedValue([])
-    mocks.materializeDemoSources.mockRejectedValue(new Error("Bad gateway"))
-
-    const { result } = renderWorkspaceChatWorkflow({
-      initialChatThreads: [],
-      initialChatMessages: [],
-      onSourcesMaterialized,
-      sources: [demoSource],
-    })
-
-    await act(async () => {
-      await result.current.handleChatSend("What changed in Q4?")
-    })
-
-    expect(mocks.materializeDemoSources).toHaveBeenCalledWith({
-      demoSourceIds: ["demo-tsla-q4-2025"],
-    })
-    expect(mocks.sendChatMessage).not.toHaveBeenCalled()
-    expect(onSourcesMaterialized).not.toHaveBeenCalled()
-    expect(result.current.chat.messages).toEqual([])
-    expect(result.current.chat.error).toBe(
-      "Demo sources could not be prepared right now.",
-    )
-    expect(result.current.chat.isSending).toBe(false)
-  })
-
-  it("blocks chat until Official Library demo sources are explicitly added", async () => {
-    const librarySource = makeSource({
-      id: "demo-spacex-s1",
-      kind: "demo",
-      demoSourceId: "demo-spacex-s1",
-      officialLibrary: {
-        librarySourceId: "financial-spacex-s1",
-        categoryId: "financial-reports",
-        sourceUrl: "https://example.com/spacex-s1.pdf",
-      },
-    })
-    mocks.fetchChatThreads.mockResolvedValue([])
-    mocks.sendChatMessage.mockResolvedValue({
-      threadId: "thread_1",
-      messages: [
-        {
-          id: "message_assistant",
-          role: "assistant",
-          content: "Answer",
-        },
-      ],
-    })
-
-    const { result } = renderWorkspaceChatWorkflow({
-      initialChatThreads: [],
-      initialChatMessages: [],
-      sources: [librarySource],
-    })
-
-    await act(async () => {
-      await result.current.handleChatSend("Summarize it")
-    })
-
-    expect(mocks.materializeDemoSources).not.toHaveBeenCalled()
-    expect(mocks.sendChatMessage).not.toHaveBeenCalled()
-    expect(result.current.chat.error).toBe(
-      "Add a ready source before asking questions.",
-    )
-  })
 })
 
 function renderWorkspaceChatWorkflow(input: {
   readonly activeChatThreadId?: string | null
-  readonly initialChatMessages: readonly []
+  readonly initialChatMessages: readonly ChatMessageView[]
   readonly initialChatThreads: readonly ChatThreadView[]
-  readonly isGuest?: boolean
-  readonly onSourcesMaterialized?: (
-    demoSourceIds: readonly string[],
-    materializedSources: readonly SourceView[],
-  ) => void
   readonly sources: readonly SourceView[]
 }) {
   return renderHook(() => useWorkspaceChatWorkflow(input), {

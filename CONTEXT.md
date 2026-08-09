@@ -5,15 +5,33 @@ terms when naming modules, tests, and route workflows.
 
 ## Workspace
 
-A Workspace is the Notebook-owned tenant container for a Dashboard user. It
-stores the local source metadata, chat threads, and the Knowhere namespace used
-for retrieval. Workspace creation is idempotent per Dashboard user.
+A Workspace is the Notebook-owned tenant container that binds one user to one
+document domain: it stores local source metadata, chat threads, and the pair
+`(knowhereKeyLabel, namespace)` — the configured API key (domain) that
+authenticates Knowhere access, and the Knowhere namespace under that domain
+whose documents the workspace's sources live in. One workspace per
+(user, keyLabel, namespace) tuple. The active workspace is selected by the
+`notebook-ws` cookie (falls back to the user's first workspace, then a legacy
+`notebook-<uuid>` default). Legacy rows with a null key label use the default
+key and keep working unchanged.
+
+## Knowhere Key Label
+
+A Knowhere Key Label identifies one configured Knowhere API key (a "domain").
+Since Phase 3, keys are managed per workspace through the "API keys…" dialog:
+stored AES-256-GCM encrypted in the `knowhere_api_keys` table and decrypted
+on demand by `ensureApiKeyForWorkspace`. `workspaces.active_knowhere_api_key_id`
+selects the active key. The `config/knowhere-keys.json` file (or
+`KNOWHERE_API_KEY` env as a single `"default"` key) remains as a bootstrap
+fallback for fresh deployments. The API never exposes full keys to the
+browser — only masked labels (`sk_8aB••••GVB8`).
 
 ## Workspace Shell
 
 The Workspace Shell is the client-side orchestrator for the Notebook work
 surface. It composes Source selection, Parsed Chunk pagination, Chat Thread
-state, Citation focus, and panel layout into the visible three-panel notebook.
+state, Citation focus, and panel layout into the visible two-panel notebook
+(sources | chat) with a full-screen chunks overlay.
 
 ## Workspace Shell Layout
 
@@ -30,8 +48,8 @@ route paths or mutation request shapes inline.
 ## Workspace Desktop Panels
 
 Workspace Desktop Panels is the hook that owns browser measurements and resize
-drag state for the three desktop panels. Pure resize math stays in Workspace
-Shell State.
+drag state for the two desktop panels (sources | chat). Pure resize math stays
+in Workspace Shell State.
 
 ## Workspace Resize Handle Workflow
 
@@ -54,15 +72,17 @@ Sources are soft-deleted with `deletedAt` rather than removed.
 ## Source Repository
 
 The Source Repository is a stable facade over smaller persistence modules. It
-composes Source row lifecycle, Demo Source persistence, and Source Parse Result
-artifact metadata without exposing those internal modules to route services.
+composes Source row lifecycle and Source Parse Result artifact metadata
+without exposing those internal modules to route services.
 
 ## Source Library Localization
 
 Source Library Localization is the workflow that turns Knowhere-owned library
-documents into Notebook Source rows for a Workspace. Listing and chat should
-localize missing Knowhere documents before chunks, archive, selection, or
-retrieval flows act on them.
+documents into Notebook Source rows for a Workspace. Listing and SSR eagerly
+localize compatible-namespace documents (via `localizeRemoteLibrarySources`)
+before chunks, archive, selection, or retrieval flows act on them. Only
+genuinely new documents are upserted — existing DB rows are pre-filtered to
+avoid redundant writes.
 
 ## Source Upload
 
@@ -74,7 +94,7 @@ Large files should use the Blob-backed path instead of a Server Action upload.
 
 The Source Upload Contract names the repository and Knowhere client shapes used
 by upload workflows. Persistence adapters can depend on the contract without
-importing the user-upload or Demo Source workflow implementation.
+importing the user-upload workflow implementation.
 
 ## Source Row
 
@@ -92,12 +112,6 @@ submission state, and upload errors to the Source Upload Dialog Workflow.
 Source Upload Dialog Workflow owns browser upload dialog behavior: open state,
 selected file state, drag-and-drop selection, upload submission, friendly error
 messages, duplicate-submit prevention, and post-upload cleanup.
-
-## Demo Source
-
-A Demo Source is app-owned static content served to guest users and optionally
-materialized into an authenticated workspace. Demo sources should not depend on
-live workspace state for guest rendering.
 
 ## Source Original Preview
 
@@ -128,7 +142,10 @@ text requests.
 
 A Parsed Chunk is a document chunk returned by the Knowhere document chunks
 API. Parsed chunks can have parser chunk IDs, asset paths, page numbers,
-summary, keywords, and connection metadata.
+summary, keywords, and connection metadata. Table chunks have their HTML
+fetched server-side from `assetUrl` and set as `content` (via
+`enrichChunksWithAssetUrls`) because the Knowhere list endpoint puts a
+summary string in `content`, not the table HTML.
 
 ## Parsed Chunk Card
 
@@ -150,7 +167,7 @@ callbacks.
 ## Chat Repository
 
 The Chat Repository is a stable facade over Chat Thread lifecycle, Chat Message
-persistence, Demo Chat seeding, and Citation persistence normalization.
+persistence, and Citation persistence normalization.
 
 ## Chat Message
 
@@ -180,19 +197,57 @@ enough to focus the answer evidence.
 
 A Retrieval Query is the text sent to Knowhere retrieval. It can be generated
 from the latest user question plus recent chat context so Knowhere receives a
-self-contained query.
+self-contained query. Retrieval runs with `useAgentic: true`, `rerank: true`,
+and `internalRecallK: 30` so the LLM reranker compensates for BM25 keyword
+ranking. The harness system prompt teaches the agent to craft BM25-friendly
+queries: distinctive keywords, query expansion with synonyms/domain terms, and
+multiple focused `retrieve` calls for multi-part or ambiguous questions.
 
-## Dashboard Auth
+## Retrieval Overrides
 
-Dashboard Auth is the source of truth for identity. Notebook forwards the
-incoming Dashboard session cookie to Dashboard oRPC endpoints and does not
-decode Dashboard session tokens itself.
+Retrieval Overrides are optional per-request tuning values that the chat
+composer sends in the chat request body as `retrievalParams`: the `rerank`
+switch and the `internalRecallK` / `topK` sliders. Each present field replaces
+the equivalent hardcoded default — or, for `topK`, the harness-chosen per-query
+value — inside `buildRetrievalQueryParams`. The request schema validates and
+clamps them server-side.
 
-## Dashboard Service JWT
+## Retrieval Trace
 
-A Dashboard Service JWT is a short-lived token issued by Dashboard and passed
-to the Knowhere SDK for per-request access. Notebook does not create or store
-Knowhere API keys.
+A Retrieval Trace is the transient record of every Retrieval Query issued while
+answering one user question: query text, namespace, hit count, cited chunk
+count, and top scores. It is attached to a fresh assistant Chat Message view
+and rendered by `ChatRetrievalTrace` under the sources section, but it is never
+persisted to the Chat Message row — reloading the thread drops it.
+
+## Prompt Template
+
+A Prompt Template is a canned `{ id, title, prompt }` analysis prompt offered
+by the composer's wand-icon Templates menu. Templates are loaded at runtime
+from `public/data/chat-prompt-templates.json` by `usePromptTemplates`, so
+self-hosted deployments can override them by bind-mounting their own JSON into
+the container without a rebuild.
+
+## Notebook Auth
+
+Notebook Auth is Notebook's own identity system (ADR 0010). A `User` is a
+row in the `users` table; login credentials attach via `AccountLink` rows
+(one per provider, `password_hash` for the "password" provider). A `Session`
+is a DB row whose id rides the `notebook-session` cookie (HttpOnly, 30-day
+TTL); `getCurrentUser` joins sessions × users on every request. Users are
+admin-provisioned (no public signup); login is the local `/login` Server
+Action and logout deletes the session row. `KNOWHERE_API_KEY` /
+`KNOWHERE_KEYS_FILE` still short-circuit to the development user as a
+bootstrap.
+
+## Knowhere Credential
+
+A Knowhere Credential is the API key used to call Knowhere. It is resolved
+per workspace by `ensureApiKeyForWorkspace`
+(`src/integrations/knowhere-credentials.ts`): the workspace's
+`knowhereKeyLabel` picks a key from `config/knowhere-keys.json` (falling
+back to `KNOWHERE_API_KEY` env). The Dashboard JWT path was removed in the
+Phase 2 hard-cut — the Notebook never requests or stores Dashboard tokens.
 
 ## Route Service
 

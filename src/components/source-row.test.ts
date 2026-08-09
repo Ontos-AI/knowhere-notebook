@@ -168,12 +168,13 @@ describe("SourceRow", () => {
     ).toBeNull();
   });
 
-  it("links ready sources to the document chunk tree route", () => {
+  it("opens chunks overlay for ready sources via tree button", () => {
     const onSelect = vi.fn();
+    const onTreeClick = vi.fn();
 
     render(
       React.createElement(SourceRow, {
-        chunkTreeHref: "/inspect/doc_123/chunks",
+        onTreeClick,
         isArchiving: false,
         isSelected: false,
         onSelect,
@@ -187,20 +188,19 @@ describe("SourceRow", () => {
       }),
     );
 
-    const chunkTreeLink = screen.getByRole("link", {
+    const treeButton = screen.getByRole("button", {
       name: "Open lecture.pdf chunk tree link",
     });
 
-    expect((chunkTreeLink as HTMLAnchorElement).getAttribute("href")).toBe(
-      "/inspect/doc_123/chunks",
-    );
+    fireEvent.click(treeButton);
+    expect(onTreeClick).toHaveBeenCalledTimes(1);
     expect(onSelect).not.toHaveBeenCalled();
   });
 
-  it("does not link non-ready sources to the document chunk tree route", () => {
+  it("does not show tree button for non-ready sources", () => {
     render(
       React.createElement(SourceRow, {
-        chunkTreeHref: "/inspect/doc_123/chunks",
+        onTreeClick: vi.fn(),
         isArchiving: false,
         isSelected: false,
         onSelect: vi.fn(),
@@ -215,7 +215,7 @@ describe("SourceRow", () => {
     );
 
     expect(
-      screen.queryByRole("link", {
+      screen.queryByRole("button", {
         name: "Open lecture.pdf chunk tree link",
       }),
     ).toBeNull();

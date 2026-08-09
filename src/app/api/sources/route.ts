@@ -29,6 +29,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       const result = await sourceRouteService.uploadSource({
         cookieHeader: routeContext.cookieHeader,
         upload,
+        workspaceId: upload.workspaceId,
         onUploadFinished: () => {
           revalidatePath("/")
         },

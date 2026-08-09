@@ -15,6 +15,7 @@ export function toChatCitationViews(
       content: result.content,
       chunkType: result.chunkType,
       score: result.score,
+      ...(result.chunkId ? { chunkId: result.chunkId } : {}),
       ...(result.assetUrl ? { assetUrl: result.assetUrl } : {}),
       ...(description ? { description } : {}),
       source: {

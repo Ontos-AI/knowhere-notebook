@@ -116,13 +116,34 @@ describe("ChunksPanel", () => {
     expect(
       screen.getByRole("tree", { name: "Parsed chunk sections" }),
     ).toBeTruthy();
+    // Default: root + 1 level only — level-1 sections visible.
     expect(screen.getByText("Overview")).toBeTruthy();
     expect(screen.getByText("Outlook")).toBeTruthy();
+    // Deeper nodes hidden until expanded.
+    expect(
+      screen.queryByRole("treeitem", {
+        name: /Robotics section with 2 chunks/i,
+      }),
+    ).toBeNull();
+
+    // Expand Outlook → Product visible; expand Product → Robotics visible.
+    fireEvent.click(screen.getByText("Outlook"));
+    expect(screen.getByText("Product")).toBeTruthy();
+    fireEvent.click(screen.getByText("Product"));
     expect(
       screen.getByRole("treeitem", {
         name: /Robotics section with 2 chunks/i,
       }),
     ).toBeTruthy();
+
+    // Collapse Outlook → Product and Robotics hidden again.
+    fireEvent.click(screen.getByText("Outlook"));
+    expect(screen.queryByText("Product")).toBeNull();
+    expect(
+      screen.queryByRole("treeitem", {
+        name: /Robotics section with 2 chunks/i,
+      }),
+    ).toBeNull();
   });
 
   it("deduplicates repeated chunks before rendering section tree keys", () => {
@@ -157,6 +178,8 @@ describe("ChunksPanel", () => {
         name: "Overview section with 1 chunk",
       }),
     ).toBeTruthy();
+    // Chunk is hidden by default (root + 1 level); expand to see it.
+    fireEvent.click(screen.getByText("Overview"));
     expect(
       screen.getAllByRole("treeitem", { name: "Overview text Text" }),
     ).toHaveLength(1);
@@ -360,7 +383,7 @@ describe("ChunksPanel", () => {
     );
 
     for (let i = 0; i < 7; i += 1) {
-      fireEvent.wheel(surface, { deltaY: 120 });
+      fireEvent.wheel(surface, { deltaY: 120, ctrlKey: true });
     }
 
     const zoomedOutSurfaceMinimumWidth = Number.parseInt(
@@ -398,6 +421,7 @@ describe("ChunksPanel", () => {
     const surface = screen.getByTestId("chunk-section-tree-zoom-surface");
     const zoomInEvent = new WheelEvent("wheel", {
       cancelable: true,
+      ctrlKey: true,
       deltaY: -120,
     });
 
@@ -408,7 +432,7 @@ describe("ChunksPanel", () => {
     expect(zoomInEvent.defaultPrevented).toBe(true);
     expect(tree.style.transform).toBe("scale(1.1)");
 
-    fireEvent.wheel(surface, { deltaY: 120 });
+    fireEvent.wheel(surface, { deltaY: 120, ctrlKey: true });
 
     expect(tree.style.transform).toBe("scale(1)");
   });
@@ -465,6 +489,10 @@ describe("ChunksPanel", () => {
 
     await user.click(screen.getByRole("button", { name: "Tree" }));
 
+    // Expand the collapsed path (root + 1 level by default).
+    fireEvent.click(screen.getByText("Outlook"));
+    fireEvent.click(screen.getByText("Robotics"));
+
     const chunkNode = screen.getByRole("button", {
       name: /Robotics details\s*Text/,
     });
@@ -502,6 +530,11 @@ describe("ChunksPanel", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "Tree" }));
+
+    // Expand the collapsed path to reach the chunk node.
+    fireEvent.click(screen.getByText("Outlook"));
+    fireEvent.click(screen.getByText("Robotics"));
+
     await user.click(
       screen.getByRole("button", { name: /Robotics details\s*Text/ }),
     );
@@ -639,184 +672,6 @@ describe("ChunksPanel", () => {
       "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.doc?download=1",
     );
     expect(screen.getByText("Preview is not available for this file.")).toBeTruthy();
-  });
-
-  it("shows the existing unavailable state when a selected source has no public original", async () => {
-    const user = userEvent.setup();
-
-    render(
-      React.createElement(C, {
-        chunks: [],
-        selectedSource: "legacy-demo.pdf",
-        selectedSourceFile: null,
-      }),
-    );
-
-    await user.click(screen.getByRole("button", { name: "Original" }));
-
-    expect(screen.getByRole("heading", { name: "Original File" })).toBeTruthy();
-    expect(screen.getByText("Original file is not available.")).toBeTruthy();
-  });
-
-  it("renders browser-supported image originals inline", async () => {
-    const user = userEvent.setup();
-
-    render(
-      React.createElement(C, {
-        chunks: [],
-        selectedSource: "diagram.png",
-        selectedSourceFile: {
-          url: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.png",
-          mimeType: "image/png",
-        },
-      }),
-    );
-
-    await user.click(screen.getByRole("button", { name: "Original" }));
-
-    const image = screen.getByRole("img", { name: "diagram.png" });
-    expect(image.getAttribute("src")).toBe(
-      "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.png",
-    );
-  });
-
-  it("opens the original PDF preview at the clicked chunk page", async () => {
-    mockVisibleVirtualViewport();
-    const user = userEvent.setup();
-    vi.stubGlobal(
-      "fetch",
-      vi.fn<typeof globalThis.fetch>(() =>
-        Promise.resolve(
-          new Response(new Uint8Array([1, 2, 3]).buffer, { status: 200 }),
-        ),
-      ),
-    );
-
-    render(
-      React.createElement(C, {
-        chunks: [
-          {
-            chunkId: "chunk_1",
-            type: "text",
-            content: "Revenue details live on the second page.",
-            sourceTitle: "report.pdf",
-            pageNums: [2],
-          },
-        ],
-        selectedSource: "report.pdf",
-        selectedSourceFile: {
-          url: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/report.pdf",
-          mimeType: "application/pdf",
-        },
-      }),
-    );
-    selectListView();
-
-    await user.click(
-      screen.getByRole("button", { name: "Open page 2 in original file" }),
-    );
-
-    expect(screen.getByRole("heading", { name: "Original File" })).toBeTruthy();
-    expect(screen.getByTestId("source-original-preview").getAttribute(
-      "data-target-page",
-    )).toBe("2");
-  });
-
-  it("keeps the original PDF preview mounted when switching back to parsed chunks", async () => {
-    mockVisibleVirtualViewport();
-    const user = userEvent.setup();
-    vi.stubGlobal(
-      "fetch",
-      vi.fn<typeof globalThis.fetch>(() =>
-        Promise.resolve(
-          new Response(new Uint8Array([1, 2, 3]).buffer, { status: 200 }),
-        ),
-      ),
-    );
-
-    render(
-      React.createElement(C, {
-        chunks: [
-          {
-            chunkId: "chunk_1",
-            type: "text",
-            content: "Revenue details live on the second page.",
-            sourceTitle: "report.pdf",
-            pageNums: [2],
-          },
-        ],
-        selectedSource: "report.pdf",
-        selectedSourceFile: {
-          url: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/report.pdf",
-          mimeType: "application/pdf",
-        },
-      }),
-    );
-    selectListView();
-
-    await user.click(
-      screen.getByRole("button", { name: "Open page 2 in original file" }),
-    );
-
-    const mountedOriginalPreview = screen.getByTestId("source-original-preview");
-
-    await user.click(screen.getByRole("button", { name: "Parsed" }));
-
-    expect(screen.getByRole("heading", { name: "Parsed Chunks" })).toBeTruthy();
-    expect(screen.getByTestId("source-original-preview")).toBe(
-      mountedOriginalPreview,
-    );
-
-    await user.click(screen.getByRole("button", { name: "Original" }));
-
-    expect(screen.getByTestId("source-original-preview")).toBe(
-      mountedOriginalPreview,
-    );
-  });
-
-  it("returns to parsed chunks when a citation focuses a chunk from the original view", async () => {
-    mockVisibleVirtualViewport();
-    const user = userEvent.setup();
-    const chunks = [
-      {
-        chunkId: "chunk_1",
-        type: "text",
-        content: "Referenced content from the parsed document.",
-        sourceTitle: "report.doc",
-      },
-    ];
-    const selectedSourceFile = {
-      url: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.doc",
-      mimeType: "application/msword",
-    };
-    const { rerender } = render(
-      React.createElement(C, {
-        chunks,
-        selectedSource: "report.doc",
-        selectedSourceFile,
-      }),
-    );
-    selectListView();
-
-    await user.click(screen.getByRole("button", { name: "Original" }));
-    expect(screen.getByRole("heading", { name: "Original File" })).toBeTruthy();
-
-    rerender(
-      React.createElement(C, {
-        chunks,
-        selectedSource: "report.doc",
-        selectedSourceFile,
-        focusedChunkId: "chunk_1",
-        focusedChunkRequestId: 1,
-      }),
-    );
-
-    await waitFor(() => {
-      expect(
-        screen.getByRole("heading", { name: "Referenced Chunks" }),
-      ).toBeTruthy();
-    });
-    expect(screen.getByTestId("chunk-card-shell-chunk_1")).toBeTruthy();
   });
 
   it("uses compact, non-folding spacing for the mobile chunk view", () => {
@@ -1011,7 +866,7 @@ describe("ChunksPanel", () => {
     });
   });
 
-  it("renders image chunks and moves resolved connection targets first", async () => {
+  it("renders image chunks and focuses the resolved connection target alone", async () => {
     mockVisibleVirtualViewport();
 
     const user = userEvent.setup();
@@ -1070,11 +925,9 @@ describe("ChunksPanel", () => {
       expect(focusedRow?.getAttribute("data-index")).toBe("0");
       expect(focusedRow?.getAttribute("data-focused-chunk")).toBe("true");
     });
-    expect(
-      screen
-        .getByRole("button", { name: "Missing" })
-        .getAttribute("aria-disabled"),
-    ).toBe("true");
+    // The unresolved reference lives on text_1, which is hidden once the
+    // image is focused.
+    expect(screen.queryByTestId("chunk-card-shell-text_1")).toBeNull();
   });
 
   it("lets in-chunk table references override the current citation focus", async () => {
@@ -1205,7 +1058,7 @@ describe("ChunksPanel", () => {
     // the focused chunk reorders to index 0 (already checked above).
   });
 
-  it("remeasures a tall focused chunk after citation reordering", async () => {
+  it("remeasures a tall focused chunk shown alone after citation focus", async () => {
     mockVirtualViewportWithChunkHeights({
       chunk_1: 120,
       table_3: 520,
@@ -1254,14 +1107,16 @@ describe("ChunksPanel", () => {
       const focusedRow = screen
         .getByTestId("chunk-card-shell-table_3")
         .closest<HTMLElement>("[data-index]");
-      const followingRow = screen
-        .getByTestId("chunk-card-shell-chunk_1")
-        .closest<HTMLElement>("[data-index]");
 
       expect(focusedRow?.getAttribute("data-index")).toBe("0");
-      expect(followingRow?.getAttribute("data-index")).toBe("1");
-      expect(followingRow?.style.transform).toBe("translateY(520px)");
+      expect(focusedRow?.getAttribute("data-focused-chunk")).toBe("true");
     });
+
+    // Only the focused chunk is shown — the rest of the document is hidden.
+    expect(
+      screen.queryByTestId("chunk-card-shell-chunk_1"),
+    ).toBeNull();
+    expect(screen.queryByTestId("chunk-card-shell-chunk_2")).toBeNull();
   });
 
   it("reapplies the start position after the focused chunk layout pass", async () => {

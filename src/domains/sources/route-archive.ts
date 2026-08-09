@@ -12,7 +12,6 @@ import type {
 type RouteArchiveDependencies = Pick<
   SourceRouteServiceDependencies,
   | "deleteBlob"
-  | "demoApi"
   | "ensureApiKeyForWorkspace"
   | "ensureWorkspace"
   | "makeKnowhereClient"
@@ -46,23 +45,17 @@ const archiveSourceEffect = (
     const workspace = yield* Effect.tryPromise(() =>
       deps.ensureWorkspace(user.id),
     )
+    if (!workspace) {
+      return routeResult.badRequest(
+        "No workspace yet — pick a namespace from the dropdown.",
+      )
+    }
 
     const source = yield* Effect.tryPromise(() =>
       deps.sourceService.findInWorkspace(workspace.id, input.sourceId),
     )
 
     if (!source) {
-      const catalog = yield* Effect.tryPromise(() => deps.demoApi.fetchCatalog())
-      const isDemoSource = catalog.sources.some(
-        (candidate) => candidate.demoSourceId === input.sourceId,
-      )
-      if (isDemoSource) {
-        yield* Effect.tryPromise(() =>
-          deps.sourceService.hideDemoSource(workspace.id, input.sourceId),
-        )
-        return routeResult.ok({ id: input.sourceId, archived: true as const })
-      }
-
       return routeResult.error(404, "Source not found.")
     }
 
@@ -78,11 +71,6 @@ const archiveSourceEffect = (
     yield* Effect.tryPromise(() =>
       deps.sourceService.softDelete(workspace.id, input.sourceId),
     )
-    if (source.demoKey) {
-      yield* Effect.tryPromise(() =>
-        deps.sourceService.hideDemoSource(workspace.id, source.demoKey!),
-      )
-    }
     if (source.originalBlobPathname) {
       yield* Effect.tryPromise(() =>
         deps.deleteBlob(source.originalBlobPathname!),

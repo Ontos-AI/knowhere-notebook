@@ -25,30 +25,22 @@ describe("proxy", () => {
     }
   });
 
-  it("allows anonymous guest source reads", () => {
+  it("keeps anonymous source reads protected", () => {
     const sourcesResponse = proxy(
       new NextRequest("http://localhost:3001/api/sources"),
     );
     const chunksResponse = proxy(
       new NextRequest(
-        "http://localhost:3001/api/sources/demo-tsla-q4-2025/chunks",
-      ),
-    );
-    const originalResponse = proxy(
-      new NextRequest(
-        "http://localhost:3001/api/demo-sources/demo-tsla-q4-2025/original",
-      ),
-    );
-    const assetResponse = proxy(
-      new NextRequest(
-        "http://localhost:3001/api/demo-sources/demo-tsla-q4-2025/assets/images/image-1.jpg",
+        "http://localhost:3001/api/sources/source-1/chunks",
       ),
     );
 
-    expect(sourcesResponse.headers.get("x-middleware-next")).toBe("1");
-    expect(chunksResponse.headers.get("x-middleware-next")).toBe("1");
-    expect(originalResponse.headers.get("x-middleware-next")).toBe("1");
-    expect(assetResponse.headers.get("x-middleware-next")).toBe("1");
+    expect(sourcesResponse.headers.get("location")).toBe(
+      "http://localhost:3001/login",
+    );
+    expect(chunksResponse.headers.get("location")).toBe(
+      "http://localhost:3001/login",
+    );
   });
 
   it("keeps anonymous source mutations protected", () => {
@@ -63,15 +55,31 @@ describe("proxy", () => {
     );
   });
 
-  it("allows protected app routes without a session when KNOWHERE_API_KEY is configured", () => {
-    process.env.KNOWHERE_API_KEY = "sk_dev_key";
-
+  it("redirects protected routes to /login when no session cookie is present", () => {
     const response = proxy(
       new NextRequest("http://localhost:3001/api/sources/source-1", {
         method: "PATCH",
       }),
     );
 
-    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(response.headers.get("location")).toBe(
+      "http://localhost:3001/login",
+    );
+  });
+
+  it("lets anonymous auth routes through (login flows)", () => {
+    const oauthStart = proxy(
+      new NextRequest("http://localhost:3001/api/auth/google/start"),
+    );
+    const oauthCallback = proxy(
+      new NextRequest("http://localhost:3001/api/auth/google/callback?code=x"),
+    );
+    const dashboardStart = proxy(
+      new NextRequest("http://localhost:3001/api/auth/dashboard/start"),
+    );
+
+    expect(oauthStart.status).toBe(200);
+    expect(oauthCallback.status).toBe(200);
+    expect(dashboardStart.status).toBe(200);
   });
 });

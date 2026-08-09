@@ -25,6 +25,7 @@
 # misc
 .DS_Store
 *.pem
+*.swp
 
 # debug
 npm-debug.log*
@@ -36,6 +37,7 @@ yarn-error.log*
 .env
 .env.local
 .env.*.local
+.env.docker
 
 # vercel
 .vercel

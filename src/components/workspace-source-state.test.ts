@@ -28,21 +28,15 @@ describe("workspaceSourceState", () => {
     );
   });
 
-  it("can select an unmaterialized Official Library row for preview", () => {
+  it("can select a workspace Source row for preview", () => {
     const sources: readonly SourceView[] = [
       {
-        id: "demo-spacex-s1",
-        kind: "demo",
-        demoSourceId: "demo-spacex-s1",
+        id: "source_spacex",
+        kind: "workspace",
         title: "spacex-s1.pdf",
         status: "ready",
         mimeType: "application/pdf",
         excludedFromQuery: false,
-        officialLibrary: {
-          librarySourceId: "financial-spacex-s1",
-          categoryId: "financial-reports",
-          sourceUrl: "https://example.com/spacex-s1.pdf",
-        },
       },
       {
         id: "source_ready",
@@ -54,7 +48,7 @@ describe("workspaceSourceState", () => {
     ];
 
     expect(workspaceSourceState.getInitialSelectedSourceId(sources)).toBe(
-      "demo-spacex-s1",
+      "source_spacex",
     );
   });
 

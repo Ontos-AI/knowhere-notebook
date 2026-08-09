@@ -1,12 +1,10 @@
 import "server-only"
 
 import { Effect } from "effect"
-import { headers } from "next/headers"
 
-import { ensureApiKeyForWorkspace } from "@/integrations/dashboard/api-key-service"
-import { authURLs } from "@/infrastructure/auth/urls"
+import { ensureApiKeyForWorkspace } from "@/integrations/knowhere-credentials"
 import {
-  getCurrentUser,
+  getCurrentUser as getCurrentUserFromAuth,
   requireUser,
   type AuthUser,
 } from "@/infrastructure/auth"
@@ -26,10 +24,6 @@ type AuthenticatedNotebookClientContext = AuthenticatedNotebookContext & {
   readonly client: NotebookClient
 }
 
-type GuestNotebookContext = {
-  readonly loginUrl: string
-}
-
 // ---------------------------------------------------------------------------
 // Effect core
 // ---------------------------------------------------------------------------
@@ -39,17 +33,27 @@ const getAuthenticatedEffect = Effect.gen(function* () {
     const workspace = yield* Effect.tryPromise(() =>
       workspaceService.ensureWorkspace(user.id),
     )
+    if (!workspace) {
+      return yield* Effect.die(
+        new Error(
+          "No workspace for this user. The user must add an API key and " +
+            "pick a namespace first.",
+        ),
+      )
+    }
 
     return { user, workspace }
   })
 
 const getOptionalAuthenticatedEffect = Effect.gen(function* () {
-    const user = yield* Effect.tryPromise(() => getCurrentUser())
+    const user = yield* Effect.tryPromise(() => getCurrentUserFromAuth())
     if (!user) return null
 
     const workspace = yield* Effect.tryPromise(() =>
       workspaceService.ensureWorkspace(user.id),
     )
+    if (!workspace) return null
+
     return { user, workspace }
   })
 
@@ -65,32 +69,13 @@ const getAuthenticatedWithClientEffect = Effect.gen(function* () {
 
 const getClientForWorkspaceEffect = (workspace: Workspace) =>
   Effect.gen(function* () {
-    const cookieHeader =
-      (yield* Effect.tryPromise(() => headers())).get("cookie") ?? ""
     const apiKey = yield* Effect.tryPromise(() =>
-      ensureApiKeyForWorkspace(workspace.id, cookieHeader),
+      ensureApiKeyForWorkspace(workspace.id),
     )
     const client = makeKnowhereClient(apiKey)
 
     return { apiKey, client }
   })
-
-const getGuestEffect = Effect.gen(function* () {
-    const dashboardOrigin =
-      process.env.DASHBOARD_ORIGIN ?? "http://localhost:3000"
-    const dashboardLoginURL = `${dashboardOrigin}/login`
-    const headersList = yield* Effect.tryPromise(() => headers())
-    const notebookPublicURL =
-      process.env.NOTEBOOK_PUBLIC_URL ??
-      authURLs.resolveNotebookPublicURLFromHeaders(headersList)
-    const loginUrl = authURLs.buildDashboardLoginURL(
-      dashboardLoginURL,
-      notebookPublicURL,
-    )
-
-    return { loginUrl }
-  },
-)
 
 // ---------------------------------------------------------------------------
 // Async wrappers (backward-compatible)
@@ -98,6 +83,10 @@ const getGuestEffect = Effect.gen(function* () {
 
 async function getAuthenticated(): Promise<AuthenticatedNotebookContext> {
   return Effect.runPromise(getAuthenticatedEffect)
+}
+
+async function getCurrentUser(): Promise<AuthUser | null> {
+  return Effect.runPromise(Effect.tryPromise(() => getCurrentUserFromAuth()))
 }
 
 async function getOptionalAuthenticated(): Promise<AuthenticatedNotebookContext | null> {
@@ -114,14 +103,10 @@ async function getClientForWorkspace(
   return Effect.runPromise(getClientForWorkspaceEffect(workspace))
 }
 
-async function getGuest(): Promise<GuestNotebookContext> {
-  return Effect.runPromise(getGuestEffect)
-}
-
 export const notebookRequestContext = {
   getAuthenticated,
+  getCurrentUser,
   getOptionalAuthenticated,
   getAuthenticatedWithClient,
   getClientForWorkspace,
-  getGuest,
 } as const

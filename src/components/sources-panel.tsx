@@ -5,7 +5,7 @@ import {
   useMemo,
   useState,
 } from "react";
-import { BookOpen, ChevronLeft, ChevronRight, Database, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, Database, KeyRound, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -19,35 +19,44 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Spinner } from "@/components/ui/spinner";
+import { WorkspaceSwitcher } from "@/components/workspace-switcher";
 import { sourcePanelState } from "@/components/source-panel-state";
 import { SourceRow } from "@/components/source-row";
 import { SourceUploadDialog } from "@/components/source-upload-dialog";
-import type {
-  OfficialLibrarySourceView,
-  SourceView,
-} from "@/domains/sources/types";
+import type { SourceView } from "@/domains/sources/types";
 import type { AnalyticsContext } from "@/lib/posthog";
 
 export type SourcesPanelProps = {
   readonly isNarrow?: boolean;
-  readonly addingLibrarySourceIds?: readonly string[];
-  readonly isLibraryOpen?: boolean;
-  readonly officialLibrarySources?: readonly OfficialLibrarySourceView[];
   sources: SourceView[];
+  activeWorkspace?: {
+    readonly id: string;
+    readonly namespace: string;
+    readonly activeKeyLabel?: string | null;
+  };
+  workspaces?: readonly {
+    readonly id: string;
+    readonly namespace: string;
+    readonly activeKeyLabel?: string | null;
+  }[];
+  knowhereKeyLabels?: readonly {
+    readonly id: string
+    readonly label: string
+    readonly mask: string
+  }[];
+  isBlobConfigured?: boolean;
+  userName?: string;
   onSourceUploaded?: (source: SourceView) => void;
   selectedSourceId?: string | null;
   onSelectSource?: (sourceId: string | null) => void;
   onToggleIncluded?: (sourceId: string, included: boolean) => void;
   onArchiveSource?: (sourceId: string) => void;
   onRetrySource?: (sourceId: string) => void;
-  onLibraryOpen?: () => void;
-  onOfficialLibrarySourceAdd?: (demoSourceId: string) => void;
+  onOpenChunksOverlay?: (sourceId: string) => void;
   archivingSourceIds?: readonly string[];
   retryingSourceIds?: readonly string[];
   analyticsContext?: AnalyticsContext;
   sourceCountSnapshot?: number;
-  /** When provided, the Upload button redirects to login instead of opening the dialog. */
-  onLoginClick?: () => void;
 };
 
 const sourceListPageSize = 25;
@@ -59,21 +68,23 @@ type SourcePageState = {
 
 export function SourcesPanel({
   isNarrow = false,
-  isLibraryOpen = false,
-  officialLibrarySources = [],
   sources = [],
+  activeWorkspace,
+  workspaces = [],
+  knowhereKeyLabels = [],
+  isBlobConfigured = true,
+  userName,
   onSourceUploaded,
   selectedSourceId = null,
   onSelectSource,
   onToggleIncluded,
   onArchiveSource,
   onRetrySource,
-  onLibraryOpen,
+  onOpenChunksOverlay,
   archivingSourceIds = [],
   retryingSourceIds = [],
   analyticsContext,
   sourceCountSnapshot = sources.length,
-  onLoginClick,
 }: Partial<SourcesPanelProps> = {}): ReactElement {
   const [confirmSourceId, setConfirmSourceId] = useState<string | null>(null);
   const [sourcePageState, setSourcePageState] = useState<SourcePageState>({
@@ -90,9 +101,7 @@ export function SourcesPanel({
     sources,
   });
   const retryingSourceIdSet = new Set(retryingSourceIds);
-  const workspaceSources = sources.filter(
-    (source) => source.officialLibrary === undefined,
-  );
+  const workspaceSources = sources;
   const selectedSourcePage = getSelectedSourcePage(
     workspaceSources,
     selectedSourceId,
@@ -106,9 +115,6 @@ export function SourcesPanel({
     () => getSourcePagination(workspaceSources, requestedSourcePage),
     [requestedSourcePage, workspaceSources],
   );
-  const hasLibrarySources =
-    officialLibrarySources.length > 0 ||
-    sources.some((source) => source.officialLibrary !== undefined);
 
   return (
     <aside className="z-10 flex h-full w-full shrink-0 flex-col border-r border-border/70 bg-background">
@@ -159,23 +165,15 @@ export function SourcesPanel({
       </AlertDialog>
 
       <div className={`border-b border-border/70 ${isNarrow ? "p-2" : "p-4"}`}>
-        {onLoginClick ? (
-          <Button
-            onClick={onLoginClick}
-            size="sm"
-            className={`flex w-full items-center justify-center gap-2 shadow-xs ${
-              isNarrow ? "px-0" : ""
-            }`}
-            title="Log in to upload"
-          >
-            <Plus className="size-4" />
-            {isNarrow ? null : "Log in to upload"}
-          </Button>
-        ) : isNarrow ? (
+        {isNarrow ? (
           <SourceUploadDialog
             onSourceUploaded={onSourceUploaded}
             analyticsContext={analyticsContext}
             sourceCountSnapshot={sourceCountSnapshot}
+            isBlobConfigured={isBlobConfigured}
+            activeWorkspace={activeWorkspace}
+            workspaces={workspaces}
+            knowhereKeyLabels={knowhereKeyLabels}
             renderTrigger={({ isUploading, onClick, onDragOver, onDrop }) => (
               <Button
                 type="button"
@@ -201,31 +199,37 @@ export function SourcesPanel({
             onSourceUploaded={onSourceUploaded}
             analyticsContext={analyticsContext}
             sourceCountSnapshot={sourceCountSnapshot}
+            isBlobConfigured={isBlobConfigured}
+            activeWorkspace={activeWorkspace}
+            workspaces={workspaces}
+            knowhereKeyLabels={knowhereKeyLabels}
           />
         )}
       </div>
       <ScrollArea className="flex-1">
         <div className={isNarrow ? "px-2 py-3" : "px-4 py-4"}>
+          {!isNarrow ? (
+            <div className="mb-3">
+              <WorkspaceSwitcher
+                activeWorkspace={activeWorkspace}
+                knowhereKeyLabels={knowhereKeyLabels}
+                userName={userName}
+                workspaces={workspaces}
+              />
+            </div>
+          ) : null}
           <div className="mb-3 flex items-center justify-between gap-2">
             <h3 className="truncate text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
               Sources
             </h3>
-            {hasLibrarySources && !isNarrow ? (
-              <button
-                type="button"
-                onClick={onLibraryOpen}
-                className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-border/80 bg-background px-2 text-[11px] font-semibold text-foreground shadow-xs hover:bg-muted ${
-                  isLibraryOpen ? "border-primary/40 bg-primary/5 text-primary" : ""
-                }`}
-                aria-label="Open library"
-              >
-                <BookOpen className="size-3.5" />
-                open library
-              </button>
-            ) : null}
           </div>
 
-          {workspaceSources.length === 0 ? (
+          {!activeWorkspace ? (
+            <EmptySetupState
+              hasApiKeys={knowhereKeyLabels.length > 0}
+              userName={userName}
+            />
+          ) : workspaceSources.length === 0 ? (
             <EmptySourcesState />
           ) : (
             <div className="flex flex-col gap-1.5">
@@ -233,7 +237,11 @@ export function SourcesPanel({
                 <SourceRow
                   key={source.id}
                   source={source}
-                  chunkTreeHref={getChunkTreeHref(source)}
+                  onTreeClick={
+                    onOpenChunksOverlay
+                      ? () => onOpenChunksOverlay(source.id)
+                      : undefined
+                  }
                   isSelected={source.id === selectedSourceId}
                   onSelect={() =>
                     onSelectSource?.(
@@ -301,6 +309,32 @@ function EmptySourcesState(): ReactElement {
   );
 }
 
+function EmptySetupState({
+  hasApiKeys,
+  userName,
+}: {
+  readonly hasApiKeys: boolean;
+  readonly userName?: string;
+}): ReactElement {
+  return (
+    <div className="flex flex-col items-center justify-center px-4 py-10 text-center">
+      <div className="mb-3 flex size-10 items-center justify-center rounded-full bg-muted text-muted-foreground">
+        <KeyRound className="size-5" />
+      </div>
+      <p className="text-xs font-semibold text-foreground">
+        {hasApiKeys
+          ? "Pick a namespace to get started"
+          : `${userName ? `${userName}, a` : "A"}dd an API key to get started`}
+      </p>
+      <p className="mt-1 max-w-[220px] text-[11px] text-muted-foreground">
+        {hasApiKeys
+          ? "Choose a namespace from the dropdown above to open its documents."
+          : "Your API key connects a Knowhere domain. A default workspace is created automatically."}
+      </p>
+    </div>
+  );
+}
+
 type SourcePagination = {
   readonly end: number;
   readonly page: number;
@@ -348,12 +382,6 @@ function getSelectedSourcePage(
     (source) => source.id === selectedSourceId,
   );
   return selectedIndex >= 0 ? getSourcePageForIndex(selectedIndex) : null;
-}
-
-function getChunkTreeHref(source: SourceView): string | undefined {
-  return source.documentId
-    ? `/inspect/${encodeURIComponent(source.documentId)}/chunks`
-    : undefined;
 }
 
 function SourcePaginationControls({

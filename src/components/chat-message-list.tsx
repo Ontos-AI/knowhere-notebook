@@ -11,6 +11,8 @@ import remarkGfm from "remark-gfm";
 
 import { ChatDiagramCard } from "@/components/chat-diagram-card";
 import { useChatMessageListWorkflow } from "@/components/chat-message-list-workflow";
+import { CollapsibleSection } from "@/components/collapsible-section";
+import { ChatRetrievalTrace } from "@/components/chat-retrieval-trace";
 import { chatPanelModel } from "@/components/chat-panel-model";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
@@ -323,6 +325,7 @@ function MessageBubble({
     message.content,
     message.citations ?? [],
     sourceTitlesByDocumentId,
+    message.id,
   );
 
   return (
@@ -330,6 +333,9 @@ function MessageBubble({
       <div className="max-w-[92%] overflow-hidden rounded-2xl rounded-tl-sm border border-border/70 bg-card px-3 py-2.5 text-sm leading-relaxed text-foreground shadow-xs sm:max-w-[90%] sm:px-4 sm:py-3">
         <AssistantMessageContent
           content={citationContentMarkdown}
+          citations={message.citations ?? []}
+          messageId={message.id}
+          onCitationClick={onCitationClick}
         />
         {displayDerivedTables.length > 0 && (
           <div className="mt-3 space-y-3 border-t border-border/70 pt-2.5">
@@ -375,6 +381,9 @@ function MessageBubble({
           onCitationClick={onCitationClick}
           pendingCitationId={pendingCitationId}
         />
+        {message.retrievalTrace && (
+          <ChatRetrievalTrace trace={message.retrievalTrace} />
+        )}
       </div>
     </div>
   );
@@ -422,8 +431,14 @@ function buildCitationContentMarkdown(
   content: string,
   citations: readonly ChatCitationView[],
   sourceTitlesByDocumentId: Readonly<Record<string, string>>,
+  messageId: string,
 ): string {
+  // Replace matched inline markers with links keyed by a private citation
+  // index href (`#citation-index-N`), then rewrite to the real citation id
+  // (`#citation-<messageId>:<index>`) in a second pass. The two-pass form
+  // keeps a later token from matching inside a link produced earlier.
   let rewrittenContent = content;
+  const matchedIndexes = new Set<number>();
 
   for (const [index, citation] of citations.entries()) {
     const displayCitation = {
@@ -438,18 +453,42 @@ function buildCitationContentMarkdown(
     for (const token of getInlineCitationTokens(displayCitation, index)) {
       if (!rewrittenContent.includes(token)) continue;
 
-      rewrittenContent = removeInlineCitationToken(rewrittenContent, token);
+      matchedIndexes.add(index);
+      // Superscript-style [n] link (n = citation number) — the prose stays
+      // clean while the marker stays clickable.
+      rewrittenContent = replaceInlineCitationToken(
+        rewrittenContent,
+        token,
+        index + 1,
+        `citation-index-${index}`,
+      );
     }
+  }
+
+  if (matchedIndexes.size === 0) return rewrittenContent;
+
+  for (const index of matchedIndexes) {
+    const citationId = chatPanelModel.getCitationId(messageId, index);
+    rewrittenContent = rewrittenContent.replaceAll(
+      `#citation-index-${index}`,
+      `#citation-${citationId}`,
+    );
   }
 
   return rewrittenContent;
 }
 
-function removeInlineCitationToken(content: string, token: string): string {
+function replaceInlineCitationToken(
+  content: string,
+  token: string,
+  citationNumber: number,
+  href: string,
+): string {
+  const link = `[${citationNumber}](#${href})`;
   return content
-    .replaceAll(` ${token}`, "")
-    .replaceAll(`${token} `, "")
-    .replaceAll(token, "");
+    .replaceAll(` ${token}`, ` ${link}`)
+    .replaceAll(`${token} `, `${link} `)
+    .replaceAll(token, link);
 }
 
 function getInlineCitationTokens(
@@ -540,12 +579,45 @@ function DerivedTableArtifactView({
 
 function AssistantMessageContent({
   content,
+  citations = [],
+  messageId,
+  onCitationClick,
 }: {
   readonly content: string;
+  readonly citations?: readonly ChatCitationView[];
+  readonly messageId?: string;
+  readonly onCitationClick?: (
+    citation: ChatCitationView,
+    citationId: string,
+  ) => void;
 }): ReactElement {
   const markdownComponents: Components = {
     ...assistantMarkdownComponents,
     a: ({ href, children }) => {
+      // Inline citation links (`#citation-<messageId>:<index>`) open the
+      // same chunk pane flow as the citation chips below the answer.
+      const citationId = extractCitationAnchorId(href);
+      const citation = getCitationById(
+        citations,
+        messageId,
+        citationId,
+      );
+      if (citationId && citation && onCitationClick) {
+        return (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.preventDefault();
+              onCitationClick(citation, citationId);
+            }}
+            className="mx-0.5 inline-block cursor-pointer rounded-sm px-1 text-[10px] font-bold leading-none text-primary underline decoration-primary/40 underline-offset-2 hover:bg-primary/10"
+            aria-label={`Open referenced chunk ${citationId}`}
+            title="Open referenced chunk"
+          >
+            {children}
+          </button>
+        );
+      }
       return (
         <a
           href={href}
@@ -573,6 +645,24 @@ function AssistantMessageContent({
   );
 }
 
+function extractCitationAnchorId(href: string | undefined): string | null {
+  if (!href || !href.startsWith("#citation-")) return null;
+  return href.slice("#citation-".length);
+}
+
+function getCitationById(
+  citations: readonly ChatCitationView[],
+  messageId: string | undefined,
+  citationId: string | null,
+): ChatCitationView | undefined {
+  if (!messageId || !citationId) return undefined;
+  const [matchedMessageId, indexText] = citationId.split(":");
+  if (matchedMessageId !== messageId) return undefined;
+  const index = Number(indexText);
+  if (!Number.isInteger(index)) return undefined;
+  return citations[index];
+}
+
 function AssistantSources({
   displayCitations,
   onCitationClick,
@@ -588,10 +678,7 @@ function AssistantSources({
   if (displayCitations.length === 0) return null;
 
   return (
-    <div className="mt-3 border-t border-border/70 pt-2.5">
-      <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-        Sources
-      </p>
+    <CollapsibleSection title="Sources" badge={displayCitations.length}>
       <TooltipProvider delayDuration={0}>
         <div className="flex flex-wrap gap-1.5">
           {displayCitations.map((displayCitation) => (
@@ -607,7 +694,7 @@ function AssistantSources({
           ))}
         </div>
       </TooltipProvider>
-    </div>
+    </CollapsibleSection>
   );
 }
 
@@ -652,10 +739,21 @@ function CitationChip({
         align="start"
         className="max-w-[320px] bg-popover text-popover-foreground shadow-lg"
       >
-        {tooltipLabel}
+        <div>
+          {tooltipLabel}
+          {isUsableCitationScore(citation.score) && (
+            <span className="mt-1 block text-[10px] font-semibold text-muted-foreground">
+              Score: {citation.score!.toFixed(3)}
+            </span>
+          )}
+        </div>
       </TooltipContent>
     </Tooltip>
   );
+}
+
+function isUsableCitationScore(score: number | null | undefined): boolean {
+  return typeof score === "number" && Number.isFinite(score) && score > 0;
 }
 
 function getDisplayCitations(

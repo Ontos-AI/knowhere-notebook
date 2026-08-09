@@ -17,10 +17,6 @@ type SaveSourceParseResultInput = Parameters<
   typeof sourceRepository.saveParseResultEffect
 >[2]
 
-type UpsertMaterializedDemoSourceInput = Parameters<
-  typeof sourceRepository.upsertMaterializedDemoSourceEffect
->[1]
-
 type UploadRepositoryRuntime = {
   readonly createUploading: (
     workspaceId: string,
@@ -69,11 +65,6 @@ type SourceWorkflowRuntime = UploadRepositoryRuntime & {
     workspaceId: string,
     input: LocalizeRemoteDocumentInput,
   ) => Promise<Source>
-  readonly listHiddenDemoSourceIds: (workspaceId: string) => Promise<string[]>
-  readonly hideDemoSource: (
-    workspaceId: string,
-    demoSourceId: string,
-  ) => Promise<void>
   readonly markReady: (
     workspaceId: string,
     sourceId: string,
@@ -98,10 +89,6 @@ type SourceWorkflowRuntime = UploadRepositoryRuntime & {
     workspaceId: string,
     sourceId: string,
   ) => Promise<boolean>
-  readonly upsertMaterializedDemoSource: (
-    workspaceId: string,
-    input: UpsertMaterializedDemoSourceInput,
-  ) => Promise<Source>
 }
 
 const findInWorkspace: SourceWorkflowRuntime["findInWorkspace"] = (
@@ -122,20 +109,6 @@ const localizeRemoteDocument: SourceWorkflowRuntime["localizeRemoteDocument"] =
     databaseRuntime.runPromise(
       sourceRepository.localizeRemoteDocumentEffect(workspaceId, input),
     )
-
-const listHiddenDemoSourceIds: SourceWorkflowRuntime["listHiddenDemoSourceIds"] =
-  (workspaceId: string) =>
-    databaseRuntime.runPromise(
-      sourceRepository.listHiddenDemoSourceIdsEffect(workspaceId),
-    )
-
-const hideDemoSource: SourceWorkflowRuntime["hideDemoSource"] = (
-  workspaceId: string,
-  demoSourceId: string,
-) =>
-  databaseRuntime.runPromise(
-    sourceRepository.hideDemoSourceEffect(workspaceId, demoSourceId),
-  )
 
 const createUploading: SourceWorkflowRuntime["createUploading"] = (
   workspaceId: string,
@@ -210,12 +183,6 @@ const softDelete: SourceWorkflowRuntime["softDelete"] = (
     sourceRepository.softDeleteEffect(workspaceId, sourceId),
   )
 
-const upsertMaterializedDemoSource: SourceWorkflowRuntime["upsertMaterializedDemoSource"] =
-  (workspaceId: string, input: UpsertMaterializedDemoSourceInput) =>
-    databaseRuntime.runPromise(
-      sourceRepository.upsertMaterializedDemoSourceEffect(workspaceId, input),
-    )
-
 const saveParseResult: SourceWorkflowRuntime["saveParseResult"] = (
   workspaceId: string,
   sourceId: string,
@@ -287,9 +254,7 @@ export const sourceWorkflowRuntime: SourceWorkflowRuntime = {
   findInWorkspace,
   getParseAssetUrls,
   getParseResultProgress,
-  hideDemoSource,
   listForWorkspace,
-  listHiddenDemoSourceIds,
   localizeRemoteDocument,
   markFailed,
   markParsing,
@@ -298,5 +263,4 @@ export const sourceWorkflowRuntime: SourceWorkflowRuntime = {
   mergeParseAssetUrls,
   saveParseResult,
   softDelete,
-  upsertMaterializedDemoSource,
 }

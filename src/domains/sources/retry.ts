@@ -3,7 +3,7 @@ import "server-only"
 import { Effect } from "effect"
 
 import type { Source, Workspace } from "@/infrastructure/db/schema"
-import { getUploadNamespace } from "./namespace"
+import { getWorkspaceNamespace } from "./namespace"
 import type {
   UploadJobResult,
   UploadKnowhereClient,
@@ -59,7 +59,7 @@ export const retrySourceToKnowhereEffect = (
           sourceType: "url",
           sourceUrl: originalBlobUrl,
           fileName: source.title,
-          namespace: getUploadNamespace(),
+          namespace: getWorkspaceNamespace(workspace),
           documentMetadata: createNotebookDocumentMetadata({
             title: source.title,
             mimeType: source.mimeType,

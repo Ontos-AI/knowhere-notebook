@@ -9,13 +9,44 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ChatComposer } from "./chat-composer";
 
+const templatePrompts = {
+  "ipo-prospectus-risk-mining":
+    "You are a risk analyst specializing in IPO pricing. I have uploaded the prospectus of [Company Name].",
+  "earnings-call-transcript-analysis":
+    "You are a sell-side research analyst preparing a post earnings flash note. I have uploaded the earnings release and earnings call transcript of [Company Name].",
+};
+
+const promptTemplatesResponse = [
+  {
+    id: "ipo-prospectus-risk-mining",
+    title: "IPO Prospectus Risk Mining",
+    prompt: templatePrompts["ipo-prospectus-risk-mining"],
+  },
+  {
+    id: "earnings-call-transcript-analysis",
+    title: "Earnings Call Transcript Analysis",
+    prompt: templatePrompts["earnings-call-transcript-analysis"],
+  },
+];
+
 describe("ChatComposer", () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => promptTemplatesResponse,
+      }),
+    );
+  });
+
   afterEach(() => {
     cleanup();
+    vi.unstubAllGlobals();
   });
 
   it("sends trimmed input and clears the composer", async () => {
@@ -28,8 +59,44 @@ describe("ChatComposer", () => {
     await user.type(input, "  Summarize this document  ");
     await user.click(screen.getByRole("button", { name: "Send message" }));
 
-    expect(onSend).toHaveBeenCalledWith("Summarize this document");
+    expect(onSend).toHaveBeenCalledWith("Summarize this document", {
+      rerank: true,
+      internalRecallK: 30,
+      topK: 8,
+    });
     expect(input.value).toBe("");
+  });
+
+  it("renders retrieval controls with defaults", () => {
+    render(React.createElement(ChatComposer));
+
+    const rerankSwitch = screen.getByRole("switch", { name: /^Rerank/ });
+    expect(rerankSwitch.getAttribute("aria-checked")).toBe("true");
+    expect(screen.getAllByRole("slider", { hidden: true }).length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText("Recall K")).toBeTruthy();
+    expect(screen.getByText("Top K")).toBeTruthy();
+    expect(screen.getByText("30")).toBeTruthy();
+    expect(screen.getByText("8")).toBeTruthy();
+  });
+
+  it("sends changed retrieval params when the switch is toggled", async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn();
+
+    render(React.createElement(ChatComposer, { onSend }));
+
+    await user.click(screen.getByRole("switch", { name: /^Rerank/ }));
+    await user.type(
+      screen.getByPlaceholderText("Ask a question about your documents…"),
+      "Question",
+    );
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+
+    expect(onSend).toHaveBeenCalledWith("Question", {
+      rerank: false,
+      internalRecallK: 30,
+      topK: 8,
+    });
   });
 
   it("caps long prompts and resets the composer after sending", async () => {
@@ -97,7 +164,7 @@ describe("ChatComposer", () => {
 
     const input = getComposerTextArea();
     input.scrollTop = 92;
-    await user.click(screen.getByRole("button", { name: "Create" }));
+    await user.click(screen.getByRole("button", { name: "Prompts / Chart" }));
     await user.click(
       screen.getByRole("menuitem", { name: /IPO Prospectus Risk Mining/ }),
     );
@@ -133,7 +200,7 @@ describe("ChatComposer", () => {
 
     render(React.createElement(ChatComposer));
 
-    await user.click(screen.getByRole("button", { name: "Create" }));
+    await user.click(screen.getByRole("button", { name: "Prompts / Chart" }));
     await user.click(
       screen.getByRole("menuitem", { name: /IPO Prospectus Risk Mining/ }),
     );
@@ -158,7 +225,7 @@ describe("ChatComposer", () => {
 
     render(React.createElement(ChatComposer));
 
-    await user.click(screen.getByRole("button", { name: "Create" }));
+    await user.click(screen.getByRole("button", { name: "Prompts / Chart" }));
     await user.click(
       screen.getByRole("menuitem", {
         name: /Earnings Call Transcript Analysis/,
@@ -190,7 +257,7 @@ describe("ChatComposer", () => {
     expect(input.className).toContain("max-h-[192px]");
     expect(input.className).toContain("border-0");
     expect(input.className).toContain("shadow-none");
-    expect(screen.getByRole("button", { name: "Create" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Prompts / Chart" })).toBeTruthy();
   });
 });
 

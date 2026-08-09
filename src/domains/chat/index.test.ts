@@ -75,6 +75,8 @@ describe("answerQuestionWithRetrieval", () => {
       query: "What does the document say?",
       topK: 8,
       useAgentic: true,
+      rerank: true,
+      internalRecallK: 30,
       dataType: 1,
       excludeDocumentIds: ["doc_excluded"],
     });
@@ -85,11 +87,88 @@ describe("answerQuestionWithRetrieval", () => {
       excludedSourceIds: ["source_2"],
       searchSources: expect.any(Function),
     });
-    expect(answer).toEqual({
+    expect(answer).toMatchObject({
       answer: "The answer is grounded.",
       citations: [result],
       artifacts: [],
     });
+    expect(answer.retrievalTrace).toMatchObject({
+      durationSeconds: expect.any(Number),
+      queries: [
+        {
+          namespace: "notebook-workspace",
+          query: "What does the document say?",
+          referencedChunkCount: 0,
+          resultCount: 1,
+          topScores: [0.9],
+        },
+      ],
+    });
+  });
+
+  it("never renders a literal null/undefined or empty string as the answer", async () => {
+    const retrieval = {
+      query: vi.fn().mockResolvedValue({
+        results: [],
+        evidenceText: "",
+        referencedChunks: [],
+        namespace: "notebook-workspace",
+        query: "Gordon",
+        routerUsed: "workflow_single_step",
+        answerText: null,
+      }),
+    };
+    const sources = [makeSource()];
+
+    for (const nullishAnswer of ["null", "undefined", "  null  ", "", "   "]) {
+      const generateAnswer = vi.fn(async () =>
+        makeHarnessRunResult(nullishAnswer),
+      );
+      const answer = await Effect.runPromise(
+        answerQuestionWithRetrieval({
+          question: "Gordon",
+          namespace: "notebook-workspace",
+          sources,
+          excludedSourceIds: [],
+          retrieval,
+          generateAnswer,
+          messages: [],
+        }),
+      );
+      expect(answer.answer).toBe("I couldn't find that in your sources.");
+    }
+  });
+
+  it("keeps a real answer containing the word null", async () => {
+    const retrieval = {
+      query: vi.fn().mockResolvedValue({
+        results: [],
+        evidenceText: "",
+        referencedChunks: [],
+        namespace: "notebook-workspace",
+        query: "Gordon",
+        routerUsed: "workflow_single_step",
+        answerText: null,
+      }),
+    };
+    const sources = [makeSource()];
+    const generateAnswer = vi.fn(async () =>
+      makeHarnessRunResult("Gordon is listed as null in the directory."),
+    );
+    const answer = await Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "Gordon",
+        namespace: "notebook-workspace",
+        sources,
+        excludedSourceIds: [],
+        retrieval,
+        generateAnswer,
+        messages: [],
+      }),
+    );
+    expect(answer.answer).toBe(
+      "Gordon is listed as null in the directory.",
+    );
   });
 
   it("does not carry no-evidence metadata from default into a successful legacy namespace result", async () => {
@@ -164,10 +243,29 @@ describe("answerQuestionWithRetrieval", () => {
       2,
       expect.objectContaining({ namespace: "notebook-legacy" }),
     );
-    expect(answer).toEqual({
+    expect(answer).toMatchObject({
       answer: "The legacy answer is grounded.",
       citations: [legacyResult],
       artifacts: [],
+    });
+    expect(answer.retrievalTrace).toMatchObject({
+      durationSeconds: expect.any(Number),
+      queries: [
+        {
+          namespace: "default",
+          query: "legacy document answer",
+          referencedChunkCount: 0,
+          resultCount: 0,
+          topScores: [],
+        },
+        {
+          namespace: "notebook-legacy",
+          query: "legacy document answer",
+          referencedChunkCount: 0,
+          resultCount: 1,
+          topScores: [0.9],
+        },
+      ],
     });
   });
 
@@ -481,6 +579,8 @@ describe("answerQuestionWithRetrieval", () => {
       query: "SpaceX rocket photos",
       topK: 8,
       useAgentic: true,
+      rerank: true,
+      internalRecallK: 30,
       dataType: 3,
     });
     expect(answer.answer).toBe("Use this launch photo.");
@@ -496,6 +596,70 @@ describe("answerQuestionWithRetrieval", () => {
         },
       },
     ]);
+  });
+
+  it("maps a page-targeted retrieval query to dataType 7", async () => {
+    const pageResult = makeRetrievalResult({
+      content: "CHEUNG Hon-lam Gordon 2835 2147",
+      chunkType: "page",
+      chunkId: "parser_page_1",
+      source: {
+        documentId: "doc_directory",
+        sourceFileName: "directory.pdf",
+        sectionPath: "Page 3",
+      },
+    });
+    const retrieval = {
+      query: vi.fn().mockResolvedValue({
+        results: [pageResult],
+        evidenceText: "Directory evidence.",
+        referencedChunks: [],
+        namespace: "notebook-workspace",
+        query: "Gordon phone number",
+        routerUsed: "workflow_single_step",
+        answerText: null,
+      }),
+    };
+    const generateAnswer = vi.fn(async ({ searchSources }) => {
+      await searchSources({
+        query: "Gordon phone number",
+        targetContent: "page",
+      });
+      return makeHarnessRunResult("Gordon can be reached at 2835 2147.");
+    });
+
+    const answer = await Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "What is Gordon's phone number?",
+        namespace: "notebook-workspace",
+        sources: [
+          makeSource({
+            id: "source_directory",
+            title: "directory.pdf",
+            knowhereDocumentId: "doc_directory",
+          }),
+        ],
+        excludedSourceIds: [],
+        retrieval,
+        generateAnswer,
+        messages: [],
+      }),
+    );
+
+    expect(retrieval.query).toHaveBeenCalledWith({
+      namespace: "notebook-workspace",
+      query: "Gordon phone number",
+      topK: 8,
+      useAgentic: true,
+      rerank: true,
+      internalRecallK: 30,
+      dataType: 7,
+    });
+    expect(answer.answer).toBe("Gordon can be reached at 2835 2147.");
+    expect(answer.citations[0]).toMatchObject({
+      chunkId: "parser_page_1",
+      chunkType: "page",
+    });
   });
 
   it("hardens citation and artifact asset URLs before returning the answer", async () => {
@@ -1253,6 +1417,8 @@ describe("answerQuestionWithRetrieval", () => {
       query: "公民身份证明 图片",
       topK: 8,
       useAgentic: true,
+      rerank: true,
+      internalRecallK: 30,
       dataType: 3,
     });
     const imageCitations = answer.citations.filter(
@@ -1297,10 +1463,22 @@ describe("answerQuestionWithRetrieval", () => {
       }),
     );
 
-    expect(answer).toEqual({
+    expect(answer).toMatchObject({
       answer: "I couldn't find that in your sources.",
       citations: [],
       artifacts: [],
+    });
+    expect(answer.retrievalTrace).toMatchObject({
+      durationSeconds: expect.any(Number),
+      queries: [
+        {
+          namespace: "notebook-workspace",
+          query: "Missing fact?",
+          referencedChunkCount: 0,
+          resultCount: 0,
+          topScores: [],
+        },
+      ],
     });
   });
 
@@ -1350,6 +1528,8 @@ describe("answerQuestionWithRetrieval", () => {
       query: "Tesla Q4 2025 Update energy generation and storage deployments",
       topK: 8,
       useAgentic: true,
+      rerank: true,
+      internalRecallK: 30,
       dataType: 1,
     });
     expect(generateAnswer).toHaveBeenCalledWith({
@@ -1359,6 +1539,99 @@ describe("answerQuestionWithRetrieval", () => {
       excludedSourceIds: [],
       searchSources: expect.any(Function),
     });
+  });
+
+  it("collects a retrieval trace entry per issued query", async () => {
+    const retrieval = {
+      query: vi
+        .fn()
+        .mockImplementation(async ({ query }: { readonly query: string }) => ({
+          results: [],
+          evidenceText: null,
+          referencedChunks: [],
+          namespace: "notebook-workspace",
+          query,
+          routerUsed: "workflow_single_step",
+          answerText: null,
+        })),
+    };
+    const generateAnswer = vi.fn(async ({ searchSources }) => {
+      await searchSources({ query: "query variant one" });
+      await searchSources({ query: "query variant two" });
+      return makeHarnessRunResult("Answer.");
+    });
+
+    const answer = await Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "Question",
+        namespace: "notebook-workspace",
+        sources: [makeSource()],
+        excludedSourceIds: [],
+        retrieval,
+        generateAnswer,
+        messages: [],
+      }),
+    );
+
+    expect(answer.retrievalTrace?.queries).toEqual([
+      {
+        namespace: "notebook-workspace",
+        query: "query variant one",
+        referencedChunkCount: 0,
+        resultCount: 0,
+        topScores: [],
+      },
+      {
+        namespace: "notebook-workspace",
+        query: "query variant two",
+        referencedChunkCount: 0,
+        resultCount: 0,
+        topScores: [],
+      },
+    ]);
+  });
+
+  it("applies retrieval overrides over hardcoded and harness-chosen values", async () => {
+    const retrieval = {
+      query: vi.fn().mockResolvedValue({
+        results: [makeRetrievalResult()],
+        evidenceText: "Evidence.",
+        referencedChunks: [],
+        namespace: "notebook-workspace",
+        query: "any",
+        routerUsed: "workflow_single_step",
+        answerText: null,
+      }),
+    };
+    const generateAnswer = vi.fn(async ({ searchSources }) => {
+      await searchSources({ query: "query", topK: 12 });
+      return makeHarnessRunResult("Answer.");
+    });
+
+    await Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "Question",
+        namespace: "notebook-workspace",
+        sources: [makeSource()],
+        excludedSourceIds: [],
+        retrieval,
+        generateAnswer,
+        messages: [],
+        retrievalOverrides: {
+          rerank: false,
+          internalRecallK: 45,
+          topK: 4,
+        },
+      }),
+    );
+
+    expect(retrieval.query).toHaveBeenCalledWith(
+      expect.objectContaining({
+        rerank: false,
+        internalRecallK: 45,
+        topK: 4,
+      }),
+    );
   });
 
   it("does not append chat history to Knowhere tool queries", async () => {
@@ -1406,6 +1679,8 @@ describe("answerQuestionWithRetrieval", () => {
       query: "Tesla energy storage deployments",
       topK: 8,
       useAgentic: true,
+      rerank: true,
+      internalRecallK: 30,
       dataType: 1,
     });
     expect(JSON.stringify(queryInput)).not.toContain(
@@ -1465,6 +1740,7 @@ describe("answerQuestionWithRetrieval", () => {
         content: "",
         chunkType: "image",
         score: null,
+        chunkId: "chunk_1",
         assetUrl: "https://blob.example/images/launch.jpg",
         source: {
           documentId: "doc_spacex",
@@ -1538,6 +1814,10 @@ describe("generateAgenticOutputManifest", () => {
 
         return {
           text: "This freeform text should be ignored.",
+          steps: [
+            { stepNumber: 1, usage: { inputTokens: 120, outputTokens: 40 } },
+          ],
+          totalUsage: { inputTokens: 120, outputTokens: 40 },
         } as Awaited<ReturnType<ToolLoopAgent["generate"]>>;
       },
     );
@@ -1602,6 +1882,9 @@ describe("generateAgenticOutputManifest", () => {
       carryHistory: "none",
     });
     expect(result.trace.validationErrors).toEqual([]);
+    expect(result.trace.llmCallCount).toBe(1);
+    expect(result.trace.inputTokens).toBe(120);
+    expect(result.trace.outputTokens).toBe(40);
     expect(searchSources).toHaveBeenCalledWith({
       query: "冯荣洲 身份证 图片",
       targetContent: "text_image",
@@ -1676,6 +1959,10 @@ describe("generateAgenticOutputManifest", () => {
         return {
           text: "ignored",
           response: { messages: [] },
+          steps: [
+            { stepNumber: 1, usage: { inputTokens: 100, outputTokens: 30 } },
+          ],
+          totalUsage: { inputTokens: 100, outputTokens: 30 },
         } as unknown as Awaited<ReturnType<ToolLoopAgent["generate"]>>;
       },
     );
@@ -1715,6 +2002,9 @@ describe("generateAgenticOutputManifest", () => {
     expect(generateCallCount).toBe(2);
     expect(result.trace.revisionsUsed).toBe(1);
     expect(result.trace.validationErrors).toEqual([]);
+    expect(result.trace.llmCallCount).toBe(2);
+    expect(result.trace.inputTokens).toBe(200);
+    expect(result.trace.outputTokens).toBe(60);
     expect(
       result.manifest.artifacts.filter((artifact) => artifact.display).length,
     ).toBe(2);
@@ -1779,7 +2069,6 @@ function makeSource(overrides: Partial<Source> = {}): Source {
     stagedBlobUrl: null,
     originalBlobPathname: null,
     originalBlobUrl: null,
-    demoKey: null,
     createdAt: new Date("2026-05-06T00:00:00Z"),
     updatedAt: new Date("2026-05-06T00:00:00Z"),
     deletedAt: null,

@@ -13,6 +13,9 @@ const mocks = vi.hoisted(() => {
     uploadSourceBlobToKnowhere: vi.fn(),
     uploadSourceToKnowhere: vi.fn(),
     ensureWorkspace: vi.fn(),
+    findWorkspaceByIdAndUserId: vi.fn(),
+    findByIdAndUserIdEffect: vi.fn(),
+    databaseRunPromise: vi.fn(),
   };
 });
 
@@ -24,7 +27,7 @@ vi.mock("next/headers", () => ({
   headers: vi.fn(async () => new Headers({ cookie: "session=abc" })),
 }));
 
-vi.mock("@/integrations/dashboard/api-key-service", () => ({
+vi.mock("@/integrations/knowhere-credentials", () => ({
   ensureApiKeyForWorkspace: mocks.ensureApiKeyForWorkspace,
 }));
 
@@ -50,11 +53,24 @@ vi.mock("@/domains/workspace/service", () => ({
   },
 }));
 
+vi.mock("@/domains/workspace/repository", () => ({
+  workspaceRepository: {
+    findByIdAndUserIdEffect: mocks.findByIdAndUserIdEffect,
+  },
+}));
+
+vi.mock("@/domains/workspace/database-runtime", () => ({
+  databaseRuntime: {
+    runPromise: mocks.databaseRunPromise,
+  },
+}));
+
 import { POST } from "./route";
 
 const workspace: Workspace = {
   id: "workspace_1",
   userId: "user_1",
+  activeKnowhereApiKeyId: null,
   namespace: "notebook-workspace_1",
   createdAt: new Date("2026-05-10T00:00:00Z"),
 };
@@ -73,7 +89,6 @@ const source: Source = {
   stagedBlobUrl: null,
   originalBlobPathname: null,
   originalBlobUrl: null,
-  demoKey: null,
   createdAt: new Date("2026-05-10T00:00:00Z"),
   updatedAt: new Date("2026-05-10T00:00:00Z"),
   deletedAt: null,
@@ -88,6 +103,12 @@ describe("POST /api/sources", () => {
     mocks.makeKnowhereClient.mockReturnValue({ jobs: {} });
     mocks.uploadSourceBlobToKnowhere.mockResolvedValue(source);
     mocks.uploadSourceToKnowhere.mockResolvedValue(source);
+    mocks.findByIdAndUserIdEffect.mockReturnValue(
+      Promise.resolve(workspace),
+    );
+    mocks.databaseRunPromise.mockImplementation(
+      (effect: Promise<unknown>) => Promise.resolve(effect),
+    );
   });
 
   it("uploads multipart files through the route handler", async () => {
@@ -116,7 +137,6 @@ describe("POST /api/sources", () => {
     expect(response.status).toBe(201);
     expect(mocks.ensureApiKeyForWorkspace).toHaveBeenCalledWith(
       workspace.id,
-      "session=abc",
     );
     expect(mocks.uploadSourceToKnowhere).toHaveBeenCalledWith(
       workspace,
@@ -124,6 +144,44 @@ describe("POST /api/sources", () => {
       { jobs: {} },
     );
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/");
+  });
+
+  it("uploads to an explicitly targeted workspace the user belongs to", async () => {
+    const targetWorkspace: Workspace = {
+      id: "workspace_target",
+      userId: "user_1",
+      activeKnowhereApiKeyId: null,
+      namespace: "adobe",
+      createdAt: new Date("2026-05-10T00:00:00Z"),
+    };
+    mocks.findByIdAndUserIdEffect.mockReturnValue(
+      Promise.resolve(targetWorkspace),
+    );
+
+    const formData = new FormData();
+    formData.set(
+      "file",
+      new File(["hello"], "notes.pdf", { type: "application/pdf" }),
+    );
+    formData.set("workspaceId", "workspace_target");
+
+    const response = await POST(
+      new NextRequest("http://localhost:3001/api/sources", {
+        method: "POST",
+        body: formData,
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(mocks.ensureWorkspace).not.toHaveBeenCalled();
+    expect(mocks.ensureApiKeyForWorkspace).toHaveBeenCalledWith(
+      "workspace_target",
+    );
+    expect(mocks.uploadSourceToKnowhere).toHaveBeenCalledWith(
+      targetWorkspace,
+      expect.objectContaining({ name: "notes.pdf" }),
+      { jobs: {} },
+    );
   });
 
   it("creates a source from a Blob-backed upload without sending the file through the route body", async () => {

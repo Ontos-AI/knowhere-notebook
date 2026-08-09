@@ -6,6 +6,7 @@ import type { Db } from "@/infrastructure/db"
 type WorkspaceRow = {
   id: string
   userId: string
+  knowhereKeyLabel: string | null
   namespace: string
   createdAt: Date
 }
@@ -13,6 +14,7 @@ type WorkspaceRow = {
 type SelectBuilder = {
   from: ReturnType<typeof vi.fn>
   where: ReturnType<typeof vi.fn>
+  orderBy: ReturnType<typeof vi.fn>
   limit: (limit: number) => Promise<WorkspaceRow[]>
 }
 
@@ -32,7 +34,14 @@ function buildWorkspaceDbMock(storage: {
   function makeSelect(): SelectBuilder {
     const builder: SelectBuilder = {
       from: vi.fn(() => builder),
-      where: vi.fn(() => builder),
+      where: vi.fn(function (this: SelectBuilder) {
+        const chainable = Object.assign(Promise.resolve([]), {
+          orderBy: async () => (storage.row ? [storage.row] : []),
+          limit: async () => (storage.row ? [storage.row] : []),
+        })
+        return chainable
+      }),
+      orderBy: vi.fn(async () => (storage.row ? [storage.row] : [])),
       limit: vi.fn(async () => (storage.row ? [storage.row] : [])),
     }
     return builder
@@ -45,6 +54,7 @@ function buildWorkspaceDbMock(storage: {
           storage.row = {
             id: crypto.randomUUID(),
             userId: values.userId,
+            knowhereKeyLabel: values.knowhereKeyLabel ?? null,
             namespace: values.namespace,
             createdAt: new Date(),
           }
@@ -81,15 +91,14 @@ afterEach(() => {
 })
 
 describe("workspaceService", () => {
-  it("ensures a workspace through the service seam", async () => {
+  it("returns null through the service seam when the user has no workspace", async () => {
     const storage: { row: WorkspaceRow | null } = { row: null }
     const dbMock = buildWorkspaceDbMock(storage)
 
     const { workspaceService } = await loadWorkspaceService(dbMock)
     const workspace = await workspaceService.ensureWorkspace("user_1")
 
-    expect(dbMock.insert).toHaveBeenCalledOnce()
-    expect(workspace.userId).toBe("user_1")
-    expect(workspace.namespace).toMatch(/^notebook-[0-9a-f-]{36}$/)
+    expect(workspace).toBeNull()
+    expect(dbMock.insert).not.toHaveBeenCalled()
   })
 })

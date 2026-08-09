@@ -30,8 +30,7 @@ describe("Home", () => {
 
   it("renders the workspace shell from the API-backed initial state", async () => {
     mocks.loadWorkspaceShellInitialState.mockResolvedValue({
-      isGuest: true,
-      loginUrl: "/login",
+      user: { id: "user_1", email: "a@b.com", name: "Ada" },
       sources: [],
       chatMessages: [],
     })
@@ -39,6 +38,16 @@ describe("Home", () => {
     const element = await HomeContent()
 
     expect(React.isValidElement(element)).toBe(true)
+    expect(mocks.loadWorkspaceShellInitialState).toHaveBeenCalledOnce()
+  })
+
+  it("redirects to /login when the initial state has no user", async () => {
+    mocks.loadWorkspaceShellInitialState.mockResolvedValue({
+      sources: [],
+      chatMessages: [],
+    })
+
+    await expect(HomeContent()).rejects.toThrow(/NEXT_REDIRECT/)
     expect(mocks.loadWorkspaceShellInitialState).toHaveBeenCalledOnce()
   })
 

@@ -88,7 +88,6 @@ type MirrorableChunkAsset = {
 
 const documentChunkPageSize = 200
 const visibleChunkPageMode: ChunkPageMode = "visible"
-const structureChunkPageMode: ChunkPageMode = "structure"
 const maximumMirroredAssetsPerWarmStep = 50
 const maximumWarmStepDurationMs = 45_000
 const assetMirrorConcurrency = 10
@@ -102,6 +101,18 @@ const defaultBlobStore: ChunkPageBlobStore = {
       contentType: options.contentType,
       multipart: options.multipart,
     }),
+}
+
+/**
+ * The chunk-page cache is a best-effort optimization backed by Vercel Blob.
+ * Local/self-hosted dev (and any deploy without `BLOB_READ_WRITE_TOKEN`) has
+ * no Blob store, so `@vercel/blob` calls throw "No token found". Treat a
+ * missing token as "cache unavailable" and fetch from Knowhere directly
+ * instead of crashing the chunks route. An explicitly injected `cacheStore`
+ * (tests / custom stores) bypasses this gate.
+ */
+function isBlobCacheConfigured(): boolean {
+  return Boolean(process.env.BLOB_READ_WRITE_TOKEN?.trim())
 }
 
 const defaultFetchAsset: FetchChunkAsset = (assetUrl: string) => fetch(assetUrl)
@@ -129,12 +140,15 @@ export const loadChunksForSource = (
     let totalPages = 1
 
     do {
+      // Visible mode (asset URLs + table/image HTML enrichment) so chunks
+      // served through the load-all path — citation focus and the section
+      // tree — render real content, not summaries.
       const chunkPage = yield* loadChunkPageForSource(source, client, {
         page,
         pageSize: documentChunkPageSize,
       }, {
         ...options,
-        mode: structureChunkPageMode,
+        mode: options.mode ?? visibleChunkPageMode,
       })
       chunks.push(...chunkPage.chunks)
       totalPages = chunkPage.pagination.totalPages
@@ -159,6 +173,8 @@ export const loadChunkPageForSource = (
     const mode = options.mode ?? visibleChunkPageMode
     const workspaceId = options.workspaceId ?? source.workspaceId
     const cacheStore = options.cacheStore ?? defaultBlobStore
+    const cacheAvailable =
+      options.cacheStore !== undefined || isBlobCacheConfigured()
     const includeAssetUrls = mode === visibleChunkPageMode
     const revisionProbeResponse = yield* Effect.promise(() =>
       client.documents.listChunks(source.knowhereDocumentId!, {
@@ -170,16 +186,31 @@ export const loadChunkPageForSource = (
     const probeRevisionKey = getRevisionKey(revisionProbeResponse, source)
     if (probeRevisionKey) {
       scheduleRevisionKeyUpdate(source, probeRevisionKey, options.onRevisionKey)
-      const cachedPage = yield* Effect.promise(() =>
-        readCachedChunkPage({
-          cacheStore,
-          documentId: source.knowhereDocumentId!,
-          mode,
-          params,
-          revisionKey: probeRevisionKey,
-          workspaceId,
-        }),
-      )
+      const cachedPage = cacheAvailable
+        ? yield* Effect.promise(() =>
+            readCachedChunkPage({
+              cacheStore,
+              documentId: source.knowhereDocumentId!,
+              mode,
+              params,
+              revisionKey: probeRevisionKey,
+              workspaceId,
+            }),
+          ).pipe(
+            Effect.catchAll((error) =>
+              Effect.sync(() => {
+                logger.warn("chunks: cached chunk page read failed", {
+                  documentId: source.knowhereDocumentId,
+                  page: params.page,
+                  pageSize: params.pageSize,
+                  revisionKey: probeRevisionKey,
+                  error: getErrorMessage(error),
+                })
+                return null
+              }),
+            ),
+          )
+        : null
       if (cachedPage) return cachedPage
     }
 
@@ -192,6 +223,13 @@ export const loadChunkPageForSource = (
           }),
         )
       : revisionProbeResponse
+    if (includeAssetUrls) {
+      yield* Effect.tryPromise(() =>
+        enrichChunksWithAssetUrls(source.knowhereDocumentId!, response),
+      ).pipe(
+        Effect.catchAll(() => Effect.void),
+      )
+    }
     const revisionKey = getRevisionKey(response, source) ?? probeRevisionKey
     if (revisionKey && revisionKey !== probeRevisionKey) {
       scheduleRevisionKeyUpdate(source, revisionKey, options.onRevisionKey)
@@ -207,7 +245,7 @@ export const loadChunkPageForSource = (
           : {},
     })
 
-    if (revisionKey) {
+    if (revisionKey && cacheAvailable) {
       if (mode === visibleChunkPageMode) {
         scheduleChunkPageWarm({
           source,
@@ -650,6 +688,53 @@ function getMirroredAssetContentType(
   if (extension === ".webp") return "image/webp"
   if (extension === ".gif") return "image/gif"
   return "application/octet-stream"
+}
+
+async function enrichChunksWithAssetUrls(
+  documentId: string,
+  response: { readonly chunks: readonly DocumentChunk[] },
+): Promise<void> {
+  const tableChunks = response.chunks.filter(
+    (chunk) =>
+      chunk.chunkType === "table" && chunk.assetUrl && chunk.id,
+  )
+  if (tableChunks.length === 0) return
+
+  const fetchAsset = defaultFetchAsset
+  const results = await Promise.allSettled(
+    tableChunks.map(async (chunk): Promise<{ chunkId: string; html: string | null }> => {
+      try {
+        const res = await fetchAsset(chunk.assetUrl!)
+        if (!res.ok) return { chunkId: chunk.id, html: null }
+        const html = await res.text()
+        return { chunkId: chunk.id, html }
+      } catch {
+        return { chunkId: chunk.id, html: null }
+      }
+    }),
+  )
+
+  const htmlByChunkId = new Map<string, string | null>()
+  for (const result of results) {
+    if (result.status === "fulfilled" && result.value.html) {
+      htmlByChunkId.set(result.value.chunkId, result.value.html)
+    }
+  }
+
+  let enriched = 0
+  for (const chunk of response.chunks as DocumentChunk[]) {
+    const html = htmlByChunkId.get(chunk.id)
+    if (html) {
+      ;(chunk as DocumentChunk & { content?: string | null }).content = html
+      enriched++
+    }
+  }
+  if (enriched > 0) {
+    logger.info("chunks: enriched table chunks with inline HTML", {
+      documentId,
+      enriched,
+    })
+  }
 }
 
 function getRevisionKey(

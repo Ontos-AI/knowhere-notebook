@@ -3,9 +3,12 @@
 import {
   type DragEvent,
   useId,
+  useMemo,
+  useState,
   type ReactElement,
 } from "react";
 import { Plus, Upload } from "lucide-react";
+import useSWR from "swr";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -16,7 +19,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import { useSourceUploadDialogWorkflow } from "@/components/source-upload-dialog-workflow";
+import { workspaceClient } from "@/domains/workspace/client";
 import type { SourceView } from "@/domains/sources/types";
 import { MAX_UPLOAD_MB } from "@/domains/sources/validation";
 import {
@@ -28,6 +33,20 @@ export type SourceUploadDialogProps = {
   readonly onSourceUploaded?: (source: SourceView) => void;
   readonly analyticsContext?: AnalyticsContext;
   readonly sourceCountSnapshot?: number;
+  readonly isBlobConfigured?: boolean;
+  readonly activeWorkspace?: {
+    readonly id: string;
+    readonly namespace: string;
+    readonly activeKeyLabel?: string | null;
+  };
+  readonly workspaces?: readonly {
+    readonly id: string;
+    readonly namespace: string;
+  }[];
+  readonly knowhereKeyLabels?: readonly {
+    readonly id: string;
+    readonly label: string;
+  }[];
   readonly renderTrigger?: (props: SourceUploadDialogTriggerProps) => ReactElement;
 };
 
@@ -38,12 +57,80 @@ export type SourceUploadDialogTriggerProps = {
   readonly onDrop: (event: DragEvent<HTMLElement>) => void;
 };
 
+type UploadTargetOption = {
+  readonly keyId: string;
+  readonly keyLabel: string;
+  readonly namespace: string;
+  readonly workspaceId?: string;
+};
+
 export function SourceUploadDialog({
   onSourceUploaded,
   analyticsContext,
   sourceCountSnapshot = 0,
+  isBlobConfigured = true,
+  activeWorkspace,
+  workspaces = [],
+  knowhereKeyLabels = [],
   renderTrigger,
 }: SourceUploadDialogProps): ReactElement {
+  const [selectedTargetValue, setSelectedTargetValue] = useState<string | null>(
+    null,
+  );
+  const { data: keyNamespacesByKeyId, isLoading: isLoadingNamespaces } = useSWR(
+    knowhereKeyLabels.length > 0
+      ? ["upload-all-key-namespaces", knowhereKeyLabels.map((k) => k.id).join(",")]
+      : null,
+    async ([, ids]: readonly [string, string]) => {
+      const results = await Promise.all(
+        ids
+          .split(",")
+          .map(async (keyId) => ({
+            keyId,
+            namespaces: await workspaceClient.fetchApiKeyNamespaces(keyId),
+          })),
+      )
+      return Object.fromEntries(
+        results.map((entry) => [entry.keyId, entry.namespaces]),
+      )
+    },
+    { revalidateOnFocus: false },
+  );
+  const workspaceIdByNamespace = useMemo(
+    () => new Map(workspaces.map((workspace) => [workspace.namespace, workspace.id])),
+    [workspaces],
+  );
+
+  const uploadTargetOptions = useMemo<readonly UploadTargetOption[]>(
+    () =>
+      knowhereKeyLabels.flatMap((key) => {
+        const namespaces = keyNamespacesByKeyId?.[key.id] ?? []
+        return namespaces.map((ns) => ({
+          keyId: key.id,
+          keyLabel: key.label,
+          namespace: ns.namespace,
+          workspaceId: workspaceIdByNamespace.get(ns.namespace),
+        }))
+      }),
+    [keyNamespacesByKeyId, knowhereKeyLabels, workspaceIdByNamespace],
+  );
+  const defaultTargetValue = useMemo(() => {
+    const option = uploadTargetOptions.find(
+      (target) => target.workspaceId === activeWorkspace?.id,
+    )
+    return option
+      ? getTargetValue(option)
+      : uploadTargetOptions[0]
+        ? getTargetValue(uploadTargetOptions[0])
+        : null
+  }, [activeWorkspace?.id, uploadTargetOptions]);
+  const selectedTargetValueResolved =
+    selectedTargetValue ?? defaultTargetValue;
+  const selectedTarget = uploadTargetOptions.find(
+    (target) => getTargetValue(target) === selectedTargetValueResolved,
+  )
+  const hasTargetOptions = uploadTargetOptions.length > 0;
+
   const {
     inputRef,
     isDialogOpen,
@@ -60,6 +147,22 @@ export function SourceUploadDialog({
     onSourceUploaded,
     analyticsContext,
     sourceCountBefore: sourceCountSnapshot,
+    isBlobConfigured,
+    resolveUploadTarget: async () => {
+      if (!selectedTarget) return activeWorkspace?.id
+      if (selectedTarget.workspaceId) return selectedTarget.workspaceId
+      // Namespace exists on the key but has no workspace yet: create it
+      // (same as picking it in the workspace dropdown), then upload there.
+      try {
+        const created = await workspaceClient.createWorkspace(
+          selectedTarget.keyId,
+          selectedTarget.namespace,
+        )
+        return created.id
+      } catch {
+        return undefined
+      }
+    },
   });
   const fileInputId = useId();
   const handleOpenUploadDialog = (): void => {
@@ -113,6 +216,31 @@ export function SourceUploadDialog({
           className="flex min-h-0 flex-1 flex-col"
         >
           <div className="min-h-0 overflow-y-auto px-6 py-4">
+            {hasTargetOptions ? (
+              <div className="mb-4 grid gap-1.5">
+                <Label htmlFor="upload-target-namespace">
+                  Upload to namespace
+                </Label>
+                <select
+                  id="upload-target-namespace"
+                  data-testid="upload-target-namespace"
+                  value={selectedTargetValueResolved ?? ""}
+                  disabled={isUploading || isLoadingNamespaces}
+                  onChange={(event) => setSelectedTargetValue(event.target.value)}
+                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  {isLoadingNamespaces ? (
+                    <option value="">Loading namespaces…</option>
+                  ) : (
+                    uploadTargetOptions.map((target) => (
+                      <option key={getTargetValue(target)} value={getTargetValue(target)}>
+                        {target.keyLabel} / {target.namespace}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+            ) : null}
             <label
               htmlFor={fileInputId}
               className="flex min-h-[200px] cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-border bg-muted/40 p-8 text-center transition-colors hover:border-primary/50 hover:bg-muted"
@@ -184,4 +312,8 @@ export function SourceUploadDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+function getTargetValue(target: UploadTargetOption): string {
+  return `${target.keyId}::${target.namespace}`;
 }

@@ -46,7 +46,6 @@ function makeThread(): ChatThread {
   return {
     id: "thread_1",
     workspaceId: "workspace_1",
-    demoKey: null,
     title: "Revenue",
     createdAt: new Date("2026-05-10T00:00:00.000Z"),
     updatedAt: new Date("2026-05-10T00:00:00.000Z"),

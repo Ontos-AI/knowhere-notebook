@@ -21,6 +21,7 @@ import type {
   ChatMessageView,
   ChatThreadView,
 } from "@/domains/chat/types"
+import type { RetrievalOverrides } from "@/domains/chat/contracts"
 import type { SourceView } from "@/domains/sources/types"
 
 type WorkspaceChatWorkflowInput = {
@@ -28,11 +29,6 @@ type WorkspaceChatWorkflowInput = {
   readonly analyticsContext?: AnalyticsContext
   readonly initialChatMessages?: readonly ChatMessageView[]
   readonly initialChatThreads?: readonly ChatThreadView[]
-  readonly isGuest?: boolean
-  readonly onSourcesMaterialized?: (
-    demoSourceIds: readonly string[],
-    materializedSources: readonly SourceView[],
-  ) => void
   readonly sources: readonly SourceView[]
 }
 
@@ -43,7 +39,10 @@ type WorkspaceChatWorkflow = {
   readonly chat: ReturnType<typeof workspaceChatState.createInitialState>
   readonly chatThreads: ChatThreadView[]
   readonly handleArchiveChatThread: (threadId: string) => Promise<void>
-  readonly handleChatSend: (text: string) => Promise<void>
+  readonly handleChatSend: (
+    text: string,
+    retrievalParams?: RetrievalOverrides,
+  ) => Promise<void>
   readonly handleCreateChatThread: () => Promise<void>
   readonly handleRefreshActiveChatThread: () => Promise<void>
   readonly handleSelectChatThread: (threadId: string) => void
@@ -60,8 +59,6 @@ export function useWorkspaceChatWorkflow({
   analyticsContext,
   initialChatMessages = [],
   initialChatThreads = [],
-  isGuest = false,
-  onSourcesMaterialized,
   sources,
 }: WorkspaceChatWorkflowInput): WorkspaceChatWorkflow {
   const [loadingThreadId, setLoadingThreadId] = useState<string | null>(null)
@@ -80,7 +77,7 @@ export function useWorkspaceChatWorkflow({
     [initialChatThreads],
   )
   const { data: serverChatThreads, mutate: mutateChatThreads } = useSWR(
-    isGuest ? null : chatThreadsSWRKey,
+    chatThreadsSWRKey,
     workspaceClient.fetchChatThreads,
     {
       fallbackData: initialThreadRows,
@@ -243,37 +240,19 @@ export function useWorkspaceChatWorkflow({
         return { ...current, messages: [...messages] }
       })
     } catch {
-      // Materialization can still succeed even if the current thread refresh fails.
+      // Refresh failed; keep the current state.
     }
   }
 
-  async function handleChatSend(text: string): Promise<void> {
+  async function handleChatSend(
+    text: string,
+    retrievalParams?: RetrievalOverrides,
+  ): Promise<void> {
     const sendStart = Date.now()
     const selectedSourcesCount = sources.filter(
       (source) =>
         isQueryableReadySource(source) && !source.excludedFromQuery,
     ).length
-    const demoSourceIds = getMaterializableDemoSourceIds(sources)
-    if (demoSourceIds.length > 0) {
-      setChat((current) =>
-        workspaceChatState.prepareSend(current, "Thinking"),
-      )
-      try {
-        const materializedSources =
-          await workspaceClient.materializeDemoSources({ demoSourceIds })
-        onSourcesMaterialized?.(demoSourceIds, materializedSources)
-        await handleRefreshActiveChatThread()
-      } catch {
-        setChat((current) => ({
-          ...current,
-          isSending: false,
-          isLoading: false,
-          pendingStatusText: null,
-          error: "Demo sources could not be prepared right now.",
-        }))
-        return
-      }
-    }
     if (!hasQueryableReadySource(sources)) {
       setChat((current) => ({
         ...current,
@@ -300,6 +279,7 @@ export function useWorkspaceChatWorkflow({
         excludedSourceIds: sources
           .filter((source) => source.excludedFromQuery)
           .map((source) => source.id),
+        retrievalParams,
       })
 
       if (!body.threadId || !Array.isArray(body.messages)) {
@@ -384,32 +364,12 @@ export function useWorkspaceChatWorkflow({
   }
 }
 
-function getMaterializableDemoSourceIds(
-  sources: readonly SourceView[],
-): string[] {
-  const demoSourceIds = sources
-    .filter((source) => source.kind === "demo")
-    .filter((source) => source.officialLibrary === undefined)
-    .filter((source) => !source.excludedFromQuery)
-    .map((source) => source.demoSourceId ?? source.id)
-
-  return Array.from(new Set(demoSourceIds))
-}
-
 function hasQueryableReadySource(sources: readonly SourceView[]): boolean {
   return sources.some(isQueryableReadySource)
 }
 
 function isQueryableReadySource(source: SourceView): boolean {
-  return (
-    source.status === "ready" &&
-    !isUnmaterializedOfficialLibrarySource(source) &&
-    source.kind !== "remote"
-  )
-}
-
-function isUnmaterializedOfficialLibrarySource(source: SourceView): boolean {
-  return source.kind === "demo" && source.officialLibrary !== undefined
+  return source.status === "ready" && source.kind !== "remote"
 }
 
 function fetchChatThreadByKey([

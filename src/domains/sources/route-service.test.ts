@@ -5,11 +5,11 @@ import type { Job } from "@ontos-ai/knowhere-sdk";
 import type { Source, Workspace } from "@/infrastructure/db/schema";
 import { createRouteListing } from "./route-listing";
 import { createSourceRouteService } from "./route-service";
-import type { DemoCatalog } from "@/integrations/knowhere-demo";
 
 const workspace: Workspace = {
   id: "workspace_1",
   userId: "user_1",
+  activeKnowhereApiKeyId: null,
   namespace: "notebook-workspace_1",
   createdAt: new Date("2026-05-10T00:00:00Z"),
 };
@@ -28,7 +28,6 @@ const source: Source = {
   stagedBlobUrl: null,
   originalBlobPathname: null,
   originalBlobUrl: null,
-  demoKey: null,
   createdAt: new Date("2026-05-10T00:00:00Z"),
   updatedAt: new Date("2026-05-10T00:00:00Z"),
   deletedAt: null,
@@ -64,11 +63,7 @@ describe("source route service", () => {
     const listSourcesForWorkspace = vi.fn(async () => [source]);
     const reconcileSourcesForWorkspace = vi.fn(async () => [source]);
     const startBackgroundReconciliation = vi.fn(async () => undefined);
-    const listHiddenDemoSourceIds = vi.fn(async () => []);
     const listing = createRouteListing({
-      demoApi: {
-        fetchCatalog: vi.fn(async () => emptyDemoCatalog),
-      },
       ensureApiKeyForWorkspace,
       ensureWorkspace: vi.fn(async () => workspace),
       getCurrentUser: vi.fn(async () => ({
@@ -82,7 +77,6 @@ describe("source route service", () => {
       reconcileSourcesForWorkspace,
       startBackgroundReconciliation,
       sourceService: {
-        listHiddenDemoSourceIds,
         localizeRemoteDocument: localizeNoRemoteDocuments,
       },
     });
@@ -107,7 +101,6 @@ describe("source route service", () => {
     });
     expect(ensureApiKeyForWorkspace).toHaveBeenCalledWith(
       workspace.id,
-      "session=abc",
     );
     expect(listSourcesForWorkspace).toHaveBeenCalledWith(workspace.id);
     expect(reconcileSourcesForWorkspace).not.toHaveBeenCalled();
@@ -116,10 +109,9 @@ describe("source route service", () => {
       source.id,
       "jwt_123",
     );
-    expect(listHiddenDemoSourceIds).toHaveBeenCalledWith(workspace.id);
   });
 
-  it("lists shared default and legacy namespace documents as lightweight remote sources", async () => {
+  it("lists workspace-namespace documents as lightweight remote sources", async () => {
     const localReadySource: Source = {
       ...source,
       id: "source_ready",
@@ -127,59 +119,31 @@ describe("source route service", () => {
       knowhereJobId: null,
       knowhereDocumentId: "doc_local",
     };
-    const listDocuments = vi
-      .fn()
-      .mockResolvedValueOnce({
-        documents: [
-          {
-            documentId: "doc_default",
-            namespace: "default",
-            status: "active",
-            sourceFileName: "cli.pdf",
-            documentMetadata: {
-              mimeType: "application/pdf",
-            },
-          },
-        ],
-        pagination: {
-          page: 1,
-          page_size: 200,
-          total: 2,
-          total_pages: 2,
+    const listDocuments = vi.fn().mockResolvedValueOnce({
+      documents: [
+        {
+          documentId: "doc_local",
+          namespace: workspace.namespace,
+          status: "active",
+          sourceFileName: "local-duplicate.pdf",
         },
-      })
-      .mockResolvedValueOnce({
-        documents: [
-          {
-            documentId: "doc_local",
-            namespace: "default",
-            status: "active",
-            sourceFileName: "local-duplicate.pdf",
+        {
+          documentId: "doc_new",
+          namespace: workspace.namespace,
+          status: "active",
+          sourceFileName: "new.pdf",
+          documentMetadata: {
+            mimeType: "application/pdf",
           },
-        ],
-        pagination: {
-          page: 2,
-          pageSize: 200,
-          total: 2,
-          totalPages: 2,
         },
-      })
-      .mockResolvedValueOnce({
-        documents: [
-          {
-            documentId: "doc_legacy",
-            namespace: workspace.namespace,
-            status: "active",
-            sourceFileName: "legacy.pdf",
-          },
-        ],
-        pagination: {
-          page: 1,
-          pageSize: 200,
-          total: 1,
-          totalPages: 1,
-        },
-      });
+      ],
+      pagination: {
+        page: 1,
+        pageSize: 200,
+        total: 2,
+        totalPages: 1,
+      },
+    });
     const knowhereClient = {
       documents: {
         archive: vi.fn(async () => undefined),
@@ -200,11 +164,17 @@ describe("source route service", () => {
         upload: vi.fn(),
       },
     };
-    const localizeRemoteDocument = vi.fn();
+    const localizeRemoteDocument = vi.fn(async (_workspaceId: string, input: { documentId: string; title?: string; mimeType?: string }) => ({
+      ...source,
+      id: `source_${input.documentId}`,
+      workspaceId: _workspaceId,
+      title: input.title ?? input.documentId,
+      mimeType: input.mimeType ?? "application/octet-stream",
+      status: "ready" as const,
+      knowhereJobId: null,
+      knowhereDocumentId: input.documentId,
+    })) as unknown as Parameters<typeof createRouteListing>[0]["sourceService"]["localizeRemoteDocument"];
     const listing = createRouteListing({
-      demoApi: {
-        fetchCatalog: vi.fn(async () => emptyDemoCatalog),
-      },
       ensureApiKeyForWorkspace: vi.fn(async () => "jwt_123"),
       ensureWorkspace: vi.fn(async () => workspace),
       getCurrentUser: vi.fn(async () => ({
@@ -217,29 +187,21 @@ describe("source route service", () => {
       listSourcesForWorkspace: vi.fn(async () => [localReadySource]),
       reconcileSourcesForWorkspace: vi.fn(async () => [localReadySource]),
       sourceService: {
-        listHiddenDemoSourceIds: vi.fn(async () => []),
         localizeRemoteDocument,
       },
     });
 
     const result = await listing.listSources({ cookieHeader: "session=abc" });
 
+    expect(listDocuments).toHaveBeenCalledTimes(1);
     expect(listDocuments).toHaveBeenNthCalledWith(1, {
-      namespace: "default",
-      page: 1,
-      pageSize: 200,
-    });
-    expect(listDocuments).toHaveBeenNthCalledWith(2, {
-      namespace: "default",
-      page: 2,
-      pageSize: 200,
-    });
-    expect(listDocuments).toHaveBeenNthCalledWith(3, {
       namespace: workspace.namespace,
       page: 1,
       pageSize: 200,
     });
-    expect(localizeRemoteDocument).not.toHaveBeenCalled();
+    expect(localizeRemoteDocument).toHaveBeenCalledTimes(1);
+    expect(localizeRemoteDocument).toHaveBeenCalledWith(workspace.id, expect.objectContaining({ documentId: "doc_new" }));
+    expect(localizeRemoteDocument).not.toHaveBeenCalledWith(workspace.id, expect.objectContaining({ documentId: "doc_local" }));
     expect(result.body.sources).toEqual([
       expect.objectContaining({
         id: "source_ready",
@@ -247,26 +209,14 @@ describe("source route service", () => {
         title: "notes.pdf",
         status: "ready",
       }),
-      {
-        id: "knowhere-doc:default:doc_default",
-        kind: "remote",
-        namespace: "default",
-        title: "cli.pdf",
+      expect.objectContaining({
+        id: "source_doc_new",
+        kind: "workspace",
+        title: "new.pdf",
         mimeType: "application/pdf",
         status: "ready",
-        documentId: "doc_default",
-        excludedFromQuery: true,
-      },
-      {
-        id: "knowhere-doc:notebook-workspace_1:doc_legacy",
-        kind: "remote",
-        namespace: workspace.namespace,
-        title: "legacy.pdf",
-        mimeType: "application/octet-stream",
-        status: "ready",
-        documentId: "doc_legacy",
-        excludedFromQuery: true,
-      },
+        documentId: "doc_new",
+      }),
     ]);
   });
 
@@ -324,9 +274,6 @@ describe("source route service", () => {
     const localizeRemoteDocument = vi.fn(async () => parsingSource);
     const startBackgroundReconciliation = vi.fn(async () => undefined);
     const listing = createRouteListing({
-      demoApi: {
-        fetchCatalog: vi.fn(async () => emptyDemoCatalog),
-      },
       ensureApiKeyForWorkspace: vi.fn(async () => "jwt_123"),
       ensureWorkspace: vi.fn(async () => workspace),
       getCurrentUser: vi.fn(async () => ({
@@ -340,7 +287,6 @@ describe("source route service", () => {
       reconcileSourcesForWorkspace,
       startBackgroundReconciliation,
       sourceService: {
-        listHiddenDemoSourceIds: vi.fn(async () => []),
         localizeRemoteDocument,
       },
     });
@@ -364,320 +310,9 @@ describe("source route service", () => {
     ]);
   });
 
-  it("lists authenticated workspace sources when the demo catalog is unavailable", async () => {
-    const legacyFakeSource: Source = {
-      ...source,
-      id: "source_legacy_demo",
-      status: "ready",
-      demoKey: "demo-tsla-q4-2025",
-      knowhereJobId: null,
-      knowhereDocumentId: "demo-doc-tsla-q4-2025",
-    };
-    const knowhereClient = {
-      documents: {
-        archive: vi.fn(async () => undefined),
-        listChunks: vi.fn(async () => ({
-          chunks: [],
-          pagination: {
-            page: 1,
-            pageSize: 1,
-            total: 0,
-            totalPages: 0,
-          },
-        })),
-      },
-      jobs: {
-        create: vi.fn(),
-        get: vi.fn(),
-        upload: vi.fn(),
-      },
-    };
-    const getSourceViewOptionsBySourceId = vi.fn(() =>
-      Effect.succeed(new Map([[source.id, { chunkCount: 8 }]])),
-    );
-    const listing = createRouteListing({
-      demoApi: {
-        fetchCatalog: vi.fn(async () => {
-          throw new Error("Demo API unavailable.");
-        }),
-      },
-      ensureApiKeyForWorkspace: vi.fn(async () => "jwt_123"),
-      ensureWorkspace: vi.fn(async () => workspace),
-      getCurrentUser: vi.fn(async () => ({
-        id: "user_1",
-        email: null,
-        name: null,
-      })),
-      getSourceViewOptionsBySourceId,
-      makeKnowhereClient: vi.fn(() => knowhereClient),
-      listSourcesForWorkspace: vi.fn(async () => [legacyFakeSource, source]),
-      reconcileSourcesForWorkspace: vi.fn(async () => [
-        legacyFakeSource,
-        source,
-      ]),
-      sourceService: {
-        listHiddenDemoSourceIds: vi.fn(async () => []),
-        localizeRemoteDocument: localizeNoRemoteDocuments,
-      },
-    });
-
-    const result = await listing.listSources({ cookieHeader: "session=abc" });
-
-    expect(getSourceViewOptionsBySourceId).toHaveBeenCalledWith(
-      [source],
-      knowhereClient,
-    );
-    expect(result).toEqual({
-      status: 200,
-      body: {
-        sources: [
-          {
-            id: "source_1",
-            kind: "workspace",
-            title: "notes.pdf",
-            status: "parsing",
-            mimeType: "application/pdf",
-            documentId: undefined,
-            chunkCount: 8,
-          },
-        ],
-      },
-    });
-  });
-
-  it("keeps API-owned demos visible when a legacy fake demo row exists", async () => {
-    const legacyFakeSource: Source = {
-      ...source,
-      id: "source_legacy_demo",
-      status: "ready",
-      demoKey: "demo-tsla-q4-2025",
-      knowhereJobId: null,
-      knowhereDocumentId: "demo-doc-tsla-q4-2025",
-    };
-    const knowhereClient = {
-      documents: {
-        archive: vi.fn(async () => undefined),
-        listChunks: vi.fn(async () => ({
-          chunks: [],
-          pagination: {
-            page: 1,
-            pageSize: 1,
-            total: 0,
-            totalPages: 0,
-          },
-        })),
-      },
-      jobs: {
-        create: vi.fn(),
-        get: vi.fn(),
-        upload: vi.fn(),
-      },
-    };
-    const getSourceViewOptionsBySourceId = vi.fn(() => Effect.succeed(new Map()));
-    const listing = createRouteListing({
-      demoApi: {
-        fetchCatalog: vi.fn(async () => demoCatalog),
-      },
-      ensureApiKeyForWorkspace: vi.fn(async () => "jwt_123"),
-      ensureWorkspace: vi.fn(async () => workspace),
-      getCurrentUser: vi.fn(async () => ({
-        id: "user_1",
-        email: null,
-        name: null,
-      })),
-      getSourceViewOptionsBySourceId,
-      makeKnowhereClient: vi.fn(() => knowhereClient),
-      listSourcesForWorkspace: vi.fn(async () => [legacyFakeSource]),
-      reconcileSourcesForWorkspace: vi.fn(async () => [legacyFakeSource]),
-      sourceService: {
-        listHiddenDemoSourceIds: vi.fn(async () => []),
-        localizeRemoteDocument: localizeNoRemoteDocuments,
-      },
-    });
-
-    const result = await listing.listSources({ cookieHeader: "session=abc" });
-
-    expect(getSourceViewOptionsBySourceId).toHaveBeenCalledWith(
-      [],
-      knowhereClient,
-    );
-    expect(result).toEqual({
-      status: 200,
-      body: {
-        sources: [
-          {
-            id: "demo-tsla-q4-2025",
-            kind: "demo",
-            demoSourceId: "demo-tsla-q4-2025",
-            title: "TSLA-Q4-2025-Update.pdf",
-            mimeType: "application/pdf",
-            status: "ready",
-            documentId: "demo-doc-tsla-q4-2025",
-            originalFile: {
-              url: "https://example.com/tsla-q4-2025.pdf",
-              mimeType: "application/pdf",
-              sizeBytes: 1024,
-              canDownload: false,
-              pdfPreviewMode: "browser",
-            },
-            chunkCount: 70,
-          },
-        ],
-      },
-    });
-  });
-
-  it("keeps API-owned demos visible when a non-ready legacy demo row exists", async () => {
-    const nonReadyLegacySource: Source = {
-      ...source,
-      id: "source_non_ready_legacy_demo",
-      status: "parsing",
-      demoKey: "demo-tsla-q4-2025",
-      knowhereJobId: null,
-      knowhereDocumentId: null,
-    };
-    const knowhereClient = {
-      documents: {
-        archive: vi.fn(async () => undefined),
-        listChunks: vi.fn(async () => ({
-          chunks: [],
-          pagination: {
-            page: 1,
-            pageSize: 1,
-            total: 0,
-            totalPages: 0,
-          },
-        })),
-      },
-      jobs: {
-        create: vi.fn(),
-        get: vi.fn(),
-        upload: vi.fn(),
-      },
-    };
-    const getSourceViewOptionsBySourceId = vi.fn(() => Effect.succeed(new Map()));
-    const listing = createRouteListing({
-      demoApi: {
-        fetchCatalog: vi.fn(async () => demoCatalog),
-      },
-      ensureApiKeyForWorkspace: vi.fn(async () => "jwt_123"),
-      ensureWorkspace: vi.fn(async () => workspace),
-      getCurrentUser: vi.fn(async () => ({
-        id: "user_1",
-        email: null,
-        name: null,
-      })),
-      getSourceViewOptionsBySourceId,
-      makeKnowhereClient: vi.fn(() => knowhereClient),
-      listSourcesForWorkspace: vi.fn(async () => [nonReadyLegacySource]),
-      reconcileSourcesForWorkspace: vi.fn(async () => [nonReadyLegacySource]),
-      sourceService: {
-        listHiddenDemoSourceIds: vi.fn(async () => []),
-        localizeRemoteDocument: localizeNoRemoteDocuments,
-      },
-    });
-
-    const result = await listing.listSources({ cookieHeader: "session=abc" });
-
-    expect(getSourceViewOptionsBySourceId).toHaveBeenCalledWith(
-      [],
-      knowhereClient,
-    );
-    expect(result).toEqual({
-      status: 200,
-      body: {
-        sources: [
-          expect.objectContaining({
-            id: "demo-tsla-q4-2025",
-            kind: "demo",
-            demoSourceId: "demo-tsla-q4-2025",
-          }),
-        ],
-      },
-    });
-  });
-
-  it("uses demo catalog counts for materialized demo sources", async () => {
-    const materializedSource: Source = {
-      ...source,
-      id: "source_demo",
-      title: "TSLA-Q4-2025-Update.pdf",
-      status: "ready",
-      demoKey: "demo-tsla-q4-2025",
-      knowhereJobId: null,
-      knowhereDocumentId: "doc_user_copy",
-      originalBlobUrl: "/api/demo-sources/demo-tsla-q4-2025/original",
-    };
-    const knowhereClient = {
-      documents: {
-        archive: vi.fn(async () => undefined),
-        listChunks: vi.fn(async () => ({
-          chunks: [],
-          pagination: {
-            page: 1,
-            pageSize: 1,
-            total: 0,
-            totalPages: 0,
-          },
-        })),
-      },
-      jobs: {
-        create: vi.fn(),
-        get: vi.fn(),
-        upload: vi.fn(),
-      },
-    };
-    const getSourceViewOptionsBySourceId = vi.fn(() => Effect.succeed(new Map()));
-    const listing = createRouteListing({
-      demoApi: {
-        fetchCatalog: vi.fn(async () => demoCatalog),
-      },
-      ensureApiKeyForWorkspace: vi.fn(async () => "jwt_123"),
-      ensureWorkspace: vi.fn(async () => workspace),
-      getCurrentUser: vi.fn(async () => ({
-        id: "user_1",
-        email: null,
-        name: null,
-      })),
-      getSourceViewOptionsBySourceId,
-      makeKnowhereClient: vi.fn(() => knowhereClient),
-      listSourcesForWorkspace: vi.fn(async () => [materializedSource]),
-      reconcileSourcesForWorkspace: vi.fn(async () => [materializedSource]),
-      sourceService: {
-        listHiddenDemoSourceIds: vi.fn(async () => []),
-        localizeRemoteDocument: localizeNoRemoteDocuments,
-      },
-    });
-
-    const result = await listing.listSources({ cookieHeader: "session=abc" });
-
-    expect(getSourceViewOptionsBySourceId).toHaveBeenCalledWith(
-      [],
-      knowhereClient,
-    );
-    expect(knowhereClient.documents.listChunks).not.toHaveBeenCalled();
-    expect(result).toEqual({
-      status: 200,
-      body: {
-        sources: [
-          expect.objectContaining({
-            id: "source_demo",
-            kind: "workspace",
-            demoSourceId: "demo-tsla-q4-2025",
-            documentId: "doc_user_copy",
-            chunkCount: 70,
-          }),
-        ],
-      },
-    });
-  });
-
-  it("lists API-owned demo sources for anonymous users", async () => {
+  it("lists no sources for anonymous users", async () => {
     const ensureWorkspace = vi.fn(async () => workspace);
     const service = createSourceRouteService({
-      demoApi: {
-        fetchCatalog: vi.fn(async () => demoCatalog),
-      },
       ensureWorkspace,
       getCurrentUser: vi.fn(async () => null),
     });
@@ -687,25 +322,7 @@ describe("source route service", () => {
     expect(result).toEqual({
       status: 200,
       body: {
-        sources: [
-          {
-            id: "demo-tsla-q4-2025",
-            kind: "demo",
-            demoSourceId: "demo-tsla-q4-2025",
-            title: "TSLA-Q4-2025-Update.pdf",
-            mimeType: "application/pdf",
-            status: "ready",
-            documentId: "demo-doc-tsla-q4-2025",
-            originalFile: {
-              url: "https://example.com/tsla-q4-2025.pdf",
-              mimeType: "application/pdf",
-              sizeBytes: 1024,
-              canDownload: false,
-              pdfPreviewMode: "browser",
-            },
-            chunkCount: 70,
-          },
-        ],
+        sources: [],
       },
     });
     expect(ensureWorkspace).not.toHaveBeenCalled();
@@ -778,7 +395,6 @@ describe("source route service", () => {
     });
     expect(ensureApiKeyForWorkspace).toHaveBeenCalledWith(
       workspace.id,
-      "session=abc",
     );
     expect(uploadSourceToKnowhere).toHaveBeenCalledWith(
       workspace,
@@ -864,7 +480,6 @@ describe("source route service", () => {
     });
     expect(ensureApiKeyForWorkspace).toHaveBeenCalledWith(
       workspace.id,
-      "session=abc",
     );
     expect(retrySourceToKnowhere).toHaveBeenCalledWith(
       workspace,
@@ -913,30 +528,3 @@ describe("source route service", () => {
     expect(retrySourceToKnowhere).not.toHaveBeenCalled();
   });
 });
-
-const emptyDemoCatalog: DemoCatalog = {
-  officialLibrary: { categories: [], sources: [] },
-  sources: [],
-};
-
-const demoCatalog: DemoCatalog = {
-  officialLibrary: { categories: [], sources: [] },
-  sources: [
-    {
-      demoSourceId: "demo-tsla-q4-2025",
-      canonicalDocumentId: "demo-doc-tsla-q4-2025",
-      title: "TSLA-Q4-2025-Update.pdf",
-      mimeType: "application/pdf",
-      sizeBytes: 1024,
-      status: "ready",
-      chunkCount: 70,
-      originalFile: {
-        url: "https://example.com/tsla-q4-2025.pdf",
-        mimeType: "application/pdf",
-        sizeBytes: 1024,
-        canDownload: false,
-      },
-      examples: [],
-    },
-  ],
-};

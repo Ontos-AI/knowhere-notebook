@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -27,6 +27,13 @@ describe("ChatMessageList", () => {
     cleanup();
     vi.restoreAllMocks();
   });
+
+  function expandSection(title: string): void {
+    const trigger = screen.getByRole("button", {
+      name: new RegExp(`^${title}`),
+    });
+    fireEvent.click(trigger);
+  }
 
   it("renders assistant citations using Notebook source labels", () => {
     render(
@@ -56,12 +63,105 @@ describe("ChatMessageList", () => {
     );
 
     expect(
+      screen.getByRole("button", { name: "Sources1" }).getAttribute(
+        "aria-expanded",
+      ),
+    ).toBe("false");
+
+    expandSection("Sources");
+
+    expect(
       screen.getByRole("button", { name: "Open source Syllabus.pdf" }),
     ).toBeTruthy();
   });
 
-  it("renders citations in a bottom source area as file chips", async () => {
+  it("renders the transient retrieval trace for a fresh assistant message", () => {
+    render(
+      React.createElement(ChatMessageList, {
+        messages: [
+          {
+            id: "assistant_1",
+            role: "assistant",
+            content: "The deadline is Monday.",
+            retrievalTrace: {
+              durationSeconds: 1.2,
+              llmCallCount: 5,
+              inputTokens: 820,
+              outputTokens: 414,
+              queries: [
+                {
+                  query: "deadline monday",
+                  namespace: "notebook-workspace",
+                  resultCount: 3,
+                  referencedChunkCount: 1,
+                  topScores: [0.91, 0.8],
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    );
+
+    expandSection("Retrieval");
+
+    expect(screen.getByText("1.2s · 5 LLM calls · 820 in · 414 out")).toBeTruthy();
+    expect(screen.getByText("deadline monday")).toBeTruthy();
+    expect(screen.getByText("3 hits")).toBeTruthy();
+    expect(screen.getByText("1 cited chunk")).toBeTruthy();
+    expect(screen.getByText("top score: 0.910 · 0.800")).toBeTruthy();
+  });
+
+  it("does not render answer stats when the trace has no stat fields", () => {
+    render(
+      React.createElement(ChatMessageList, {
+        messages: [
+          {
+            id: "assistant_1",
+            role: "assistant",
+            content: "The deadline is Monday.",
+            retrievalTrace: {
+              queries: [
+                {
+                  query: "deadline monday",
+                  namespace: "notebook-workspace",
+                  resultCount: 0,
+                  referencedChunkCount: 0,
+                  topScores: [],
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    );
+
+    expandSection("Retrieval");
+
+    expect(screen.queryByText(/s ·/u)).toBeNull();
+    expect(screen.queryByText(/in ·/u)).toBeNull();
+  });
+
+  it("does not render a retrieval trace without queries", () => {
+    render(
+      React.createElement(ChatMessageList, {
+        messages: [
+          {
+            id: "assistant_1",
+            role: "assistant",
+            content: "The deadline is Monday.",
+            retrievalTrace: { queries: [] },
+          },
+        ],
+      }),
+    );
+
+    expect(screen.queryByText("Retrieval")).toBeNull();
+  });
+
+  it("renders citations in a bottom source area as file chips and inline markers as links", async () => {
     const user = userEvent.setup();
+    const onCitationClick = vi.fn();
 
     render(
       React.createElement(ChatMessageList, {
@@ -106,15 +206,30 @@ describe("ChatMessageList", () => {
             ],
           },
         ],
-        onCitationClick: vi.fn(),
+        onCitationClick,
       }),
     );
 
-    expect(screen.getByText("Capital expenditure appears in the appendix."))
-      .toBeTruthy();
-    expect(screen.queryByText(/Source 1/u)).toBeNull();
-    expect(screen.queryByText(/Source 3/u)).toBeNull();
-    expect(screen.getByText("Sources")).toBeTruthy();
+    expect(
+      screen.getByText((text) => text.startsWith("Capital expenditure appears")),
+    ).toBeTruthy();
+    // Inline markers become [n] links instead of being stripped.
+    const inlineLinks = screen.getAllByRole("button", {
+      name: /^Open referenced chunk /u,
+    });
+    expect(inlineLinks).toHaveLength(2);
+    expect(inlineLinks[0]!.textContent).toBe("1");
+    expect(inlineLinks[1]!.textContent).toBe("3");
+
+    await user.click(inlineLinks[0]!);
+    expect(onCitationClick).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: expect.objectContaining({ documentId: "doc_1" }),
+      }),
+      "assistant_1:0",
+    );
+
+    expandSection("Sources");
     const sourceChips = screen.getAllByRole("button", {
       name: "Open source spacex-s1.pdf",
     });
@@ -125,11 +240,11 @@ describe("ChatMessageList", () => {
 
     const tooltip = await screen.findByRole("tooltip");
     expect(tooltip.textContent).toBe(
-      "spacex-s1.pdf · Assets / tables / table-25 Capital Expenditures.html",
+      "spacex-s1.pdf · Assets / tables / table-25 Capital Expenditures.htmlScore: 0.900",
     );
   });
 
-  it("removes description-only source labels without changing other markdown whitespace", () => {
+  it("converts description-only source labels into inline links without changing other markdown whitespace", () => {
     render(
       React.createElement(ChatMessageList, {
         messages: [
@@ -157,11 +272,15 @@ describe("ChatMessageList", () => {
             ],
           },
         ],
+        onCitationClick: vi.fn(),
       }),
     );
 
-    expect(screen.getByText("Revenue improved.")).toBeTruthy();
-    expect(screen.queryByText(/Source 1/u)).toBeNull();
+    expect(screen.getByText((text) => text.startsWith("Revenue improved"))).toBeTruthy();
+    const inlineLink = screen.getByRole("button", {
+      name: "Open referenced chunk assistant_1:0",
+    });
+    expect(inlineLink.textContent).toBe("1");
     expect(document.querySelector("code.language-ts")?.textContent).toContain(
       "const  value = 1;",
     );
@@ -320,6 +439,7 @@ describe("ChatMessageList", () => {
     );
 
     expect(screen.queryByRole("img")).toBeNull();
+    expandSection("Sources");
     expect(
       screen.getByRole("button", {
         name: "Open source source.pdf",
@@ -457,6 +577,7 @@ describe("ChatMessageList", () => {
         name: "商务标文件.pdf · 二、法定代表人身份证明",
       }),
     ).toBeTruthy();
+    expandSection("Sources");
     expect(
       screen.getAllByRole("button", {
         name: "Open source 商务标文件.pdf",

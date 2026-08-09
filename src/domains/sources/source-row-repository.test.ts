@@ -97,7 +97,6 @@ async function captureLocalizeConflictSet(input: {
     stagedBlobUrl: null,
     originalBlobPathname: null,
     originalBlobUrl: null,
-    demoKey: null,
     createdAt: new Date("2026-06-26T00:00:00Z"),
     updatedAt: new Date("2026-06-26T00:00:00Z"),
     deletedAt: null,

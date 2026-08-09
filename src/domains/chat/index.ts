@@ -9,6 +9,7 @@ import { logger } from "@/lib/logger"
 import type {
   ChatArtifactView,
   ChatCitationView,
+  RetrievalTraceView,
 } from "@/domains/chat/types"
 import type {
   DerivedTableArtifact,
@@ -29,6 +30,7 @@ import type {
   AgenticRetrievalResponse,
   AnswerQuestionInput,
   AnswerQuestionResult,
+  RetrievalOverrides,
 } from "./contracts"
 import {
   excludeDocuments,
@@ -45,6 +47,7 @@ const MAX_CITATION_RESULTS = 20
 const KNOWHERE_RESPONSE_TEXT_LOG_LIMIT = 200
 const KNOWHERE_CHUNK_LOG_LIMIT = 100
 const NO_RESULTS_ANSWER = "I couldn't find that in your sources."
+const NULLISH_ANSWER_PATTERN = /^(?:null|undefined)$/i
 const HARNESS_VALIDATION_FAILURE_ANSWER =
   "I couldn't safely finish that response because the agent output did not pass Notebook's validation checks. Please try again."
 const RAW_URL_PATTERN = /https?:\/\/[^\s)\]}>"']+/g
@@ -58,6 +61,7 @@ const RETRIEVAL_TARGET_CONTENT_DATA_TYPES: Readonly<
   table: 4,
   text_image: 5,
   text_table: 6,
+  page: 7,
 } as const
 
 type RetrievalDataType = NonNullable<RetrievalQueryParams["dataType"]>
@@ -110,6 +114,7 @@ export const answerQuestionWithRetrieval = (
   Effect.gen(function* () {
     const question = input.question.trim()
     const retrievalResponses: RetrievalQueryResponse[] = []
+    const answerStartedAtMs = Date.now()
 
     logger.info("chat-agent: answer start", {
       questionLength: question.length,
@@ -134,11 +139,14 @@ export const answerQuestionWithRetrieval = (
           namespace,
           sources: input.sources,
           excludedSourceIds: input.excludedSourceIds,
+          retrievalOverrides: input.retrievalOverrides,
         })
         logger.info("chat-agent: searchSources start", {
           namespace,
           query: retrievalQueryParams.query,
           topK: retrievalQueryParams.topK,
+          rerank: retrievalQueryParams.rerank,
+          internalRecallK: retrievalQueryParams.internalRecallK,
           dataType: retrievalQueryParams.dataType ?? null,
           signalPathCount: retrievalQueryParams.signalPaths?.length ?? 0,
           filterMode: retrievalQueryParams.filterMode ?? null,
@@ -262,17 +270,29 @@ export const answerQuestionWithRetrieval = (
         hardenedArtifacts: hardenedMedia.artifacts,
       }),
     })
+    const finalAnswer = looksLikeNullishAnswer(answer)
+      ? NO_RESULTS_ANSWER
+      : answer
     const citationResults = hardenedMedia.results
     const displayArtifacts = hardenedMedia.artifacts ?? []
+    const retrievalTrace = buildRetrievalTrace({
+      responses: retrievalResponses,
+      durationSeconds: (Date.now() - answerStartedAtMs) / 1000,
+      llmCallCount: generatedAnswer.trace.llmCallCount,
+      inputTokens: generatedAnswer.trace.inputTokens,
+      outputTokens: generatedAnswer.trace.outputTokens,
+    })
     logger.info("chat-agent: answer complete", {
       answerLength: answer.length,
       citationCount: citationResults.length,
       artifactCount: displayArtifacts.length,
+      retrievalQueryCount: retrievalTrace?.queries.length ?? 0,
     })
     return {
-      answer,
-      citations: toChatCitationViews(citationResults, answer),
+      answer: finalAnswer,
+      citations: toChatCitationViews(citationResults, finalAnswer),
       artifacts: displayArtifacts,
+      retrievalTrace,
     }
   })
 
@@ -534,6 +554,11 @@ function sanitizeGeneratedAnswer({
   return removeRetrievedMediaAssetUrls(answer, results)
 }
 
+function looksLikeNullishAnswer(answer: string): boolean {
+  const trimmed = answer.trim()
+  return trimmed.length === 0 || NULLISH_ANSWER_PATTERN.test(trimmed)
+}
+
 function formatKnowhereQueryResponseForLog(
   response: RetrievalQueryResponse,
 ): KnowhereQueryResponseLog {
@@ -682,23 +707,70 @@ function joinResponseText(
   return uniqueValues.length > 0 ? uniqueValues.join(",") : null
 }
 
+function buildRetrievalTrace(input: {
+  readonly responses: readonly RetrievalQueryResponse[]
+  readonly durationSeconds: number
+  readonly llmCallCount?: number
+  readonly inputTokens?: number
+  readonly outputTokens?: number
+}): RetrievalTraceView | undefined {
+  if (input.responses.length === 0) return undefined
+
+  const queries = input.responses.map((response) => {
+    const topScores = response.results
+      .map((result) => result.score)
+      .filter((score): score is number => typeof score === "number")
+      .sort((left, right) => right - left)
+      .slice(0, 5)
+    return {
+      query: response.query,
+      namespace: response.namespace,
+      resultCount: response.results.length,
+      referencedChunkCount: response.referencedChunks.length,
+      topScores,
+    }
+  })
+
+  return {
+    durationSeconds: roundToTenths(input.durationSeconds),
+    ...(typeof input.llmCallCount === "number"
+      ? { llmCallCount: input.llmCallCount }
+      : {}),
+    ...(typeof input.inputTokens === "number"
+      ? { inputTokens: input.inputTokens }
+      : {}),
+    ...(typeof input.outputTokens === "number"
+      ? { outputTokens: input.outputTokens }
+      : {}),
+    queries,
+  }
+}
+
+function roundToTenths(value: number): number {
+  return Math.round(value * 10) / 10
+}
+
 function buildRetrievalQueryParams(input: {
   readonly input: AgenticRetrievalQuery
   readonly fallbackQuestion: string
   readonly namespace: string
   readonly sources: AnswerQuestionInput["sources"]
   readonly excludedSourceIds: readonly string[]
+  readonly retrievalOverrides?: RetrievalOverrides
 }): RetrievalQueryParams {
   const query = normalizeRetrievalQuery(
     input.input.query,
     input.fallbackQuestion,
   )
   const dataType = normalizeRetrievalDataType(input.input.targetContent)
+  const overrides = input.retrievalOverrides
   return {
     namespace: input.namespace,
     query,
-    topK: normalizeTopK(input.input.topK),
+    topK: overrides?.topK ?? normalizeTopK(input.input.topK),
     useAgentic: true,
+    rerank: overrides?.rerank ?? true,
+    internalRecallK: overrides?.internalRecallK ?? 30,
     dataType,
     ...(input.input.signalPaths && input.input.signalPaths.length > 0
       ? { signalPaths: input.input.signalPaths }
@@ -796,6 +868,7 @@ function mapManifestCitationsToResults(
       content: chunk.content,
       chunkType: chunk.chunkType,
       score: chunk.score,
+      ...(chunk.chunkId ? { chunkId: chunk.chunkId } : {}),
       ...(chunk.assetUrl ? { assetUrl: chunk.assetUrl } : {}),
       source: {
         documentId: chunk.source.documentId ?? undefined,
@@ -892,6 +965,7 @@ function toRetrievalResultFromEvidenceChunk(
     content: chunk.content,
     chunkType: chunk.chunkType,
     score: chunk.score,
+    ...(chunk.chunkId ? { chunkId: chunk.chunkId } : {}),
     ...(chunk.assetUrl ? { assetUrl: chunk.assetUrl } : {}),
     source: {
       documentId: chunk.source.documentId ?? undefined,
@@ -924,6 +998,7 @@ function collectRetrievalResults(
         content: "",
         chunkType: chunk.chunkType,
         score: null,
+        ...(chunk.chunkId ? { chunkId: chunk.chunkId } : {}),
         ...(chunk.assetUrl ? { assetUrl: chunk.assetUrl } : {}),
         source: {
           documentId: chunk.documentId,

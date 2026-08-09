@@ -8,6 +8,7 @@ import type { HarnessRunResult } from "@/agent-harness"
 import type {
   ChatArtifactView,
   ChatCitationView,
+  RetrievalTraceView,
 } from "@/domains/chat/types"
 import type { HardenMediaAssetUrls } from "./media-asset-hardening"
 import type { LoadSourceAssetUrls } from "./media-assets"
@@ -29,6 +30,7 @@ export type AgenticRetrievalTargetContent =
   | "table"
   | "text_image"
   | "text_table"
+  | "page"
 
 export type AgenticRetrievalPlan = {
   targetContent: AgenticRetrievalTargetContent
@@ -51,6 +53,17 @@ export type SearchSources = (
   input: AgenticRetrievalQuery,
 ) => Promise<AgenticRetrievalResponse>
 
+/**
+ * Optional per-request retrieval tuning from the chat composer UI. Each
+ * field overrides the equivalent hardcoded default (or, for topK, the
+ * harness-chosen value) when present.
+ */
+export type RetrievalOverrides = {
+  readonly rerank?: boolean
+  readonly internalRecallK?: number
+  readonly topK?: number
+}
+
 export type GenerateAnswer = (input: {
   question: string
   messages: readonly ChatHistoryMessage[]
@@ -70,10 +83,12 @@ export type AnswerQuestionInput = {
   loadSourceAssetUrls?: LoadSourceAssetUrls
   hardenMediaAssetUrls?: HardenMediaAssetUrls
   messages: readonly ChatHistoryMessage[]
+  retrievalOverrides?: RetrievalOverrides
 }
 
 export type AnswerQuestionResult = {
   answer: string
   citations: ChatCitationView[]
   artifacts?: ChatArtifactView[]
+  retrievalTrace?: RetrievalTraceView
 }

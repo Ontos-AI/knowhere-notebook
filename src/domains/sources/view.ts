@@ -28,7 +28,6 @@ export function toSourceView(
     title: source.title,
     mimeType: source.mimeType,
     status,
-    ...(source.demoKey ? { demoSourceId: source.demoKey } : {}),
     documentId: source.knowhereDocumentId ?? undefined,
     ...(failureMessage ? { failureMessage } : {}),
     ...(originalFile ? { originalFile } : {}),
@@ -48,34 +47,10 @@ function getSourceOriginalFile(
   source: Source,
 ): SourceView["originalFile"] | undefined {
   if (!source.originalBlobUrl) return undefined
-  if (source.demoKey && !isPublicDemoOriginalUrl(source.originalBlobUrl)) {
-    return undefined
-  }
 
   return {
     url: source.originalBlobUrl,
     mimeType: source.mimeType,
     sizeBytes: source.sizeBytes,
-    ...(source.demoKey ? { canDownload: false } : {}),
-    ...(source.demoKey ? { pdfPreviewMode: "browser" as const } : {}),
-  }
-}
-
-function isPublicDemoOriginalUrl(value: string): boolean {
-  try {
-    const parsedUrl = new URL(value)
-    if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
-      return false
-    }
-    return !isDemoOriginalProxyPath(parsedUrl.pathname)
-  } catch {
-    return false
-  }
-}
-
-function isDemoOriginalProxyPath(pathname: string): boolean {
-  return (
-    /^\/api\/v1\/demo\/sources\/[^/]+\/original\/?$/.test(pathname) ||
-    /^\/api\/demo-sources\/[^/]+\/original\/?$/.test(pathname)
-  )
+  };
 }

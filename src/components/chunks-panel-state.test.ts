@@ -45,19 +45,16 @@ describe("chunksPanelState", () => {
       "chunk_page_7_second",
       "chunk_without_page",
     ])
+    // A focused chunk shows alone: the list is filtered to the destination
+    // chunk instead of reordering the whole document around it.
     expect(
       chunksPanelState
         .getChunksWithFocusedFirst(chunks, "chunk_page_7")
         .map((chunk) => chunk.chunkId),
-    ).toEqual([
-      "chunk_page_7",
-      "chunk_page_2",
-      "chunk_page_7_second",
-      "chunk_without_page",
-    ])
+    ).toEqual(["chunk_page_7"])
   })
 
-  it("moves a focused Parsed Chunk to the front without mutating the input", () => {
+  it("shows only the focused chunk and never mutates the input", () => {
     const chunks: ParsedChunkView[] = [
       {
         chunkId: "chunk_1",
@@ -75,11 +72,26 @@ describe("chunksPanelState", () => {
 
     expect(
       chunksPanelState.getChunksWithFocusedFirst(chunks, "chunk_2"),
-    ).toEqual([chunks[1], chunks[0]])
+    ).toEqual([chunks[1]])
     expect(chunks.map((chunk) => chunk.chunkId)).toEqual([
       "chunk_1",
       "chunk_2",
     ])
+  })
+
+  it("returns an empty list when the focused chunk is not present", () => {
+    const chunks: ParsedChunkView[] = [
+      {
+        chunkId: "chunk_1",
+        type: "text",
+        content: "First",
+        sourceTitle: "notes.pdf",
+      },
+    ]
+
+    expect(
+      chunksPanelState.getChunksWithFocusedFirst(chunks, "missing_chunk"),
+    ).toEqual([])
   })
 
   it("deduplicates repeated chunk ids before ordering and building the section tree", () => {

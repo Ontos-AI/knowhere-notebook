@@ -14,7 +14,9 @@ import type {
   ChatArtifactView,
   ChatCitationView,
   ChatMessageView,
+  RetrievalTraceView,
 } from "@/domains/chat/types"
+import type { RetrievalOverrides } from "./contracts"
 
 export type ChatRepository = {
   ensureDefaultChatThread(workspaceId: string): Promise<ChatThread>
@@ -57,6 +59,7 @@ const threadNotFound = {
 export type ChatTurnValue = {
   threadId: string
   messages: [ChatMessageView, ChatMessageView]
+  retrievalTrace?: RetrievalTraceView
 }
 
 type ChatTurnInput = {
@@ -65,6 +68,7 @@ type ChatTurnInput = {
   question: string
   threadId?: string
   excludedSourceIds: readonly string[]
+  retrievalParams?: RetrievalOverrides
   retrieval: RetrievalClient
   generateAnswer: GenerateAnswer
   loadSourceAssetUrls?: AnswerQuestionInput["loadSourceAssetUrls"]
@@ -129,6 +133,7 @@ export const handleChatTurnEffect = (input: ChatTurnInput) =>
       loadSourceAssetUrls: input.loadSourceAssetUrls,
       hardenMediaAssetUrls: input.hardenMediaAssetUrls,
       messages: chatHistoryMessages,
+      retrievalOverrides: input.retrievalParams,
     }).pipe(Effect.catchAllCause(Effect.die))
 
     const assistantMessage = yield* tryPromiseOrDie(() =>
@@ -148,8 +153,14 @@ export const handleChatTurnEffect = (input: ChatTurnInput) =>
       threadId: thread.id,
       messages: [
         toChatMessageView(userMessage),
-        toChatMessageView(assistantMessage, answer.citations, answer.artifacts),
+        toChatMessageView(
+          assistantMessage,
+          answer.citations,
+          answer.artifacts,
+          answer.retrievalTrace,
+        ),
       ] as [ChatMessageView, ChatMessageView],
+      retrievalTrace: answer.retrievalTrace,
     }
   })
 

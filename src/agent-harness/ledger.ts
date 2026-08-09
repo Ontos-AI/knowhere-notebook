@@ -72,6 +72,7 @@ export function createEvidenceLedger() {
             contentPreview: content,
             chunkType: chunk.chunkType,
             score: null,
+            chunkId: chunk.chunkId,
             source: {
               documentId: chunk.documentId,
               sourceFileName: null,
@@ -146,6 +147,7 @@ function addChunkFromResult(input: {
       contentPreview: buildContentPreview(input.result.content),
       chunkType: input.result.chunkType,
       score: input.result.score,
+      chunkId: input.result.chunkId,
       source: {
         documentId: input.result.source.documentId,
         sourceFileName: input.result.source.sourceFileName,

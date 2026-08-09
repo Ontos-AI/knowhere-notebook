@@ -11,10 +11,6 @@ import type { ParsedChunkView } from "@/domains/chunks/types"
 import type { SourceStatus, SourceView } from "@/domains/sources/types"
 import type { AuthUser } from "@/infrastructure/auth"
 import type { Source, Workspace } from "@/infrastructure/db/schema"
-import type {
-  DemoCatalog,
-  DemoChunkPage,
-} from "@/integrations/knowhere-demo"
 import type { RouteResult } from "@/lib/route-result"
 import type { SourceBlobUploadInput } from "./blob-upload"
 import type { sourceViewOptionsBySourceId } from "./counts"
@@ -117,6 +113,10 @@ type ListSourcesInput = {
 type UploadSourceInput = {
   readonly cookieHeader: string
   readonly upload: SourceUploadRequest
+  /** Optional target workspace (upload destination). Defaults to the active
+   *  workspace; when set it must belong to the current user (owned or
+   *  member). */
+  readonly workspaceId?: string
   readonly onUploadFinished?: () => void
 }
 
@@ -183,11 +183,6 @@ type SourceWorkflowService = {
     workspaceId: string,
     sourceId: string,
   ) => Promise<Readonly<Record<string, string>>>
-  readonly hideDemoSource: (
-    workspaceId: string,
-    demoSourceId: string,
-  ) => Promise<void>
-  readonly listHiddenDemoSourceIds: (workspaceId: string) => Promise<string[]>
   readonly localizeRemoteDocument: (
     workspaceId: string,
     input: {
@@ -205,36 +200,18 @@ type SourceWorkflowService = {
     sourceId: string,
     revisionKey: string,
   ) => Promise<Source | null>
-  readonly upsertMaterializedDemoSource: (
-    workspaceId: string,
-    input: {
-      readonly demoSourceId: string
-      readonly title: string
-      readonly mimeType: string
-      readonly sizeBytes: number
-      readonly knowhereDocumentId: string
-      readonly originalBlobUrl: string | null
-    },
-  ) => Promise<Source>
-}
-
-type SourceRouteDemoApi = {
-  readonly fetchCatalog: () => Promise<DemoCatalog>
-  readonly fetchChunkPage: (input: {
-    readonly demoSourceId: string
-    readonly page: number
-    readonly pageSize: number
-  }) => Promise<DemoChunkPage>
 }
 
 type SourceRouteServiceDependencies = {
   readonly deleteBlob: (pathname: string) => Promise<unknown>
-  readonly demoApi: SourceRouteDemoApi
   readonly ensureApiKeyForWorkspace: (
     workspaceId: string,
-    cookieHeader: string,
   ) => Promise<string>
-  readonly ensureWorkspace: (userId: string) => Promise<Workspace>
+  readonly ensureWorkspace: (userId: string) => Promise<Workspace | null>
+  readonly findWorkspaceByIdAndUserId: (
+    workspaceId: string,
+    userId: string,
+  ) => Promise<Workspace | null>
   readonly getCurrentUser: () => Promise<AuthUser | null>
   readonly getSourceViewOptionsBySourceId: (
     sources: readonly Source[],
@@ -253,9 +230,8 @@ type SourceRouteServiceDependencies = {
 }
 
 type SourceRouteServiceOverrides = Partial<
-  Omit<SourceRouteServiceDependencies, "demoApi" | "sourceService">
+  Omit<SourceRouteServiceDependencies, "sourceService">
 > & {
-  readonly demoApi?: Partial<SourceRouteDemoApi>
   readonly sourceService?: Partial<SourceWorkflowService>
 }
 
@@ -269,7 +245,6 @@ export type {
   RetrySourceBody,
   RetrySourceInput,
   SourceChunksBody,
-  SourceRouteDemoApi,
   SourceRouteKnowhereClient,
   SourceRouteService,
   SourceRouteServiceDependencies,

@@ -87,6 +87,9 @@ function resolveCitationChunk(
   chunks: readonly ParsedChunkView[],
 ): ParsedChunkView | null {
   const documentChunks = getCitationDocumentChunks(citation, chunks)
+  const byId = findUniqueByChunkId(documentChunks, citation.chunkId)
+  if (byId) return byId
+
   const byContent = findByContent(documentChunks, citation.content)
   if (byContent) return byContent
 
@@ -103,10 +106,11 @@ function resolveCitationChunkByContent(
   citation: ChatCitationView,
   chunks: readonly ParsedChunkView[],
 ): ParsedChunkView | null {
-  return findByContent(
-    getCitationDocumentChunks(citation, chunks),
-    citation.content,
-  )
+  const documentChunks = getCitationDocumentChunks(citation, chunks)
+  const byId = findUniqueByChunkId(documentChunks, citation.chunkId)
+  if (byId) return byId
+
+  return findByContent(documentChunks, citation.content)
 }
 
 function normalizeChunkType(value: unknown): ChunkType {
@@ -184,6 +188,15 @@ function getConnectionPosition(
     return undefined
   }
   return { start, end }
+}
+
+function findUniqueByChunkId(
+  chunks: readonly ParsedChunkView[],
+  chunkId: string | undefined,
+): ParsedChunkView | null {
+  if (!chunkId) return null
+  const matches = chunks.filter((chunk) => chunk.parserChunkId === chunkId)
+  return matches.length === 1 ? matches[0]! : null
 }
 
 function findUniqueBySectionPath(

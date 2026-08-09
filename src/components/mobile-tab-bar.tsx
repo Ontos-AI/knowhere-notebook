@@ -2,7 +2,6 @@
 
 import {
   Files,
-  Layers,
   MessageCircle,
 } from "lucide-react";
 import type { PanelId } from "@/components/workspace-shell";
@@ -19,7 +18,6 @@ export function MobileTabBar({
   activePanel,
   onPanelChange,
   sourceCount,
-  chunkCount,
   hasMessages,
 }: MobileTabBarProps) {
   return (
@@ -35,14 +33,6 @@ export function MobileTabBar({
         badge={sourceCount > 0 ? String(sourceCount) : undefined}
         isActive={activePanel === "sources"}
         onClick={() => onPanelChange("sources")}
-      />
-      <TabButton
-        id="content"
-        icon={Layers}
-        label="Content"
-        badge={chunkCount > 0 ? String(chunkCount) : undefined}
-        isActive={activePanel === "content"}
-        onClick={() => onPanelChange("content")}
       />
       <TabButton
         id="chat"

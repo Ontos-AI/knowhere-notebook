@@ -7,7 +7,6 @@ import * as schema from "@/infrastructure/db/schema";
 import {
   chatMessages,
   chatThreads,
-  demoSourceVisibilities,
   sourceParseResults,
   sources,
   workspaces,
@@ -99,17 +98,6 @@ describeIfDb("workspace helpers — integration", () => {
       workspaceId: string,
       sourceId: string,
     ) => Promise<Readonly<Record<string, string>>>
-    readonly hideDemoSource: (
-      workspaceId: string,
-      demoSourceId: string,
-    ) => Promise<void>
-    readonly listHiddenDemoSourceIds: (workspaceId: string) => Promise<string[]>
-    readonly upsertMaterializedDemoSource: (
-      workspaceId: string,
-      input: Parameters<
-        typeof import("../sources/service").sourceService.upsertMaterializedDemoSource
-      >[1],
-    ) => Promise<schema.Source>
   };
 
   beforeEach(async () => {
@@ -132,7 +120,13 @@ describeIfDb("workspace helpers — integration", () => {
         import("../chat/thread-service"),
       ]);
     workspaceHelpers = {
-      ensureWorkspace: workspaceService.ensureWorkspace,
+      ensureWorkspace: async (userId: string) => {
+        const row = await workspaceService.ensureWorkspaceForNamespace(
+          userId,
+          `ns-${userId}`,
+        )
+        return row
+      },
       findSourceInWorkspace: sourceService.findInWorkspace,
       softDeleteSource: sourceService.softDelete,
       appendMessageToThread: chatThreadService.appendMessage,
@@ -146,17 +140,12 @@ describeIfDb("workspace helpers — integration", () => {
       markSourceFailed: sourceWorkflowRuntime.markFailed,
       saveSourceParseResult: sourceWorkflowRuntime.saveParseResult,
       getParseAssetUrls: sourceService.getParseAssetUrls,
-      hideDemoSource: sourceService.hideDemoSource,
-      listHiddenDemoSourceIds: sourceService.listHiddenDemoSourceIds,
-      upsertMaterializedDemoSource:
-        sourceService.upsertMaterializedDemoSource,
     };
 
     // Clean slate on the tables these tests touch. Order respects FK.
     await testDb.delete(chatMessages);
     await testDb.delete(chatThreads);
     await testDb.delete(sourceParseResults);
-    await testDb.delete(demoSourceVisibilities);
     await testDb.delete(sources);
     await testDb.delete(workspaces);
   });
@@ -591,43 +580,5 @@ describeIfDb("workspace helpers — integration", () => {
     await expect(
       workspaceHelpers.getParseAssetUrls(otherWs.id, source.id),
     ).resolves.toEqual({});
-  });
-
-  it("tracks hidden demos and upserts materialized demo sources by demo id", async () => {
-    const ws = await workspaceHelpers.ensureWorkspace("user_1");
-
-    await workspaceHelpers.hideDemoSource(ws.id, "demo-tsla-q4-2025");
-    await workspaceHelpers.hideDemoSource(ws.id, "demo-tsla-q4-2025");
-
-    await expect(workspaceHelpers.listHiddenDemoSourceIds(ws.id)).resolves.toEqual([
-      "demo-tsla-q4-2025",
-    ]);
-
-    const first = await workspaceHelpers.upsertMaterializedDemoSource(ws.id, {
-      demoSourceId: "demo-tsla-q4-2025",
-      title: "TSLA-Q4-2025-Update.pdf",
-      mimeType: "application/pdf",
-      sizeBytes: 1024,
-      knowhereDocumentId: "doc_user_copy_1",
-      originalBlobUrl: "/api/demo-sources/demo-tsla-q4-2025/original",
-    });
-    const second = await workspaceHelpers.upsertMaterializedDemoSource(ws.id, {
-      demoSourceId: "demo-tsla-q4-2025",
-      title: "TSLA-Q4-2025-Update.pdf",
-      mimeType: "application/pdf",
-      sizeBytes: 1024,
-      knowhereDocumentId: "doc_user_copy_2",
-      originalBlobUrl: "/api/demo-sources/demo-tsla-q4-2025/original",
-    });
-
-    expect(second.id).toBe(first.id);
-    expect(second).toMatchObject({
-      demoKey: "demo-tsla-q4-2025",
-      status: "ready",
-      failureReason: null,
-      knowhereJobId: null,
-      knowhereDocumentId: "doc_user_copy_2",
-      originalBlobUrl: "/api/demo-sources/demo-tsla-q4-2025/original",
-    });
   });
 });

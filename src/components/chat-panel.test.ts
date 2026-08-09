@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 import React from "react";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -41,6 +47,10 @@ describe("ChatPanel", () => {
     vi.restoreAllMocks();
   });
 
+  function expandSources(): void {
+    fireEvent.click(screen.getByRole("button", { name: /^Sources/ }));
+  }
+
   it("explains answers in plain source-based language", () => {
     const { container } = render(
       React.createElement(C, {
@@ -77,6 +87,7 @@ describe("ChatPanel", () => {
       }),
     );
 
+    expandSources();
     expect(
       screen.getByRole("button", {
         name: "Open source syllabus.pdf",
@@ -122,7 +133,7 @@ describe("ChatPanel", () => {
       }),
     ).toBeNull();
 
-    await user.click(screen.getByRole("button", { name: "Create" }));
+    await user.click(screen.getByRole("button", { name: "Prompts / Chart" }));
     await user.click(
       screen.getByRole("menuitem", {
         name: "Create diagram from latest answer",
@@ -166,7 +177,7 @@ describe("ChatPanel", () => {
       }),
     ).toBeNull();
 
-    await user.click(screen.getByRole("button", { name: "Create" }));
+    await user.click(screen.getByRole("button", { name: "Prompts / Chart" }));
     await user.click(
       screen.getByRole("menuitem", {
         name: "Create diagram from latest answer",
@@ -240,7 +251,6 @@ describe("ChatPanel", () => {
           workspaceId: "workspace_1",
           workspaceNamespace: "demo",
           userId: "user_1",
-          isGuest: false,
         },
         selectedSourcesCount: 2,
         sourceCount: 4,
@@ -254,7 +264,11 @@ describe("ChatPanel", () => {
     );
     await user.click(screen.getByRole("button", { name: "Send message" }));
 
-    expect(onSend).toHaveBeenCalledWith("Summarize revenue");
+    expect(onSend).toHaveBeenCalledWith("Summarize revenue", {
+      rerank: true,
+      internalRecallK: 30,
+      topK: 8,
+    });
     expect(
       analyticsMocks.trackNotebookAssistantQuestionSubmitted,
     ).toHaveBeenCalledWith({
@@ -262,7 +276,6 @@ describe("ChatPanel", () => {
         workspaceId: "workspace_1",
         workspaceNamespace: "demo",
         userId: "user_1",
-        isGuest: false,
       },
       threadId: "thread_1",
       selectedSourcesCount: 2,
@@ -299,6 +312,7 @@ describe("ChatPanel", () => {
       }),
     );
 
+    expandSources();
     expect(
       screen.getByRole("button", {
         name: "Open source TSLA-Q4-2025-Update.pdf",
@@ -361,6 +375,7 @@ describe("ChatPanel", () => {
       }),
     );
 
+    expandSources();
     const duplicatedSourceLinks = screen.getAllByRole("button", {
       name: "Open source Micron Q1-26 Earnings Deck_R.pdf",
     });
@@ -417,6 +432,7 @@ describe("ChatPanel", () => {
       }),
     );
 
+    expandSources();
     const duplicatedLabelLinks = screen.getAllByRole("button", {
       name: "Open source report.pdf",
     });
@@ -460,11 +476,11 @@ describe("ChatPanel", () => {
       }),
     );
 
+    expandSources();
     const citationButton = screen.getByRole("button", {
       name: "Open source syllabus.pdf",
     });
 
-    expect(screen.getByText("Sources")).toBeTruthy();
     expect(citationButton.getAttribute("aria-busy")).toBe("true");
     expect(citationButton.textContent).toBe("syllabus.pdf");
     expect(citationButton.className).toContain("rounded-md");
@@ -514,11 +530,11 @@ describe("ChatPanel", () => {
       }),
     );
 
+    expandSources();
     const sourceLink = screen.getByRole("button", {
       name: /Open source TSLA-Q4-2025-UPDATE\.PDF/,
     });
 
-    expect(screen.getByText("Sources")).toBeTruthy();
     expect(sourceLink.className).toContain("max-w-[250px]");
     expect(sourceLink.className).toContain("rounded-md");
     expect(sourceLink.className).not.toContain("underline");

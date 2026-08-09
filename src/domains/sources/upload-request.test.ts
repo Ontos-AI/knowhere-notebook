@@ -212,4 +212,68 @@ describe("postSourceUpload", () => {
       body: { pathname: "source-uploads/upload_1/document.pdf" },
     });
   });
+
+  it("uploads directly via multipart when Blob is not configured, targeting the chosen workspace", async () => {
+    let requestPath = "";
+    let requestMethod = "";
+    let requestBody: FormData | null = null;
+    const uploadedSource = {
+      id: "source_1",
+      title: "notes.pdf",
+      status: "parsing",
+      mimeType: "application/pdf",
+      originalFile: {
+        url: "https://example.com/source-uploads/notes.pdf",
+        mimeType: "application/pdf",
+      },
+    } as const;
+    const file = new File(["hello"], "notes.pdf", { type: "application/pdf" });
+
+    vi.stubGlobal("location", { origin: "http://localhost" });
+    const fetch = vi.fn<
+      (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+    >(async (input, init) => {
+      const request =
+        input instanceof Request
+          ? input
+          : new Request(new URL(String(input), "http://localhost").toString(), init);
+      requestPath = new URL(request.url).pathname;
+      requestMethod = request.method;
+      requestBody = (await request.formData()) as FormData;
+      return Response.json({ source: uploadedSource }, { status: 201 });
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    const result = await postSourceUpload(file, false, "workspace_2");
+
+    expect(result.status).toBe(201);
+    expect(mocks.uploadBlob).not.toHaveBeenCalled();
+    expect(requestPath).toBe("/api/sources");
+    expect(requestMethod).toBe("POST");
+    expect((requestBody as FormData | null)?.get("file")).toEqual(file);
+    expect((requestBody as FormData | null)?.get("workspaceId")).toBe("workspace_2");
+  });
+
+  it("uploads directly via multipart without a workspace override when none is chosen", async () => {
+    let requestBody: FormData | null = null;
+    const file = new File(["hello"], "notes.pdf", { type: "application/pdf" });
+
+    vi.stubGlobal("location", { origin: "http://localhost" });
+    const fetch = vi.fn<
+      (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+    >(async (_input, init) => {
+      const request = init
+        ? new Request("http://localhost/api/sources", init)
+        : new Request("http://localhost/api/sources");
+      requestBody = (await request.formData()) as FormData;
+      return Response.json({ source: { id: "source_1" } }, { status: 201 });
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    const result = await postSourceUpload(file, false);
+
+    expect(result.status).toBe(201);
+    expect((requestBody as FormData | null)?.get("file")).toEqual(file);
+    expect((requestBody as FormData | null)?.get("workspaceId")).toBeNull();
+  });
 });

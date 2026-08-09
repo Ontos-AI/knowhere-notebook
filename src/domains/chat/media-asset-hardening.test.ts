@@ -116,47 +116,6 @@ describe("hardenChatMediaAssetUrls", () => {
     expect(result.results[0]?.assetUrl).toBe(parsedAssetUrl)
   })
 
-  it("fetches demo asset routes from the upstream demo API", async () => {
-    process.env.KNOWHERE_BASE_URL = "https://knowhere.example"
-    const demoAssetUrl =
-      "/api/demo-sources/demo_source_1/assets/images/demo%20chart.png"
-    const blobStore = makeBlobStore(
-      "https://blob.example/workspaces/workspace_1/chat-assets/demo-demo_source_1/demo-chart.png",
-    )
-    const fetchAsset = makeFetchAsset("demo-image", "image/png")
-
-    const result = await hardenChatMediaAssetUrls({
-      workspaceId: "workspace_1",
-      sources: [],
-      results: [
-        makeRetrievalResult({
-          chunkType: "image",
-          assetUrl: demoAssetUrl,
-          source: {
-            documentId: "demo_doc",
-            sourceFileName: "demo.pdf",
-            sectionPath: "images/demo chart.png",
-          },
-        }),
-      ],
-      blobStore,
-      fetchAsset,
-    })
-
-    expect(fetchAsset).toHaveBeenCalledWith(
-      "https://knowhere.example/api/v1/demo/sources/demo_source_1/assets/images/demo%20chart.png",
-    )
-    expect(fetchAsset).not.toHaveBeenCalledWith(demoAssetUrl)
-    expect(blobStore.put).toHaveBeenCalledWith(
-      expect.stringContaining("/chat-assets/demo-demo_source_1/"),
-      expect.any(Buffer),
-      expect.objectContaining({ contentType: "image/png" }),
-    )
-    expect(result.results[0]?.assetUrl).toBe(
-      "https://blob.example/workspaces/workspace_1/chat-assets/demo-demo_source_1/demo-chart.png",
-    )
-  })
-
   it("falls back to the raw URL when hardening fails", async () => {
     const rawAssetUrl =
       "https://knowhere-storage.example/results/job_1/tables/table-1.html?AWSAccessKeyId=test"
@@ -287,7 +246,6 @@ function makeSource(overrides: Partial<Source> = {}): Source {
     stagedBlobUrl: null,
     originalBlobPathname: null,
     originalBlobUrl: null,
-    demoKey: null,
     createdAt: new Date("2026-05-06T00:00:00Z"),
     updatedAt: new Date("2026-05-06T00:00:00Z"),
     deletedAt: null,

@@ -12,12 +12,19 @@ import { chatRepository } from "../chat/repository"
  * which runs only when `TEST_DATABASE_URL` is set.
  */
 
-type Row = { id: string; userId: string; namespace: string; createdAt: Date }
+type Row = {
+  id: string
+  userId: string
+  knowhereKeyLabel: string | null
+  namespace: string
+  createdAt: Date
+}
 
 type SelectBuilder = {
   from: ReturnType<typeof vi.fn>
   where: ReturnType<typeof vi.fn>
-  limit: (n: number) => Promise<Row[]>
+  orderBy: ReturnType<typeof vi.fn>
+  limit: ReturnType<typeof vi.fn>
 }
 
 type InsertBuilder = {
@@ -34,7 +41,6 @@ type ChatThreadRow = {
   id: string
   workspaceId: string
   title: string | null
-  demoKey: string | null
   createdAt: Date
   updatedAt: Date
   deletedAt: Date | null
@@ -53,11 +59,24 @@ type ChatRepositoryDbMock = {
 }
 
 function buildDbMock(storage: { row: Row | null }): DbMock {
-  function makeSelect(): SelectBuilder {
+  // `select()` returns all columns; `select({ workspaceId })` (with a
+  // columns object) is the workspace_members probe which should resolve to
+  // an empty result set in these tests.
+  function makeSelect(rows: () => unknown[]): SelectBuilder {
     const builder: SelectBuilder = {
       from: vi.fn(() => builder),
-      where: vi.fn(() => builder),
-      limit: vi.fn(async () => (storage.row ? [storage.row] : [])),
+      // `where` must stay chainable (`where(...).orderBy(...)` in the real
+      // query) yet also serve as the terminal for the members probe
+      // (`select({...}).from(members).where(...)`).
+      where: vi.fn(function (this: SelectBuilder) {
+        const chainable = Object.assign(Promise.resolve(rows()), {
+          orderBy: async () => rows(),
+          limit: async () => rows(),
+        })
+        return chainable
+      }),
+      orderBy: vi.fn(async () => rows()),
+      limit: vi.fn(async () => rows()),
     }
     return builder
   }
@@ -68,6 +87,7 @@ function buildDbMock(storage: { row: Row | null }): DbMock {
           storage.row = {
             id: crypto.randomUUID(),
             userId: values.userId,
+            knowhereKeyLabel: values.knowhereKeyLabel ?? null,
             namespace: values.namespace,
             createdAt: new Date(),
           }
@@ -79,7 +99,11 @@ function buildDbMock(storage: { row: Row | null }): DbMock {
     return builder
   }
   return {
-    select: vi.fn(() => makeSelect()),
+    select: vi.fn((columns?: unknown) =>
+      columns
+        ? makeSelect(() => [])
+        : makeSelect(() => (storage.row ? [storage.row] : [])),
+    ),
     insert: vi.fn(() => makeInsert()),
   }
 }
@@ -107,6 +131,7 @@ describe("workspaceService.ensureWorkspace", () => {
     const existing: Row = {
       id: "ws_1",
       userId: "user_1",
+      knowhereKeyLabel: null,
       namespace: "notebook-existing",
       createdAt: new Date(),
     }
@@ -120,31 +145,30 @@ describe("workspaceService.ensureWorkspace", () => {
     expect(dbMock.insert).not.toHaveBeenCalled()
   })
 
-  it("inserts a new workspace on the cold path with a derived namespace", async () => {
+  it("returns null when the user has no workspace (no auto-create)", async () => {
     const storage: { row: Row | null } = { row: null }
     const dbMock = buildDbMock(storage)
 
     const { workspaceService } = await loadWorkspaceService(dbMock)
     const got = await workspaceService.ensureWorkspace("user_2")
 
-    expect(dbMock.insert).toHaveBeenCalledOnce()
-    expect(got.userId).toBe("user_2")
-    expect(got.namespace).toMatch(/^notebook-[0-9a-f-]{36}$/)
+    expect(got).toBeNull()
+    expect(dbMock.insert).not.toHaveBeenCalled()
   })
 
-  it("is idempotent across concurrent first-time calls for the same user", async () => {
+  it("creates a workspace for a specific namespace", async () => {
     const storage: { row: Row | null } = { row: null }
     const dbMock = buildDbMock(storage)
 
     const { workspaceService } = await loadWorkspaceService(dbMock)
-    const [a, b] = await Promise.all([
-      workspaceService.ensureWorkspace("user_3"),
-      workspaceService.ensureWorkspace("user_3"),
-    ])
+    const got = await workspaceService.ensureWorkspaceForNamespace(
+      "user_1",
+      "quarterly-reports",
+    )
 
-    expect(a.id).toBe(b.id)
-    expect(a.namespace).toBe(b.namespace)
-    expect(a.userId).toBe("user_3")
+    expect(dbMock.insert).toHaveBeenCalledOnce()
+    expect(got.userId).toBe("user_1")
+    expect(got.namespace).toBe("quarterly-reports")
   })
 })
 
@@ -155,7 +179,6 @@ describe("chatRepository", () => {
       id: "thread_1",
       workspaceId: "workspace_1",
       title: "Grounded answer",
-      demoKey: null,
       createdAt: new Date("2026-01-01T00:00:00.000Z"),
       updatedAt: new Date("2026-01-01T00:00:00.000Z"),
       deletedAt: null,

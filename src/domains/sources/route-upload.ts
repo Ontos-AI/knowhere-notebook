@@ -19,6 +19,7 @@ type RouteUploadDependencies = Pick<
   SourceRouteServiceDependencies,
   | "ensureApiKeyForWorkspace"
   | "ensureWorkspace"
+  | "findWorkspaceByIdAndUserId"
   | "getCurrentUser"
   | "makeKnowhereClient"
   | "sourceService"
@@ -64,10 +65,17 @@ const uploadSourceEffect = (
     }
 
     const workspace = yield* Effect.tryPromise(() =>
-      deps.ensureWorkspace(user.id),
+      input.workspaceId
+        ? deps.findWorkspaceByIdAndUserId(input.workspaceId, user.id)
+        : deps.ensureWorkspace(user.id),
     )
+    if (!workspace) {
+      return routeResult.badRequest(
+        "No workspace yet — pick a namespace from the dropdown.",
+      )
+    }
     const apiKey = yield* Effect.tryPromise(() =>
-      deps.ensureApiKeyForWorkspace(workspace.id, input.cookieHeader),
+      deps.ensureApiKeyForWorkspace(workspace.id),
     )
     const client = deps.makeKnowhereClient(apiKey)
 

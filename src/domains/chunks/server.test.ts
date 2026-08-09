@@ -221,7 +221,7 @@ describe("server chunk cache", () => {
     expect(warmTasks).toHaveLength(1)
   })
 
-  it("uses structure-only chunk loading for full-tree requests", async () => {
+  it("loads full-tree requests with asset URLs and enrichment (visible mode)", async () => {
     const warmTasks: Array<() => Promise<void>> = []
     const cacheStore = createCacheStore()
     const listChunks = vi.fn(async () => ({
@@ -257,16 +257,17 @@ describe("server chunk cache", () => {
     )
 
     expect(chunks).toMatchObject([{ chunkId: "text_1" }])
+    // The load-all path (citation focus + tree) requests asset URLs so
+    // table/image chunks carry real content instead of summaries.
     expect(listChunks).toHaveBeenCalledWith("doc_1", {
       page: 1,
       pageSize: 200,
-      includeAssetUrls: false,
+      includeAssetUrls: true,
     })
-    expect(fetchAsset).not.toHaveBeenCalled()
     expect(warmTasks).toHaveLength(1)
     await warmTasks[0]?.()
     expect(cacheStore.putMock).toHaveBeenCalledWith(
-      expect.stringContaining("/structure/page-1-size-200.json"),
+      expect.stringContaining("/visible/page-1-size-200.json"),
       expect.any(String),
       expect.objectContaining({ contentType: "application/json; charset=utf-8" }),
     )
@@ -425,7 +426,6 @@ function makeSource(overrides: Partial<Source> = {}): Source {
     stagedBlobUrl: null,
     originalBlobPathname: null,
     originalBlobUrl: null,
-    demoKey: null,
     createdAt: new Date("2026-05-06T00:00:00Z"),
     updatedAt: new Date("2026-05-06T00:00:00Z"),
     deletedAt: null,
