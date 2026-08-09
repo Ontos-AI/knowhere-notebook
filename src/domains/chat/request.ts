@@ -3,6 +3,7 @@ import { Either, Schema } from "effect"
 export type ParsedChatRequest = {
   question: string
   threadId?: string
+  useAgentic: boolean
   excludedSourceIds: string[]
 }
 
@@ -13,6 +14,7 @@ export type ParseChatRequestResult =
 const ChatRequestBody = Schema.Struct({
   message: Schema.String,
   threadId: Schema.optional(Schema.String),
+  useAgentic: Schema.optional(Schema.Boolean),
   excludedSourceIds: Schema.optional(Schema.Array(Schema.Unknown)),
 })
 
@@ -43,6 +45,7 @@ export function parseChatRequestBody(body: unknown): ParseChatRequestResult {
             parsed.threadId !== undefined && parsed.threadId.length > 0
               ? parsed.threadId
               : undefined,
+          useAgentic: parsed.useAgentic ?? true,
           excludedSourceIds,
         },
       }

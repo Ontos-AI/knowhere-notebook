@@ -12,6 +12,7 @@ import {
   type AnalyticsContext,
 } from "@/lib/posthog"
 import { workspaceClient } from "@/domains/workspace/client"
+import type { ChatSendOptions } from "@/components/chat-composer"
 import {
   workspaceClientCache,
   type ChatThreadDetailResponse,
@@ -43,7 +44,10 @@ type WorkspaceChatWorkflow = {
   readonly chat: ReturnType<typeof workspaceChatState.createInitialState>
   readonly chatThreads: ChatThreadView[]
   readonly handleArchiveChatThread: (threadId: string) => Promise<void>
-  readonly handleChatSend: (text: string) => Promise<void>
+  readonly handleChatSend: (
+    text: string,
+    options: ChatSendOptions,
+  ) => Promise<void>
   readonly handleCreateChatThread: () => Promise<void>
   readonly handleRefreshActiveChatThread: () => Promise<void>
   readonly handleSelectChatThread: (threadId: string) => void
@@ -247,7 +251,10 @@ export function useWorkspaceChatWorkflow({
     }
   }
 
-  async function handleChatSend(text: string): Promise<void> {
+  async function handleChatSend(
+    text: string,
+    options: ChatSendOptions,
+  ): Promise<void> {
     const sendStart = Date.now()
     const selectedSourcesCount = sources.filter(
       (source) =>
@@ -297,6 +304,7 @@ export function useWorkspaceChatWorkflow({
       const body = await sendChatMessage({
         message: text,
         threadId: chat.threadId ?? undefined,
+        useAgentic: options.useAgentic,
         excludedSourceIds: sources
           .filter((source) => source.excludedFromQuery)
           .map((source) => source.id),

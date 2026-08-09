@@ -42,9 +42,6 @@ import type { HardenableRetrievalResult } from "./media-asset-hardening"
 import { notebookKnowhereTools } from "./knowhere-tools"
 
 const DEFAULT_TOP_K = 8
-const NOTEBOOK_USE_AGENTIC_RETRIEVAL: NonNullable<
-  RetrievalQueryParams["useAgentic"]
-> = false
 const MAX_AGENTIC_TOP_K = 12
 const MAX_AGENTIC_MERGED_RESULT_COUNT = 24
 const MAX_AGENTIC_MERGED_REFERENCED_CHUNK_COUNT = 24
@@ -146,6 +143,7 @@ export const answerQuestionWithRetrieval = (
           input: queryInput,
           fallbackQuestion: question,
           namespace,
+          useAgentic: input.useAgentic ?? true,
           sources: input.sources,
           excludedSourceIds: input.excludedSourceIds,
         })
@@ -153,6 +151,7 @@ export const answerQuestionWithRetrieval = (
           namespace,
           query: retrievalQueryParams.query,
           topK: retrievalQueryParams.topK,
+          useAgentic: retrievalQueryParams.useAgentic,
           dataType: retrievalQueryParams.dataType ?? null,
           signalPathCount: retrievalQueryParams.signalPaths?.length ?? 0,
           filterMode: retrievalQueryParams.filterMode ?? null,
@@ -775,6 +774,7 @@ function buildRetrievalQueryParams(input: {
   readonly input: AgenticRetrievalQuery
   readonly fallbackQuestion: string
   readonly namespace: string
+  readonly useAgentic: boolean
   readonly sources: AnswerQuestionInput["sources"]
   readonly excludedSourceIds: readonly string[]
 }): RetrievalQueryParams {
@@ -787,7 +787,7 @@ function buildRetrievalQueryParams(input: {
     namespace: input.namespace,
     query,
     topK: normalizeTopK(input.input.topK),
-    useAgentic: NOTEBOOK_USE_AGENTIC_RETRIEVAL,
+    useAgentic: input.useAgentic,
     dataType,
     ...(input.input.signalPaths && input.input.signalPaths.length > 0
       ? { signalPaths: input.input.signalPaths }
