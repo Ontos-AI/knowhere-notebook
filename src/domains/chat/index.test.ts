@@ -85,7 +85,7 @@ describe("answerQuestionWithRetrieval", () => {
       namespace: "notebook-workspace",
       query: "What does the document say?",
       topK: 8,
-      useAgentic: false,
+      useAgentic: true,
       dataType: 1,
       excludeDocumentIds: ["doc_excluded", "doc_remote"],
     });
@@ -246,7 +246,7 @@ describe("answerQuestionWithRetrieval", () => {
       namespace: "notebook-workspace",
       query: "diagram",
       topK: 2,
-      useAgentic: false,
+      useAgentic: true,
       dataType: 3,
       excludeDocumentIds: ["doc_excluded"],
     });
@@ -772,7 +772,7 @@ describe("answerQuestionWithRetrieval", () => {
       namespace: "notebook-workspace",
       query: "SpaceX rocket photos",
       topK: 8,
-      useAgentic: false,
+      useAgentic: true,
       dataType: 3,
     });
     expect(answer.answer).toBe("Use this launch photo.");
@@ -1897,7 +1897,7 @@ describe("answerQuestionWithRetrieval", () => {
       namespace: "notebook-workspace",
       query: "公民身份证明 图片",
       topK: 8,
-      useAgentic: false,
+      useAgentic: true,
       dataType: 3,
     });
     const imageCitations = answer.citations.filter(
@@ -1988,7 +1988,7 @@ describe("answerQuestionWithRetrieval", () => {
       namespace: "notebook-workspace",
       query: "Tesla Q4 2025 Update energy generation and storage deployments",
       topK: 8,
-      useAgentic: false,
+      useAgentic: true,
       dataType: 1,
     });
     expect(generateAnswer).toHaveBeenCalledWith({
@@ -2034,6 +2034,7 @@ describe("answerQuestionWithRetrieval", () => {
         namespace: "notebook-workspace",
         sources: [makeSource()],
         excludedSourceIds: [],
+        useAgentic: false,
         retrieval,
         generateAnswer,
         messages,
@@ -2711,7 +2712,24 @@ describe("parseChatRequestBody", () => {
       value: {
         question: "What changed?",
         threadId: "thread_1",
+        useAgentic: true,
         excludedSourceIds: ["source_1", "source_2"],
+      },
+    });
+  });
+
+  it("keeps an explicit useAgentic choice from the request body", () => {
+    expect(
+      parseChatRequestBody({
+        message: "Quick summary",
+        useAgentic: false,
+      }),
+    ).toEqual({
+      ok: true,
+      value: {
+        question: "Quick summary",
+        useAgentic: false,
+        excludedSourceIds: [],
       },
     });
   });

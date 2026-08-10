@@ -13,6 +13,7 @@ import {
 import { BarChart3, FileText, Plus, Send } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,6 +23,12 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { chatPromptTemplates } from "@/domains/chat/prompt-templates";
 const chatComposerName = "chat-composer";
 const chatComposerTextAreaMinHeight = 128;
@@ -33,6 +40,10 @@ type TextRange = {
   readonly end: number;
 };
 
+export type ChatSendOptions = {
+  readonly useAgentic: boolean;
+};
+
 export type ChatComposerProps = {
   readonly canCreateDiagram?: boolean;
   readonly isDisabled?: boolean;
@@ -40,7 +51,7 @@ export type ChatComposerProps = {
   readonly isSending?: boolean;
   readonly onCreateDiagram?: () => void;
   readonly onLoginClick?: () => void;
-  readonly onSend?: (text: string) => void;
+  readonly onSend?: (text: string, options: ChatSendOptions) => void;
 };
 
 export function ChatComposer({
@@ -53,6 +64,7 @@ export function ChatComposer({
   onSend,
 }: ChatComposerProps): ReactElement {
   const [input, setInput] = useState("");
+  const [useAgentic, setUseAgentic] = useState(true);
   const composerInputId = useId();
   const pendingTemplatePromptRef = useRef<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -79,7 +91,7 @@ export function ChatComposer({
 
   function handleSend(): void {
     if (!canSend) return;
-    onSend?.(trimmedInput);
+    onSend?.(trimmedInput, { useAgentic });
     setInput("");
   }
 
@@ -177,22 +189,53 @@ export function ChatComposer({
               onCreateDiagram={onCreateDiagram}
               onTemplateSelect={handleTemplateSelect}
             />
-            <Button
-              type="button"
-              variant="default"
-              size="sm"
-              className="ml-auto h-12 min-w-28 gap-1.5 rounded-lg px-6"
-              disabled={!canSend}
-              onClick={handleSend}
-              aria-label="Send message"
-            >
-              {isSending ? (
-                <Spinner className="size-4" />
-              ) : (
-                <Send className="size-4" />
-              )}
-              <span>{isSending ? "Sending" : "Send"}</span>
-            </Button>
+            <div className="ml-auto flex items-center gap-2">
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <label
+                      className={`flex cursor-pointer items-center gap-1.5 text-xs font-semibold transition-colors ${
+                        useAgentic ? "text-foreground" : "text-muted-foreground"
+                      } ${
+                        isDisabled || isSending
+                          ? "cursor-not-allowed opacity-50"
+                          : "hover:text-foreground"
+                      }`}
+                    >
+                      <Checkbox
+                        checked={useAgentic}
+                        disabled={isDisabled || isSending}
+                        aria-label="Deep search"
+                        onCheckedChange={(checked) =>
+                          setUseAgentic(checked === true)
+                        }
+                      />
+                      Deep search
+                    </label>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-64">
+                    Deep search plans document selection and navigation for
+                    more thorough answers. Turn off for faster classic search.
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+              <Button
+                type="button"
+                variant="default"
+                size="sm"
+                className="h-12 min-w-28 gap-1.5 rounded-lg px-6"
+                disabled={!canSend}
+                onClick={handleSend}
+                aria-label="Send message"
+              >
+                {isSending ? (
+                  <Spinner className="size-4" />
+                ) : (
+                  <Send className="size-4" />
+                )}
+                <span>{isSending ? "Sending" : "Send"}</span>
+              </Button>
+            </div>
           </div>
         </>
       )}

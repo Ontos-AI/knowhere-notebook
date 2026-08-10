@@ -50,6 +50,7 @@ type ChatThreadDetailResponse = ChatThreadResponse & {
 type ChatMessageRequest = {
   message: string
   threadId?: string
+  useAgentic: boolean
   excludedSourceIds: string[]
 }
 

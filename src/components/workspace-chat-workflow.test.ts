@@ -84,12 +84,15 @@ describe("useWorkspaceChatWorkflow", () => {
     })
 
     await act(async () => {
-      await result.current.handleChatSend("Summarize it")
+      await result.current.handleChatSend("Summarize it", {
+        useAgentic: true,
+      })
     })
 
     expect(mocks.sendChatMessage).toHaveBeenCalledWith({
       message: "Summarize it",
       threadId: undefined,
+      useAgentic: true,
       excludedSourceIds: ["source_excluded"],
     })
     await waitFor(() => {
@@ -127,7 +130,9 @@ describe("useWorkspaceChatWorkflow", () => {
     })
 
     await act(async () => {
-      await result.current.handleChatSend("What changed in Q4?")
+      await result.current.handleChatSend("What changed in Q4?", {
+        useAgentic: true,
+      })
     })
 
     expect(mocks.materializeDemoSources).toHaveBeenCalledWith({
@@ -172,7 +177,9 @@ describe("useWorkspaceChatWorkflow", () => {
     })
 
     await act(async () => {
-      await result.current.handleChatSend("Summarize it")
+      await result.current.handleChatSend("Summarize it", {
+        useAgentic: true,
+      })
     })
 
     expect(mocks.materializeDemoSources).not.toHaveBeenCalled()

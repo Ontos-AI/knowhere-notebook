@@ -8,6 +8,7 @@ import {
 } from "lucide-react"
 
 import { ChatPanel } from "@/components/chat-panel"
+import type { ChatSendOptions } from "@/components/chat-composer"
 import { ChunksPanel } from "@/components/chunks-panel"
 import { MobileTabBar } from "@/components/mobile-tab-bar"
 import { OfficialLibraryPanel } from "@/components/official-library-panel"
@@ -99,7 +100,10 @@ export type WorkspaceShellLayoutProps = {
   readonly onArchiveChatThread: (threadId: string) => void | Promise<void>
   readonly onArchiveSource: (sourceId: string) => void | Promise<void>
   readonly onRetrySource?: (sourceId: string) => void | Promise<void>
-  readonly onChatSend: (text: string) => void | Promise<void>
+  readonly onChatSend: (
+    text: string,
+    options: ChatSendOptions,
+  ) => void | Promise<void>
   readonly onCitationClick: (
     citation: ChatCitationView,
     citationId: string,

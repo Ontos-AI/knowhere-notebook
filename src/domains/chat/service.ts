@@ -64,6 +64,7 @@ type ChatTurnInput = {
   sources: readonly Source[]
   question: string
   threadId?: string
+  useAgentic?: boolean
   excludedSourceIds: readonly string[]
   retrieval: RetrievalClient
   knowledge?: AnswerQuestionInput["knowledge"]
@@ -126,6 +127,7 @@ export const handleChatTurnEffect = (input: ChatTurnInput) =>
       namespace: input.workspace.namespace,
       namespaces: getCompatibleNamespaces(input.workspace),
       sources: readySources,
+      useAgentic: input.useAgentic ?? true,
       excludedSourceIds: input.excludedSourceIds,
       retrieval: input.retrieval,
       knowledge: input.knowledge,
