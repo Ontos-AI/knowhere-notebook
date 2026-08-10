@@ -254,7 +254,9 @@ describe("ChatPanel", () => {
     );
     await user.click(screen.getByRole("button", { name: "Send message" }));
 
-    expect(onSend).toHaveBeenCalledWith("Summarize revenue");
+    expect(onSend).toHaveBeenCalledWith("Summarize revenue", {
+      useAgentic: true,
+    });
     expect(
       analyticsMocks.trackNotebookAssistantQuestionSubmitted,
     ).toHaveBeenCalledWith({

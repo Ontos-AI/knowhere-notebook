@@ -132,6 +132,7 @@ export const answerQuestionWithRetrieval = (
           input: queryInput,
           fallbackQuestion: question,
           namespace,
+          useAgentic: input.useAgentic ?? true,
           sources: input.sources,
           excludedSourceIds: input.excludedSourceIds,
         })
@@ -139,6 +140,7 @@ export const answerQuestionWithRetrieval = (
           namespace,
           query: retrievalQueryParams.query,
           topK: retrievalQueryParams.topK,
+          useAgentic: retrievalQueryParams.useAgentic,
           dataType: retrievalQueryParams.dataType ?? null,
           signalPathCount: retrievalQueryParams.signalPaths?.length ?? 0,
           filterMode: retrievalQueryParams.filterMode ?? null,
@@ -686,6 +688,7 @@ function buildRetrievalQueryParams(input: {
   readonly input: AgenticRetrievalQuery
   readonly fallbackQuestion: string
   readonly namespace: string
+  readonly useAgentic: boolean
   readonly sources: AnswerQuestionInput["sources"]
   readonly excludedSourceIds: readonly string[]
 }): RetrievalQueryParams {
@@ -698,7 +701,7 @@ function buildRetrievalQueryParams(input: {
     namespace: input.namespace,
     query,
     topK: normalizeTopK(input.input.topK),
-    useAgentic: true,
+    useAgentic: input.useAgentic,
     dataType,
     ...(input.input.signalPaths && input.input.signalPaths.length > 0
       ? { signalPaths: input.input.signalPaths }

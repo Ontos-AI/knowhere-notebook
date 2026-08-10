@@ -1734,7 +1734,24 @@ describe("parseChatRequestBody", () => {
       value: {
         question: "What changed?",
         threadId: "thread_1",
+        useAgentic: true,
         excludedSourceIds: ["source_1", "source_2"],
+      },
+    });
+  });
+
+  it("keeps an explicit useAgentic choice from the request body", () => {
+    expect(
+      parseChatRequestBody({
+        message: "Quick summary",
+        useAgentic: false,
+      }),
+    ).toEqual({
+      ok: true,
+      value: {
+        question: "Quick summary",
+        useAgentic: false,
+        excludedSourceIds: [],
       },
     });
   });

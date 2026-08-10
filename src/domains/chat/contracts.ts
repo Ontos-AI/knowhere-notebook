@@ -65,6 +65,7 @@ export type AnswerQuestionInput = {
   namespaces?: readonly string[]
   sources: readonly Source[]
   excludedSourceIds: readonly string[]
+  useAgentic?: boolean
   retrieval: RetrievalClient
   generateAnswer: GenerateAnswer
   loadSourceAssetUrls?: LoadSourceAssetUrls
