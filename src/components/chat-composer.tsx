@@ -10,9 +10,10 @@ import {
   type MouseEvent,
   type ReactElement,
 } from "react";
-import { BarChart3, FileText, Plus, Send, Sparkles } from "lucide-react";
+import { BarChart3, FileText, Plus, Send } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -192,28 +193,29 @@ export function ChatComposer({
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      size="sm"
-                      disabled={isDisabled || isSending}
-                      aria-label="Toggle agentic retrieval"
-                      aria-pressed={useAgentic}
-                      className={`h-9 gap-1.5 rounded-md px-3 text-xs font-semibold ${
-                        useAgentic
-                          ? "border border-primary/20 bg-primary/10 text-primary hover:bg-primary/15"
-                          : "border-0 bg-muted text-muted-foreground hover:bg-muted/80"
+                    <label
+                      className={`flex cursor-pointer items-center gap-1.5 text-xs font-semibold transition-colors ${
+                        useAgentic ? "text-foreground" : "text-muted-foreground"
+                      } ${
+                        isDisabled || isSending
+                          ? "cursor-not-allowed opacity-50"
+                          : "hover:text-foreground"
                       }`}
-                      onClick={() => setUseAgentic((current) => !current)}
                     >
-                      <Sparkles className="size-3.5" />
-                      Agentic
-                    </Button>
+                      <Checkbox
+                        checked={useAgentic}
+                        disabled={isDisabled || isSending}
+                        aria-label="Deep search"
+                        onCheckedChange={(checked) =>
+                          setUseAgentic(checked === true)
+                        }
+                      />
+                      Deep search
+                    </label>
                   </TooltipTrigger>
                   <TooltipContent className="max-w-64">
-                    Agentic retrieval plans document selection and navigation
-                    for more thorough answers. Turn off for faster classic
-                    search.
+                    Deep search plans document selection and navigation for
+                    more thorough answers. Turn off for faster classic search.
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>

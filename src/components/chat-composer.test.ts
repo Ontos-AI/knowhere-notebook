@@ -34,35 +34,35 @@ describe("ChatComposer", () => {
     expect(input.value).toBe("");
   });
 
-  it("defaults to agentic retrieval enabled and explains the toggle", async () => {
+  it("defaults to deep search enabled and explains the toggle", async () => {
     const user = userEvent.setup();
 
     render(React.createElement(ChatComposer));
 
-    const toggle = screen.getByRole("button", {
-      name: "Toggle agentic retrieval",
+    const toggle = screen.getByRole("checkbox", {
+      name: "Deep search",
     });
-    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
 
     await user.hover(toggle);
 
     const tooltip = await screen.findByRole("tooltip");
     expect(tooltip.textContent).toContain(
-      "Agentic retrieval plans document selection and navigation",
+      "Deep search plans document selection and navigation",
     );
   });
 
-  it("sends useAgentic false after toggling agentic retrieval off", async () => {
+  it("sends useAgentic false after toggling deep search off", async () => {
     const user = userEvent.setup();
     const onSend = vi.fn();
 
     render(React.createElement(ChatComposer, { onSend }));
 
-    const toggle = screen.getByRole("button", {
-      name: "Toggle agentic retrieval",
+    const toggle = screen.getByRole("checkbox", {
+      name: "Deep search",
     });
     await user.click(toggle);
-    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
 
     const input = getComposerTextArea();
     await user.type(input, "Quick summary");
