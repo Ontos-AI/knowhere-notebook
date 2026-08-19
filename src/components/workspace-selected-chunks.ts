@@ -45,6 +45,10 @@ export function useWorkspaceSelectedChunks({
     selectedSource && selectedSource.status === "ready"
       ? selectedSource.id
       : null
+  const pageChunkType =
+    selectedSource?.documentPresentation?.kind === "page-assets"
+      ? "page"
+      : undefined
   const {
     data: selectedChunkPages,
     isLoading: isChunksLoading,
@@ -57,7 +61,12 @@ export function useWorkspaceSelectedChunks({
         pageIndex,
         previousPageData,
       ),
-    fetchChunksByKey,
+    ([, sourceId, page]: SourceChunksKey) =>
+      pageChunkType
+        ? workspaceClient.fetchChunkPage(sourceId, page, {
+            chunkType: pageChunkType,
+          })
+        : workspaceClient.fetchChunkPage(sourceId, page),
     {
       revalidateIfStale: false,
       keepPreviousData: false,
@@ -127,14 +136,6 @@ export function useWorkspaceSelectedChunks({
     selectedChunks,
     selectedSource: resolvedSelectedSource,
   }
-}
-
-function fetchChunksByKey([
-  ,
-  sourceId,
-  page,
-]: SourceChunksKey): Promise<SourceChunksResponse> {
-  return workspaceClient.fetchChunkPage(sourceId, page)
 }
 
 function getResolvedSelectedSource(

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type {
+  KnowledgeGrepMatch,
   KnowledgeGrepResponse,
   KnowledgeReadResponse,
   RetrievalQueryResponse,
@@ -110,6 +111,76 @@ describe("createEvidenceLedger", () => {
         }),
       }),
     ])
+  })
+
+  it("copies page metadata onto grep matches from the same chunk id", () => {
+    const ledger = createEvidenceLedger()
+    ledger.addReadChunksResponse(makeReadResponse())
+
+    const snapshot = ledger.addGrepChunksResponse({
+      ...makeGrepResponse(),
+      matches: [
+        {
+          position: 1,
+          chunkId: "chunk_page_1",
+          chunkType: "page",
+          sectionPath: "Root / Page 1",
+          sourceChunkPath: "pages/page-1.md",
+          startOffset: 0,
+          endOffset: 12,
+          snippet: "Full page snip",
+        },
+      ],
+    })
+
+    expect(snapshot.chunks[1]).toEqual(
+      expect.objectContaining({
+        ref: "grep1:match:1",
+        kind: "grep_match",
+        chunkId: "chunk_page_1",
+        metadata: expect.objectContaining({
+          pageNums: [1],
+          position: 1,
+          startOffset: 0,
+          endOffset: 12,
+        }),
+      }),
+    )
+  })
+
+  it("copies pageNumbers from the grep match when the SDK provides them", () => {
+    const ledger = createEvidenceLedger()
+
+    const snapshot = ledger.addGrepChunksResponse({
+      ...makeGrepResponse(),
+      matches: [
+        {
+          position: 1,
+          chunkId: "chunk_page_4",
+          chunkType: "page",
+          sectionPath: "FINANCIAL SUMMARY",
+          sourceChunkPath: "pages/page-4.md",
+          startOffset: 0,
+          endOffset: 12,
+          snippet: "automotive revenues",
+          pageNumbers: [4],
+        } as KnowledgeGrepMatch,
+      ],
+    })
+
+    expect(snapshot.chunks[0]).toEqual(
+      expect.objectContaining({
+        ref: "grep1:match:1",
+        kind: "grep_match",
+        chunkId: "chunk_page_4",
+        metadata: expect.objectContaining({
+          pageNums: [4],
+          position: 1,
+          startOffset: 0,
+          endOffset: 12,
+        }),
+      }),
+    )
   })
 })
 

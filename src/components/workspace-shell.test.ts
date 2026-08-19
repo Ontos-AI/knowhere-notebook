@@ -346,6 +346,10 @@ describe("WorkspaceShell", () => {
 
     const desktopChunksPanel = within(screen.getByTestId("desktop-chunks-panel"));
     await waitFor(() => {
+      expect(desktopChunksPanel.getByRole("button", { name: "List" })).toBeTruthy();
+    });
+    fireEvent.click(desktopChunksPanel.getByRole("button", { name: "List" }));
+    await waitFor(() => {
       expect(desktopChunksPanel.getByRole("img", { name: "Page 1" }))
         .toBeTruthy();
     });
@@ -537,7 +541,7 @@ describe("WorkspaceShell", () => {
             {
               id: "assistant_1",
               role: "assistant",
-              content: "The answer uses two sections.",
+              content: "The answer uses two sections. [[cite:1]] [[cite:2]]",
               citations: [
                 {
                   content: "First cited section",
@@ -620,19 +624,17 @@ describe("WorkspaceShell", () => {
     });
     await user.click(sendButton);
 
-    await desktopChatPanel.findAllByRole("button", {
-      name: "Open source doc.pdf",
-    });
-    const citationButtons = desktopChatPanel.getAllByRole(
-      "button",
-      {
-        name: "Open source doc.pdf",
-      },
-    );
-    expect(citationButtons).toHaveLength(2);
-    const firstCitation = citationButtons[0] as HTMLButtonElement;
-    const secondCitation = citationButtons[1] as HTMLButtonElement;
-    await user.click(firstCitation);
+    await desktopChatPanel.findAllByTestId("citation-chip");
+    const getCitationChip = (citationId: string): HTMLButtonElement => {
+      const chip = desktopChatPanel
+        .getAllByTestId("citation-chip")
+        .find((element) => element.getAttribute("data-citation-id") === citationId);
+      expect(chip).toBeTruthy();
+      return chip as HTMLButtonElement;
+    };
+    expect(getCitationChip("assistant_1:0")).toBeTruthy();
+    expect(getCitationChip("assistant_1:1")).toBeTruthy();
+    await user.click(getCitationChip("assistant_1:0"));
 
     await waitFor(() => {
       expect(
@@ -650,9 +652,9 @@ describe("WorkspaceShell", () => {
     expect(countFetches(fetch, "/api/sources/source_1/chunks")).toBe(1);
 
     await waitFor(() => {
-      expect(secondCitation.disabled).toBe(false);
+      expect(getCitationChip("assistant_1:1").disabled).toBe(false);
     });
-    await user.click(secondCitation);
+    await user.click(getCitationChip("assistant_1:1"));
 
     await waitFor(() => {
       const topRow = screen

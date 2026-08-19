@@ -123,6 +123,67 @@ describe("ParsedChunkCard", () => {
     expect(screen.getByTestId("page-asset-image-unavailable-4")).toBeTruthy();
   });
 
+  it("keeps the page image as a positioned citation target for a focused citation", () => {
+    render(
+      React.createElement(ParsedChunkCard, {
+        chunk: {
+          chunkId: "page_4",
+          type: "page",
+          content: "Page 4",
+          sourceTitle: "manual.pdf",
+          pageNums: [4],
+          pageAssets: [
+            {
+              pageNumber: 4,
+              assetUrl: "https://assets.example/page-4.png",
+              contentType: "image/png",
+            },
+          ],
+        },
+        isFocused: true,
+        focusedCitationId: "assistant_1:0",
+        focusedPageNumber: 4,
+        onReferenceClick: vi.fn(),
+      }),
+    );
+
+    const citationTarget = document.querySelector(
+      '[data-citation-page="4"]',
+    );
+    expect(citationTarget).not.toBeNull();
+    expect(citationTarget?.className).toContain("relative");
+    expect(citationTarget?.getAttribute("data-focused-citation-id")).toBe(
+      "assistant_1:0",
+    );
+  });
+
+  it("hides the keywords row when a page card has none", () => {
+    render(
+      React.createElement(ParsedChunkCard, {
+        chunk: {
+          chunkId: "page_4",
+          type: "page",
+          content: "Page 4",
+          sourceTitle: "manual.pdf",
+          pageNums: [4],
+          keywords: [],
+          pageAssets: [
+            {
+              pageNumber: 4,
+              assetUrl: "https://assets.example/page-4.png",
+              contentType: "image/png",
+            },
+          ],
+        },
+        isFocused: false,
+        onReferenceClick: vi.fn(),
+      }),
+    );
+
+    expect(screen.queryByTestId("chunk-keywords-panel-page_4")).toBeNull();
+    expect(screen.getByRole("img", { name: "Page 4" })).toBeTruthy();
+  });
+
   it("routes Notebook Blob page assets through the inline image endpoint", () => {
     const assetUrl =
       "https://store.public.blob.vercel-storage.com/workspaces/workspace_1/parsed-documents/doc_1/rev_1/page_citation_assets/page-4.png";

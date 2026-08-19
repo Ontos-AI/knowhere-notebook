@@ -37,7 +37,10 @@ function createParsedChunkView(
   const summary = getStringMetadata(input.metadata, "summary")
   const pageAssets =
     type === "page"
-      ? getPageAssetViews(input.metadata["pageAssets"], assetUrl)
+      ? getPageAssetViews(
+          input.metadata["pageAssets"] ?? input.metadata["page_assets"],
+          assetUrl,
+        )
       : undefined
 
   return {
@@ -72,9 +75,15 @@ function getPageAssetViews(
   const pageAssets = value.flatMap((item): NonNullable<ParsedChunkView["pageAssets"]> => {
     if (!isRecord(item)) return []
     const pageNumber =
-      getPositiveInteger(item["pageNum"]) ?? getPositiveInteger(item["pageNumber"])
-    const assetUrl = getString(item["assetUrl"]) ?? fallbackAssetUrl
-    const contentType = getString(item["contentType"])
+      getPositiveInteger(item["pageNum"]) ??
+      getPositiveInteger(item["pageNumber"]) ??
+      getPositiveInteger(item["page_num"])
+    const assetUrl =
+      getString(item["assetUrl"]) ??
+      getString(item["asset_url"]) ??
+      fallbackAssetUrl
+    const contentType =
+      getString(item["contentType"]) ?? getString(item["content_type"])
     if (!pageNumber || !assetUrl || !contentType) return []
 
     return [

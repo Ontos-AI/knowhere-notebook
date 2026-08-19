@@ -2,7 +2,8 @@ import { Effect } from "effect"
 
 import { demoView } from "@/domains/demo/view"
 import { readAllSourceChunks, readSourceChunkPage } from "@/domains/chunks/read"
-import { resolveChunkConnectionTargets } from "@/domains/chunks"
+import { resolveChunkConnectionTargets, type ChunkReadType } from "@/domains/chunks"
+import type { ParsedChunkView } from "@/domains/chunks/types"
 import type { DemoChunkPage } from "@/integrations/knowhere-demo"
 import { logger } from "@/lib/logger"
 import { routeResult } from "@/lib/route-result"
@@ -118,6 +119,9 @@ const loadSourceChunksEffect = (
           client: readResources.client,
           knowledge: readResources.knowledge,
           source: readableSource,
+          ...(input.pageParams.chunkType
+            ? { chunkType: input.pageParams.chunkType }
+            : {}),
         }),
       ).pipe(
         Effect.map((chunks) =>
@@ -199,6 +203,9 @@ const loadRemoteChunkPageEffect = (
           client: readResources.client,
           knowledge: readResources.knowledge,
           source: readableSource,
+          ...(input.pageParams.chunkType
+            ? { chunkType: input.pageParams.chunkType }
+            : {}),
         }),
       ).pipe(
         Effect.map((chunks) =>
@@ -252,10 +259,13 @@ const loadDemoChunkPageEffect = (
       status: "ready" as const,
       documentId: documentIdOverride ?? page.canonicalDocumentId,
     }
-    const chunks = pages.flatMap((demoChunkPage) =>
-      demoChunkPage.chunks.map((chunk) =>
-        demoView.toParsedChunkView(source, chunk),
+    const chunks = filterChunksByType(
+      pages.flatMap((demoChunkPage) =>
+        demoChunkPage.chunks.map((chunk) =>
+          demoView.toParsedChunkView(source, chunk),
+        ),
       ),
+      input.pageParams.chunkType,
     )
 
     return routeResult.ok(
@@ -317,6 +327,14 @@ function getErrorMessage(error: unknown): string {
     return inner instanceof Error ? inner.message : error.message
   }
   return String(error)
+}
+
+function filterChunksByType(
+  chunks: readonly ParsedChunkView[],
+  chunkType: ChunkReadType | undefined,
+): ParsedChunkView[] {
+  if (!chunkType) return [...chunks]
+  return chunks.filter((chunk) => chunk.type === chunkType)
 }
 
 function sourceNotFound(): JsonRouteResult<{ readonly message: string }> {

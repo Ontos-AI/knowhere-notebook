@@ -77,6 +77,11 @@ describe("WorkspaceShellLayout", () => {
       "350px",
     )
     expect(screen.getByTestId("desktop-chat-panel").style.width).toBe("420px")
+    expect(
+      within(screen.getByTestId("desktop-sources-panel")).getByRole("button", {
+        name: "Open library",
+      }),
+    ).toBeTruthy()
   })
 
   it("renders compact sidebars when the side panels are collapsed", () => {
@@ -175,6 +180,11 @@ describe("WorkspaceShellLayout", () => {
       screen.getByRole("button", { name: "Show sources panel" }),
     ).toBeTruthy()
     expect(screen.getByRole("button", { name: "Show chat panel" })).toBeTruthy()
+    expect(
+      within(screen.getByTestId("desktop-sources-panel")).getByRole("button", {
+        name: "Open library",
+      }),
+    ).toBeTruthy()
 
     screen.getByRole("button", { name: "Open source Quarterly Report.pdf" }).click()
     expect(handleSourceSelected).toHaveBeenCalledWith("source_report")
@@ -271,6 +281,11 @@ describe("WorkspaceShellLayout", () => {
     expect(
       within(desktopSourcesPanel).getByRole("button", {
         name: "Delete Very Long Quarterly Report Filename.pdf",
+      }),
+    ).toBeTruthy()
+    expect(
+      within(desktopSourcesPanel).getByRole("button", {
+        name: "Open library",
       }),
     ).toBeTruthy()
   })

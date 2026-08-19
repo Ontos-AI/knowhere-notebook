@@ -34,7 +34,7 @@ export function TopNav({
       <div className="flex min-w-0 items-center gap-3">
         <NotebookLogoMark width={22} />
         <h1 className="truncate text-[18px] font-bold leading-7 text-foreground">
-          Knowhere Notebook
+          Knowhere Brain
         </h1>
         <Separator
           orientation="vertical"

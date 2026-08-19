@@ -40,6 +40,15 @@ describe("agent harness runtime", () => {
     expect(prompt).not.toContain("must match the selected evidence ref exactly")
   })
 
+  it("tells the agent to emit [[cite:n]] markers instead of title/pN or [1]", () => {
+    const prompt = buildHarnessSystemPrompt(makeTurnInput())
+
+    expect(prompt).toContain("[[cite:n]]")
+    expect(prompt).toContain("1-based index into the citations array")
+    expect(prompt).toContain("Do not write title/pN, [1], Markdown footnotes")
+    expect(prompt).toContain("Do not collapse same-page citations")
+  })
+
   it("passes only outer retrieval parameters to KNOWHERE without planning-tool gating", async () => {
     const query = vi.fn<KnowhereToolRuntime["search"]>().mockResolvedValue(
       makeRetrievalResponse(),

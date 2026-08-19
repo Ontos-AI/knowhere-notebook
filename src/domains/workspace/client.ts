@@ -24,6 +24,11 @@ const workspaceClientConfig = {
   sourceChunkPageSize: 50,
 } as const
 
+export type FetchChunksOptions = {
+  readonly chunkType?: "text" | "image" | "table" | "page"
+  readonly untilPageNumber?: number
+}
+
 type SourceChunksResponse = {
   chunks?: ParsedChunkView[]
   isProcessing?: boolean
@@ -107,12 +112,23 @@ export const workspaceClient = {
   archiveChatThread,
 } as const
 
-async function fetchChunks(sourceId: string): Promise<ParsedChunkView[]> {
+async function fetchChunks(
+  sourceId: string,
+  options?: FetchChunksOptions,
+): Promise<ParsedChunkView[]> {
+  if (options?.untilPageNumber != null) {
+    const { chunks } = await fetchChunkPagesUntil(sourceId, options)
+    return chunks
+  }
+
   try {
+    const searchParams = new URLSearchParams()
+    if (options?.chunkType) searchParams.set("chunkType", options.chunkType)
+    const query = searchParams.toString()
     const body = await workspaceRouteClient.getJson<{
       chunks?: ParsedChunkView[]
     }>(
-      `/api/sources/${encodeURIComponent(sourceId)}/chunks`,
+      `/api/sources/${encodeURIComponent(sourceId)}/chunks${query ? `?${query}` : ""}`,
     )
     return Array.isArray(body.chunks) ? body.chunks : []
   } catch {
@@ -123,11 +139,13 @@ async function fetchChunks(sourceId: string): Promise<ParsedChunkView[]> {
 async function fetchChunkPage(
   sourceId: string,
   page: number,
+  options?: Pick<FetchChunksOptions, "chunkType">,
 ): Promise<SourceChunksResponse> {
   const searchParams = new URLSearchParams({
     page: String(page),
     pageSize: String(workspaceClientConfig.sourceChunkPageSize),
   })
+  if (options?.chunkType) searchParams.set("chunkType", options.chunkType)
   const body = await workspaceRouteClient.getJson<SourceChunksResponse>(
     `/api/sources/${encodeURIComponent(sourceId)}/chunks?${searchParams.toString()}`,
   )
@@ -141,6 +159,49 @@ async function fetchChunkPage(
       : {}),
     pagination: body.pagination,
   }
+}
+
+async function fetchChunkPagesUntil(
+  sourceId: string,
+  options: FetchChunksOptions,
+): Promise<{
+  readonly chunks: ParsedChunkView[]
+  readonly pages: SourceChunksResponse[]
+}> {
+  const pages: SourceChunksResponse[] = []
+  const chunks: ParsedChunkView[] = []
+  let page = 1
+  let totalPages = 1
+
+  do {
+    const result = await fetchChunkPage(sourceId, page, {
+      chunkType: options.chunkType,
+    })
+    pages.push(result)
+    chunks.push(...(result.chunks ?? []))
+    if (
+      options.untilPageNumber != null &&
+      chunksContainPage(chunks, options.untilPageNumber)
+    ) {
+      return { chunks, pages }
+    }
+    totalPages = result.pagination?.totalPages ?? 1
+    page += 1
+  } while (page <= totalPages)
+
+  return { chunks, pages }
+}
+
+function chunksContainPage(
+  chunks: readonly ParsedChunkView[],
+  pageNumber: number,
+): boolean {
+  return chunks.some(
+    (chunk) =>
+      (chunk.pageAssets ?? []).some(
+        (pageAsset) => pageAsset.pageNumber === pageNumber,
+      ) || (chunk.pageNums ?? []).includes(pageNumber),
+  )
 }
 
 async function fetchSources(): Promise<SourceView[]> {

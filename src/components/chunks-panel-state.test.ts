@@ -55,6 +55,16 @@ describe("chunksPanelState", () => {
       "chunk_page_7_second",
       "chunk_without_page",
     ])
+    expect(
+      chunksPanelState
+        .getChunksWithFocusedFirst(chunks, null, 7)
+        .map((chunk) => chunk.chunkId),
+    ).toEqual([
+      "chunk_page_7",
+      "chunk_page_2",
+      "chunk_page_7_second",
+      "chunk_without_page",
+    ])
   })
 
   it("moves a focused Parsed Chunk to the front without mutating the input", () => {
@@ -195,7 +205,40 @@ describe("chunksPanelState", () => {
       chunksPanelState
         .getPageAssetChunksWithoutDuplicatePages(chunks)
         .map((chunk) => chunk.chunkId),
-    ).toEqual(["page_4_first", "page_5", "table_1"])
+    ).toEqual(["page_4_first", "page_5"])
+  })
+
+  it("hides table asset chunks from page-asset lists", () => {
+    const chunks: ParsedChunkView[] = [
+      {
+        chunkId: "page_4",
+        type: "page",
+        content: "Financial summary.",
+        sourceTitle: "TSLA-Q4-2025-Update.pdf",
+        pageNums: [4],
+        pageAssets: [
+          {
+            pageNumber: 4,
+            assetUrl: "https://assets.example/page-4.png",
+            contentType: "image/png",
+          },
+        ],
+      },
+      {
+        chunkId: "table_page_4_1",
+        type: "table",
+        content: "tables/table_page_4_1.html",
+        sourceTitle: "TSLA-Q4-2025-Update.pdf",
+        pageNums: [4],
+        filePath: "tables/table_page_4_1.html",
+      },
+    ]
+
+    expect(
+      chunksPanelState
+        .getPageAssetChunksWithoutDuplicatePages(chunks)
+        .map((chunk) => chunk.chunkId),
+    ).toEqual(["page_4"])
   })
 
   it("formats Knowhere section paths and reference labels for display", () => {

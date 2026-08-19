@@ -239,7 +239,9 @@ describe("useWorkspaceSelectedChunks", () => {
       ]),
     );
     expect(result.current.isSelectedChunksLoading).toBe(false);
-    expect(fetchChunkPageMock).toHaveBeenCalledWith("source_1", 1);
+    expect(fetchChunkPageMock).toHaveBeenCalledWith("source_1", 1, {
+      chunkType: "page",
+    });
   });
 
   it("detects page assets from selected source chunks without a second request", async () => {

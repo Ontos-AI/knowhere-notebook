@@ -48,32 +48,50 @@ export async function enrichRetrievalResultsWithPageCitationAssetUrls({
   )
 }
 
+export function resolvePageCitationPageNumber(
+  result: RetrievalResult & { readonly pageCitationPageNumber?: number },
+): number | undefined {
+  const existing = getPositiveInteger(result.pageCitationPageNumber)
+  if (existing) return existing
+
+  const pageNumbers = getPageNumbers(result.metadata)
+  const directAsset = getDirectPageCitationAsset(result, pageNumbers)
+  return (
+    directAsset?.pageNum ??
+    pageNumbers[0] ??
+    parseSectionPathPageNumber(result.source.sectionPath) ??
+    undefined
+  )
+}
+
 async function enrichRetrievalResultWithPageCitationAssetUrl(input: {
   readonly result: RetrievalResult
   readonly sourcesByDocumentId: ReadonlyMap<string, Source>
   readonly hardenChatAssetUrl?: HardenChatAssetUrl
 }): Promise<PageCitationAssetRetrievalResult> {
-  if (!isPageResult(input.result)) return input.result
-
   const pageNumbers = getPageNumbers(input.result.metadata)
   const directAsset = getDirectPageCitationAsset(input.result, pageNumbers)
-  const sourceAssetUrl = await getStoredPageCitationAssetUrl({
-    result: input.result,
-    directAsset,
-    sourcesByDocumentId: input.sourcesByDocumentId,
-    hardenChatAssetUrl: input.hardenChatAssetUrl,
-  })
-  if (sourceAssetUrl || directAsset?.pageNum) {
-    return {
-      ...input.result,
-      ...(sourceAssetUrl ? { pageCitationAssetUrl: sourceAssetUrl } : {}),
-      ...(directAsset?.pageNum
-        ? { pageCitationPageNumber: directAsset.pageNum }
-        : {}),
-    }
+  const pageCitationPageNumber = resolvePageCitationPageNumber(input.result)
+  const sourceAssetUrl = isPageResult(input.result)
+    ? await getStoredPageCitationAssetUrl({
+        result: input.result,
+        directAsset,
+        sourcesByDocumentId: input.sourcesByDocumentId,
+        hardenChatAssetUrl: input.hardenChatAssetUrl,
+      })
+    : null
+
+  if (!sourceAssetUrl && pageCitationPageNumber === undefined) {
+    return input.result
   }
 
-  return input.result
+  return {
+    ...input.result,
+    ...(sourceAssetUrl ? { pageCitationAssetUrl: sourceAssetUrl } : {}),
+    ...(pageCitationPageNumber
+      ? { pageCitationPageNumber }
+      : {}),
+  }
 }
 
 async function getStoredPageCitationAssetUrl(input: {
@@ -105,7 +123,9 @@ function getDirectPageCitationAsset(
   result: RetrievalResult,
   pageNumbers: readonly number[],
 ): PageCitationAssetCandidate | null {
-  const candidates = parsePageCitationAssetCandidates(result.metadata?.pageAssets)
+  const candidates = parsePageCitationAssetCandidates(
+    result.metadata?.pageAssets ?? result.metadata?.page_assets,
+  )
 
   if (pageNumbers.length > 0) {
     const matchingCandidates = candidates.filter((candidate) =>
@@ -124,15 +144,27 @@ function parsePageCitationAssetCandidates(
 
   return value.flatMap((item): PageCitationAssetCandidate[] => {
     if (!isRecord(item)) return []
-    const pageNum = getPositiveInteger(item.pageNum)
+    const pageNum =
+      getPositiveInteger(item.pageNum) ??
+      getPositiveInteger(item.page_num) ??
+      getPositiveInteger(item.pageNumber)
     if (!pageNum) return []
 
     return [
       {
         pageNum,
-        artifactRef: getTrimmedString(item.artifactRef) ?? undefined,
-        assetUrl: getTrimmedString(item.assetUrl) ?? undefined,
-        contentType: getTrimmedString(item.contentType) ?? undefined,
+        artifactRef:
+          getTrimmedString(item.artifactRef) ??
+          getTrimmedString(item.artifact_ref) ??
+          undefined,
+        assetUrl:
+          getTrimmedString(item.assetUrl) ??
+          getTrimmedString(item.asset_url) ??
+          undefined,
+        contentType:
+          getTrimmedString(item.contentType) ??
+          getTrimmedString(item.content_type) ??
+          undefined,
       },
     ]
   })
@@ -143,23 +175,38 @@ function getPageNumbers(
 ): readonly number[] {
   if (!metadata) return []
 
-  const values = [metadata.pageNums, metadata.page_nums, metadata.pageNum]
   const pageNumbers = new Set<number>()
+  collectPageNumbers(metadata.pageNums, pageNumbers)
+  collectPageNumbers(metadata.page_nums, pageNumbers)
+  collectPageNumbers(metadata.pageNum, pageNumbers)
+  collectPageNumbers(metadata.page_num, pageNumbers)
+  return [...pageNumbers].sort((left, right) => left - right)
+}
 
-  for (const value of values) {
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        const pageNum = getPositiveInteger(item)
-        if (pageNum) pageNumbers.add(pageNum)
-      }
-      continue
-    }
-
-    const pageNum = getPositiveInteger(value)
-    if (pageNum) pageNumbers.add(pageNum)
+function collectPageNumbers(value: unknown, pageNumbers: Set<number>): void {
+  if (Array.isArray(value)) {
+    for (const item of value) collectPageNumbers(item, pageNumbers)
+    return
   }
 
-  return [...pageNumbers].sort((left, right) => left - right)
+  if (typeof value === "string" && value.includes(",")) {
+    for (const part of value.split(",")) collectPageNumbers(part.trim(), pageNumbers)
+    return
+  }
+
+  const pageNum = getPositiveInteger(value)
+  if (pageNum) pageNumbers.add(pageNum)
+}
+
+function parseSectionPathPageNumber(
+  sectionPath: string | null | undefined,
+): number | null {
+  if (typeof sectionPath !== "string") return null
+  const match =
+    /\bpage\s+(\d+)\b/i.exec(sectionPath) ??
+    /(?:^|[^\w])p(\d+)(?:[^\w]|$)/i.exec(sectionPath)
+  if (!match) return null
+  return getPositiveInteger(match[1])
 }
 
 function getTrimmedString(value: unknown): string | null {
@@ -169,11 +216,14 @@ function getTrimmedString(value: unknown): string | null {
 }
 
 function getPositiveInteger(value: unknown): number | null {
-  return typeof value === "number" &&
-    Number.isSafeInteger(value) &&
-    value > 0
-    ? value
-    : null
+  if (typeof value === "number" && Number.isSafeInteger(value) && value > 0) {
+    return value
+  }
+  if (typeof value === "string") {
+    const parsed = Number.parseInt(value.trim(), 10)
+    if (Number.isSafeInteger(parsed) && parsed > 0) return parsed
+  }
+  return null
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

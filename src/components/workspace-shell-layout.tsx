@@ -1,5 +1,6 @@
 import { useCallback, type ReactElement } from "react"
 import {
+  BookOpen,
   Database,
   FileText,
   MessageSquare,
@@ -44,6 +45,7 @@ type FocusedChunkState = {
 type FocusedPageState = {
   readonly pageNumber: number | null
   readonly requestId: number
+  readonly citationId?: string | null
 }
 
 type WorkspaceShellUser = {
@@ -209,7 +211,9 @@ export function WorkspaceShellLayout(
               <CompactSourcesSidebar
                 sources={props.sources}
                 selectedSourceId={props.selectedSourceId}
+                isLibraryOpen={props.contentView === "library"}
                 onExpand={() => props.onDesktopPanelExpand("sources")}
+                onLibraryOpen={props.onLibraryOpen}
                 onSourceSelected={props.onSourceSelected}
               />
             ) : (
@@ -287,6 +291,7 @@ export function WorkspaceShellLayout(
                 focusedChunkRequestId={props.focusedChunk.requestId}
                 focusedPageNumber={focusedPage.pageNumber}
                 focusedPageRequestId={focusedPage.requestId}
+                focusedCitationId={focusedPage.citationId ?? null}
                 isLoading={props.isSelectedChunksLoading}
                 isLoadingAllChunks={props.isSelectedAllChunksLoading}
                 isLoadingMore={props.isSelectedChunksLoadingMore}
@@ -432,6 +437,7 @@ export function WorkspaceShellLayout(
             focusedChunkRequestId={props.focusedChunk.requestId}
             focusedPageNumber={focusedPage.pageNumber}
             focusedPageRequestId={focusedPage.requestId}
+            focusedCitationId={focusedPage.citationId ?? null}
             isLoading={props.isSelectedChunksLoading}
             isLoadingAllChunks={props.isSelectedAllChunksLoading}
             isLoadingMore={props.isSelectedChunksLoadingMore}
@@ -564,12 +570,16 @@ function DesktopPanelRestoreButton({
 }
 
 function CompactSourcesSidebar({
+  isLibraryOpen = false,
   onExpand,
+  onLibraryOpen,
   onSourceSelected,
   selectedSourceId,
   sources,
 }: {
+  readonly isLibraryOpen?: boolean
   readonly onExpand: () => void
+  readonly onLibraryOpen?: () => void
   readonly onSourceSelected: (sourceId: string | null) => void
   readonly selectedSourceId: string | null
   readonly sources: readonly SourceView[]
@@ -581,6 +591,16 @@ function CompactSourcesSidebar({
         side="left"
         onClick={onExpand}
       />
+      <div className="my-3 h-px w-9 bg-border" />
+      <CompactSidebarButton
+        ariaLabel="Open library"
+        isActive={isLibraryOpen}
+        label="Lib"
+        title="Open library"
+        onClick={() => onLibraryOpen?.()}
+      >
+        <BookOpen className="size-4" strokeWidth={1.8} />
+      </CompactSidebarButton>
       <div className="my-3 h-px w-9 bg-border" />
       <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-2 overflow-y-auto">
         {sources.length === 0 ? (

@@ -37,7 +37,10 @@ import {
   enrichRetrievalResultsWithAssetUrls,
   removeRetrievedMediaAssetUrls,
 } from "./media-assets"
-import { enrichRetrievalResultsWithPageCitationAssetUrls } from "./page-citation-assets"
+import {
+  enrichRetrievalResultsWithPageCitationAssetUrls,
+  resolvePageCitationPageNumber,
+} from "./page-citation-assets"
 import type { HardenableRetrievalResult } from "./media-asset-hardening"
 import { notebookKnowhereTools } from "./knowhere-tools"
 
@@ -233,9 +236,15 @@ export const answerQuestionWithRetrieval = (
       finalized: generatedAnswer.trace.finalized,
     })
 
-    const rawResults = selectCitationRawResults({
-      generatedAnswer,
-    })
+    const rawResults = yield* Effect.tryPromise(() =>
+      hydrateMissingCitationPageMetadata({
+        results: selectCitationRawResults({
+          generatedAnswer,
+        }),
+        ledgerChunks: generatedAnswer.trace.ledger.chunks,
+        knowledge: input.knowledge,
+      }),
+    )
     if (
       rawResults.length === 0 &&
       generatedAnswer.manifest.text.trim().length === 0 &&
@@ -871,7 +880,6 @@ function mapManifestCitationsToResults(
   )
 
   const results: RetrievalResult[] = []
-  const seenKeys = new Set<string>()
 
   for (const citation of result.manifest.citations) {
     const chunk =
@@ -879,12 +887,11 @@ function mapManifestCitationsToResults(
       resolveChunkForAssetRef(citation.ref, assetsByRef, chunksByRef)
     if (!chunk) continue
 
-    const retrievalResult = toRetrievalResultFromEvidenceChunk(chunk)
-    const key = getRetrievalResultKey(retrievalResult)
-    if (seenKeys.has(key)) continue
-
-    seenKeys.add(key)
-    results.push(retrievalResult)
+    results.push(
+      toRetrievalResultFromEvidenceChunk(
+        mergeChunkPageMetadata(chunk, result.trace.ledger.chunks),
+      ),
+    )
     if (results.length >= MAX_CITATION_RESULTS) break
   }
 
@@ -934,7 +941,9 @@ function mapDisplayedManifestArtifactsToResults(
           resolveChunkForAssetRef(sourceRef, assetsByRef, chunksByRef)
         if (!chunk) continue
 
-        const retrievalResult = toRetrievalResultFromEvidenceChunk(chunk)
+        const retrievalResult = toRetrievalResultFromEvidenceChunk(
+          mergeChunkPageMetadata(chunk, result.trace.ledger.chunks),
+        )
         const key = getRetrievalResultKey(retrievalResult)
         if (seenKeys.has(key)) continue
 
@@ -950,7 +959,9 @@ function mapDisplayedManifestArtifactsToResults(
       resolveChunkForAssetRef(artifact.ref, assetsByRef, chunksByRef)
     if (!chunk) continue
 
-    const retrievalResult = toRetrievalResultFromEvidenceChunk(chunk)
+    const retrievalResult = toRetrievalResultFromEvidenceChunk(
+      mergeChunkPageMetadata(chunk, result.trace.ledger.chunks),
+    )
     const key = getRetrievalResultKey(retrievalResult)
     if (seenKeys.has(key)) continue
 
@@ -960,6 +971,100 @@ function mapDisplayedManifestArtifactsToResults(
   }
 
   return results
+}
+
+function mergeChunkPageMetadata(
+  chunk: EvidenceChunk,
+  ledgerChunks: readonly EvidenceChunk[],
+): EvidenceChunk {
+  if (hasResolvablePageNumber(chunk) || !chunk.chunkId) return chunk
+
+  const donor = ledgerChunks.find(
+    (candidate) =>
+      candidate.ref !== chunk.ref &&
+      candidate.chunkId === chunk.chunkId &&
+      hasResolvablePageNumber(candidate),
+  )
+  if (!donor?.metadata) return chunk
+
+  return {
+    ...chunk,
+    metadata: { ...donor.metadata, ...chunk.metadata },
+  }
+}
+
+async function hydrateMissingCitationPageMetadata(input: {
+  readonly results: readonly RetrievalResult[]
+  readonly ledgerChunks: readonly EvidenceChunk[]
+  readonly knowledge: AnswerQuestionInput["knowledge"]
+}): Promise<RetrievalResult[]> {
+  const results = input.results.map((result) => {
+    const donor = input.ledgerChunks.find(
+      (chunk) =>
+        Boolean(result.chunkId) &&
+        chunk.chunkId === result.chunkId &&
+        hasResolvablePageNumber(chunk),
+    )
+    if (!donor?.metadata || resolvePageCitationPageNumber(result)) {
+      return result
+    }
+    return {
+      ...result,
+      metadata: { ...donor.metadata, ...result.metadata },
+    }
+  })
+
+  if (!input.knowledge) return results
+
+  return Promise.all(
+    results.map((result) =>
+      hydrateResultPageMetadataFromKnowledge(result, input.knowledge),
+    ),
+  )
+}
+
+async function hydrateResultPageMetadataFromKnowledge(
+  result: RetrievalResult,
+  knowledge: NonNullable<AnswerQuestionInput["knowledge"]>,
+): Promise<RetrievalResult> {
+  if (resolvePageCitationPageNumber(result)) return result
+  const documentId = result.source.documentId
+  const chunkId = result.chunkId
+  if (!documentId || !chunkId) return result
+
+  try {
+    const response = await knowledge.readChunks({ documentId, chunkId })
+    const chunk = response.chunks[0]
+    if (!chunk) return result
+    return {
+      ...result,
+      metadata: {
+        ...(chunk.metadata ?? {}),
+        ...(chunk.pageNumbers && chunk.pageNumbers.length > 0
+          ? { pageNums: chunk.pageNumbers }
+          : {}),
+        ...result.metadata,
+      },
+    }
+  } catch {
+    return result
+  }
+}
+
+function hasResolvablePageNumber(chunk: EvidenceChunk): boolean {
+  return (
+    resolvePageCitationPageNumber({
+      content: chunk.content,
+      chunkType: chunk.chunkType,
+      score: chunk.score,
+      metadata: chunk.metadata,
+      source: {
+        documentId: chunk.source.documentId ?? undefined,
+        sourceFileName: chunk.source.sourceFileName ?? undefined,
+        sectionPath: chunk.source.sectionPath ?? undefined,
+      },
+    }) !== undefined
+  )
 }
 
 function toRetrievalResultFromEvidenceChunk(

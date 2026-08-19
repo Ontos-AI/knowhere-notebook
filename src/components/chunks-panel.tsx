@@ -58,6 +58,7 @@ export type ChunksPanelProps = {
   focusedChunkRequestId?: number;
   focusedPageNumber?: number | null;
   focusedPageRequestId?: number;
+  focusedCitationId?: string | null;
   citationListViewRequestId?: number;
   isLoading?: boolean;
   isLoadingMore?: boolean;
@@ -87,6 +88,9 @@ export function ChunksPanel({
   selectedSourceFile = null,
   focusedChunkId = null,
   focusedChunkRequestId = 0,
+  focusedPageNumber = null,
+  focusedPageRequestId = 0,
+  focusedCitationId = null,
   citationListViewRequestId = 0,
   isLoading = false,
   isLoadingMore = false,
@@ -156,6 +160,8 @@ export function ChunksPanel({
     selectedSourceFile,
     focusedChunkId,
     focusedChunkRequestId,
+    focusedPageNumber,
+    focusedPageRequestId,
     hasMoreChunks,
     isLoading,
     isLoadingMore,
@@ -265,16 +271,13 @@ export function ChunksPanel({
       : chunkDisplayModeState.mode;
   const headerTitle = activeVisibleView === "original"
     ? "Original File"
-    : focusedChunkId
-      ? "Referenced Chunks"
-      : "Parsed Chunks";
+    : "Parsed Results";
   const shouldMountOriginalPreview =
     !isPageAssetSource &&
     (activeVisibleView === "original" ||
       (originalPreviewCacheKey !== null &&
         mountedOriginalPreviewKey === originalPreviewCacheKey));
   const isTreeModeVisible =
-    !isPageAssetSource &&
     activeVisibleView === "parsed" &&
     chunkDisplayMode === "tree";
   const headerSubtitle = activeVisibleView === "original" ? (
@@ -288,17 +291,15 @@ export function ChunksPanel({
     ) : (
       "Select a source to preview its original file."
     )
-  ) : focusedChunkId ? (
-    <>Showing relevant chunks from the last answer.</>
   ) : selectedSource ? (
     <>
-      Showing all parsed chunks from{" "}
+      From{" "}
       <span className="font-semibold italic text-foreground">
         {selectedSource}
       </span>
     </>
   ) : (
-    "Select a source to see its parsed chunks."
+    "Select a source to see its parsed results."
   );
 
   useEffect(() => {
@@ -336,8 +337,7 @@ export function ChunksPanel({
           </p>
         </div>
         <div className="flex min-w-0 shrink-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
-          {!isPageAssetSource &&
-          activeVisibleView === "parsed" &&
+          {activeVisibleView === "parsed" &&
           displayChunks.length > 0 ? (
             <div
               role="group"
@@ -414,7 +414,7 @@ export function ChunksPanel({
                   chunks={displayChunks}
                   focusedChunkId={activeFocusedChunkId}
                   isLoadingAllChunks={isLoadingAllChunks}
-                  sourceTitle={selectedSource ?? "Parsed Chunks"}
+                  sourceTitle={selectedSource ?? "Parsed Results"}
                   zoomPercent={sectionTreeZoomPercent}
                   onChunkFocus={handleTreeChunkFocus}
                   onWheelZoom={handleSectionTreeWheelZoom}
@@ -431,6 +431,8 @@ export function ChunksPanel({
                       virtualItem={virtualItem}
                       chunk={visibleChunks[virtualItem.index]}
                       focusedChunkId={activeFocusedChunkId}
+                      focusedCitationId={focusedCitationId}
+                      focusedPageNumber={focusedPageNumber}
                       isOriginalPreviewAvailable={isOriginalPreviewAvailable}
                       measureElement={measureVirtualChunkElement}
                       onChunkClick={
@@ -451,7 +453,7 @@ export function ChunksPanel({
               )}
             </div>
           </ScrollArea>
-          {!isPageAssetSource && isTreeModeVisible ? (
+          {isTreeModeVisible ? (
             <div
               data-testid="chunk-section-tree-zoom-overlay"
               className="pointer-events-none absolute left-3 top-3 z-20 sm:left-6 sm:top-6"
@@ -1212,6 +1214,8 @@ function VirtualChunkRow({
   virtualItem,
   chunk,
   focusedChunkId,
+  focusedCitationId,
+  focusedPageNumber,
   isOriginalPreviewAvailable,
   measureElement,
   onChunkClick,
@@ -1221,6 +1225,8 @@ function VirtualChunkRow({
   virtualItem: VirtualItem;
   chunk: ParsedChunkView | undefined;
   focusedChunkId: string | null;
+  focusedCitationId: string | null;
+  focusedPageNumber: number | null;
   isOriginalPreviewAvailable: boolean;
   measureElement: (node: HTMLDivElement | null) => void;
   onChunkClick?: (chunk: ParsedChunkView) => void;
@@ -1249,6 +1255,8 @@ function VirtualChunkRow({
       <ParsedChunkCard
         chunk={chunk}
         isFocused={chunk.chunkId === focusedChunkId}
+        focusedCitationId={focusedCitationId}
+        focusedPageNumber={focusedPageNumber}
         isOriginalPreviewAvailable={isOriginalPreviewAvailable}
         onChunkClick={onChunkClick}
         onReferenceClick={onReferenceClick}

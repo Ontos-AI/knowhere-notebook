@@ -125,9 +125,52 @@ describe("enrichRetrievalResultsWithPageCitationAssetUrls", () => {
     })
 
     expect(result?.pageCitationAssetUrl).toBeUndefined()
+    expect(result?.pageCitationPageNumber).toBe(4)
   })
 
-  it("leaves non-page results unchanged even when they have page metadata", async () => {
+  it("sets the page number from page_nums even when page assets are missing", async () => {
+    const [result] = await enrichRetrievalResultsWithPageCitationAssetUrls({
+      results: [
+        makeRetrievalResult({
+          chunkType: "page",
+          metadata: { page_nums: "25" },
+          source: {
+            documentId: "doc_1",
+            sourceFileName: "spacex-s1.pdf",
+            sectionPath: "spacex-s1.pdf / MD&A",
+          },
+        }),
+      ],
+      sources: [makeSource()],
+    })
+
+    expect(result?.pageCitationAssetUrl).toBeUndefined()
+    expect(result?.pageCitationPageNumber).toBe(25)
+  })
+
+  it("reads snake_case page_assets for the cited page number", async () => {
+    const [result] = await enrichRetrievalResultsWithPageCitationAssetUrls({
+      results: [
+        makeRetrievalResult({
+          chunkType: "page",
+          metadata: {
+            page_nums: [11],
+            page_assets: [
+              {
+                page_num: 11,
+                artifact_ref: "page_citation_assets/page-11.png",
+              },
+            ],
+          },
+        }),
+      ],
+      sources: [makeSource()],
+    })
+
+    expect(result?.pageCitationPageNumber).toBe(11)
+  })
+
+  it("attaches page numbers to text citations without turning them into page images", async () => {
     const [result] = await enrichRetrievalResultsWithPageCitationAssetUrls({
       results: [
         makeRetrievalResult({
@@ -148,6 +191,7 @@ describe("enrichRetrievalResultsWithPageCitationAssetUrls", () => {
     })
 
     expect(result?.pageCitationAssetUrl).toBeUndefined()
+    expect(result?.pageCitationPageNumber).toBe(4)
   })
 })
 

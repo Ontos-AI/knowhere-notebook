@@ -52,4 +52,43 @@ describe("workspaceClientCache", () => {
       messages: [],
     });
   });
+
+  it("reads cached source chunk pages for citation jumps", () => {
+    const cache = new Map<string, unknown>([
+      [
+        unstable_serialize(["source-chunks", "source_1", 1]),
+        {
+          data: {
+            chunks: [
+              {
+                chunkId: "page_4",
+                type: "page",
+                content: "Page 4",
+                sourceTitle: "report.pdf",
+              },
+            ],
+            pagination: {
+              page: 1,
+              pageSize: 50,
+              total: 1,
+              totalPages: 1,
+            },
+          },
+        },
+      ],
+    ]) as unknown as Cache<unknown>;
+
+    expect(workspaceClientCache.getCachedSourceChunks(cache, "source_1")).toEqual(
+      [
+        {
+          chunkId: "page_4",
+          type: "page",
+          content: "Page 4",
+          sourceTitle: "report.pdf",
+        },
+      ],
+    );
+    expect(workspaceClientCache.getCachedSourceChunks(cache, "source_missing"))
+      .toBeNull();
+  });
 });

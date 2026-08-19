@@ -70,13 +70,14 @@ describe("ChatMessageList", () => {
             id: "assistant_1",
             role: "assistant",
             content: [
-              "Capital expenditure appears in the appendix. [Source 1: spacex-s1.pdf / Assets / tables / table-25 Capital Expenditures.html]",
-              "Drivers are discussed elsewhere. [Source 3: spacex-s1.pdf / MD&A / Drivers of Our Performance]",
+              "Capital expenditure appears in the appendix. [[cite:1]]",
+              "Drivers are discussed elsewhere. [[cite:3]]",
             ].join("\n\n"),
             citations: [
               {
                 chunkType: "table",
                 score: 0.9,
+                pageCitationPageNumber: 25,
                 source: {
                   documentId: "doc_1",
                   sourceFileName: "spacex-s1.pdf",
@@ -87,6 +88,7 @@ describe("ChatMessageList", () => {
               {
                 chunkType: "table",
                 score: 0.91,
+                pageCitationPageNumber: 25,
                 source: {
                   documentId: "doc_1",
                   sourceFileName: "spacex-s1.pdf",
@@ -97,6 +99,7 @@ describe("ChatMessageList", () => {
               {
                 chunkType: "text",
                 score: 0.8,
+                pageCitationPageNumber: 40,
                 source: {
                   documentId: "doc_1",
                   sourceFileName: "spacex-s1.pdf",
@@ -110,16 +113,27 @@ describe("ChatMessageList", () => {
       }),
     );
 
-    expect(screen.getByText("Capital expenditure appears in the appendix."))
+    expect(screen.getByText(/Capital expenditure appears in the appendix./u))
       .toBeTruthy();
     expect(screen.queryByText(/Source 1/u)).toBeNull();
-    expect(screen.queryByText(/Source 3/u)).toBeNull();
+    expect(screen.queryByText(/\[\[cite:/u)).toBeNull();
     expect(screen.getByText("Sources")).toBeTruthy();
-    const sourceChips = screen.getAllByRole("button", {
-      name: "Open source spacex-s1.pdf",
-    });
+    const sourceChips = screen.getAllByTestId("citation-chip");
 
     expect(sourceChips).toHaveLength(2);
+    expect(sourceChips[0]?.textContent).toBe("spacex-s1.pdf/p25");
+    expect(sourceChips[1]?.textContent).toBe("spacex-s1.pdf/p40");
+    expect(sourceChips[0]?.className).toContain("bg-muted");
+    expect(sourceChips[0]?.className).toContain("h-5");
+    expect(
+      screen.getByRole("button", { name: "Open source spacex-s1.pdf" }),
+    ).toBeTruthy();
+    expect(
+      screen.getAllByRole("button", { name: "Open page 25 of spacex-s1.pdf" }),
+    ).toHaveLength(1);
+    expect(
+      screen.getByRole("button", { name: "Open page 40 of spacex-s1.pdf" }),
+    ).toBeTruthy();
 
     await user.hover(sourceChips[0]!);
 
@@ -161,7 +175,7 @@ describe("ChatMessageList", () => {
     );
 
     const citationButton = screen.getByRole("button", {
-      name: "Open source report.pdf",
+      name: "Open page 4 of report.pdf",
     });
     expect(
       screen.queryByRole("link", {
@@ -179,7 +193,7 @@ describe("ChatMessageList", () => {
     );
   });
 
-  it("removes description-only source labels without changing other markdown whitespace", () => {
+  it("renders inline chips for leftover Source tokens without rewriting fenced code", () => {
     render(
       React.createElement(ChatMessageList, {
         messages: [
@@ -198,6 +212,7 @@ describe("ChatMessageList", () => {
                 chunkType: "text",
                 score: 0.9,
                 description: "revenue growth",
+                pageCitationPageNumber: 2,
                 source: {
                   documentId: "doc_1",
                   sourceFileName: "notes.pdf",
@@ -210,11 +225,54 @@ describe("ChatMessageList", () => {
       }),
     );
 
-    expect(screen.getByText("Revenue improved.")).toBeTruthy();
+    expect(screen.getByText(/Revenue improved/u)).toBeTruthy();
     expect(screen.queryByText(/Source 1/u)).toBeNull();
+    expect(screen.getByRole("button", { name: "Open source notes.pdf/p2" }))
+      .toBeTruthy();
     expect(document.querySelector("code.language-ts")?.textContent).toContain(
       "const  value = 1;",
     );
+  });
+
+  it("keeps two same-page citation chips as separate buttons", () => {
+    render(
+      React.createElement(ChatMessageList, {
+        messages: [
+          {
+            id: "assistant_1",
+            role: "assistant",
+            content: "First claim [[cite:1]] and second claim [[cite:2]].",
+            citations: [
+              {
+                chunkType: "page",
+                score: 0.9,
+                pageCitationPageNumber: 2,
+                source: {
+                  documentId: "doc_1",
+                  sourceFileName: "spacex-s1.pdf",
+                  sectionPath: "Page 2",
+                },
+              },
+              {
+                chunkType: "page",
+                score: 0.88,
+                pageCitationPageNumber: 2,
+                source: {
+                  documentId: "doc_1",
+                  sourceFileName: "spacex-s1.pdf",
+                  sectionPath: "Page 2",
+                },
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(
+      screen.getAllByRole("button", { name: "Open source spacex-s1.pdf/p2" }),
+    ).toHaveLength(2);
+    expect(screen.getAllByTestId("citation-chip")).toHaveLength(2);
   });
 
   it("preserves repeated spaces when there are no citation tokens to remove", () => {
@@ -531,6 +589,52 @@ describe("ChatMessageList", () => {
     expect(screen.getByRole("status", { name: "Thinking" })).toBeTruthy();
     expect(
       within(screen.getByTestId("chat-scroll")).getByText("What changed?"),
+    ).toBeTruthy();
+  });
+
+  it("copies visible answer text and keeps export markdown citation-stripped", async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+
+    render(
+      React.createElement(ChatMessageList, {
+        messages: [
+          {
+            id: "assistant_1",
+            role: "assistant",
+            content: "Revenue grew [[cite:1]].",
+            citations: [
+              {
+                chunkType: "page",
+                score: 0.9,
+                pageCitationPageNumber: 26,
+                source: {
+                  documentId: "doc_1",
+                  sourceFileName: "spacex-s1.pdf",
+                  sectionPath: "Page 26",
+                },
+              },
+            ],
+          },
+        ],
+        sourceTitlesByDocumentId: { doc_1: "spacex-s1.pdf" },
+      }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Copy answer" }));
+    expect(writeText).toHaveBeenCalledWith(
+      expect.stringContaining("Revenue grew spacex-s1.pdf/p26."),
+    );
+    expect(writeText.mock.calls[0]?.[0]).not.toContain("[[cite:");
+    expect(
+      screen.getByRole("button", { name: "Download answer as Markdown" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Download answer as PDF" }),
     ).toBeTruthy();
   });
 });

@@ -101,6 +101,41 @@ describe("SourcesPanel", () => {
     expect(uploadButton.querySelector("svg")).toBeTruthy();
   });
 
+  it("always shows the open-library action, even without catalog sources", () => {
+    const onLibraryOpen = vi.fn();
+
+    render(
+      React.createElement(C, {
+        sources: [],
+        onLibraryOpen,
+      }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open library" }));
+    expect(onLibraryOpen).toHaveBeenCalledOnce();
+    expect(screen.getByRole("button", { name: "Open library" }).textContent)
+      .toContain("open library");
+  });
+
+  it("keeps the narrow open-library trigger visible as an icon button", () => {
+    const onLibraryOpen = vi.fn();
+
+    render(
+      React.createElement(C, {
+        isNarrow: true,
+        sources: [],
+        onLibraryOpen,
+      }),
+    );
+
+    const libraryButton = screen.getByRole("button", { name: "Open library" });
+    expect(libraryButton.textContent).toBe("");
+    expect(libraryButton.querySelector("svg")).toBeTruthy();
+
+    fireEvent.click(libraryButton);
+    expect(onLibraryOpen).toHaveBeenCalledOnce();
+  });
+
   it("keeps upload confirmation controls visible inside the dialog viewport", async () => {
     const user = userEvent.setup();
 
