@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest"
 import type {
-  KnowledgeGrepMatch,
   KnowledgeGrepResponse,
   KnowledgeReadResponse,
   RetrievalQueryResponse,
@@ -164,7 +163,7 @@ describe("createEvidenceLedger", () => {
           endOffset: 12,
           snippet: "automotive revenues",
           pageNumbers: [4],
-        } as KnowledgeGrepMatch,
+        },
       ],
     })
 

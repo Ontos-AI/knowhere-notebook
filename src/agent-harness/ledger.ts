@@ -255,17 +255,13 @@ function addChunkFromGrepMatch(input: {
   readonly match: KnowledgeGrepMatch
   readonly ref: string
 }): void {
-  const matchWithPages = input.match as KnowledgeGrepMatch & {
-    readonly pageNumbers?: readonly number[]
-    readonly metadata?: Readonly<Record<string, unknown>>
-  }
   const donor = input.ledger.chunks.find(
     (chunk) =>
       chunk.chunkId === input.match.chunkId && hasPageMetadata(chunk.metadata),
   )
   const pageNums =
-    matchWithPages.pageNumbers && matchWithPages.pageNumbers.length > 0
-      ? [...matchWithPages.pageNumbers]
+    input.match.pageNumbers && input.match.pageNumbers.length > 0
+      ? [...input.match.pageNumbers]
       : undefined
 
   addChunk({
@@ -282,7 +278,6 @@ function addChunkFromGrepMatch(input: {
       filePath: input.match.filePath,
       metadata: {
         ...(donor?.metadata ?? {}),
-        ...(matchWithPages.metadata ?? {}),
         ...(pageNums ? { pageNums } : {}),
         position: input.match.position,
         startOffset: input.match.startOffset,
