@@ -1,7 +1,9 @@
 import { Effect } from "effect"
 
+import type { Source } from "@/infrastructure/db/schema"
 import { routeResult } from "@/lib/route-result"
 import { getClientForWorkspace } from "./route-dependencies"
+import { decodeRemoteSourceId } from "./remote-library"
 import type {
   ArchiveSourceBody,
   ArchiveSourceInput,
@@ -51,38 +53,83 @@ const archiveSourceEffect = (
       deps.sourceService.findInWorkspace(workspace.id, input.sourceId),
     )
 
-    if (!source) {
-      const catalog = yield* Effect.tryPromise(() => deps.demoApi.fetchCatalog())
-      const isDemoSource = catalog.sources.some(
-        (candidate) => candidate.demoSourceId === input.sourceId,
-      )
-      if (isDemoSource) {
-        yield* Effect.tryPromise(() =>
-          deps.sourceService.hideDemoSource(workspace.id, input.sourceId),
+    if (source) {
+      if (source.knowhereDocumentId) {
+        yield* archiveKnowhereDocument(
+          workspace.id,
+          input.cookieHeader,
+          source.knowhereDocumentId,
+          deps,
         )
-        return routeResult.ok({ id: input.sourceId, archived: true as const })
       }
 
+      yield* cleanupLocalSource(workspace.id, source, deps)
+      return routeResult.ok({ id: input.sourceId, archived: true as const })
+    }
+
+    const catalog = yield* Effect.tryPromise(() => deps.demoApi.fetchCatalog())
+    const isDemoSource = catalog.sources.some(
+      (candidate) => candidate.demoSourceId === input.sourceId,
+    )
+    if (isDemoSource) {
+      yield* Effect.tryPromise(() =>
+        deps.sourceService.hideDemoSource(workspace.id, input.sourceId),
+      )
+      return routeResult.ok({ id: input.sourceId, archived: true as const })
+    }
+
+    const remoteSource = decodeRemoteSourceId(input.sourceId)
+    if (!remoteSource) {
       return routeResult.error(404, "Source not found.")
     }
 
-    if (source.knowhereDocumentId) {
-      const client = yield* Effect.tryPromise(() =>
-        getClientForWorkspace(workspace.id, input.cookieHeader, deps),
-      )
-      yield* Effect.tryPromise(() =>
-        client.documents.archive(source.knowhereDocumentId!),
-      ).pipe(
-        Effect.catchIf(isKnowhereDocumentNotFoundError, () => Effect.void),
-      )
+    yield* archiveKnowhereDocument(
+      workspace.id,
+      input.cookieHeader,
+      remoteSource.documentId,
+      deps,
+    )
+
+    const localSource = yield* Effect.tryPromise(() =>
+      deps.sourceService.findByKnowhereDocumentId(
+        workspace.id,
+        remoteSource.documentId,
+      ),
+    )
+    if (localSource) {
+      yield* cleanupLocalSource(workspace.id, localSource, deps)
     }
 
+    return routeResult.ok({ id: input.sourceId, archived: true as const })
+  })
+
+const archiveKnowhereDocument = (
+  workspaceId: string,
+  cookieHeader: string,
+  documentId: string,
+  deps: RouteArchiveDependencies,
+) =>
+  Effect.gen(function* () {
+    const client = yield* Effect.tryPromise(() =>
+      getClientForWorkspace(workspaceId, cookieHeader, deps),
+    )
+    yield* Effect.tryPromise(() => client.documents.archive(documentId)).pipe(
+      Effect.catchIf(isKnowhereDocumentNotFoundError, () => Effect.void),
+    )
+  })
+
+const cleanupLocalSource = (
+  workspaceId: string,
+  source: Source,
+  deps: RouteArchiveDependencies,
+) =>
+  Effect.gen(function* () {
     yield* Effect.tryPromise(() =>
-      deps.sourceService.softDelete(workspace.id, input.sourceId),
+      deps.sourceService.softDelete(workspaceId, source.id),
     )
     if (source.demoKey) {
       yield* Effect.tryPromise(() =>
-        deps.sourceService.hideDemoSource(workspace.id, source.demoKey!),
+        deps.sourceService.hideDemoSource(workspaceId, source.demoKey!),
       )
     }
     if (source.originalBlobPathname) {
@@ -90,8 +137,6 @@ const archiveSourceEffect = (
         deps.deleteBlob(source.originalBlobPathname!),
       ).pipe(Effect.catchAllCause(() => Effect.void))
     }
-
-    return routeResult.ok({ id: input.sourceId, archived: true as const })
   })
 
 function isKnowhereDocumentNotFoundError(error: unknown): boolean {

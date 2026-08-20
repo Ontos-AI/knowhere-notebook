@@ -45,6 +45,7 @@ const defaultDependencies: SourceRouteServiceDependencies = {
   requireUser,
   sourceService: {
     findInWorkspace: defaultSourceService.findInWorkspace,
+    findByKnowhereDocumentId: defaultSourceService.findByKnowhereDocumentId,
     hideDemoSource: defaultSourceService.hideDemoSource,
     listHiddenDemoSourceIds: defaultSourceService.listHiddenDemoSourceIds,
     localizeRemoteDocument: defaultSourceService.localizeRemoteDocument,

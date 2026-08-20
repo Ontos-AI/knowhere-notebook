@@ -186,6 +186,15 @@ describe("answerQuestionWithRetrieval", () => {
           status: "ready",
           currentJobResultId: "job_remote",
           sourceFileName: "remote.pdf",
+          documentMetadata: {
+            createdByClient: "cli",
+          },
+        },
+        {
+          documentId: "doc_untagged",
+          namespace: "default",
+          status: "ready",
+          sourceFileName: "dummy.pdf",
         },
       ],
     });
