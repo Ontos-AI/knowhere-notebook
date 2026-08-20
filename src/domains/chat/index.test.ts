@@ -639,6 +639,61 @@ describe("answerQuestionWithRetrieval", () => {
     ]);
   });
 
+  it("keeps two manifest citations to the same evidence chunk as two answer citations", async () => {
+    const result = makeRetrievalResult({
+      content: "Revenue grew on the same page twice.",
+      chunkType: "page",
+      source: {
+        documentId: "doc_included",
+        sourceFileName: "spacex-s1.pdf",
+        sectionPath: "Page 26",
+      },
+    });
+    const retrieval = {
+      query: vi.fn().mockResolvedValue({
+        results: [result],
+        evidenceText: "Revenue page evidence.",
+        referencedChunks: [],
+        namespace: "notebook-workspace",
+        query: "What grew?",
+        routerUsed: "workflow_single_step",
+        answerText: null,
+      }),
+    };
+    const generateAnswer = vi.fn(async ({ searchSources }) => {
+      await searchSources({ query: "What grew?" });
+      return makeHarnessRunResultWithLedger(
+        "Revenue grew [[cite:1]] and later expanded [[cite:2]].",
+        {
+          citations: [
+            makeOutputCitation("r1:result:1", result),
+            makeOutputCitation("r1:result:1", result),
+          ],
+          chunks: [makeEvidenceChunkFromRetrievalResult("r1:result:1", result)],
+        },
+      );
+    });
+
+    const answer = await Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "What grew?",
+        namespace: "notebook-workspace",
+        sources: [makeSource()],
+        excludedSourceIds: [],
+        retrieval,
+        generateAnswer,
+        messages: [],
+      }),
+    );
+
+    expect(answer.answer).toBe(
+      "Revenue grew [[cite:1]] and later expanded [[cite:2]].",
+    );
+    expect(answer.citations).toHaveLength(2);
+    expect(answer.citations[0]?.source.sectionPath).toBe("Page 26");
+    expect(answer.citations[1]?.source.sectionPath).toBe("Page 26");
+  });
+
   it("uses Notebook source titles instead of generated Knowhere filenames", async () => {
     const result = makeRetrievalResult({
       source: {
@@ -1213,6 +1268,87 @@ describe("answerQuestionWithRetrieval", () => {
       artifacts: undefined,
     });
     expect(answer.citations[0]?.pageCitationAssetUrl).toBe(hardenedPageAssetUrl);
+  });
+
+  it("hydrates page numbers for grep citations from the matching parsed chunk", async () => {
+    const grepChunk = {
+      ref: "grep1:match:1",
+      kind: "grep_match" as const,
+      chunkId: "chunk_financial_summary",
+      content: "ept percentages and per share data)\nTotal automotive revenues\n17,693",
+      contentPreview: "ept percentages and per share data)",
+      chunkType: "page",
+      score: null,
+      metadata: {
+        position: 1,
+        startOffset: 12,
+        endOffset: 80,
+      },
+      source: {
+        documentId: "doc_tsla",
+        sourceFileName: "TSLA-Q4-2025-Update.pdf",
+        sectionPath: "FINANCIAL SUMMARY",
+      },
+    };
+    const retrieval = {
+      query: vi.fn(),
+    };
+    const readChunks = vi.fn().mockResolvedValue({
+      document: {
+        documentId: "doc_tsla",
+        sourceFileName: "TSLA-Q4-2025-Update.pdf",
+      },
+      chunks: [
+        {
+          position: 1,
+          chunkId: "chunk_financial_summary",
+          chunkType: "page",
+          content: "Full financial summary page.",
+          readableContent: "Full financial summary page.",
+          sectionPath: "FINANCIAL SUMMARY",
+          sourceChunkPath: "pages/page-4.md",
+          pageNumbers: [4, 5],
+          metadata: {
+            pageNums: [4, 5],
+          },
+        },
+      ],
+    });
+    const generateAnswer = vi.fn(async () =>
+      makeHarnessRunResultWithLedger(
+        "Automotive revenue was $17,693 million [[cite:1]].",
+        {
+          citations: [{ ref: "grep1:match:1" }],
+          chunks: [grepChunk],
+        },
+      ),
+    );
+
+    const answer = await Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "Tesla automotive revenue",
+        namespace: "notebook-workspace",
+        sources: [
+          makeSource({
+            id: "source_tsla",
+            title: "TSLA-Q4-2025-Update.pdf",
+            knowhereDocumentId: "doc_tsla",
+          }),
+        ],
+        excludedSourceIds: [],
+        retrieval,
+        knowledge: { readChunks } as unknown as Knowledge,
+        generateAnswer,
+        messages: [],
+      }),
+    );
+
+    expect(readChunks).toHaveBeenCalledWith({
+      documentId: "doc_tsla",
+      chunkId: "chunk_financial_summary",
+    });
+    expect(answer.citations[0]?.pageCitationPageNumber).toBe(4);
+    expect(answer.citations[0]?.source.sectionPath).toBe("FINANCIAL SUMMARY");
   });
 
   it("returns only harness-selected artifacts when retrieval has extra media candidates", async () => {

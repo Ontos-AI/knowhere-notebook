@@ -2,7 +2,10 @@ import type { RetrievalResult } from "@ontos-ai/knowhere-sdk"
 
 import type { Source } from "@/infrastructure/db/schema"
 import type { ChatCitationView } from "@/domains/chat/types"
-import type { PageCitationAssetRetrievalResult } from "./page-citation-assets"
+import {
+  resolvePageCitationPageNumber,
+  type PageCitationAssetRetrievalResult,
+} from "./page-citation-assets"
 
 export function toChatCitationViews(
   results: readonly PageCitationAssetRetrievalResult[],
@@ -12,6 +15,7 @@ export function toChatCitationViews(
 
   return results.map((result, index) => {
     const description = descriptionsBySourceNumber.get(index + 1)
+    const pageCitationPageNumber = resolvePageCitationPageNumber(result)
     return {
       content: result.content,
       chunkType: result.chunkType,
@@ -20,8 +24,8 @@ export function toChatCitationViews(
       ...(result.pageCitationAssetUrl
         ? { pageCitationAssetUrl: result.pageCitationAssetUrl }
         : {}),
-      ...(result.pageCitationPageNumber
-        ? { pageCitationPageNumber: result.pageCitationPageNumber }
+      ...(pageCitationPageNumber
+        ? { pageCitationPageNumber }
         : {}),
       ...(description ? { description } : {}),
       source: {

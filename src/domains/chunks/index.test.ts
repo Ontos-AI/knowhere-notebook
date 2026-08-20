@@ -205,6 +205,39 @@ describe("toParsedChunkView", () => {
     });
   });
 
+  it("maps demo API snake_case page citation assets on page chunks", () => {
+    const chunk = makeDocumentChunk({
+      id: "document_page_1",
+      chunkId: "parser_page_1",
+      chunkType: "page" as DocumentChunk["chunkType"],
+      metadata: {
+        page_assets: [
+          {
+            page_num: 8,
+            asset_url:
+              "/api/demo-sources/demo-tsla-q4-2025/assets/page_citation_assets/page-8.png",
+            content_type: "image/png",
+            width: 1200,
+            height: 1600,
+          },
+        ],
+      },
+    });
+
+    expect(toParsedChunkView(chunk, "manual.pdf", "doc_123")).toMatchObject({
+      pageAssets: [
+        {
+          pageNumber: 8,
+          assetUrl:
+            "/api/demo-sources/demo-tsla-q4-2025/assets/page_citation_assets/page-8.png",
+          contentType: "image/png",
+          width: 1200,
+          height: 1600,
+        },
+      ],
+    });
+  });
+
   it("maps SDK-normalized page number metadata", () => {
     const chunk = makeDocumentChunk({
       metadata: {
@@ -442,6 +475,22 @@ describe("loadChunkPageForSource", () => {
     ).toEqual({
       page: 1,
       pageSize: 200,
+    });
+  });
+
+  it("reads optional chunkType from the chunks query", () => {
+    expect(
+      getChunkPageParams(
+        new URLSearchParams({
+          page: "2",
+          pageSize: "50",
+          chunkType: "page",
+        }),
+      ),
+    ).toEqual({
+      page: 2,
+      pageSize: 50,
+      chunkType: "page",
     });
   });
 

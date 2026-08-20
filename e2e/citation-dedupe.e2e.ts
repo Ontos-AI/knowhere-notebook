@@ -87,3 +87,24 @@ test("keeps duplicate source labels clickable for separate documents", async ({
   await expect(page.getByText("First report source content.")).toBeVisible()
   expect(firstSourceChunkRequests).toBeGreaterThan(0)
 })
+
+test("keeps two chips to the same title/pN as separate buttons", async ({
+  context,
+  page,
+}) => {
+  await context.addCookies([
+    {
+      name: "better-auth.session_token",
+      value: "playwright",
+      url: "http://localhost:3000",
+    },
+  ])
+
+  await page.goto("/e2e/citation-same-page")
+
+  const chatPanel = page.getByTestId("desktop-chat-panel")
+  await expect(chatPanel.getByTestId("citation-chip")).toHaveCount(2)
+  await expect(
+    chatPanel.getByRole("button", { name: "Open source spacex-s1.pdf/p26" }),
+  ).toHaveCount(2)
+})

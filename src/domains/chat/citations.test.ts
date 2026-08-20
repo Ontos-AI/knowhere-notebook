@@ -44,6 +44,25 @@ describe("toChatCitationViews", () => {
       "https://blob.example/pages/page-000004.png",
     )
   })
+
+  it("copies the page number from retrieval metadata onto the citation chip", () => {
+    const citations = toChatCitationViews(
+      [
+        makeRetrievalResult({
+          chunkType: "page",
+          metadata: { page_nums: [26] },
+          source: {
+            documentId: "doc_1",
+            sourceFileName: "spacex-s1.pdf",
+            sectionPath: "spacex-s1.pdf / Overview",
+          },
+        }),
+      ],
+      "Revenue grew.",
+    )
+
+    expect(citations[0]?.pageCitationPageNumber).toBe(26)
+  })
 })
 
 function makeRetrievalResult(

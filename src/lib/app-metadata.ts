@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 export const appMetadata: Metadata = {
-  title: "Knowhere Notebook",
+  title: "Knowhere Brain",
   description:
     "Upload documents, explore parsed content, and ask questions about your knowledge.",
   icons: {

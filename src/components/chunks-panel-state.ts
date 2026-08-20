@@ -41,6 +41,7 @@ type ChunksPanelStateModule = {
   readonly getChunksWithFocusedFirst: (
     chunks: readonly ParsedChunkView[],
     focusedChunkId: string | null,
+    focusedPageNumber?: number | null,
   ) => readonly ParsedChunkView[]
   readonly getPageAssetChunksWithoutDuplicatePages: (
     chunks: readonly ParsedChunkView[],
@@ -57,14 +58,17 @@ const knowhereSectionSegmentSeparator = /--!?>|\/+/
 function getChunksWithFocusedFirst(
   chunks: readonly ParsedChunkView[],
   focusedChunkId: string | null,
+  focusedPageNumber: number | null = null,
 ): readonly ParsedChunkView[] {
   const orderedChunks = getChunksOrderedByPageNumber(
     dedupeChunksById(chunks),
   )
-  if (!focusedChunkId) return orderedChunks
+  const targetChunkId =
+    focusedChunkId ?? findChunkIdForPageNumber(orderedChunks, focusedPageNumber)
+  if (!targetChunkId) return orderedChunks
 
   const focusedIndex = orderedChunks.findIndex(
-    (chunk) => chunk.chunkId === focusedChunkId,
+    (chunk) => chunk.chunkId === targetChunkId,
   )
   if (focusedIndex <= 0) return orderedChunks
 
@@ -74,6 +78,31 @@ function getChunksWithFocusedFirst(
     ...orderedChunks.slice(0, focusedIndex),
     ...orderedChunks.slice(focusedIndex + 1),
   ]
+}
+
+function findChunkIdForPageNumber(
+  chunks: readonly ParsedChunkView[],
+  pageNumber: number | null,
+): string | null {
+  if (pageNumber === null) return null
+  return (
+    chunks.find((chunk) => chunkMatchesPageNumber(chunk, pageNumber))
+      ?.chunkId ?? null
+  )
+}
+
+function chunkMatchesPageNumber(
+  chunk: ParsedChunkView,
+  pageNumber: number,
+): boolean {
+  if (
+    (chunk.pageAssets ?? []).some(
+      (pageAsset) => pageAsset.pageNumber === pageNumber,
+    )
+  ) {
+    return true
+  }
+  return (chunk.pageNums ?? []).includes(pageNumber)
 }
 
 function getChunksOrderedByPageNumber(
@@ -107,7 +136,7 @@ function buildSectionTree(
   const root = createMutableSectionTreeNode({
     id: "root",
     kind: "root",
-    label: sourceTitle.trim() || "Parsed Chunks",
+    label: sourceTitle.trim() || "Parsed Results",
   })
   const chunksByParserChunkId = new Map(
     uniqueChunks
@@ -166,6 +195,8 @@ function getPageAssetChunksWithoutDuplicatePages(
   const seenPageNumbers = new Set<number>()
 
   return chunks.filter((chunk) => {
+    // Page-memory table assets currently store a file path, not HTML.
+    if (chunk.type === "table") return false
     if (chunk.type !== "page") return true
 
     const pageNumber = getPageAssetChunkPageNumber(chunk)

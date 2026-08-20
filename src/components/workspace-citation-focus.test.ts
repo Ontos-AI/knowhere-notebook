@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import React from "react";
-import { SWRConfig } from "swr";
+import { SWRConfig, unstable_serialize } from "swr";
 import { describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 
@@ -216,14 +216,147 @@ describe("useWorkspaceCitationFocus", () => {
       await result.current.handleCitationClick(pageCitation, "message_1:0");
     });
 
-    expect(fetchChunks).toHaveBeenCalledWith("source_1");
+    expect(fetchChunks).toHaveBeenCalledWith("source_1", {
+      chunkType: "page",
+      untilPageNumber: 4,
+    });
     expect(selectSource).toHaveBeenCalledWith("source_1");
     expect(result.current.focusedChunk.chunkId).toBe("page_4");
     expect(result.current.focusedPage).toEqual({
-      pageNumber: null,
-      requestId: 0,
+      pageNumber: 4,
+      requestId: 1,
+      citationId: "message_1:0",
     });
     expect(result.current.citationListViewRequestId).toBe(1);
+  });
+
+  it("uses cached SWR pages for file B while viewing A without loading all chunk types", async () => {
+    const pageChunk: ParsedChunkView = {
+      chunkId: "page_4",
+      documentId: "document_1",
+      type: "page",
+      content: "Page 4 summary",
+      sourceTitle: "Contract.pdf",
+      pageAssets: [
+        {
+          pageNumber: 4,
+          assetUrl: "https://assets.example/page-000004.png",
+          contentType: "image/png",
+        },
+      ],
+    };
+    const fetchChunks = vi.fn(async () => [pageChunk]);
+    const selectSource = vi.fn();
+    const viewingSource: SourceView = {
+      id: "source_2",
+      title: "Other.pdf",
+      mimeType: "application/pdf",
+      status: "ready",
+      documentId: "document_2",
+    };
+    const pageAssetSource: SourceView = {
+      ...readySource,
+      documentPresentation: { kind: "page-assets", pageCount: 8 },
+    };
+    const pageCitation: ChatCitationView = {
+      chunkType: "page",
+      score: 0.9,
+      pageCitationAssetUrl: "https://assets.example/page-000004.png",
+      pageCitationPageNumber: 4,
+      source: {
+        documentId: "document_1",
+        sourceFileName: "Contract.pdf",
+        sectionPath: "Page 4",
+      },
+    };
+    const cache = new Map([
+      [
+        unstable_serialize(["source-chunks", "source_1", 1]),
+        {
+          data: {
+            chunks: [pageChunk],
+            pagination: {
+              page: 1,
+              pageSize: 50,
+              total: 1,
+              totalPages: 1,
+            },
+          },
+        },
+      ],
+    ]);
+
+    const { result } = renderHook(
+      () =>
+        useWorkspaceCitationFocus({
+          fetchChunks,
+          onSelectSource: selectSource,
+          selectedSourceId: "source_2",
+          sources: [pageAssetSource, viewingSource],
+        }),
+      {
+        wrapper: ({ children }: { readonly children: ReactNode }) =>
+          React.createElement(
+            SWRConfig,
+            { value: { provider: () => cache } },
+            children,
+          ),
+      },
+    );
+
+    await act(async () => {
+      await result.current.handleCitationClick(pageCitation, "message_1:0");
+    });
+
+    expect(fetchChunks).not.toHaveBeenCalled();
+    expect(selectSource).toHaveBeenCalledWith("source_1");
+    expect(result.current.focusedChunk.chunkId).toBe("page_4");
+    expect(result.current.focusedPage.pageNumber).toBe(4);
+    expect(result.current.focusedPage.citationId).toBe("message_1:0");
+  });
+
+  it("loads only page-type chunks when the tree asks for a full page-asset source", async () => {
+    const pageChunk: ParsedChunkView = {
+      chunkId: "page_4",
+      documentId: "document_1",
+      type: "page",
+      content: "Page 4 summary",
+      sourceTitle: "Contract.pdf",
+      pageAssets: [
+        {
+          pageNumber: 4,
+          assetUrl: "https://assets.example/page-000004.png",
+          contentType: "image/png",
+        },
+      ],
+    };
+    const fetchChunks = vi.fn(async () => [pageChunk]);
+    const pageAssetSource: SourceView = {
+      ...readySource,
+      documentPresentation: { kind: "page-assets", pageCount: 8 },
+    };
+
+    const { result } = renderHook(
+      () =>
+        useWorkspaceCitationFocus({
+          fetchChunks,
+          onSelectSource: vi.fn(),
+          selectedSourceId: "source_1",
+          sources: [pageAssetSource],
+        }),
+      { wrapper: createSWRWrapper },
+    );
+
+    await act(async () => {
+      result.current.handleLoadAllChunks();
+    });
+
+    await waitFor(() => {
+      expect(fetchChunks).toHaveBeenCalledWith("source_1", { chunkType: "page" });
+    });
+    expect(result.current.prefetchedChunksBySourceId).toEqual({
+      source_1: [pageChunk],
+    });
   });
 
   it("reuses cached chunks for a different source without refetching", async () => {
@@ -260,6 +393,51 @@ describe("useWorkspaceCitationFocus", () => {
     expect(Object.keys(result.current.prefetchedChunksBySourceId)).toContain(
       "source_1",
     );
+  });
+
+  it("focuses a second citation on the selected source without refetching", async () => {
+    const secondChunk: ParsedChunkView = {
+      chunkId: "chunk_2",
+      documentId: "document_1",
+      sectionPath: "Costs",
+      type: "text",
+      content: "Costs rose in the quarter.",
+      sourceTitle: "Contract.pdf",
+    };
+    const secondCitation: ChatCitationView = {
+      chunkType: "text",
+      score: 0.9,
+      content: "Costs rose in the quarter.",
+      source: {
+        documentId: "document_1",
+        sourceFileName: "Contract.pdf",
+        sectionPath: "Costs",
+      },
+    };
+    const fetchChunks = vi.fn(async () => [prefetchedChunk, secondChunk]);
+    const selectSource = vi.fn();
+
+    const { result } = renderHook(() =>
+      useWorkspaceCitationFocus({
+        fetchChunks,
+        onSelectSource: selectSource,
+        selectedSourceId: "source_1",
+        sources: [readySource],
+      }),
+      { wrapper: createSWRWrapper },
+    );
+
+    await act(async () => {
+      await result.current.handleCitationClick(citation, "message_1:0");
+    });
+    await act(async () => {
+      await result.current.handleCitationClick(secondCitation, "message_1:1");
+    });
+
+    expect(fetchChunks).toHaveBeenCalledTimes(1);
+    expect(fetchChunks).toHaveBeenCalledWith("source_1");
+    expect(result.current.focusedChunk.chunkId).toBe("chunk_2");
+    expect(result.current.focusedPage.citationId).toBe("message_1:1");
   });
 });
 

@@ -57,11 +57,31 @@ const tableAllowedAttributes = [
 ] as const
 
 function getSourceMetadata(chunk: ParsedChunkView): ChunkSourceMetadata {
+  if (chunk.type === "page") {
+    const pageFromAssets = chunk.pageAssets?.[0]?.pageNumber
+    const parsePath =
+      getTrimmedParsePath(chunk.filePath) ??
+      chunksPanelState.formatChunkSectionPath(chunk.sectionPath)
+
+    return {
+      pageLabel: pageFromAssets
+        ? `Page ${pageFromAssets}`
+        : formatPageNumbers(chunk.pageNums),
+      sectionLabel: parsePath,
+      typeLabel: getChunkTypeLabel(chunk.type),
+    }
+  }
+
   return {
     pageLabel: formatPageNumbers(chunk.pageNums),
     sectionLabel: chunksPanelState.formatChunkSectionPath(chunk.sectionPath),
     typeLabel: getChunkTypeLabel(chunk.type),
   }
+}
+
+function getTrimmedParsePath(value: string | null | undefined): string | null {
+  const trimmed = value?.trim() ?? ""
+  return trimmed.length > 0 ? trimmed : null
 }
 
 function getTextContentParts(

@@ -87,6 +87,49 @@ describe("useChunksPanelWorkflow", () => {
     ])
   })
 
+  it("places the cited page card first when focusedPageNumber is set", () => {
+    const { result } = renderHook(() =>
+      useChunksPanelWorkflow(
+        makeInput({
+          chunks: [
+            makeChunk({
+              chunkId: "page_1",
+              type: "page",
+              pageNums: [1],
+              pageAssets: [
+                {
+                  pageNumber: 1,
+                  assetUrl: "https://assets.example/page-1.png",
+                  contentType: "image/png",
+                },
+              ],
+            }),
+            makeChunk({
+              chunkId: "page_4",
+              type: "page",
+              pageNums: [4],
+              pageAssets: [
+                {
+                  pageNumber: 4,
+                  assetUrl: "https://assets.example/page-4.png",
+                  contentType: "image/png",
+                },
+              ],
+            }),
+          ],
+          focusedPageNumber: 4,
+          focusedPageRequestId: 1,
+          selectedSource: "manual.pdf",
+        }),
+      ),
+    )
+
+    expect(result.current.visibleChunks.map((chunk) => chunk.chunkId)).toEqual([
+      "page_4",
+      "page_1",
+    ])
+  })
+
   it("requests another page only when the visible parsed viewport nears the bottom", () => {
     const onLoadMore = vi.fn()
     const { result } = renderHook(() =>

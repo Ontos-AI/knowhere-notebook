@@ -60,7 +60,6 @@ type SourcePageState = {
 export function SourcesPanel({
   isNarrow = false,
   isLibraryOpen = false,
-  officialLibrarySources = [],
   sources = [],
   onSourceUploaded,
   selectedSourceId = null,
@@ -106,9 +105,6 @@ export function SourcesPanel({
     () => getSourcePagination(workspaceSources, requestedSourcePage),
     [requestedSourcePage, workspaceSources],
   );
-  const hasLibrarySources =
-    officialLibrarySources.length > 0 ||
-    sources.some((source) => source.officialLibrary !== undefined);
 
   return (
     <aside className="z-10 flex h-full w-full shrink-0 flex-col border-r border-border/70 bg-background">
@@ -210,19 +206,20 @@ export function SourcesPanel({
             <h3 className="truncate text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
               Sources
             </h3>
-            {hasLibrarySources && !isNarrow ? (
-              <button
-                type="button"
-                onClick={onLibraryOpen}
-                className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-border/80 bg-background px-2 text-[11px] font-semibold text-foreground shadow-xs hover:bg-muted ${
-                  isLibraryOpen ? "border-primary/40 bg-primary/5 text-primary" : ""
-                }`}
-                aria-label="Open library"
-              >
-                <BookOpen className="size-3.5" />
-                open library
-              </button>
-            ) : null}
+            <button
+              type="button"
+              onClick={onLibraryOpen}
+              className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-border/80 bg-background text-[11px] font-semibold text-foreground shadow-xs hover:bg-muted ${
+                isNarrow ? "w-8 justify-center px-0" : "px-2"
+              } ${
+                isLibraryOpen ? "border-primary/40 bg-primary/5 text-primary" : ""
+              }`}
+              aria-label="Open library"
+              title="Open library"
+            >
+              <BookOpen className="size-3.5" />
+              {isNarrow ? null : "open library"}
+            </button>
           </div>
 
           {workspaceSources.length === 0 ? (

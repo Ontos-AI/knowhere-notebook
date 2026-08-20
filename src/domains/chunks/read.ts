@@ -12,12 +12,11 @@ import {
   toParsedChunkViewFromReadChunk,
   type ChunkPage,
   type ChunkPageParams,
+  type ChunkReadType,
 } from "@/domains/chunks"
 import type { ParsedChunkView } from "@/domains/chunks/types"
 
 const loadAllPageSize = 200
-
-type DisplayReadChunkType = "text" | "image" | "table" | "page"
 
 type ReadableSource = {
   readonly documentId: string
@@ -32,7 +31,7 @@ type DisplayReadClient = {
       params: {
         readonly page: number
         readonly pageSize: number
-        readonly chunkType?: DisplayReadChunkType
+        readonly chunkType?: ChunkReadType
         readonly includeAssetUrls: true
       },
     ): Promise<{
@@ -65,6 +64,7 @@ export async function readSourceChunkPage(input: {
     ...(input.source.revisionKey ? { revisionKey: input.source.revisionKey } : {}),
     page: input.params.page,
     pageSize: input.params.pageSize,
+    ...(input.params.chunkType ? { chunkType: input.params.chunkType } : {}),
   })
 
   if (shouldUseKnowledgeChunkResponse(response)) {
@@ -76,6 +76,7 @@ export async function readSourceChunkPage(input: {
     {
       page: input.params.page,
       pageSize: input.params.pageSize,
+      ...(input.params.chunkType ? { chunkType: input.params.chunkType } : {}),
       includeAssetUrls: true,
     },
   )
@@ -130,6 +131,7 @@ export async function readAllSourceChunks(input: {
   readonly client: DisplayReadClient
   readonly knowledge: Knowledge
   readonly source: ReadableSource
+  readonly chunkType?: ChunkReadType
 }): Promise<ParsedChunkView[]> {
   const chunks: ParsedChunkView[] = []
   let page = 1
@@ -143,6 +145,7 @@ export async function readAllSourceChunks(input: {
         : {}),
       page,
       pageSize: loadAllPageSize,
+      ...(input.chunkType ? { chunkType: input.chunkType } : {}),
     })
     if (shouldUseKnowledgeChunkResponse(response)) {
       for (const chunk of response.chunks) {
@@ -164,6 +167,7 @@ export async function readAllSourceChunks(input: {
       {
         page,
         pageSize: loadAllPageSize,
+        ...(input.chunkType ? { chunkType: input.chunkType } : {}),
         includeAssetUrls: true,
       },
     )

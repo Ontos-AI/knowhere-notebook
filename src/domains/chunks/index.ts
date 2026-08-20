@@ -40,9 +40,12 @@ export type LoadChunksOptions = {
   assetUrlsByFilePath?: Readonly<Record<string, string>>
 }
 
+export type ChunkReadType = "text" | "image" | "table" | "page"
+
 export type ChunkPageParams = {
   page: number
   pageSize: number
+  chunkType?: ChunkReadType
 }
 
 export type ChunkPagePagination = {
@@ -60,6 +63,7 @@ export type ChunkPage = {
 export function getChunkPageParams(
   searchParams: URLSearchParams,
 ): ChunkPageParams {
+  const chunkType = parseChunkReadType(searchParams.get("chunkType"))
   return {
     page: normalizePositiveInteger(searchParams.get("page"), 1),
     pageSize: normalizePageSize(
@@ -68,7 +72,15 @@ export function getChunkPageParams(
         defaultChunkPageSize,
       ),
     ),
+    ...(chunkType ? { chunkType } : {}),
   }
+}
+
+function parseChunkReadType(value: string | null): ChunkReadType | undefined {
+  if (value === "text" || value === "image" || value === "table" || value === "page") {
+    return value
+  }
+  return undefined
 }
 
 export const loadChunksForSource = (
@@ -130,6 +142,7 @@ export const loadChunkPageForSource = (
       client.documents.listChunks(source.knowhereDocumentId!, {
         page: params.page,
         pageSize: params.pageSize,
+        ...(params.chunkType ? { chunkType: params.chunkType } : {}),
         includeAssetUrls: true,
       }),
     )

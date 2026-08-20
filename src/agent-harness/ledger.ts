@@ -255,6 +255,19 @@ function addChunkFromGrepMatch(input: {
   readonly match: KnowledgeGrepMatch
   readonly ref: string
 }): void {
+  const matchWithPages = input.match as KnowledgeGrepMatch & {
+    readonly pageNumbers?: readonly number[]
+    readonly metadata?: Readonly<Record<string, unknown>>
+  }
+  const donor = input.ledger.chunks.find(
+    (chunk) =>
+      chunk.chunkId === input.match.chunkId && hasPageMetadata(chunk.metadata),
+  )
+  const pageNums =
+    matchWithPages.pageNumbers && matchWithPages.pageNumbers.length > 0
+      ? [...matchWithPages.pageNumbers]
+      : undefined
+
   addChunk({
     ledger: input.ledger,
     chunk: {
@@ -268,6 +281,9 @@ function addChunkFromGrepMatch(input: {
       sourceChunkPath: input.match.sourceChunkPath,
       filePath: input.match.filePath,
       metadata: {
+        ...(donor?.metadata ?? {}),
+        ...(matchWithPages.metadata ?? {}),
+        ...(pageNums ? { pageNums } : {}),
         position: input.match.position,
         startOffset: input.match.startOffset,
         endOffset: input.match.endOffset,
@@ -279,6 +295,26 @@ function addChunkFromGrepMatch(input: {
       },
       revisionKey: input.response.document.jobId,
     },
+  })
+}
+
+function hasPageMetadata(
+  metadata: Readonly<Record<string, unknown>> | undefined,
+): boolean {
+  if (!metadata) return false
+  const values = [
+    metadata.pageNums,
+    metadata.page_nums,
+    metadata.pageNum,
+    metadata.page_num,
+    metadata.pageAssets,
+    metadata.page_assets,
+  ]
+  return values.some((value) => {
+    if (Array.isArray(value)) return value.length > 0
+    if (typeof value === "number") return Number.isSafeInteger(value) && value > 0
+    if (typeof value === "string") return value.trim().length > 0
+    return false
   })
 }
 

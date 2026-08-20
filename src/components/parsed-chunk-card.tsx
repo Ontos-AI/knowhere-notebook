@@ -31,6 +31,8 @@ type TextChunkReferencePart = Extract<
 export function ParsedChunkCard({
   chunk,
   isFocused,
+  focusedCitationId = null,
+  focusedPageNumber = null,
   isOriginalPreviewAvailable = false,
   onChunkClick,
   onReferenceClick,
@@ -38,6 +40,8 @@ export function ParsedChunkCard({
 }: {
   readonly chunk: ParsedChunkView;
   readonly isFocused: boolean;
+  readonly focusedCitationId?: string | null;
+  readonly focusedPageNumber?: number | null;
   readonly isOriginalPreviewAvailable?: boolean;
   readonly onChunkClick?: (chunk: ParsedChunkView) => void;
   readonly onReferenceClick: (chunkId: string) => void;
@@ -49,6 +53,8 @@ export function ParsedChunkCard({
         <PageChunkCard
           chunk={chunk}
           isFocused={isFocused}
+          focusedCitationId={focusedCitationId}
+          focusedPageNumber={focusedPageNumber}
           isOriginalPreviewAvailable={isOriginalPreviewAvailable}
           onChunkClick={onChunkClick}
         />
@@ -388,11 +394,15 @@ function TextChunkCard({
 function PageChunkCard({
   chunk,
   isFocused,
+  focusedCitationId,
+  focusedPageNumber,
   isOriginalPreviewAvailable,
   onChunkClick,
 }: {
   readonly chunk: ParsedChunkView;
   readonly isFocused: boolean;
+  readonly focusedCitationId: string | null;
+  readonly focusedPageNumber: number | null;
   readonly isOriginalPreviewAvailable: boolean;
   readonly onChunkClick?: (chunk: ParsedChunkView) => void;
 }): ReactNode {
@@ -410,7 +420,11 @@ function PageChunkCard({
           chunk={chunk}
           label={pageAssets.length === 1 ? "Page image" : "Page images"}
         >
-          <PageCitationAssets assets={pageAssets} />
+          <PageCitationAssets
+            assets={pageAssets}
+            focusedCitationId={focusedCitationId}
+            focusedPageNumber={focusedPageNumber}
+          />
         </ChunkContentPanel>
       ) : (
         <ChunkContentPanel chunk={chunk} label="Page summary">
@@ -426,13 +440,25 @@ function PageChunkCard({
 
 function PageCitationAssets({
   assets,
+  focusedCitationId,
+  focusedPageNumber,
 }: {
   readonly assets: NonNullable<ParsedChunkView["pageAssets"]>;
+  readonly focusedCitationId: string | null;
+  readonly focusedPageNumber: number | null;
 }): ReactNode {
   return (
     <div className="flex flex-col gap-3">
       {assets.map((asset) => (
-        <PageCitationAssetImage key={asset.pageNumber} asset={asset} />
+        <PageCitationAssetImage
+          key={asset.pageNumber}
+          asset={asset}
+          focusedCitationId={focusedCitationId}
+          isCitationFocus={
+            focusedCitationId !== null &&
+            focusedPageNumber === asset.pageNumber
+          }
+        />
       ))}
     </div>
   );
@@ -440,8 +466,12 @@ function PageCitationAssets({
 
 function PageCitationAssetImage({
   asset,
+  focusedCitationId,
+  isCitationFocus,
 }: {
   readonly asset: NonNullable<ParsedChunkView["pageAssets"]>[number];
+  readonly focusedCitationId: string | null;
+  readonly isCitationFocus: boolean;
 }): ReactNode {
   const [failedAssetUrl, setFailedAssetUrl] = useState<string | null>(null);
   const imageAssetUrl = getInlineImageAssetUrl(asset.assetUrl);
@@ -456,8 +486,10 @@ function PageCitationAssetImage({
         <span>{asset.contentType}</span>
       </figcaption>
       <div
-        className="overflow-hidden bg-muted/20"
+        className="relative overflow-hidden bg-muted/20"
         style={aspectRatio ? { aspectRatio } : undefined}
+        data-citation-page={asset.pageNumber}
+        data-focused-citation-id={isCitationFocus ? focusedCitationId : undefined}
       >
         {hasImageError ? (
           <PageCitationAssetUnavailable pageNumber={asset.pageNumber} />

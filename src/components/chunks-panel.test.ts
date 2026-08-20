@@ -67,9 +67,9 @@ describe("ChunksPanel", () => {
     );
 
     expect(
-      screen.getByRole("heading", { name: "Parsed Chunks" }),
+      screen.getByRole("heading", { name: "Parsed Results" }),
     ).toBeTruthy();
-    expect(screen.getByText(/Showing all parsed chunks from/)).toBeTruthy();
+    expect(screen.getByText(/From/)).toBeTruthy();
   });
 
   it("renders page chunk assets inside the normal chunk list", async () => {
@@ -112,16 +112,19 @@ describe("ChunksPanel", () => {
       }),
     );
 
-    expect(screen.getByRole("heading", { name: "Parsed Chunks" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Parsed Results" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Tree" })).toBeTruthy();
+    expect(screen.getByTestId("chunk-section-tree-zoom-overlay")).toBeTruthy();
+    selectListView();
     expect(
       await screen.findByRole("img", { name: "Page 4" }),
     ).toBeTruthy();
     expect(screen.getByText("image/png")).toBeTruthy();
-    expect(screen.getByText("Budget")).toBeTruthy();
+    expect(screen.queryByText("Budget")).toBeNull();
+    expect(screen.queryByTestId("chunk-card-shell-table_1")).toBeNull();
     expect(
       screen.queryByRole("button", { name: "Original" }),
     ).toBeNull();
-    expect(screen.queryByRole("button", { name: "Tree" })).toBeNull();
     expect(
       screen.queryByRole("button", { name: /original file/i }),
     ).toBeNull();
@@ -187,6 +190,7 @@ describe("ChunksPanel", () => {
       }),
     );
 
+    selectListView();
     expect(await screen.findAllByRole("img", { name: "Page 4" }))
       .toHaveLength(1);
     expect(screen.getByRole("img", { name: "Page 5" })).toBeTruthy();
@@ -220,6 +224,7 @@ describe("ChunksPanel", () => {
       }),
     );
 
+    selectListView();
     expect(await screen.findByText("Page 4 summary")).toBeTruthy();
     expect(screen.queryByRole("img", { name: "Page 4" })).toBeNull();
   });
@@ -258,6 +263,7 @@ describe("ChunksPanel", () => {
       }),
     );
 
+    selectListView();
     const pageImage = await screen.findByRole("img", { name: "Page 4" });
     fireEvent.error(pageImage);
 
@@ -958,7 +964,7 @@ describe("ChunksPanel", () => {
 
     await user.click(screen.getByRole("button", { name: "Parsed" }));
 
-    expect(screen.getByRole("heading", { name: "Parsed Chunks" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Parsed Results" })).toBeTruthy();
     expect(screen.getByTestId("source-original-preview")).toBe(
       mountedOriginalPreview,
     );
@@ -1009,7 +1015,7 @@ describe("ChunksPanel", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByRole("heading", { name: "Referenced Chunks" }),
+        screen.getByRole("heading", { name: "Parsed Results" }),
       ).toBeTruthy();
     });
     expect(screen.getByTestId("chunk-card-shell-chunk_1")).toBeTruthy();

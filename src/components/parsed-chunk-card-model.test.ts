@@ -38,6 +38,30 @@ describe("parsedChunkCardModel", () => {
     })
   })
 
+  it("uses Page N and the parse path for page-asset cards", () => {
+    const metadata = parsedChunkCardModel.getSourceMetadata(
+      makeChunk({
+        type: "page",
+        pageNums: [4],
+        filePath: "pages/page-000004.png",
+        sectionPath: "Page 4",
+        pageAssets: [
+          {
+            pageNumber: 4,
+            assetUrl: "https://assets.example/page-000004.png",
+            contentType: "image/png",
+          },
+        ],
+      }),
+    )
+
+    expect(metadata).toEqual({
+      pageLabel: "Page 4",
+      sectionLabel: "pages/page-000004.png",
+      typeLabel: "Page",
+    })
+  })
+
   it("splits text content into text and reference parts with display-ready labels", () => {
     const parts = parsedChunkCardModel.getTextContentParts(
       makeChunk({

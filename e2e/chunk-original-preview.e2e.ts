@@ -7,7 +7,7 @@ test("reopens the demo PDF preview after returning from original to parsed chunk
 }) => {
   await page.goto("/")
   await expect(
-    page.getByRole("heading", { name: "Parsed Chunks" }),
+    page.getByRole("heading", { name: "Parsed Results" }),
   ).toBeVisible()
 
   await openFirstChunk(page)
@@ -18,7 +18,7 @@ test("reopens the demo PDF preview after returning from original to parsed chunk
     .getByRole("button", { name: "Parsed", exact: true })
     .click()
   await expect(
-    page.getByRole("heading", { name: "Parsed Chunks" }),
+    page.getByRole("heading", { name: "Parsed Results" }),
   ).toBeVisible()
 
   await openFirstChunk(page)

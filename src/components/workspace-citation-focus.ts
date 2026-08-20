@@ -1,12 +1,17 @@
 "use client"
 
 import { useCallback, useRef, useState } from "react"
+import { useSWRConfig } from "swr"
 
 import { workspaceCitationState } from "@/components/workspace-citation-state"
 import { useWorkspaceSelectedChunks } from "@/components/workspace-selected-chunks"
 import type { ChatCitationView } from "@/domains/chat/types"
 import type { ParsedChunkView } from "@/domains/chunks/types"
 import type { SourceView } from "@/domains/sources/types"
+import {
+  type FetchChunksOptions,
+} from "@/domains/workspace/client"
+import { workspaceClientCache } from "@/domains/workspace/client-cache"
 
 type FocusedChunkState = {
   readonly chunkId: string | null
@@ -16,6 +21,7 @@ type FocusedChunkState = {
 type FocusedPageState = {
   readonly pageNumber: number | null
   readonly requestId: number
+  readonly citationId: string | null
 }
 
 type PrefetchedChunksBySourceId = Readonly<Record<string, ParsedChunkView[]>>
@@ -24,7 +30,10 @@ type PrefetchedChunksUpdater = (
 ) => PrefetchedChunksBySourceId
 
 type WorkspaceCitationFocusInput = {
-  readonly fetchChunks: (sourceId: string) => Promise<ParsedChunkView[]>
+  readonly fetchChunks: (
+    sourceId: string,
+    options?: FetchChunksOptions,
+  ) => Promise<ParsedChunkView[]>
   readonly initialPrefetchedChunksBySourceId?: PrefetchedChunksBySourceId
   readonly onSelectSource: (sourceId: string | null) => void
   readonly selectedSourceId: string | null
@@ -68,6 +77,7 @@ export function useWorkspaceCitationFocus({
   const [focusedPage, setFocusedPage] = useState<FocusedPageState>({
     pageNumber: null,
     requestId: 0,
+    citationId: null,
   })
   const [pendingCitationId, setPendingCitationId] = useState<string | null>(
     null,
@@ -77,6 +87,8 @@ export function useWorkspaceCitationFocus({
   const [fullChunkLoadingSourceId, setFullChunkLoadingSourceId] = useState<
     string | null
   >(null)
+  const { cache, mutate } = useSWRConfig()
+  const partialPrefetchSourceIdsRef = useRef<Set<string>>(new Set())
   const fullChunkRequestsBySourceIdRef = useRef<
     Map<string, Promise<ParsedChunkView[]>>
   >(new Map())
@@ -109,12 +121,16 @@ export function useWorkspaceCitationFocus({
     },
     [],
   )
-  const requestPageFocus = useCallback((pageNumber: number | null): void => {
-    setFocusedPage((current) => ({
-      pageNumber,
-      requestId: current.requestId + 1,
-    }))
-  }, [])
+  const requestPageFocus = useCallback(
+    (pageNumber: number | null, citationId: string | null = null): void => {
+      setFocusedPage((current) => ({
+        pageNumber,
+        citationId,
+        requestId: current.requestId + 1,
+      }))
+    },
+    [],
+  )
 
   const updatePrefetchedChunksBySourceId = useCallback(
     (updater: PrefetchedChunksUpdater): void => {
@@ -147,20 +163,44 @@ export function useWorkspaceCitationFocus({
   )
 
   const loadAllChunksForSource = useCallback(
-    (sourceId: string): Promise<ParsedChunkView[]> => {
+    (
+      sourceId: string,
+      options?: FetchChunksOptions,
+    ): Promise<ParsedChunkView[]> => {
       const existingRequest =
         fullChunkRequestsBySourceIdRef.current.get(sourceId)
       if (existingRequest) return existingRequest
 
       setFullChunkLoadingSourceId(sourceId)
-      const request = fetchChunks(sourceId)
+      const source = sources.find((candidate) => candidate.id === sourceId)
+      const chunkType =
+        options?.chunkType ??
+        (source?.documentPresentation?.kind === "page-assets"
+          ? "page"
+          : undefined)
+      const fetchOptions: FetchChunksOptions | undefined = chunkType
+        ? { chunkType, ...options }
+        : options
+      const request = (
+        fetchOptions
+          ? fetchChunks(sourceId, fetchOptions)
+          : fetchChunks(sourceId)
+      )
         .then((chunks) => {
+          partialPrefetchSourceIdsRef.current.delete(sourceId)
           updatePrefetchedChunksBySourceId((current) =>
             workspaceCitationState.upsertPrefetchedChunks(
               current,
               sourceId,
               chunks,
             ),
+          )
+          workspaceClientCache.hydrateSourceChunks(
+            (key, data) => {
+              void mutate(key, data, { revalidate: false })
+            },
+            sourceId,
+            chunks,
           )
           return chunks
         })
@@ -174,25 +214,32 @@ export function useWorkspaceCitationFocus({
       fullChunkRequestsBySourceIdRef.current.set(sourceId, request)
       return request
     },
-    [fetchChunks, updatePrefetchedChunksBySourceId],
+    [fetchChunks, mutate, sources, updatePrefetchedChunksBySourceId],
   )
 
   const handleLoadAllChunks = useCallback((): void => {
+    if (!selectedSourceId) return
+
+    const hasPartialPrefetch =
+      partialPrefetchSourceIdsRef.current.has(selectedSourceId)
     if (
-      !selectedSourceId ||
-      prefetchedChunksBySourceIdRef.current[selectedSourceId] ||
-      fullChunkRequestedSourceIdsRef.current.has(selectedSourceId) ||
-      fullChunkRequestsBySourceIdRef.current.has(selectedSourceId)
+      !hasPartialPrefetch &&
+      (prefetchedChunksBySourceIdRef.current[selectedSourceId] ||
+        fullChunkRequestedSourceIdsRef.current.has(selectedSourceId) ||
+        fullChunkRequestsBySourceIdRef.current.has(selectedSourceId))
     ) {
       return
     }
 
     fullChunkRequestedSourceIdsRef.current.add(selectedSourceId)
-    void loadAllChunksForSource(selectedSourceId)
-  }, [
-    loadAllChunksForSource,
-    selectedSourceId,
-  ])
+    const source = sources.find((candidate) => candidate.id === selectedSourceId)
+    void loadAllChunksForSource(
+      selectedSourceId,
+      source?.documentPresentation?.kind === "page-assets"
+        ? { chunkType: "page" }
+        : undefined,
+    )
+  }, [loadAllChunksForSource, selectedSourceId, sources])
 
   const handleCitationClick = useCallback(
     async (
@@ -209,17 +256,62 @@ export function useWorkspaceCitationFocus({
         if (!source) return
 
         setCitationListViewRequestId((current) => current + 1)
+        const pageNumber = workspaceCitationState.getCitationPageNumber(citation)
+        const isPageAssetSource =
+          source.documentPresentation?.kind === "page-assets"
 
-        const loadedChunkId = workspaceCitationState.getLoadedCitationChunkId({
-          citation,
-          selectedSourceId,
-          sourceId: source.id,
-          selectedChunks,
-          hasMoreSelectedChunks,
-        })
-        if (loadedChunkId) {
-          requestChunkFocus(loadedChunkId)
-          return
+        const focusFromChunks = (
+          chunks: readonly ParsedChunkView[],
+          hasMore: boolean,
+        ): string | null =>
+          workspaceCitationState.getLoadedCitationChunkId({
+            citation,
+            selectedSourceId: source.id,
+            sourceId: source.id,
+            selectedChunks: chunks,
+            hasMoreSelectedChunks: hasMore,
+          })
+
+        const applyFocus = (chunkId: string | null): void => {
+          if (selectedSourceId !== source.id) onSelectSource(source.id)
+          requestChunkFocus(chunkId)
+          requestPageFocus(pageNumber, citationId)
+        }
+
+        if (selectedSourceId === source.id) {
+          const loadedChunkId = workspaceCitationState.getLoadedCitationChunkId({
+            citation,
+            selectedSourceId,
+            sourceId: source.id,
+            selectedChunks,
+            hasMoreSelectedChunks,
+          })
+          if (loadedChunkId) {
+            requestChunkFocus(loadedChunkId)
+            requestPageFocus(pageNumber, citationId)
+            return
+          }
+        }
+
+        const prefetchedChunks = prefetchedChunksBySourceIdRef.current[source.id]
+        if (prefetchedChunks) {
+          const prefetchedChunkId = focusFromChunks(prefetchedChunks, false)
+          if (prefetchedChunkId) {
+            applyFocus(prefetchedChunkId)
+            return
+          }
+        }
+
+        const swrChunks = workspaceClientCache.getCachedSourceChunks(
+          cache,
+          source.id,
+        )
+        if (swrChunks && swrChunks.length > 0) {
+          const cachedChunkId = focusFromChunks(swrChunks, true)
+          if (cachedChunkId) {
+            applyFocus(cachedChunkId)
+            return
+          }
         }
 
         if (!workspaceCitationState.hasExactCitationTargetHint(citation)) {
@@ -229,43 +321,45 @@ export function useWorkspaceCitationFocus({
           )
           if (selectedSourceId !== source.id) onSelectSource(source.id)
           requestChunkFocus(null)
-          return
-        }
-
-        const cachedChunks = prefetchedChunksBySourceIdRef.current[source.id]
-        if (cachedChunks) {
-          const cachedFocusId =
-            workspaceCitationState.getLoadedCitationChunkId({
-              citation,
-              selectedSourceId: source.id,
-              sourceId: source.id,
-              selectedChunks: cachedChunks,
-              hasMoreSelectedChunks: false,
-            })
-          updatePrefetchedChunksBySourceId((current) =>
-            workspaceCitationState.upsertPrefetchedChunks(
-              current,
-              source.id,
-              cachedChunks,
-            ),
-          )
-          if (selectedSourceId !== source.id) onSelectSource(source.id)
-          requestChunkFocus(cachedFocusId)
+          requestPageFocus(null)
           return
         }
 
         requestChunkFocus(null)
-        const chunks = await loadAllChunksForSource(source.id)
-        const prefetchedChunkId =
-          workspaceCitationState.getLoadedCitationChunkId({
-            citation,
-            selectedSourceId: source.id,
-            sourceId: source.id,
-            selectedChunks: chunks,
-            hasMoreSelectedChunks: false,
-          })
-        onSelectSource(source.id)
-        requestChunkFocus(prefetchedChunkId)
+        const fetchOptions: FetchChunksOptions | undefined = isPageAssetSource
+          ? {
+              chunkType: "page",
+              ...(pageNumber !== null ? { untilPageNumber: pageNumber } : {}),
+            }
+          : undefined
+        const chunks =
+          isPageAssetSource && pageNumber !== null
+            ? await fetchChunks(source.id, fetchOptions)
+            : await loadAllChunksForSource(source.id, fetchOptions)
+
+        if (isPageAssetSource && pageNumber !== null) {
+          if (!fullChunkRequestsBySourceIdRef.current.has(source.id)) {
+            partialPrefetchSourceIdsRef.current.add(source.id)
+            updatePrefetchedChunksBySourceId((current) =>
+              workspaceCitationState.upsertPrefetchedChunks(
+                current,
+                source.id,
+                chunks,
+              ),
+            )
+            workspaceClientCache.hydrateSourceChunks(
+              (key, data) => {
+                void mutate(key, data, { revalidate: false })
+              },
+              source.id,
+              chunks,
+            )
+          }
+        }
+
+        applyFocus(
+          focusFromChunks(chunks, false),
+        )
       } finally {
         setPendingCitationId((current) =>
           current === citationId ? null : current,
@@ -273,10 +367,14 @@ export function useWorkspaceCitationFocus({
       }
     },
     [
+      cache,
+      fetchChunks,
       hasMoreSelectedChunks,
       loadAllChunksForSource,
+      mutate,
       onSelectSource,
       requestChunkFocus,
+      requestPageFocus,
       selectedChunks,
       selectedSourceId,
       sources,

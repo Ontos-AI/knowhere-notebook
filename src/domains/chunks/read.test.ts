@@ -69,6 +69,43 @@ describe("readSourceChunkPage", () => {
     })
   })
 
+  it("passes chunkType through to knowledge.readChunks", async () => {
+    const listChunks = vi.fn()
+    const readChunks = vi.fn(async () => ({
+      document: {
+        localDocumentId: "doc_1",
+        resultDirectoryPath: "parsed-storage:doc_1",
+      },
+      chunks: [
+        makeReadChunk({
+          chunkType: "page",
+          filePath: "pages/page-000004.png",
+        }),
+      ],
+      page: 1,
+      pageSize: 50,
+      totalChunks: 8,
+      totalPages: 1,
+    }))
+    const knowledge = { readChunks } as unknown as Knowledge
+
+    await readSourceChunkPage({
+      client: { documents: { listChunks } },
+      knowledge,
+      source: { documentId: "doc_1", title: "notes.pdf", revisionKey: "rev_1" },
+      params: { page: 1, pageSize: 50, chunkType: "page" },
+    })
+
+    expect(readChunks).toHaveBeenCalledWith({
+      documentId: "doc_1",
+      revisionKey: "rev_1",
+      page: 1,
+      pageSize: 50,
+      chunkType: "page",
+    })
+    expect(listChunks).not.toHaveBeenCalled()
+  })
+
   it("falls back to Knowhere asset URLs when the parsed-storage probe reads remote chunks", async () => {
     const readChunks = vi.fn(async () => ({
       document: {

@@ -106,6 +106,80 @@ describe("knowhereDemoApi", () => {
     )
   })
 
+  it("rewrites demo page citation assets onto the Notebook asset proxy", async () => {
+    globalThis.fetch = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          demo_source_id: "demo-tsla-q4-2025",
+          canonical_document_id: "demo-doc-tsla-q4-2025",
+          title: "TSLA-Q4-2025-Update.pdf",
+          mime_type: "application/pdf",
+          chunks: [
+            {
+              id: "demo-tsla-q4-2025:page-1",
+              chunk_id: "page-1",
+              chunk_type: "page",
+              content: "Tesla energy storage deployments.",
+              section_path: "TSLA-Q4-2025-Update.pdf/SUMMARY",
+              source_chunk_path: "TSLA-Q4-2025-Update.pdf/SUMMARY",
+              file_path: "page_citation_assets/page-8.png",
+              sort_order: 8,
+              metadata: {
+                page_nums: [8],
+                page_assets: [
+                  {
+                    page_num: 8,
+                    artifact_ref: "page_citation_assets/page-8.png",
+                    content_type: "image/png",
+                    source: "knowhere-rendered-page-citation-source",
+                    asset_url:
+                      "/api/v1/demo/sources/demo-tsla-q4-2025/assets/page_citation_assets/page-8.png",
+                    width: 1200,
+                    height: 1600,
+                  },
+                ],
+              },
+              asset_url:
+                "/api/v1/demo/sources/demo-tsla-q4-2025/assets/page_citation_assets/page-8.png",
+            },
+          ],
+          pagination: {
+            page: 1,
+            page_size: 100,
+            total: 1,
+            total_pages: 1,
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    )
+
+    const page = await knowhereDemoApi.fetchChunkPage({
+      demoSourceId: "demo-tsla-q4-2025",
+      page: 1,
+      pageSize: 100,
+    })
+
+    expect(page.chunks[0]).toMatchObject({
+      chunkType: "page",
+      filePath: "page_citation_assets/page-8.png",
+      assetUrl:
+        "/api/demo-sources/demo-tsla-q4-2025/assets/page_citation_assets/page-8.png",
+      metadata: {
+        pageAssets: [
+          {
+            pageNum: 8,
+            contentType: "image/png",
+            assetUrl:
+              "/api/demo-sources/demo-tsla-q4-2025/assets/page_citation_assets/page-8.png",
+            width: 1200,
+            height: 1600,
+          },
+        ],
+      },
+    })
+  })
+
   it("maps Official Library metadata from the demo catalog", async () => {
     globalThis.fetch = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(
