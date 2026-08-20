@@ -85,7 +85,7 @@ describe("loadWorkspaceShellInitialState", () => {
       {
         id: "demo-example-1-assistant",
         role: "assistant",
-        content: "Tesla delivered higher revenue.",
+        content: "Tesla delivered higher revenue. [[cite:1]]",
         citations: [
           {
             chunkType: "text",
