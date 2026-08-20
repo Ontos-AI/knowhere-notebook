@@ -74,7 +74,7 @@ function getResolvedSelectedSourceId(
 
   const selectedSource = sources.find((source) => source.id === selectedSourceId)
   if (selectedSource) {
-    return isVisibleSource(selectedSource) ? selectedSource.id : null
+    return selectedSource.id
   }
 
   const selectedDocumentId = getRemoteSourceDocumentId(selectedSourceId)

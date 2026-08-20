@@ -58,7 +58,7 @@ describe("workspaceSourceState", () => {
     );
   });
 
-  it("does not resolve an unmaterialized Official Library row as the selected Source", () => {
+  it("keeps an explicitly selected Official Library demo source for citation jumps", () => {
     const sources: readonly SourceView[] = [
       {
         id: "demo-spacex-s1",
@@ -88,7 +88,7 @@ describe("workspaceSourceState", () => {
         sources,
         "demo-spacex-s1",
       ),
-    ).toBeNull();
+    ).toBe("demo-spacex-s1");
   });
 
   it("selects a preferred document source when opening a chunk-tree link", () => {
