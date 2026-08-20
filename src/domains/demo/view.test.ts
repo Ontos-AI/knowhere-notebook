@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest"
 
+import { chatCitationModel } from "@/components/chat-citation-model"
 import { demoView } from "@/domains/demo/view"
 import type { DemoCatalog, DemoCitation, DemoSource } from "@/integrations/knowhere-demo"
 
 describe("demoView.toChatMessages", () => {
-  it("embeds cite markers and page metadata so demo answers render title/pN chips", () => {
+  it("uses the live citation mapper so demo answers render title/pN chips", () => {
     const messages = demoView.toChatMessages(
       makeCatalog({
         answer:
@@ -26,6 +27,39 @@ describe("demoView.toChatMessages", () => {
         }),
       }),
     ])
+    expect(
+      chatCitationModel.getCitationChipLabel(assistant!.citations![0]!, {}),
+    ).toBe("TSLA-Q4-2025-Update.pdf/p12")
+  })
+
+  it("resolves page chips from catalog page_nums when the explicit page field is omitted", () => {
+    const messages = demoView.toChatMessages(
+      makeCatalog({
+        title: "spacex-s1.pdf",
+        answer:
+          "The filing says SpaceX operates about 9,600 Starlink satellites. [[cite:1]]",
+        citations: [
+          makeCitation({
+            demoSourceId: "demo-spacex-s1",
+            canonicalDocumentId: "demo-doc-spacex-s1",
+            pageCitationPageNumber: undefined,
+            pageCitationAssetUrl: undefined,
+            pageNums: [28],
+            source: {
+              documentId: "demo-doc-spacex-s1",
+              sourceFileName: "spacex-s1.pdf",
+              sectionPath: "spacex-s1.pdf/Root",
+            },
+          }),
+        ],
+      }),
+    )
+    const assistant = messages.find((message) => message.role === "assistant")
+
+    expect(assistant?.citations?.[0]?.pageCitationPageNumber).toBe(28)
+    expect(
+      chatCitationModel.getCitationChipLabel(assistant!.citations![0]!, {}),
+    ).toBe("spacex-s1.pdf/p28")
   })
 
   it("appends cite markers when the catalog answer still omits them", () => {
@@ -44,6 +78,7 @@ describe("demoView.toChatMessages", () => {
 })
 
 function makeCatalog(input: {
+  readonly title?: string
   readonly answer: string
   readonly citations: readonly DemoCitation[]
 }): DemoCatalog {
@@ -54,13 +89,14 @@ function makeCatalog(input: {
 }
 
 function makeDemoSource(input: {
+  readonly title?: string
   readonly answer: string
   readonly citations: readonly DemoCitation[]
 }): DemoSource {
   return {
     demoSourceId: "demo-tsla-q4-2025",
     canonicalDocumentId: "demo-doc-tsla-q4-2025",
-    title: "TSLA-Q4-2025-Update.pdf",
+    title: input.title ?? "TSLA-Q4-2025-Update.pdf",
     mimeType: "application/pdf",
     sizeBytes: 1024,
     status: "ready",

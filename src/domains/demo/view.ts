@@ -1,10 +1,13 @@
-import { parsedChunkNormalization } from "@/domains/chunks/normalization"
+import { toChatCitationViews } from "@/domains/chat/citations"
+import type { PageCitationAssetRetrievalResult } from "@/domains/chat/page-citation-assets"
 import type { ChatMessageView } from "@/domains/chat/types"
+import { parsedChunkNormalization } from "@/domains/chunks/normalization"
 import type { ParsedChunkView } from "@/domains/chunks/types"
 import { demoOriginalFile } from "@/domains/demo/original-file"
 import type { SourceView } from "@/domains/sources/types"
 import type {
   DemoCatalog,
+  DemoCitation,
   DemoChunk,
   DemoSource,
 } from "@/integrations/knowhere-demo"
@@ -42,38 +45,63 @@ function toSourceView(source: DemoSource): SourceView {
 
 function toChatMessages(catalog: DemoCatalog): ChatMessageView[] {
   return catalog.sources.flatMap((source) =>
-    source.examples.flatMap((example): ChatMessageView[] => [
-      {
-        id: `${example.id}-user`,
-        role: "user",
-        content: example.question,
-      },
-      {
-        id: `${example.id}-assistant`,
-        role: "assistant",
-        content: withCitationMarkers(example.answer, example.citations.length),
-        citations: example.citations.map((citation) => ({
-          chunkType: citation.chunkType,
-          score: 0.95,
-          content: citation.content,
-          ...(citation.description
-            ? { description: citation.description }
-            : {}),
-          ...(citation.pageCitationPageNumber
-            ? { pageCitationPageNumber: citation.pageCitationPageNumber }
-            : {}),
-          ...(citation.pageCitationAssetUrl
-            ? { pageCitationAssetUrl: citation.pageCitationAssetUrl }
-            : {}),
-          source: {
-            documentId: citation.canonicalDocumentId,
-            sourceFileName: citation.source.sourceFileName,
-            sectionPath: citation.source.sectionPath,
-          },
-        })),
-      },
-    ]),
+    source.examples.flatMap((example): ChatMessageView[] => {
+      const answer = withCitationMarkers(
+        example.answer,
+        example.citations.length,
+      )
+      return [
+        {
+          id: `${example.id}-user`,
+          role: "user",
+          content: example.question,
+        },
+        {
+          id: `${example.id}-assistant`,
+          role: "assistant",
+          content: answer,
+          citations: toDemoChatCitationViews(example.citations, answer),
+        },
+      ]
+    }),
   )
+}
+
+function toDemoChatCitationViews(
+  citations: readonly DemoCitation[],
+  answer: string,
+) {
+  return toChatCitationViews(
+    citations.map(toDemoRetrievalResult),
+    answer,
+  ).map((citation, index) => {
+    const description = citations[index]?.description
+    return description ? { ...citation, description } : citation
+  })
+}
+
+function toDemoRetrievalResult(
+  citation: DemoCitation,
+): PageCitationAssetRetrievalResult {
+  return {
+    content: citation.content,
+    chunkType: citation.chunkType,
+    score: 0.95,
+    ...(citation.pageCitationAssetUrl
+      ? { pageCitationAssetUrl: citation.pageCitationAssetUrl }
+      : {}),
+    ...(citation.pageCitationPageNumber
+      ? { pageCitationPageNumber: citation.pageCitationPageNumber }
+      : {}),
+    ...(citation.pageNums && citation.pageNums.length > 0
+      ? { metadata: { page_nums: [...citation.pageNums] } }
+      : {}),
+    source: {
+      documentId: citation.canonicalDocumentId,
+      sourceFileName: citation.source.sourceFileName,
+      sectionPath: citation.source.sectionPath,
+    },
+  }
 }
 
 function toParsedChunkView(

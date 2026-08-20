@@ -287,6 +287,7 @@ describe("knowhereDemoApi", () => {
                       chunk_type: "page",
                       content: "Tesla entered into an agreement",
                       page_citation_page_number: 12,
+                      page_nums: [12],
                       page_citation_asset_url:
                         "/api/v1/demo/sources/demo-tsla-q4-2025/assets/page_citation_assets/page-12.png",
                       source: {
@@ -310,6 +311,7 @@ describe("knowhereDemoApi", () => {
 
     expect(catalog.sources[0]?.examples[0]?.citations[0]).toMatchObject({
       pageCitationPageNumber: 12,
+      pageNums: [12],
       pageCitationAssetUrl:
         "/api/demo-sources/demo-tsla-q4-2025/assets/page_citation_assets/page-12.png",
     })
