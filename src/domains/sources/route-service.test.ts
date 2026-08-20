@@ -183,7 +183,32 @@ describe("source route service", () => {
             status: "active",
             sourceFileName: "cli.pdf",
             documentMetadata: {
+              createdByClient: "cli",
               mimeType: "application/pdf",
+            },
+          },
+          {
+            documentId: "doc_untagged",
+            namespace: "default",
+            status: "active",
+            sourceFileName: "dummy.pdf",
+          },
+          {
+            documentId: "doc_sdk",
+            namespace: "default",
+            status: "active",
+            sourceFileName: "sdk.pdf",
+            documentMetadata: {
+              createdByClient: "node-sdk",
+            },
+          },
+          {
+            documentId: "doc_api",
+            namespace: "default",
+            status: "active",
+            sourceFileName: "api.pdf",
+            documentMetadata: {
+              created_by_client: "api",
             },
           },
         ],
@@ -217,6 +242,9 @@ describe("source route service", () => {
             namespace: workspace.namespace,
             status: "active",
             sourceFileName: "legacy.pdf",
+            documentMetadata: {
+              createdByClient: "mcp",
+            },
           },
         ],
         pagination: {

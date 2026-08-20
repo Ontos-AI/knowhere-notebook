@@ -8,6 +8,7 @@ import type {
 import type { Source } from "@/infrastructure/db/schema"
 import {
   listRemoteLibraryDocuments,
+  isNotebookVisibleRemoteDocument,
   type RemoteLibraryDocument,
 } from "@/domains/sources/remote-library"
 import type { SearchSources } from "./contracts"
@@ -128,6 +129,7 @@ async function listVisibleRemoteDocuments(input: {
   return documents
     .filter(
       (document) =>
+        isNotebookVisibleRemoteDocument(document) &&
         document.status === "ready" &&
         !localDocumentIds.has(document.documentId) &&
         !input.excludedDocumentIds.has(document.documentId),

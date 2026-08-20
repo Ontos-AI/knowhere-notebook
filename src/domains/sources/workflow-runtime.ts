@@ -59,6 +59,10 @@ type SourceWorkflowRuntime = UploadRepositoryRuntime & {
     workspaceId: string,
     sourceId: string,
   ) => Promise<Source | null>
+  readonly findByKnowhereDocumentId: (
+    workspaceId: string,
+    documentId: string,
+  ) => Promise<Source | null>
   readonly getParseAssetUrls: (
     workspaceId: string,
     sourceId: string,
@@ -123,6 +127,12 @@ const findInWorkspace: SourceWorkflowRuntime["findInWorkspace"] = (
   databaseRuntime.runPromise(
     sourceRepository.findInWorkspaceEffect(workspaceId, sourceId),
   )
+
+const findByKnowhereDocumentId: SourceWorkflowRuntime["findByKnowhereDocumentId"] =
+  (workspaceId: string, documentId: string) =>
+    databaseRuntime.runPromise(
+      sourceRepository.findByKnowhereDocumentIdEffect(workspaceId, documentId),
+    )
 
 const listForWorkspace: SourceWorkflowRuntime["listForWorkspace"] = (
   workspaceId: string,
@@ -319,6 +329,7 @@ export const sourceWorkflowRuntime: SourceWorkflowRuntime = {
   createUploadRepository,
   createUploading,
   findInWorkspace,
+  findByKnowhereDocumentId,
   getParseAssetUrls,
   getParseResultProgress,
   getParseSnapshotMetadata,

@@ -6,6 +6,7 @@ import { sourceRowRepository } from "./source-row-repository"
 
 type SourceRepository = {
   readonly findInWorkspaceEffect: typeof sourceRowRepository.findInWorkspaceEffect
+  readonly findByKnowhereDocumentIdEffect: typeof sourceRowRepository.findByKnowhereDocumentIdEffect
   readonly listForWorkspaceEffect: typeof sourceRowRepository.listForWorkspaceEffect
   readonly createUploadingEffect: typeof sourceRowRepository.createUploadingEffect
   readonly localizeRemoteDocumentEffect: typeof sourceRowRepository.localizeRemoteDocumentEffect
@@ -28,6 +29,8 @@ type SourceRepository = {
 
 export const sourceRepository: SourceRepository = {
   findInWorkspaceEffect: sourceRowRepository.findInWorkspaceEffect,
+  findByKnowhereDocumentIdEffect:
+    sourceRowRepository.findByKnowhereDocumentIdEffect,
   listForWorkspaceEffect: sourceRowRepository.listForWorkspaceEffect,
   createUploadingEffect: sourceRowRepository.createUploadingEffect,
   localizeRemoteDocumentEffect:

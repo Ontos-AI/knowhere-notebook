@@ -188,6 +188,10 @@ type SourceWorkflowService = {
     workspaceId: string,
     sourceId: string,
   ) => Promise<Source | null>
+  readonly findByKnowhereDocumentId: (
+    workspaceId: string,
+    documentId: string,
+  ) => Promise<Source | null>
   readonly softDelete: (
     workspaceId: string,
     sourceId: string,

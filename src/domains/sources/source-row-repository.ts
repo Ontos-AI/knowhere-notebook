@@ -51,6 +51,10 @@ type SourceRowRepository = {
     workspaceId: string,
     sourceId: string,
   ) => Effect.Effect<Source | null, never, DbClient>
+  readonly findByKnowhereDocumentIdEffect: (
+    workspaceId: string,
+    documentId: string,
+  ) => Effect.Effect<Source | null, never, DbClient>
   readonly listForWorkspaceEffect: (
     workspaceId: string,
   ) => Effect.Effect<Source[], never, DbClient>
@@ -125,6 +129,15 @@ const findInWorkspaceEffect: SourceRowRepository["findInWorkspaceEffect"] = (
       findInWorkspaceWithDb(db, workspaceId, sourceId),
     )
   })
+
+const findByKnowhereDocumentIdEffect: SourceRowRepository["findByKnowhereDocumentIdEffect"] =
+  (workspaceId: string, documentId: string) =>
+    Effect.gen(function* () {
+      const db = yield* DbClient
+      return yield* Effect.promise(() =>
+        findByKnowhereDocumentIdWithDb(db, workspaceId, documentId),
+      )
+    })
 
 const listForWorkspaceEffect: SourceRowRepository["listForWorkspaceEffect"] = (
   workspaceId: string,
@@ -301,6 +314,28 @@ async function findInWorkspaceWithDb(
   return row[0] ?? null
 }
 
+async function findByKnowhereDocumentIdWithDb(
+  db: Db,
+  workspaceId: string,
+  documentId: string,
+): Promise<Source | null> {
+  if (documentId.length === 0) return null
+
+  const row = await db
+    .select()
+    .from(sources)
+    .where(
+      and(
+        eq(sources.workspaceId, workspaceId),
+        eq(sources.knowhereDocumentId, documentId),
+        isNull(sources.deletedAt),
+      ),
+    )
+    .limit(1)
+
+  return row[0] ?? null
+}
+
 async function updateInWorkspaceWithDb(
   db: Db,
   workspaceId: string,
@@ -414,6 +449,7 @@ function requireSource(source: Source | null, message: string): Source {
 
 export const sourceRowRepository: SourceRowRepository = {
   findInWorkspaceEffect,
+  findByKnowhereDocumentIdEffect,
   listForWorkspaceEffect,
   createUploadingEffect,
   localizeRemoteDocumentEffect,

@@ -17,6 +17,10 @@ type SourceService = {
     workspaceId: string,
     sourceId: string,
   ) => Promise<Source | null>
+  readonly findByKnowhereDocumentId: (
+    workspaceId: string,
+    documentId: string,
+  ) => Promise<Source | null>
   readonly listForWorkspace: (workspaceId: string) => Promise<Source[]>
   readonly localizeRemoteDocument: (
     workspaceId: string,
@@ -96,6 +100,7 @@ const retrySourceToKnowhere: SourceService["retrySourceToKnowhere"] = (
 
 export const sourceService: SourceService = {
   findInWorkspace: sourceWorkflowRuntime.findInWorkspace,
+  findByKnowhereDocumentId: sourceWorkflowRuntime.findByKnowhereDocumentId,
   hideDemoSource: sourceWorkflowRuntime.hideDemoSource,
   listHiddenDemoSourceIds: sourceWorkflowRuntime.listHiddenDemoSourceIds,
   listForWorkspace: sourceWorkflowRuntime.listForWorkspace,
