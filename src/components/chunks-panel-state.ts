@@ -192,29 +192,42 @@ function dedupeChunksById(
 function getPageAssetChunksWithoutDuplicatePages(
   chunks: readonly ParsedChunkView[],
 ): readonly ParsedChunkView[] {
-  const seenPageNumbers = new Set<number>()
+  const seenSingletonPageNumbers = new Set<number>()
 
   return chunks.filter((chunk) => {
     // Page-memory table assets currently store a file path, not HTML.
     if (chunk.type === "table") return false
     if (chunk.type !== "page") return true
 
-    const pageNumber = getPageAssetChunkPageNumber(chunk)
-    if (pageNumber === null) return true
-    if (seenPageNumbers.has(pageNumber)) return false
+    const pageNumbers = getPageAssetChunkPageNumbers(chunk)
+    if (pageNumbers.length === 0) return true
+    if (pageNumbers.length > 1) return true
 
-    seenPageNumbers.add(pageNumber)
+    const pageNumber = pageNumbers[0]!
+    if (seenSingletonPageNumbers.has(pageNumber)) return false
+
+    seenSingletonPageNumbers.add(pageNumber)
     return true
   })
 }
 
-function getPageAssetChunkPageNumber(chunk: ParsedChunkView): number | null {
-  const pageAssetNumbers = (chunk.pageAssets ?? [])
-    .map((pageAsset) => pageAsset.pageNumber)
-    .filter(isPositivePageNumber)
-  if (pageAssetNumbers.length > 0) return Math.min(...pageAssetNumbers)
+function getPageAssetChunkPageNumbers(
+  chunk: ParsedChunkView,
+): readonly number[] {
+  const pageAssetNumbers = uniquePositivePageNumbers(
+    (chunk.pageAssets ?? []).map((pageAsset) => pageAsset.pageNumber),
+  )
+  if (pageAssetNumbers.length > 0) return pageAssetNumbers
 
-  return getFirstPageNumber(chunk)
+  return uniquePositivePageNumbers(chunk.pageNums ?? [])
+}
+
+function uniquePositivePageNumbers(
+  pageNumbers: readonly number[],
+): readonly number[] {
+  return [...new Set(pageNumbers.filter(isPositivePageNumber))].sort(
+    (left, right) => left - right,
+  )
 }
 
 function createMutableSectionTreeNode(input: {

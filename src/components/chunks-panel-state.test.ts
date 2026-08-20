@@ -149,7 +149,7 @@ describe("chunksPanelState", () => {
     ])
   })
 
-  it("deduplicates page-asset chunks by page number", () => {
+  it("deduplicates singleton page-asset chunks with the same page number", () => {
     const chunks: ParsedChunkView[] = [
       {
         chunkId: "page_4_first",
@@ -206,6 +206,92 @@ describe("chunksPanelState", () => {
         .getPageAssetChunksWithoutDuplicatePages(chunks)
         .map((chunk) => chunk.chunkId),
     ).toEqual(["page_4_first", "page_5"])
+  })
+
+  it("keeps overlapping page-memory section chunks that share a boundary page", () => {
+    const chunks: ParsedChunkView[] = [
+      {
+        chunkId: "kenneth",
+        type: "page",
+        content: "IR introduction.",
+        sectionPath: "call.pdf/Root/Kenneth Dorell",
+        sourceTitle: "call.pdf",
+        pageNums: [1],
+        pageAssets: [
+          {
+            pageNumber: 1,
+            assetUrl: "https://assets.example/page-1.png",
+            contentType: "image/png",
+          },
+        ],
+      },
+      {
+        chunkId: "zuckerberg",
+        type: "page",
+        content: "[SAME-AS call.pdf/Root/Kenneth Dorell p1] CEO remarks.",
+        sectionPath: "call.pdf/Root/Mark Zuckerberg, CEO",
+        sourceTitle: "call.pdf",
+        pageNums: [1, 2],
+        pageAssets: [
+          {
+            pageNumber: 1,
+            assetUrl: "https://assets.example/page-1.png",
+            contentType: "image/png",
+          },
+          {
+            pageNumber: 2,
+            assetUrl: "https://assets.example/page-2.png",
+            contentType: "image/png",
+          },
+        ],
+      },
+      {
+        chunkId: "outlook",
+        type: "page",
+        content: "Q2 outlook.",
+        sectionPath: "call.pdf/Root/Moving to our financial outlook.",
+        sourceTitle: "call.pdf",
+        pageNums: [8],
+        pageAssets: [
+          {
+            pageNumber: 8,
+            assetUrl: "https://assets.example/page-8.png",
+            contentType: "image/png",
+          },
+        ],
+      },
+      {
+        chunkId: "capex",
+        type: "page",
+        content: "[SAME-AS call.pdf/Root/Moving to our financial outlook. p8] Q&A.",
+        sectionPath: "call.pdf/Root/Turning to the expense and capex outlooks.",
+        sourceTitle: "call.pdf",
+        pageNums: [8, 9, 10],
+        pageAssets: [
+          {
+            pageNumber: 8,
+            assetUrl: "https://assets.example/page-8.png",
+            contentType: "image/png",
+          },
+          {
+            pageNumber: 9,
+            assetUrl: "https://assets.example/page-9.png",
+            contentType: "image/png",
+          },
+          {
+            pageNumber: 10,
+            assetUrl: "https://assets.example/page-10.png",
+            contentType: "image/png",
+          },
+        ],
+      },
+    ]
+
+    expect(
+      chunksPanelState
+        .getPageAssetChunksWithoutDuplicatePages(chunks)
+        .map((chunk) => chunk.chunkId),
+    ).toEqual(["kenneth", "zuckerberg", "outlook", "capex"])
   })
 
   it("hides table asset chunks from page-asset lists", () => {

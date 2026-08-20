@@ -198,6 +198,65 @@ describe("ChunksPanel", () => {
       .toBeNull();
   });
 
+  it("keeps overlapping page-memory sections that share a first page image", async () => {
+    mockVisibleVirtualViewport();
+
+    render(
+      React.createElement(C, {
+        chunks: [
+          {
+            chunkId: "kenneth",
+            type: "page",
+            content: "IR introduction",
+            sectionPath: "call.pdf/Root/Kenneth Dorell",
+            sourceTitle: "call.pdf",
+            pageNums: [1],
+            pageAssets: [
+              {
+                pageNumber: 1,
+                assetUrl: "https://assets.example/page-1.png",
+                contentType: "image/png",
+              },
+            ],
+          },
+          {
+            chunkId: "zuckerberg",
+            type: "page",
+            content: "CEO remarks",
+            sectionPath: "call.pdf/Root/Mark Zuckerberg, CEO",
+            sourceTitle: "call.pdf",
+            pageNums: [1, 2],
+            pageAssets: [
+              {
+                pageNumber: 1,
+                assetUrl: "https://assets.example/page-1.png",
+                contentType: "image/png",
+              },
+              {
+                pageNumber: 2,
+                assetUrl: "https://assets.example/page-2.png",
+                contentType: "image/png",
+              },
+            ],
+          },
+        ],
+        selectedSource: "call.pdf",
+        selectedSourceView: {
+          id: "source_1",
+          title: "call.pdf",
+          mimeType: "application/pdf",
+          status: "ready",
+          documentPresentation: { kind: "page-assets", pageCount: 2 },
+        },
+      }),
+    );
+
+    selectListView();
+    expect(await screen.findByTestId("chunk-card-shell-kenneth")).toBeTruthy();
+    expect(screen.getByTestId("chunk-card-shell-zuckerberg")).toBeTruthy();
+    expect(screen.getByRole("img", { name: "Page 2" })).toBeTruthy();
+  });
+
   it("renders page chunks normally when no page assets exist", async () => {
     mockVisibleVirtualViewport();
 
