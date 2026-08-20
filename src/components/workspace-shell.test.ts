@@ -449,6 +449,97 @@ describe("WorkspaceShell", () => {
     ).toBe(false);
   });
 
+  it("focuses guest Official Library demo citations instead of the empty login state", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
+      const url = getRequestURL(input);
+
+      if (url.pathname === "/api/sources/demo-tsla-q4-2025/chunks") {
+        return Response.json({
+          chunks: [
+            {
+              chunkId: "demo-tsla-q4-2025:chunk_1",
+              documentId: "demo-doc-tsla-q4-2025",
+              sectionPath: "TSLA-Q4-2025-Update.pdf/OTHER UPDATES",
+              type: "text",
+              content: "Tesla entered into an agreement to invest approximately",
+              sourceTitle: "TSLA-Q4-2025-Update.pdf",
+            },
+          ],
+          pagination: {
+            page: Number(url.searchParams.get("page") ?? "1"),
+            pageSize: 100,
+            total: 1,
+            totalPages: 1,
+          },
+        });
+      }
+
+      return Response.json({ message: "Unexpected request" }, { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    render(
+      React.createElement(C, {
+        isGuest: true,
+        sources: [
+          {
+            id: "demo-tsla-q4-2025",
+            kind: "demo",
+            demoSourceId: "demo-tsla-q4-2025",
+            title: "TSLA-Q4-2025-Update.pdf",
+            status: "ready",
+            mimeType: "application/pdf",
+            documentId: "demo-doc-tsla-q4-2025",
+            officialLibrary: {
+              librarySourceId: "financial-tsla-q4-2025",
+              categoryId: "financial-reports",
+              sourceUrl: "https://example.com/tsla-q4-2025.pdf",
+            },
+          },
+        ],
+        chatMessages: [
+          {
+            id: "assistant_1",
+            role: "assistant",
+            content: "Tesla invested in xAI. [[cite:1]]",
+            citations: [
+              {
+                content: "Tesla entered into an agreement to invest approximately",
+                description: "xAI investment",
+                chunkType: "text",
+                score: 0.95,
+                pageCitationPageNumber: 12,
+                source: {
+                  documentId: "demo-doc-tsla-q4-2025",
+                  sourceFileName: "TSLA-Q4-2025-Update.pdf",
+                  sectionPath: "TSLA-Q4-2025-Update.pdf/OTHER UPDATES",
+                },
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    const citationButton = await findStableConnectedElement(() => {
+      const desktopChatPanel = within(screen.getByTestId("desktop-chat-panel"));
+      return desktopChatPanel.getByRole("button", {
+        name: "Open source TSLA-Q4-2025-Update.pdf/p12",
+      });
+    });
+    fireEvent.click(citationButton);
+
+    await waitFor(() => {
+      const chunksPanel = screen.getByTestId("desktop-chunks-panel");
+      expect(within(chunksPanel).queryByText("Log in to add documents")).toBeNull();
+      const topRow = chunksPanel.querySelector<HTMLElement>('[data-index="0"]');
+      expect(topRow?.getAttribute("data-chunk-id")).toBe(
+        "demo-tsla-q4-2025:chunk_1",
+      );
+      expect(topRow?.getAttribute("data-focused-chunk")).toBe("true");
+    });
+  });
+
   it("focuses guest citations from the mobile chat panel", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
       const url = getRequestURL(input);
