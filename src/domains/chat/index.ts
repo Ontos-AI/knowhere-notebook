@@ -1014,11 +1014,12 @@ async function hydrateMissingCitationPageMetadata(input: {
     }
   })
 
-  if (!input.knowledge) return results
+  const knowledge = input.knowledge
+  if (!knowledge) return results
 
   return Promise.all(
     results.map((result) =>
-      hydrateResultPageMetadataFromKnowledge(result, input.knowledge),
+      hydrateResultPageMetadataFromKnowledge(result, knowledge),
     ),
   )
 }
