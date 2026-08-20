@@ -51,13 +51,19 @@ function toChatMessages(catalog: DemoCatalog): ChatMessageView[] {
       {
         id: `${example.id}-assistant`,
         role: "assistant",
-        content: example.answer,
+        content: withCitationMarkers(example.answer, example.citations.length),
         citations: example.citations.map((citation) => ({
           chunkType: citation.chunkType,
           score: 0.95,
           content: citation.content,
           ...(citation.description
             ? { description: citation.description }
+            : {}),
+          ...(citation.pageCitationPageNumber
+            ? { pageCitationPageNumber: citation.pageCitationPageNumber }
+            : {}),
+          ...(citation.pageCitationAssetUrl
+            ? { pageCitationAssetUrl: citation.pageCitationAssetUrl }
             : {}),
           source: {
             documentId: citation.canonicalDocumentId,
@@ -86,4 +92,15 @@ function toParsedChunkView(
     assetUrl: chunk.assetUrl,
     sourceTitle: source.title,
   })
+}
+
+const citeMarkerPattern = /\[\[cite:\d+\]\]/
+
+function withCitationMarkers(answer: string, citationCount: number): string {
+  if (citationCount < 1 || citeMarkerPattern.test(answer)) return answer
+  const markers = Array.from(
+    { length: citationCount },
+    (_, index) => `[[cite:${index + 1}]]`,
+  ).join(" ")
+  return `${answer.trimEnd()} ${markers}`
 }

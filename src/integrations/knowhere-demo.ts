@@ -11,6 +11,8 @@ export type DemoCitation = {
   readonly chunkType: string
   readonly content: string
   readonly description?: string
+  readonly pageCitationPageNumber?: number
+  readonly pageCitationAssetUrl?: string
   readonly source: {
     readonly documentId: string
     readonly sourceFileName: string
@@ -155,6 +157,8 @@ type DemoCitationResponse = {
   readonly chunk_type?: unknown
   readonly content?: unknown
   readonly description?: unknown
+  readonly page_citation_page_number?: unknown
+  readonly page_citation_asset_url?: unknown
   readonly source?: {
     readonly document_id?: unknown
     readonly source_file_name?: unknown
@@ -442,6 +446,13 @@ function toDemoExample(example: DemoExampleResponse): DemoExample {
 function toDemoCitation(citation: DemoCitationResponse): DemoCitation {
   const source = citation.source ?? {}
   const description = optionalString(citation.description)
+  const pageCitationPageNumber = optionalPositiveNumber(
+    citation.page_citation_page_number,
+  )
+  const pageCitationAssetUrl = toDemoAssetUrl(
+    requireString(citation.demo_source_id),
+    optionalString(citation.page_citation_asset_url),
+  )
   return {
     demoSourceId: requireString(citation.demo_source_id),
     canonicalDocumentId: requireString(citation.canonical_document_id),
@@ -450,6 +461,10 @@ function toDemoCitation(citation: DemoCitationResponse): DemoCitation {
     chunkType: requireString(citation.chunk_type),
     content: requireString(citation.content),
     ...(description ? { description } : {}),
+    ...(pageCitationPageNumber !== undefined
+      ? { pageCitationPageNumber }
+      : {}),
+    ...(pageCitationAssetUrl ? { pageCitationAssetUrl } : {}),
     source: {
       documentId: requireString(source.document_id),
       sourceFileName: requireString(source.source_file_name),

@@ -252,6 +252,68 @@ describe("knowhereDemoApi", () => {
       chunkCount: 922,
     })
   })
+
+  it("maps demo example citation page metadata onto Notebook citation fields", async () => {
+    globalThis.fetch = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          sources: [
+            {
+              demo_source_id: "demo-tsla-q4-2025",
+              canonical_document_id: "demo-doc-tsla-q4-2025",
+              title: "TSLA-Q4-2025-Update.pdf",
+              mime_type: "application/pdf",
+              size_bytes: 1024,
+              status: "ready",
+              chunk_count: 71,
+              original_file: {
+                url: "/api/v1/demo/sources/demo-tsla-q4-2025/original",
+                mime_type: "application/pdf",
+                size_bytes: 1024,
+                can_download: false,
+              },
+              examples: [
+                {
+                  id: "demo-tsla-q4-2025-xai",
+                  question: "What does the document say about Tesla's xAI investment?",
+                  answer:
+                    "Tesla entered an agreement to invest about $2 billion. [[cite:1]]",
+                  citations: [
+                    {
+                      demo_source_id: "demo-tsla-q4-2025",
+                      canonical_document_id: "demo-doc-tsla-q4-2025",
+                      canonical_chunk_id: "demo-tsla-q4-2025:chunk",
+                      chunk_id: "chunk",
+                      chunk_type: "page",
+                      content: "Tesla entered into an agreement",
+                      page_citation_page_number: 12,
+                      page_citation_asset_url:
+                        "/api/v1/demo/sources/demo-tsla-q4-2025/assets/page_citation_assets/page-12.png",
+                      source: {
+                        document_id: "demo-doc-tsla-q4-2025",
+                        source_file_name: "TSLA-Q4-2025-Update.pdf",
+                        section_path: "TSLA-Q4-2025-Update.pdf/OTHER UPDATES",
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+          official_library: { categories: [], sources: [] },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    )
+
+    const catalog = await knowhereDemoApi.fetchCatalog()
+
+    expect(catalog.sources[0]?.examples[0]?.citations[0]).toMatchObject({
+      pageCitationPageNumber: 12,
+      pageCitationAssetUrl:
+        "/api/demo-sources/demo-tsla-q4-2025/assets/page_citation_assets/page-12.png",
+    })
+  })
 })
 
 function restoreEnv(key: string, value: string | undefined): void {
