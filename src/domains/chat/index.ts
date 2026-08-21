@@ -6,6 +6,7 @@ import type {
 } from "@ontos-ai/knowhere-sdk"
 
 import { logger } from "@/lib/logger"
+import { getCanonicalImageAssetKey } from "@/agent-harness/image-asset-identity"
 import type {
   ChatArtifactView,
   ChatCitationView,
@@ -903,11 +904,20 @@ function mapManifestCitationsToResults(
       resolveChunkForAssetRef(citation.ref, assetsByRef, chunksByRef)
     if (!chunk) continue
 
-    results.push(
-      toRetrievalResultFromEvidenceChunk(
-        mergeChunkPageMetadata(chunk, result.trace.ledger.chunks),
-      ),
+    const retrievalResult = toRetrievalResultFromEvidenceChunk(
+      mergeChunkPageMetadata(chunk, result.trace.ledger.chunks),
     )
+    const highlightRegions = getHighlightRegionsForChunk(
+      chunk,
+      result.trace.imageHighlights,
+      chunksByRef,
+      assetsByRef,
+    )
+    const resultWithHighlights =
+      highlightRegions && highlightRegions.length > 0
+        ? { ...retrievalResult, highlightRegions }
+        : retrievalResult
+    results.push(resultWithHighlights as RetrievalResult)
     if (results.length >= MAX_CITATION_RESULTS) break
   }
 
@@ -922,6 +932,71 @@ function resolveChunkForAssetRef(
   const asset = assetsByRef.get(ref)
   if (!asset) return undefined
   return chunksByRef.get(asset.chunkRef)
+}
+
+function getHighlightRegionsForChunk(
+  chunk: EvidenceChunk,
+  imageHighlights: HarnessRunResult["trace"]["imageHighlights"],
+  chunksByRef: ReadonlyMap<string, EvidenceChunk>,
+  assetsByRef: ReadonlyMap<string, EvidenceAsset>,
+): ChatImageHighlightBox[] | undefined {
+  if (!imageHighlights || imageHighlights.length === 0) return undefined
+
+  const candidateRefs = new Set([chunk.ref])
+  const assetRef = resolveCitationImageAssetRef(
+    chunk,
+    chunksByRef,
+    assetsByRef,
+  )
+  if (assetRef) candidateRefs.add(assetRef)
+  const canonicalAssetKey = assetRef
+    ? getCanonicalCitationAssetKey(assetRef, chunksByRef, assetsByRef)
+    : null
+
+  for (const page of imageHighlights) {
+    const isDirectMatch = candidateRefs.has(page.ref)
+    const isCanonicalMatch =
+      canonicalAssetKey !== null &&
+      getCanonicalCitationAssetKey(page.ref, chunksByRef, assetsByRef) ===
+        canonicalAssetKey
+    if ((!isDirectMatch && !isCanonicalMatch) || page.regions.length === 0) {
+      continue
+    }
+    return [...page.regions]
+  }
+
+  return undefined
+}
+
+function resolveCitationImageAssetRef(
+  chunk: EvidenceChunk,
+  chunksByRef: ReadonlyMap<string, EvidenceChunk>,
+  assetsByRef: ReadonlyMap<string, EvidenceAsset>,
+): string | null {
+  if (chunk.assetRef && assetsByRef.get(chunk.assetRef)?.type === "image") {
+    return chunk.assetRef
+  }
+  if (!chunk.chunkId) return null
+
+  const sibling = Array.from(chunksByRef.values()).find(
+    (candidate) =>
+      candidate.ref !== chunk.ref &&
+      candidate.chunkId === chunk.chunkId &&
+      candidate.source.documentId === chunk.source.documentId &&
+      candidate.assetRef !== undefined &&
+      assetsByRef.get(candidate.assetRef)?.type === "image",
+  )
+  return sibling?.assetRef ?? null
+}
+
+function getCanonicalCitationAssetKey(
+  assetRef: string,
+  chunksByRef: ReadonlyMap<string, EvidenceChunk>,
+  assetsByRef: ReadonlyMap<string, EvidenceAsset>,
+): string {
+  const asset = assetsByRef.get(assetRef)
+  if (!asset) return assetRef
+  return getCanonicalImageAssetKey(asset, chunksByRef)
 }
 
 function mapDisplayedManifestArtifactsToResults(

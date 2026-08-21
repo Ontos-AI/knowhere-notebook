@@ -83,6 +83,8 @@ function replaceDemoCitationDocumentId(
 function toCitationView(
   citation: ChatCitationView | CitationView | RetrievalResultView,
 ): CitationView {
+  const highlightRegions =
+    "highlightRegions" in citation ? citation.highlightRegions : undefined
   return {
     chunkType: citation.chunkType,
     score: citation.score,
@@ -90,6 +92,9 @@ function toCitationView(
     pageCitationAssetUrl: citation.pageCitationAssetUrl,
     pageCitationPageNumber: citation.pageCitationPageNumber,
     description: "description" in citation ? citation.description : undefined,
+    ...(highlightRegions && highlightRegions.length > 0
+      ? { highlightRegions }
+      : {}),
     source: {
       documentId: citation.source.documentId,
       sourceFileName: citation.source.sourceFileName,

@@ -61,6 +61,102 @@ describe("chatCitationModel", () => {
     expect(groups[1]?.title).toBe("report.pdf")
   })
 
+  it("uses citation or same-page artifact boxes without inventing a region", () => {
+    const citation: ChatCitationView = {
+      chunkType: "page",
+      score: 0.9,
+      pageCitationPageNumber: 4,
+      source: {
+        documentId: "doc_1",
+        sourceFileName: "TSLA-Q4-2025-Update.pdf",
+        sectionPath: "Page 4",
+      },
+    }
+
+    expect(
+      chatCitationModel.getListHighlightRegions(
+        {
+          ...citation,
+          highlightRegions: [{ x: 0.12, y: 0.18, w: 0.4, h: 0.1 }],
+        },
+        [
+          {
+            type: "image",
+            display: true,
+            highlightRegions: [{ x: 0.5, y: 0.5, w: 0.2, h: 0.2 }],
+            citation: {
+              chunkType: "page",
+              score: 0.8,
+              pageCitationPageNumber: 4,
+              source: { documentId: "doc_1" },
+            },
+          },
+        ],
+      ),
+    ).toEqual([{ x: 0.12, y: 0.18, w: 0.4, h: 0.1 }])
+
+    expect(
+      chatCitationModel.getListHighlightRegions(citation, [
+        {
+          type: "image",
+          display: true,
+          highlightRegions: [{ x: 0.1, y: 0.2, w: 0.3, h: 0.15 }],
+          citation: {
+            chunkType: "page",
+            score: 0.8,
+            pageCitationPageNumber: 4,
+            source: { documentId: "doc_1" },
+          },
+        },
+        {
+          type: "image",
+          display: true,
+          highlightRegions: [{ x: 0.5, y: 0.5, w: 0.2, h: 0.2 }],
+          citation: {
+            chunkType: "page",
+            score: 0.7,
+            pageCitationPageNumber: 12,
+            source: { documentId: "doc_1" },
+          },
+        },
+      ]),
+    ).toEqual([{ x: 0.1, y: 0.2, w: 0.3, h: 0.15 }])
+
+    expect(
+      chatCitationModel.getListHighlightRegions(citation, [
+        {
+          type: "image",
+          display: true,
+          highlightRegions: [{ x: 0.7, y: 0.1, w: 0.2, h: 0.1 }],
+          citation: {
+            chunkType: "page",
+            score: 0.7,
+            pageCitationPageNumber: 4,
+            source: { documentId: "doc_2" },
+          },
+        },
+      ]),
+    ).toEqual([])
+
+    expect(
+      chatCitationModel.getListHighlightRegions(citation, [
+        {
+          type: "image",
+          display: false,
+          highlightRegions: [{ x: 0.7, y: 0.1, w: 0.2, h: 0.1 }],
+          citation: {
+            chunkType: "page",
+            score: 0.7,
+            pageCitationPageNumber: 4,
+            source: { documentId: "doc_1" },
+          },
+        },
+      ]),
+    ).toEqual([])
+
+    expect(chatCitationModel.getListHighlightRegions(citation, [])).toEqual([])
+  })
+
   it("embeds cite markers as links and leaves fenced code unchanged", () => {
     const markdown = chatCitationModel.embedCitationMarkersAsLinks(
       [
@@ -85,6 +181,26 @@ describe("chatCitationModel", () => {
     expect(markdown).toContain("const value = '[[cite:1]]'")
     expect(markdown).not.toContain("[Source 1:")
     expect(markdown).not.toContain("[[cite:1]] and later")
+  })
+
+  it("expands grouped cite markers into one chip per index", () => {
+    const markdown = chatCitationModel.embedCitationMarkersAsLinks(
+      "Total revenue was $24,901 million [[cite:1, 3, 5]].",
+      [pageCitation, samePageCitation, otherFileCitation, pageCitation, samePageCitation],
+      {
+        doc_1: "TSLA-Q4-2025-Update.pdf",
+        doc_2: "report.pdf",
+      },
+    )
+
+    expect(markdown).toContain(
+      "[TSLA-Q4-2025-Update.pdf/p26](knowhere-cite://1)",
+    )
+    expect(markdown).toContain("[report.pdf/p3](knowhere-cite://3)")
+    expect(markdown).toContain(
+      "[TSLA-Q4-2025-Update.pdf/p26](knowhere-cite://5)",
+    )
+    expect(markdown).not.toContain("[[cite:")
   })
 
   it("drops unknown cite markers from display markdown", () => {

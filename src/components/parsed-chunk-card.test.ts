@@ -151,10 +151,52 @@ describe("ParsedChunkCard", () => {
       '[data-citation-page="4"]',
     );
     expect(citationTarget).not.toBeNull();
-    expect(citationTarget?.className).toContain("relative");
+    expect(screen.getByTestId("citation-image-stage").className).toContain(
+      "relative",
+    );
     expect(citationTarget?.getAttribute("data-focused-citation-id")).toBe(
       "assistant_1:0",
     );
+  });
+
+  it("draws a temporary region highlight on the focused page image", () => {
+    render(
+      React.createElement(ParsedChunkCard, {
+        chunk: {
+          chunkId: "page_4",
+          type: "page",
+          content: "Page 4",
+          sourceTitle: "manual.pdf",
+          pageNums: [4],
+          pageAssets: [
+            {
+              pageNumber: 4,
+              assetUrl: "https://assets.example/page-4.png",
+              contentType: "image/png",
+            },
+          ],
+        },
+        isFocused: true,
+        focusedCitationId: "assistant_1:0",
+        focusedPageNumber: 4,
+        focusedPageRequestId: 2,
+        highlightRegions: [{ x: 0.1, y: 0.2, w: 0.3, h: 0.15 }],
+        onReferenceClick: vi.fn(),
+      }),
+    );
+
+    const highlight = screen.getByTestId("citation-region-highlight");
+    expect(highlight.className).toContain("citation-region-flash");
+    expect(highlight.getAttribute("style")).toContain("10%");
+    expect(highlight.getAttribute("style")).toContain("20%");
+    expect(highlight.getAttribute("style")).toContain("30%");
+    expect(highlight.getAttribute("style")).toContain("15%");
+    expect(
+      screen.getByTestId("citation-region-highlights").parentElement,
+    ).toBe(screen.getByTestId("citation-image-stage"));
+
+    fireEvent.error(screen.getByRole("img", { name: "Page 4" }));
+    expect(screen.queryByTestId("citation-region-highlight")).toBeNull();
   });
 
   it("hides the keywords row when a page card has none", () => {

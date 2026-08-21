@@ -13,6 +13,7 @@ import type {
   AgentTurnInput,
   ContextPolicy,
   HarnessToolCallTrace,
+  ImageInspectionRequest,
   IntentFrame,
   KnowhereToolRuntime,
   OutputManifest,
@@ -46,7 +47,19 @@ describe("agent harness runtime", () => {
     expect(prompt).toContain("[[cite:n]]")
     expect(prompt).toContain("1-based index into the citations array")
     expect(prompt).toContain("Do not write title/pN, [1], Markdown footnotes")
+    expect(prompt).toContain("Never group indices as [[cite:1, 3, 5]]")
     expect(prompt).toContain("Do not collapse same-page citations")
+  })
+
+  it("requires inspectImage on cited page/image assets before finalize", () => {
+    const prompt = buildHarnessSystemPrompt(makeTurnInput())
+
+    expect(prompt).toContain(
+      "call inspectImage on the page/image assets you will cite before finalize",
+    )
+    expect(prompt).toContain(
+      "Do not finalize cited page/image assets from chunk text alone",
+    )
   })
 
   it("passes only outer retrieval parameters to KNOWHERE without planning-tool gating", async () => {
@@ -217,14 +230,21 @@ describe("agent harness runtime", () => {
     expect(inspectImages).not.toHaveBeenCalled()
   })
 
-  it("enforces the inspectImage six-ref limit", async () => {
+  it("lets retrieval bound the number of images inspected in one call", async () => {
     const ledger = createEvidenceLedger()
     ledger.addRetrievalResponse(makeImageRetrievalResponse(7))
+    const inspectImages = vi.fn(async (request: {
+      readonly assets: readonly { readonly ref: string; readonly label: string }[]
+    }) => ({
+      analysis: "Compared all retrieved images.",
+      inspected: request.assets.map(({ ref, label }) => ({ ref, label })),
+      skipped: [],
+    }))
     const tools = createHarnessTools({
       state: {},
       ledger,
       knowhereTools: makeKnowhereTools(),
-      inspectImages: vi.fn(),
+      inspectImages,
       recentTurns: [],
     })
 
@@ -233,10 +253,8 @@ describe("agent harness runtime", () => {
       question: "Compare these images.",
     })
 
-    expect(result).toMatchObject({
-      ok: false,
-      message: "inspectImage accepts at most 6 refs per call.",
-    })
+    expect(result).toMatchObject({ ok: true })
+    expect(inspectImages.mock.calls[0]?.[0].assets).toHaveLength(7)
   })
 
   it("calls the visual inspection capability with retrieved image ledger assets", async () => {
@@ -345,6 +363,227 @@ describe("agent harness runtime", () => {
     })
   })
 
+  it("inspects duplicate retrieved pages only once across namespaces", async () => {
+    const ledger = createEvidenceLedger()
+    const pageMetadata = {
+      pageNums: [4],
+      pageAssets: [
+        {
+          pageNum: 4,
+          artifactRef: "page_citation_assets/page-4.png",
+          assetUrl: "https://assets.example/page-4.png",
+          contentType: "image/png",
+        },
+      ],
+    }
+    ledger.addRetrievalResponse({
+      namespace: "default,notebook",
+      query: "revenue",
+      routerUsed: "mapnav",
+      answerText: null,
+      evidenceText: "Revenue evidence",
+      stopReason: "completed",
+      failureReason: null,
+      results: [
+        {
+          chunkId: "chunk_page_4",
+          content: "Revenue was $24.9B.",
+          chunkType: "page",
+          score: 0.9,
+          metadata: pageMetadata,
+          source: {
+            documentId: "doc_catalog",
+            sourceFileName: "original.pdf",
+            sectionPath: "FINANCIAL SUMMARY",
+          },
+        },
+        {
+          chunkId: "chunk_page_4",
+          content: "Revenue was $24.9B.",
+          chunkType: "page",
+          score: 0.9,
+          metadata: pageMetadata,
+          source: {
+            documentId: "doc_workspace",
+            sourceFileName: "TSLA-Q4-2025-Update.pdf",
+            sectionPath: "FINANCIAL SUMMARY",
+          },
+        },
+      ],
+      referencedChunks: [],
+    })
+    const inspectImages = vi.fn().mockResolvedValue({
+      analysis: "Revenue is visible in the financial summary.",
+      inspected: [
+        {
+          ref: "asset:r1:result:1",
+          label: "original.pdf / page_citation_assets/page-4.png / page",
+        },
+      ],
+      skipped: [],
+      highlights: [
+        {
+          ref: "asset:r1:result:1",
+          regions: [{ x: 0.1, y: 0.2, w: 0.8, h: 0.1 }],
+        },
+      ],
+    })
+    const state: {
+      inspectedImageRefs?: string[]
+    } = {}
+    const tools = createHarnessTools({
+      state,
+      ledger,
+      knowhereTools: makeKnowhereTools(),
+      inspectImages,
+      recentTurns: [],
+    })
+
+    const inspection = await executeTool(tools.inspectImage, {
+      refs: ["asset:r1:result:1", "asset:r1:result:2"],
+      question: "Locate the cited revenue.",
+    })
+
+    expect(inspection).toMatchObject({ ok: true })
+    expect(inspectImages.mock.calls[0]?.[0].assets).toHaveLength(1)
+    expect(
+      await executeTool(tools.finalize, {
+        text: "Revenue was $24.9B [[cite:1]] [[cite:2]].",
+        citations: [{ ref: "r1:result:1" }, { ref: "r1:result:2" }],
+        artifacts: [],
+        unresolved: [],
+      }),
+    ).toMatchObject({ ok: true })
+  })
+
+  it("does not deduplicate unrelated documents with generic page paths", async () => {
+    const ledger = createEvidenceLedger()
+    ledger.addRetrievalResponse({
+      namespace: "notebook",
+      query: "revenue",
+      routerUsed: "mapnav",
+      answerText: null,
+      evidenceText: "Revenue evidence",
+      stopReason: "completed",
+      failureReason: null,
+      results: [
+        {
+          chunkId: "chunk_page_4",
+          content: "Revenue evidence from document A.",
+          chunkType: "page",
+          score: 0.9,
+          metadata: {
+            pageNums: [4],
+            pageAssets: [
+              {
+                pageNum: 4,
+                artifactRef: "page_citation_assets/page-4.png",
+                assetUrl: "https://assets.example/doc-a/page-4.png",
+                contentType: "image/png",
+              },
+            ],
+          },
+          source: {
+            documentId: "doc_a",
+            sourceFileName: "a.pdf",
+            sectionPath: "Page 4",
+          },
+        },
+        {
+          chunkId: "chunk_page_4",
+          content: "Revenue evidence from document B.",
+          chunkType: "page",
+          score: 0.8,
+          metadata: {
+            pageNums: [4],
+            pageAssets: [
+              {
+                pageNum: 4,
+                artifactRef: "page_citation_assets/page-4.png",
+                assetUrl: "https://assets.example/doc-b/page-4.png",
+                contentType: "image/png",
+              },
+            ],
+          },
+          source: {
+            documentId: "doc_b",
+            sourceFileName: "b.pdf",
+            sectionPath: "Page 4",
+          },
+        },
+      ],
+      referencedChunks: [],
+    })
+    const inspectImages = vi.fn(async (request: ImageInspectionRequest) => ({
+      analysis: "Inspected both pages.",
+      inspected: request.assets.map(({ ref, label }) => ({ ref, label })),
+      skipped: [],
+    }))
+    const tools = createHarnessTools({
+      state: {},
+      ledger,
+      knowhereTools: makeKnowhereTools(),
+      inspectImages,
+      recentTurns: [],
+    })
+
+    expect(
+      await executeTool(tools.inspectImage, {
+        refs: ["asset:r1:result:1", "asset:r1:result:2"],
+        question: "Compare the cited revenue.",
+      }),
+    ).toMatchObject({ ok: true })
+    expect(inspectImages.mock.calls[0]?.[0].assets).toHaveLength(2)
+  })
+
+  it("does not treat skipped image assets as successfully inspected", async () => {
+    const ledger = createEvidenceLedger()
+    ledger.addRetrievalResponse(makePageCitationRetrievalResponse())
+    const state: {
+      inspectedImageRefs?: string[]
+      finalized?: boolean
+    } = {}
+    const tools = createHarnessTools({
+      state,
+      ledger,
+      knowhereTools: makeKnowhereTools(),
+      inspectImages: vi.fn().mockResolvedValue({
+        analysis: "",
+        inspected: [],
+        skipped: [
+          {
+            ref: "asset:r1:referenced:1",
+            reason: "The image asset was unavailable in Notebook storage.",
+          },
+        ],
+      }),
+      recentTurns: [],
+    })
+
+    const inspection = await executeTool(tools.inspectImage, {
+      refs: ["asset:r1:referenced:1"],
+      question: "Locate the cited amount.",
+    })
+
+    expect(inspection).toMatchObject({
+      ok: false,
+      inspected: [],
+    })
+    expect(state.inspectedImageRefs).toEqual([])
+
+    const finalize = await executeTool(tools.finalize, {
+      text: "The amount is 5000 yuan [[cite:1]].",
+      citations: [{ ref: "r1:referenced:1" }],
+      artifacts: [],
+      unresolved: [],
+    })
+    expect(finalize).toMatchObject({
+      ok: false,
+      inspectRefs: ["asset:r1:referenced:1"],
+    })
+    expect(state.finalized).not.toBe(true)
+  })
+
   it("accepts finalize output without planning-tool gating", async () => {
     const state: {
       finalizedManifest?: OutputManifest
@@ -370,6 +609,104 @@ describe("agent harness runtime", () => {
     })
     expect(state.finalizedManifest).toEqual(manifest)
     expect(state.finalized).toBe(true)
+  })
+
+  it("rejects finalize of cited page images until inspectImage has run", async () => {
+    const ledger = createEvidenceLedger()
+    ledger.addRetrievalResponse(makePageCitationRetrievalResponse())
+    const state: {
+      finalizedManifest?: OutputManifest
+      finalized?: boolean
+      inspectedImageRefs?: string[]
+    } = {}
+    const tools = createHarnessTools({
+      state,
+      ledger,
+      knowhereTools: makeKnowhereTools(),
+      inspectImages: vi.fn().mockResolvedValue({
+        analysis: "The clause shows 5000 yuan per occurrence.",
+        inspected: [{ ref: "asset:r1:referenced:1", label: "page 8" }],
+        skipped: [],
+        highlights: [
+          {
+            ref: "asset:r1:referenced:1",
+            regions: [{ x: 0.1, y: 0.2, w: 0.4, h: 0.15 }],
+          },
+        ],
+      }),
+      recentTurns: [],
+    })
+    const manifest = {
+      text: "The contractor pays 5000 yuan per occurrence [[cite:1]].",
+      citations: [{ ref: "r1:referenced:1" }],
+      artifacts: [],
+      unresolved: [],
+    }
+
+    const blocked = await executeTool(tools.finalize, manifest)
+
+    expect(blocked).toMatchObject({
+      ok: false,
+      inspectRefs: ["asset:r1:referenced:1"],
+    })
+    expect(blocked).toEqual(
+      expect.objectContaining({
+        message: expect.stringContaining("inspectImage"),
+      }),
+    )
+    expect(state.finalized).not.toBe(true)
+
+    await executeTool(tools.inspectImage, {
+      refs: ["asset:r1:referenced:1"],
+      question: "Locate the cited liquidated-damages amount on this page.",
+    })
+
+    expect(await executeTool(tools.finalize, manifest)).toMatchObject({
+      ok: true,
+      text: manifest.text,
+    })
+    expect(state.finalized).toBe(true)
+  })
+
+  it("requires inspection when the cited result shares a page asset with a referenced chunk", async () => {
+    const response = makePageCitationRetrievalResponse()
+    const ledger = createEvidenceLedger()
+    ledger.addRetrievalResponse({
+      ...response,
+      results: [
+        {
+          chunkId: "chunk_page_8",
+          content: "The contractor pays 5000 yuan per occurrence.",
+          chunkType: "page",
+          score: 0.9,
+          metadata: { pageNums: [8] },
+          source: {
+            documentId: "doc_contract",
+            sourceFileName: "contract.pdf",
+            sectionPath: "Root / Liquidated damages",
+          },
+        },
+      ],
+    })
+    const tools = createHarnessTools({
+      state: {},
+      ledger,
+      knowhereTools: makeKnowhereTools(),
+      inspectImages: vi.fn(),
+      recentTurns: [],
+    })
+
+    const result = await executeTool(tools.finalize, {
+      text: "The contractor pays 5000 yuan [[cite:1]].",
+      citations: [{ ref: "r1:result:1" }],
+      artifacts: [],
+      unresolved: [],
+    })
+
+    expect(result).toMatchObject({
+      ok: false,
+      inspectRefs: ["asset:r1:referenced:1"],
+    })
   })
 
   it("exposes full prior-turn content through policy-approved readPriorTurn", async () => {
@@ -610,9 +947,28 @@ describe("agent harness runtime", () => {
       },
       {
         role: "user",
-        content: expect.stringContaining("call inspectImage now"),
+        content: expect.stringContaining("Call inspectImage now"),
       },
     ])
+  })
+
+  it("reserves the finalization step even when unused page assets remain", () => {
+    const result = prepareHarnessStep({
+      stepNumber: 13,
+      hasUninspectedImageAssets: true,
+      messages: [
+        {
+          role: "user",
+          content: "What is the penalty amount?",
+        },
+      ],
+    })
+
+    expect(result.activeTools).toEqual(["finalize"])
+    expect(result.toolChoice).toEqual({
+      type: "tool",
+      toolName: "finalize",
+    })
   })
 
   it("forces finalize at step 13 using existing tool results", () => {

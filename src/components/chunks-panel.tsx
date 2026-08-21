@@ -37,6 +37,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useChunksPanelWorkflow } from "@/components/chunks-panel-workflow";
 import { ParsedChunkCard } from "@/components/parsed-chunk-card";
+import type { ChatImageHighlightBox } from "@/domains/chat/types";
 import { chunksPanelState } from "@/components/chunks-panel-state";
 import { MAX_UPLOAD_MB } from "@/domains/sources/validation";
 import { useSourceOriginalPreviewWarmup } from "@/components/source-original-preview-warmup";
@@ -59,6 +60,7 @@ export type ChunksPanelProps = {
   focusedPageNumber?: number | null;
   focusedPageRequestId?: number;
   focusedCitationId?: string | null;
+  focusedHighlightRegions?: readonly ChatImageHighlightBox[];
   citationListViewRequestId?: number;
   isLoading?: boolean;
   isLoadingMore?: boolean;
@@ -91,6 +93,7 @@ export function ChunksPanel({
   focusedPageNumber = null,
   focusedPageRequestId = 0,
   focusedCitationId = null,
+  focusedHighlightRegions = [],
   citationListViewRequestId = 0,
   isLoading = false,
   isLoadingMore = false,
@@ -433,6 +436,8 @@ export function ChunksPanel({
                       focusedChunkId={activeFocusedChunkId}
                       focusedCitationId={focusedCitationId}
                       focusedPageNumber={focusedPageNumber}
+                      focusedPageRequestId={focusedPageRequestId}
+                      highlightRegions={focusedHighlightRegions}
                       isOriginalPreviewAvailable={isOriginalPreviewAvailable}
                       measureElement={measureVirtualChunkElement}
                       onChunkClick={
@@ -1216,6 +1221,8 @@ function VirtualChunkRow({
   focusedChunkId,
   focusedCitationId,
   focusedPageNumber,
+  focusedPageRequestId,
+  highlightRegions,
   isOriginalPreviewAvailable,
   measureElement,
   onChunkClick,
@@ -1227,6 +1234,8 @@ function VirtualChunkRow({
   focusedChunkId: string | null;
   focusedCitationId: string | null;
   focusedPageNumber: number | null;
+  focusedPageRequestId: number;
+  highlightRegions: readonly ChatImageHighlightBox[];
   isOriginalPreviewAvailable: boolean;
   measureElement: (node: HTMLDivElement | null) => void;
   onChunkClick?: (chunk: ParsedChunkView) => void;
@@ -1257,6 +1266,8 @@ function VirtualChunkRow({
         isFocused={chunk.chunkId === focusedChunkId}
         focusedCitationId={focusedCitationId}
         focusedPageNumber={focusedPageNumber}
+        focusedPageRequestId={focusedPageRequestId}
+        highlightRegions={highlightRegions}
         isOriginalPreviewAvailable={isOriginalPreviewAvailable}
         onChunkClick={onChunkClick}
         onReferenceClick={onReferenceClick}

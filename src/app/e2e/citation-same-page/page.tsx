@@ -35,6 +35,7 @@ const chatMessages: ChatMessageView[] = [
         chunkType: "page",
         score: 0.91,
         pageCitationPageNumber: 26,
+        highlightRegions: [{ x: 0.12, y: 0.18, w: 0.46, h: 0.08 }],
         source: {
           documentId: "doc_spacex",
           sourceFileName: "spacex-s1.pdf",
@@ -45,6 +46,10 @@ const chatMessages: ChatMessageView[] = [
         chunkType: "page",
         score: 0.89,
         pageCitationPageNumber: 26,
+        highlightRegions: [
+          { x: 0.62, y: 0.52, w: 0.24, h: 0.06 },
+          { x: 0.15, y: 0.68, w: 0.32, h: 0.05 },
+        ],
         source: {
           documentId: "doc_spacex",
           sourceFileName: "spacex-s1.pdf",

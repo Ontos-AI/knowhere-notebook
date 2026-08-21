@@ -8,6 +8,12 @@ import type { HardenChatAssetUrl } from "./media-assets"
 export type PageCitationAssetRetrievalResult = RetrievalResult & {
   readonly pageCitationAssetUrl?: string
   readonly pageCitationPageNumber?: number
+  readonly highlightRegions?: readonly {
+    readonly x: number
+    readonly y: number
+    readonly w: number
+    readonly h: number
+  }[]
 }
 
 type EnrichRetrievalResultsWithPageCitationAssetUrlsInput = {
@@ -123,9 +129,10 @@ function getDirectPageCitationAsset(
   result: RetrievalResult,
   pageNumbers: readonly number[],
 ): PageCitationAssetCandidate | null {
-  const candidates = parsePageCitationAssetCandidates(
-    result.metadata?.pageAssets ?? result.metadata?.page_assets,
-  )
+  const candidates = [
+    ...parsePageCitationAssetCandidates(result.metadata?.pageAssets),
+    ...parsePageCitationAssetCandidates(result.metadata?.page_assets),
+  ]
 
   if (pageNumbers.length > 0) {
     const matchingCandidates = candidates.filter((candidate) =>

@@ -12,6 +12,7 @@ import { summarizeUnknownError } from "@/lib/format-log-value"
 import { logger } from "@/lib/logger"
 
 const VISION_MODEL = process.env.VISION_MODEL ?? CHAT_MODEL
+const IMAGE_INSPECTION_BATCH_SIZE = 6
 
 export const imageInspectionResultSchema = z.object({
   analysis: z.string(),
@@ -61,6 +62,39 @@ export type ImageInspectionModelResult = {
  * so inspectImage still succeeds.
  */
 export async function generateImageInspectionModelResult(input: {
+  readonly workspaceId: string
+  readonly question: string
+  readonly assets: readonly ImageInspectionModelAsset[]
+}): Promise<ImageInspectionModelResult> {
+  if (input.assets.length <= IMAGE_INSPECTION_BATCH_SIZE) {
+    return generateImageInspectionBatchResult(input)
+  }
+
+  const results: ImageInspectionModelResult[] = []
+  for (
+    let index = 0;
+    index < input.assets.length;
+    index += IMAGE_INSPECTION_BATCH_SIZE
+  ) {
+    results.push(
+      await generateImageInspectionBatchResult({
+        ...input,
+        assets: input.assets.slice(index, index + IMAGE_INSPECTION_BATCH_SIZE),
+      }),
+    )
+  }
+
+  return {
+    analysis: results
+      .map((result) => result.analysis.trim())
+      .filter(Boolean)
+      .join("\n\n"),
+    pages: results.flatMap((result) => result.pages),
+    source: getCombinedInspectionSource(results),
+  }
+}
+
+async function generateImageInspectionBatchResult(input: {
   readonly workspaceId: string
   readonly question: string
   readonly assets: readonly ImageInspectionModelAsset[]
@@ -224,6 +258,18 @@ export async function generateImageInspectionModelResult(input: {
     })
     throw error
   }
+}
+
+function getCombinedInspectionSource(
+  results: readonly ImageInspectionModelResult[],
+): ImageInspectionModelResult["source"] {
+  if (results.every((result) => result.source === "structured")) {
+    return "structured"
+  }
+  if (results.some((result) => result.source === "analysis_fallback")) {
+    return "analysis_fallback"
+  }
+  return "structured_text"
 }
 
 export function isRecoverableStructuredOutputError(error: unknown): boolean {

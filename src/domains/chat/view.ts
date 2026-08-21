@@ -55,6 +55,7 @@ function toPersistedCitationViews(value: unknown): ChatCitationView[] | undefine
         pageCitationAssetUrl: getString(item.pageCitationAssetUrl),
         pageCitationPageNumber: getNumber(item.pageCitationPageNumber),
         description: getString(item.description),
+        highlightRegions: getHighlightRegions(item.highlightRegions),
         source: {
           documentId: getString(item.source.documentId),
           sourceFileName: getString(item.source.sourceFileName),
@@ -91,6 +92,9 @@ function toPersistedArtifactViews(value: unknown): ChatArtifactView[] | undefine
               item.citation.pageCitationPageNumber,
             ),
             description: getString(item.citation.description),
+            highlightRegions: getHighlightRegions(
+              item.citation.highlightRegions,
+            ),
             source: {
               documentId: getString(item.citation.source.documentId),
               sourceFileName: getString(item.citation.source.sourceFileName),

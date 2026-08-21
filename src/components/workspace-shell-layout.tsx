@@ -20,6 +20,7 @@ import { useWorkspaceResizeHandleWorkflow } from "@/components/workspace-resize-
 import { workspaceShellState } from "@/components/workspace-shell-state"
 import type {
   ChatCitationView,
+  ChatImageHighlightBox,
   ChatMessageView,
   ChatThreadView,
 } from "@/domains/chat/types"
@@ -46,6 +47,7 @@ type FocusedPageState = {
   readonly pageNumber: number | null
   readonly requestId: number
   readonly citationId?: string | null
+  readonly highlightRegions?: readonly ChatImageHighlightBox[]
 }
 
 type WorkspaceShellUser = {
@@ -109,6 +111,7 @@ export type WorkspaceShellLayoutProps = {
   readonly onCitationClick: (
     citation: ChatCitationView,
     citationId: string,
+    highlightRegions?: readonly ChatImageHighlightBox[],
   ) => void | Promise<void>
   readonly onCreateChatThread: () => void | Promise<void>
   readonly onDesktopLayoutElementChange: (element: HTMLDivElement | null) => void
@@ -162,7 +165,12 @@ export function WorkspaceShellLayout(
   const selectedSource =
     props.selectedSourceView ??
     props.sources.find((source) => source.id === props.selectedSourceId)
-  const focusedPage = props.focusedPage ?? { pageNumber: null, requestId: 0 }
+  const focusedPage = props.focusedPage ?? {
+    pageNumber: null,
+    requestId: 0,
+    citationId: null,
+    highlightRegions: [],
+  }
   const handleDesktopLayoutRef = useCallback(
     (element: HTMLDivElement | null): void => {
       onDesktopLayoutElementChange(element)
@@ -292,6 +300,7 @@ export function WorkspaceShellLayout(
                 focusedPageNumber={focusedPage.pageNumber}
                 focusedPageRequestId={focusedPage.requestId}
                 focusedCitationId={focusedPage.citationId ?? null}
+                focusedHighlightRegions={focusedPage.highlightRegions ?? []}
                 isLoading={props.isSelectedChunksLoading}
                 isLoadingAllChunks={props.isSelectedAllChunksLoading}
                 isLoadingMore={props.isSelectedChunksLoadingMore}
@@ -438,6 +447,7 @@ export function WorkspaceShellLayout(
             focusedPageNumber={focusedPage.pageNumber}
             focusedPageRequestId={focusedPage.requestId}
             focusedCitationId={focusedPage.citationId ?? null}
+            focusedHighlightRegions={focusedPage.highlightRegions ?? []}
             isLoading={props.isSelectedChunksLoading}
             isLoadingAllChunks={props.isSelectedAllChunksLoading}
             isLoadingMore={props.isSelectedChunksLoadingMore}
@@ -481,9 +491,9 @@ export function WorkspaceShellLayout(
           onThreadArchive={props.isGuest ? undefined : props.onArchiveChatThread}
           onLoginClick={props.isGuest ? props.onLoginClick : undefined}
           sourceTitlesByDocumentId={props.sourceTitlesByDocumentId}
-          onCitationClick={(citation, citationId) => {
+          onCitationClick={(citation, citationId, highlightRegions) => {
             props.onMobilePanelChange("content")
-            props.onCitationClick(citation, citationId)
+            props.onCitationClick(citation, citationId, highlightRegions)
           }}
         />
       </div>

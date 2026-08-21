@@ -28,6 +28,9 @@ export function toChatCitationViews(
         ? { pageCitationPageNumber }
         : {}),
       ...(description ? { description } : {}),
+      ...(result.highlightRegions && result.highlightRegions.length > 0
+        ? { highlightRegions: result.highlightRegions }
+        : {}),
       source: {
         documentId: result.source.documentId,
         sourceFileName: result.source.sourceFileName,
