@@ -19,6 +19,7 @@ import type {
   HarnessToolCallTrace,
   HarnessTrace,
   ImageInspectionAsset,
+  ImageInspectionHighlights,
   ImageInspectionResponse,
   InspectImages,
   IntentFrame,

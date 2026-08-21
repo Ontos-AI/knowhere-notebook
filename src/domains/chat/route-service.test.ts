@@ -361,10 +361,6 @@ describe("chat route services", () => {
     const generateInput = mocks.generateObject.mock.calls[0]?.[0]
     expect(generateInput).toMatchObject({
       model: "google/gemini-3-flash",
-      experimental_include: {
-        requestBody: false,
-        responseBody: false,
-      },
     })
     expect(JSON.stringify(generateInput)).not.toContain(
       "knowhere-storage.example",

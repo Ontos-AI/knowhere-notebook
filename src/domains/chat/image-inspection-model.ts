@@ -86,10 +86,6 @@ export async function generateImageInspectionModelResult(input: {
           ],
         },
       ],
-      experimental_include: {
-        requestBody: false,
-        responseBody: false,
-      },
     })
 
     return {

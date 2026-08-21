@@ -1545,6 +1545,7 @@ describe("answerQuestionWithRetrieval", () => {
           finalized: true,
           priorTurnReads: [],
           toolCalls: [],
+          imageHighlights: [],
         },
       };
       return harnessResult;
