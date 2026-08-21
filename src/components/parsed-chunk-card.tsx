@@ -502,8 +502,6 @@ function PageCitationAssetImage({
   const [failedAssetUrl, setFailedAssetUrl] = useState<string | null>(null);
   const imageAssetUrl = getInlineImageAssetUrl(asset.assetUrl);
   const hasImageError = failedAssetUrl === imageAssetUrl;
-  const aspectRatio =
-    asset.width && asset.height ? `${asset.width} / ${asset.height}` : undefined;
 
   return (
     <figure className="overflow-hidden rounded-lg border border-border bg-muted/30">
@@ -512,29 +510,35 @@ function PageCitationAssetImage({
         <span>{asset.contentType}</span>
       </figcaption>
       <div
-        className="relative overflow-hidden bg-muted/20"
-        style={aspectRatio ? { aspectRatio } : undefined}
+        className="flex justify-center overflow-hidden bg-muted/20"
         data-citation-page={asset.pageNumber}
         data-focused-citation-id={isCitationFocus ? focusedCitationId : undefined}
       >
         {hasImageError ? (
           <PageCitationAssetUnavailable pageNumber={asset.pageNumber} />
         ) : (
-          // eslint-disable-next-line @next/next/no-img-element -- Page assets can be short-lived Knowhere URLs outside Next image optimization.
-          <img
-            src={imageAssetUrl}
-            alt={`Page ${asset.pageNumber}`}
-            className="max-h-[680px] w-full object-contain"
-            loading="lazy"
-            onError={() => setFailedAssetUrl(imageAssetUrl)}
-          />
+          <div
+            className="relative inline-block max-w-full"
+            data-testid="citation-image-stage"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element -- Page assets can be short-lived Knowhere URLs outside Next image optimization. */}
+            <img
+              src={imageAssetUrl}
+              alt={`Page ${asset.pageNumber}`}
+              width={asset.width}
+              height={asset.height}
+              className="block h-auto max-h-[680px] max-w-full object-contain"
+              loading="lazy"
+              onError={() => setFailedAssetUrl(imageAssetUrl)}
+            />
+            {isCitationFocus ? (
+              <CitationRegionHighlight
+                regions={highlightRegions}
+                requestId={focusedPageRequestId}
+              />
+            ) : null}
+          </div>
         )}
-        {isCitationFocus ? (
-          <CitationRegionHighlight
-            regions={highlightRegions}
-            requestId={focusedPageRequestId}
-          />
-        ) : null}
       </div>
     </figure>
   );
@@ -593,19 +597,24 @@ function ImageChunkCard({
       <ChunkContentPanel chunk={chunk}>
         {inlineImageAssetUrl ? (
           <figure className="overflow-hidden rounded-lg border border-border bg-muted/30">
-            <div className="relative">
-              {/* eslint-disable-next-line @next/next/no-img-element -- Parsed artifact dimensions are not known before render. */}
-              <img
-                src={inlineImageAssetUrl}
-                alt={chunk.summary ?? "Image chunk"}
-                className="max-h-[520px] w-full object-contain"
-              />
-              {isFocused ? (
-                <CitationRegionHighlight
-                  regions={highlightRegions}
-                  requestId={focusedPageRequestId}
+            <div className="flex justify-center">
+              <div
+                className="relative inline-block max-w-full"
+                data-testid="citation-image-stage"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element -- Parsed artifact dimensions are not known before render. */}
+                <img
+                  src={inlineImageAssetUrl}
+                  alt={chunk.summary ?? "Image chunk"}
+                  className="block h-auto max-h-[520px] max-w-full object-contain"
                 />
-              ) : null}
+                {isFocused ? (
+                  <CitationRegionHighlight
+                    regions={highlightRegions}
+                    requestId={focusedPageRequestId}
+                  />
+                ) : null}
+              </div>
             </div>
           </figure>
         ) : (

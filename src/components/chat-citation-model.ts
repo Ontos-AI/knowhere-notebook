@@ -155,15 +155,27 @@ function getListHighlightRegions(
   }
 
   const pageNumber = workspaceCitationState.getCitationPageNumber(citation)
+  const documentId = getTrimmedField(citation.source.documentId)
+  if (pageNumber === null || !documentId) return []
+
   const matchingRegions = (artifacts ?? []).flatMap((artifact) => {
-    if (!artifact.highlightRegions || artifact.highlightRegions.length === 0) {
+    if (
+      artifact.type !== "image" ||
+      artifact.display === false ||
+      !artifact.citation ||
+      !artifact.highlightRegions ||
+      artifact.highlightRegions.length === 0
+    ) {
       return []
     }
 
-    const artifactPage = artifact.citation
-      ? workspaceCitationState.getCitationPageNumber(artifact.citation)
-      : null
-    if (pageNumber !== null && artifactPage !== pageNumber) {
+    const artifactDocumentId = getTrimmedField(
+      artifact.citation.source.documentId,
+    )
+    const artifactPage = workspaceCitationState.getCitationPageNumber(
+      artifact.citation,
+    )
+    if (artifactDocumentId !== documentId || artifactPage !== pageNumber) {
       return []
     }
 

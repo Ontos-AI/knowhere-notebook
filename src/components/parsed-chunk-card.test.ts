@@ -151,7 +151,9 @@ describe("ParsedChunkCard", () => {
       '[data-citation-page="4"]',
     );
     expect(citationTarget).not.toBeNull();
-    expect(citationTarget?.className).toContain("relative");
+    expect(screen.getByTestId("citation-image-stage").className).toContain(
+      "relative",
+    );
     expect(citationTarget?.getAttribute("data-focused-citation-id")).toBe(
       "assistant_1:0",
     );
@@ -189,6 +191,12 @@ describe("ParsedChunkCard", () => {
     expect(highlight.getAttribute("style")).toContain("20%");
     expect(highlight.getAttribute("style")).toContain("30%");
     expect(highlight.getAttribute("style")).toContain("15%");
+    expect(
+      screen.getByTestId("citation-region-highlights").parentElement,
+    ).toBe(screen.getByTestId("citation-image-stage"));
+
+    fireEvent.error(screen.getByRole("img", { name: "Page 4" }));
+    expect(screen.queryByTestId("citation-region-highlight")).toBeNull();
   });
 
   it("hides the keywords row when a page card has none", () => {

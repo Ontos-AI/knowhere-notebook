@@ -6,6 +6,7 @@ import type {
 } from "@ontos-ai/knowhere-sdk"
 
 import { logger } from "@/lib/logger"
+import { getCanonicalImageAssetKey } from "@/agent-harness/image-asset-identity"
 import type {
   ChatArtifactView,
   ChatCitationView,
@@ -995,11 +996,7 @@ function getCanonicalCitationAssetKey(
 ): string {
   const asset = assetsByRef.get(assetRef)
   if (!asset) return assetRef
-  const chunk = chunksByRef.get(asset.chunkRef)
-  const chunkId = chunk?.chunkId?.trim()
-  const sourcePath = asset.sourcePath?.trim().toLowerCase()
-  if (chunkId && sourcePath) return `${chunkId}\u0000${sourcePath}`
-  return assetRef
+  return getCanonicalImageAssetKey(asset, chunksByRef)
 }
 
 function mapDisplayedManifestArtifactsToResults(

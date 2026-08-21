@@ -8,6 +8,7 @@ import {
 import { z } from "zod"
 
 import { createEvidenceLedger } from "./ledger"
+import { getCanonicalImageAssetKey } from "./image-asset-identity"
 import { knowhereToolText } from "./knowhere-text"
 import { mergeImageInspectionHighlights } from "./image-highlights"
 import type {
@@ -265,8 +266,7 @@ export function prepareHarnessStep(input: {
 
   const shouldForceImageInspection =
     input.hasUninspectedImageAssets === true &&
-    input.stepNumber >= imageInspectionReminderStepNumber &&
-    input.stepNumber <= forcedFinalizationStepNumber
+    input.stepNumber === imageInspectionReminderStepNumber
 
   if (shouldForceImageInspection) {
     return {
@@ -892,17 +892,6 @@ function resolveImageAssetRef(
       assetsByRef.get(candidate.assetRef)?.type === "image",
   )
   return sibling?.assetRef ?? null
-}
-
-function getCanonicalImageAssetKey(
-  asset: EvidenceAsset,
-  chunksByRef: ReadonlyMap<string, EvidenceChunk>,
-): string {
-  const chunk = chunksByRef.get(asset.chunkRef)
-  const chunkId = chunk?.chunkId?.trim()
-  const sourcePath = asset.sourcePath?.trim().toLowerCase()
-  if (chunkId && sourcePath) return `${chunkId}\u0000${sourcePath}`
-  return asset.ref
 }
 
 function buildFinalizeRequiresInspectionMessage(

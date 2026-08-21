@@ -87,10 +87,13 @@ describe("createEvidenceLedger", () => {
           score: 0.9,
           metadata: {
             page_nums: [4],
+            pageAssets: [],
             page_assets: [
               {
                 page_num: 4,
+                artifactRef: "",
                 artifact_ref: "page_citation_assets/page-4.png",
+                contentType: "",
                 content_type: "image/png",
               },
             ],

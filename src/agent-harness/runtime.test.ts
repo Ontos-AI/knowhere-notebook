@@ -13,6 +13,7 @@ import type {
   AgentTurnInput,
   ContextPolicy,
   HarnessToolCallTrace,
+  ImageInspectionRequest,
   IntentFrame,
   KnowhereToolRuntime,
   OutputManifest,
@@ -455,6 +456,86 @@ describe("agent harness runtime", () => {
     ).toMatchObject({ ok: true })
   })
 
+  it("does not deduplicate unrelated documents with generic page paths", async () => {
+    const ledger = createEvidenceLedger()
+    ledger.addRetrievalResponse({
+      namespace: "notebook",
+      query: "revenue",
+      routerUsed: "mapnav",
+      answerText: null,
+      evidenceText: "Revenue evidence",
+      stopReason: "completed",
+      failureReason: null,
+      results: [
+        {
+          chunkId: "chunk_page_4",
+          content: "Revenue evidence from document A.",
+          chunkType: "page",
+          score: 0.9,
+          metadata: {
+            pageNums: [4],
+            pageAssets: [
+              {
+                pageNum: 4,
+                artifactRef: "page_citation_assets/page-4.png",
+                assetUrl: "https://assets.example/doc-a/page-4.png",
+                contentType: "image/png",
+              },
+            ],
+          },
+          source: {
+            documentId: "doc_a",
+            sourceFileName: "a.pdf",
+            sectionPath: "Page 4",
+          },
+        },
+        {
+          chunkId: "chunk_page_4",
+          content: "Revenue evidence from document B.",
+          chunkType: "page",
+          score: 0.8,
+          metadata: {
+            pageNums: [4],
+            pageAssets: [
+              {
+                pageNum: 4,
+                artifactRef: "page_citation_assets/page-4.png",
+                assetUrl: "https://assets.example/doc-b/page-4.png",
+                contentType: "image/png",
+              },
+            ],
+          },
+          source: {
+            documentId: "doc_b",
+            sourceFileName: "b.pdf",
+            sectionPath: "Page 4",
+          },
+        },
+      ],
+      referencedChunks: [],
+    })
+    const inspectImages = vi.fn(async (request: ImageInspectionRequest) => ({
+      analysis: "Inspected both pages.",
+      inspected: request.assets.map(({ ref, label }) => ({ ref, label })),
+      skipped: [],
+    }))
+    const tools = createHarnessTools({
+      state: {},
+      ledger,
+      knowhereTools: makeKnowhereTools(),
+      inspectImages,
+      recentTurns: [],
+    })
+
+    expect(
+      await executeTool(tools.inspectImage, {
+        refs: ["asset:r1:result:1", "asset:r1:result:2"],
+        question: "Compare the cited revenue.",
+      }),
+    ).toMatchObject({ ok: true })
+    expect(inspectImages.mock.calls[0]?.[0].assets).toHaveLength(2)
+  })
+
   it("does not treat skipped image assets as successfully inspected", async () => {
     const ledger = createEvidenceLedger()
     ledger.addRetrievalResponse(makePageCitationRetrievalResponse())
@@ -871,7 +952,7 @@ describe("agent harness runtime", () => {
     ])
   })
 
-  it("keeps forcing inspectImage at the finalization step while page assets are uninspected", () => {
+  it("reserves the finalization step even when unused page assets remain", () => {
     const result = prepareHarnessStep({
       stepNumber: 13,
       hasUninspectedImageAssets: true,
@@ -883,10 +964,10 @@ describe("agent harness runtime", () => {
       ],
     })
 
-    expect(result.activeTools).toEqual(["inspectImage"])
+    expect(result.activeTools).toEqual(["finalize"])
     expect(result.toolChoice).toEqual({
       type: "tool",
-      toolName: "inspectImage",
+      toolName: "finalize",
     })
   })
 

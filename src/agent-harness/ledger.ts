@@ -381,9 +381,10 @@ function getPageCitationAssetCandidate(
 ): EvidenceAssetCandidate | null {
   if (chunk.chunkType.toLowerCase() !== "page") return null
 
-  const candidates = parsePageCitationAssetCandidates(
-    chunk.metadata?.pageAssets ?? chunk.metadata?.page_assets,
-  ).filter(isSupportedPageCitationAsset)
+  const candidates = [
+    ...parsePageCitationAssetCandidates(chunk.metadata?.pageAssets),
+    ...parsePageCitationAssetCandidates(chunk.metadata?.page_assets),
+  ].filter(isSupportedPageCitationAsset)
   if (candidates.length === 0) return null
 
   const pageNumbers = getPageNumbers(chunk.metadata)
@@ -469,30 +470,21 @@ function parsePageCitationAssetCandidates(
       getPositiveInteger(item.page_num) ??
       getPositiveInteger(item.pageNumber)
     if (!pageNum) return []
+    const artifactRef =
+      getTrimmedString(item.artifactRef) ??
+      getTrimmedString(item.artifact_ref)
+    const assetUrl =
+      getTrimmedString(item.assetUrl) ?? getTrimmedString(item.asset_url)
+    const contentType =
+      getTrimmedString(item.contentType) ??
+      getTrimmedString(item.content_type)
 
     return [
       {
         pageNum,
-        ...(getTrimmedString(item.artifactRef ?? item.artifact_ref)
-          ? {
-              artifactRef:
-                getTrimmedString(item.artifactRef ?? item.artifact_ref) ??
-                undefined,
-            }
-          : {}),
-        ...(getTrimmedString(item.assetUrl ?? item.asset_url)
-          ? {
-              assetUrl:
-                getTrimmedString(item.assetUrl ?? item.asset_url) ?? undefined,
-            }
-          : {}),
-        ...(getTrimmedString(item.contentType ?? item.content_type)
-          ? {
-              contentType:
-                getTrimmedString(item.contentType ?? item.content_type) ??
-                undefined,
-            }
-          : {}),
+        ...(artifactRef ? { artifactRef } : {}),
+        ...(assetUrl ? { assetUrl } : {}),
+        ...(contentType ? { contentType } : {}),
       },
     ]
   })

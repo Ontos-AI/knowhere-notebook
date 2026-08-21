@@ -21,15 +21,12 @@ export function CitationRegionHighlight({
         <span
           key={`${requestId}:${index}`}
           data-testid="citation-region-highlight"
-          className="citation-region-flash animate-citation-region-flash absolute box-border"
+          className="citation-region-flash absolute box-border"
           style={{
             left: `${region.x * 100}%`,
             top: `${region.y * 100}%`,
             width: `${region.w * 100}%`,
             height: `${region.h * 100}%`,
-            backgroundColor: "rgb(142 81 255 / 0.25)",
-            borderRadius: 8,
-            zIndex: 10,
           }}
         />
       ))}

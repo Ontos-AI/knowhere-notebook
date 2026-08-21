@@ -111,8 +111,8 @@
 .citation-region-flash {
   z-index: 10;
   display: block;
-  border-radius: 8px;
-  background-color: rgb(142 81 255 / 0.25);
+  border-radius: var(--radius);
+  background-color: hsl(var(--ring) / 0.25);
   animation: citation-region-flash 4.6s ease-in-out forwards;
 }
 

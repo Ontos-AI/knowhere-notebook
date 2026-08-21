@@ -69,6 +69,51 @@ describe("image inspection model", () => {
     expect(generateText).not.toHaveBeenCalled()
   })
 
+  it("batches more than six images while preserving every page region", async () => {
+    const sevenAssets = Array.from({ length: 7 }, (_, index) => ({
+      ref: `asset:page-${index + 1}`,
+      label: `page ${index + 1}`,
+      body: new Uint8Array([index + 1]),
+      contentType: "image/png",
+    }))
+    vi.mocked(generateObject)
+      .mockResolvedValueOnce({
+        object: {
+          analysis: "Pages one through six.",
+          pages: sevenAssets.slice(0, 6).map((asset) => ({
+            ref: asset.ref,
+            regions: [{ x: 0.1, y: 0.2, w: 0.3, h: 0.1 }],
+          })),
+        },
+      } as Awaited<ReturnType<typeof generateObject>>)
+      .mockResolvedValueOnce({
+        object: {
+          analysis: "Page seven.",
+          pages: [
+            {
+              ref: sevenAssets[6]!.ref,
+              regions: [{ x: 0.4, y: 0.5, w: 0.2, h: 0.1 }],
+            },
+          ],
+        },
+      } as Awaited<ReturnType<typeof generateObject>>)
+
+    const result = await generateImageInspectionModelResult({
+      workspaceId: "ws_1",
+      question: "Locate evidence on every cited page.",
+      assets: sevenAssets,
+    })
+
+    expect(generateObject).toHaveBeenCalledTimes(2)
+    expect(result.analysis).toBe("Pages one through six.\n\nPage seven.")
+    expect(result.pages).toHaveLength(7)
+    expect(result.pages[6]).toEqual({
+      ref: "asset:page-7",
+      regions: [{ x: 0.4, y: 0.5, w: 0.2, h: 0.1 }],
+    })
+    expect(result.source).toBe("structured")
+  })
+
   it("salvages valid structured JSON from failed generateObject text", async () => {
     vi.mocked(generateObject).mockRejectedValue(
       makeNoObjectGeneratedError(

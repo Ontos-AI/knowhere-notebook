@@ -129,9 +129,10 @@ function getDirectPageCitationAsset(
   result: RetrievalResult,
   pageNumbers: readonly number[],
 ): PageCitationAssetCandidate | null {
-  const candidates = parsePageCitationAssetCandidates(
-    result.metadata?.pageAssets ?? result.metadata?.page_assets,
-  )
+  const candidates = [
+    ...parsePageCitationAssetCandidates(result.metadata?.pageAssets),
+    ...parsePageCitationAssetCandidates(result.metadata?.page_assets),
+  ]
 
   if (pageNumbers.length > 0) {
     const matchingCandidates = candidates.filter((candidate) =>

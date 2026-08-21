@@ -176,6 +176,22 @@ test("draws citation regions instead of a full-page highlight", async ({
       })),
     )
     .toEqual({ left: "12%", top: "18%", width: "46%", height: "8%" })
+  const pageImage = page.getByRole("img", { name: "Page 26" })
+  await expect(pageImage).toBeVisible()
+  const imageBox = await pageImage.boundingBox()
+  const firstRegionBox = await firstRegions.first().boundingBox()
+  expect(imageBox).not.toBeNull()
+  expect(firstRegionBox).not.toBeNull()
+  expect(firstRegionBox!.x).toBeCloseTo(
+    imageBox!.x + imageBox!.width * 0.12,
+    1,
+  )
+  expect(firstRegionBox!.y).toBeCloseTo(
+    imageBox!.y + imageBox!.height * 0.18,
+    1,
+  )
+  expect(firstRegionBox!.width).toBeCloseTo(imageBox!.width * 0.46, 1)
+  expect(firstRegionBox!.height).toBeCloseTo(imageBox!.height * 0.08, 1)
 
   await chips.nth(1).click()
   const secondRegions = page.getByTestId("citation-region-highlight")
@@ -198,4 +214,28 @@ test("draws citation regions instead of a full-page highlight", async ({
     width: "100%",
     height: "100%",
   })
+  const expectedSecondRegions = [
+    { x: 0.62, y: 0.52, w: 0.24, h: 0.06 },
+    { x: 0.15, y: 0.68, w: 0.32, h: 0.05 },
+  ]
+  for (const [index, expectedRegion] of expectedSecondRegions.entries()) {
+    const regionBox = await secondRegions.nth(index).boundingBox()
+    expect(regionBox).not.toBeNull()
+    expect(regionBox!.x).toBeCloseTo(
+      imageBox!.x + imageBox!.width * expectedRegion.x,
+      1,
+    )
+    expect(regionBox!.y).toBeCloseTo(
+      imageBox!.y + imageBox!.height * expectedRegion.y,
+      1,
+    )
+    expect(regionBox!.width).toBeCloseTo(
+      imageBox!.width * expectedRegion.w,
+      1,
+    )
+    expect(regionBox!.height).toBeCloseTo(
+      imageBox!.height * expectedRegion.h,
+      1,
+    )
+  }
 })

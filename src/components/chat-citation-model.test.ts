@@ -122,6 +122,38 @@ describe("chatCitationModel", () => {
       ]),
     ).toEqual([{ x: 0.1, y: 0.2, w: 0.3, h: 0.15 }])
 
+    expect(
+      chatCitationModel.getListHighlightRegions(citation, [
+        {
+          type: "image",
+          display: true,
+          highlightRegions: [{ x: 0.7, y: 0.1, w: 0.2, h: 0.1 }],
+          citation: {
+            chunkType: "page",
+            score: 0.7,
+            pageCitationPageNumber: 4,
+            source: { documentId: "doc_2" },
+          },
+        },
+      ]),
+    ).toEqual([])
+
+    expect(
+      chatCitationModel.getListHighlightRegions(citation, [
+        {
+          type: "image",
+          display: false,
+          highlightRegions: [{ x: 0.7, y: 0.1, w: 0.2, h: 0.1 }],
+          citation: {
+            chunkType: "page",
+            score: 0.7,
+            pageCitationPageNumber: 4,
+            source: { documentId: "doc_1" },
+          },
+        },
+      ]),
+    ).toEqual([])
+
     expect(chatCitationModel.getListHighlightRegions(citation, [])).toEqual([])
   })
 

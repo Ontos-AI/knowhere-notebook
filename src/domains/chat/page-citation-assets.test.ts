@@ -148,13 +148,17 @@ describe("enrichRetrievalResultsWithPageCitationAssetUrls", () => {
     expect(result?.pageCitationPageNumber).toBe(25)
   })
 
-  it("reads snake_case page_assets for the cited page number", async () => {
+  it("reads snake_case page_assets when camel-case metadata is empty", async () => {
+    const hardenChatAssetUrl = vi
+      .fn()
+      .mockResolvedValue("https://blob.example/page_citation_assets/page-11.png")
     const [result] = await enrichRetrievalResultsWithPageCitationAssetUrls({
       results: [
         makeRetrievalResult({
           chunkType: "page",
           metadata: {
             page_nums: [11],
+            pageAssets: [],
             page_assets: [
               {
                 page_num: 11,
@@ -165,9 +169,15 @@ describe("enrichRetrievalResultsWithPageCitationAssetUrls", () => {
         }),
       ],
       sources: [makeSource()],
+      hardenChatAssetUrl,
     })
 
     expect(result?.pageCitationPageNumber).toBe(11)
+    expect(hardenChatAssetUrl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourcePath: "page_citation_assets/page-11.png",
+      }),
+    )
   })
 
   it("attaches page numbers to text citations without turning them into page images", async () => {
