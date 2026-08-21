@@ -1545,6 +1545,7 @@ describe("answerQuestionWithRetrieval", () => {
           finalized: true,
           priorTurnReads: [],
           toolCalls: [],
+          imageHighlights: [],
         },
       };
       return harnessResult;
@@ -2949,6 +2950,7 @@ function makeHarnessRunResult(text: string): HarnessRunResult {
       finalized: true,
       priorTurnReads: [],
       toolCalls: [],
+      imageHighlights: [],
       validationErrors: [],
       revisionsUsed: 0,
     },

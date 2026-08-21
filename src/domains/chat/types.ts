@@ -31,6 +31,17 @@ export type ChatCitationView = CitationView & {
   readonly content?: string
 }
 
+/**
+ * Normalized highlight box for page/image answer provenance.
+ * Origin top-left; values in [0, 1]. No per-region labels.
+ */
+export type ChatImageHighlightBox = {
+  readonly x: number
+  readonly y: number
+  readonly w: number
+  readonly h: number
+}
+
 export type ChatArtifactView = {
   readonly type: "image" | "table" | "derived_table"
   readonly ref?: string
@@ -42,6 +53,7 @@ export type ChatArtifactView = {
   readonly label?: string
   readonly display?: boolean
   readonly reason?: string
+  readonly highlightRegions?: readonly ChatImageHighlightBox[]
   readonly citation?: ChatCitationView
 }
 

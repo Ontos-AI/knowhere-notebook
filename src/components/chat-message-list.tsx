@@ -35,12 +35,14 @@ type DisplayImageCitation = {
   readonly label: string;
   readonly tooltipLabel: string;
   readonly assetUrl: string;
+  readonly highlightRegions?: ChatArtifactView["highlightRegions"];
 };
 
 type DisplayImageArtifact = {
   readonly assetUrl: string;
   readonly citationId: string;
   readonly label: string;
+  readonly highlightRegions?: ChatArtifactView["highlightRegions"];
 };
 
 type DisplayDerivedTableArtifact = {
@@ -349,16 +351,16 @@ function MessageBubble({
               Images
             </p>
             <div className="grid gap-2">
-              {displayImageCitations.map(({ assetUrl, citationId, label }) => (
+              {displayImageCitations.map(
+                ({ assetUrl, citationId, label, highlightRegions }) => (
                 <figure
                   key={`${citationId}-image`}
                   className="overflow-hidden rounded-lg border border-border bg-muted/25"
                 >
-                  {/* eslint-disable-next-line @next/next/no-img-element -- Chat image citation dimensions are not known before render. */}
-                  <img
-                    src={assetUrl}
-                    alt={label}
-                    className="max-h-64 w-full object-contain"
+                  <HighlightedChatImage
+                    assetUrl={assetUrl}
+                    label={label}
+                    highlightRegions={highlightRegions}
                   />
                   <figcaption className="border-t border-border/70 bg-background/80 px-2.5 py-2">
                     <span className="block break-words text-[11px] font-semibold text-foreground">
@@ -366,7 +368,8 @@ function MessageBubble({
                     </span>
                   </figcaption>
                 </figure>
-              ))}
+              ),
+              )}
             </div>
           </div>
         )}
@@ -809,10 +812,66 @@ function getDisplayImageArtifacts(
       assetUrl,
       citationId: `${message.id}:artifact:${index}`,
       label: getArtifactLabel(artifact, sourceTitlesByDocumentId),
+      ...(artifact.highlightRegions && artifact.highlightRegions.length > 0
+        ? { highlightRegions: artifact.highlightRegions }
+        : {}),
     });
   }
 
   return imageArtifacts;
+}
+
+function HighlightedChatImage({
+  assetUrl,
+  label,
+  highlightRegions,
+}: {
+  readonly assetUrl: string;
+  readonly label: string;
+  readonly highlightRegions?: ChatArtifactView["highlightRegions"];
+}): ReactElement {
+  const regions = highlightRegions ?? [];
+
+  if (regions.length === 0) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element -- Chat image citation dimensions are not known before render.
+      <img
+        src={assetUrl}
+        alt={label}
+        className="max-h-64 w-full object-contain"
+      />
+    );
+  }
+
+  return (
+    <div className="relative inline-block max-h-64 max-w-full">
+      {/* eslint-disable-next-line @next/next/no-img-element -- Chat image citation dimensions are not known before render. */}
+      <img
+        src={assetUrl}
+        alt={label}
+        className="block max-h-64 max-w-full h-auto w-auto"
+      />
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0"
+        data-testid="chat-image-highlights"
+      >
+        {regions.map((region, index) => (
+          <span
+            key={`${assetUrl}:region:${index}`}
+            data-testid="chat-image-highlight-region"
+            className="absolute box-border border-2 border-red-500 bg-red-500/25"
+            style={{
+              left: `${region.x * 100}%`,
+              top: `${region.y * 100}%`,
+              width: `${region.w * 100}%`,
+              height: `${region.h * 100}%`,
+            }}
+          />
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function getDisplayDerivedTableArtifacts(

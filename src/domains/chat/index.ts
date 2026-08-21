@@ -9,6 +9,7 @@ import { logger } from "@/lib/logger"
 import type {
   ChatArtifactView,
   ChatCitationView,
+  ChatImageHighlightBox,
 } from "@/domains/chat/types"
 import type {
   DerivedTableArtifact,
@@ -320,6 +321,11 @@ function toChatArtifactViewsFromHarness(
       chunk,
     ]),
   )
+  const highlightsByRef = new Map(
+    (result.trace.imageHighlights ?? []).map(
+      (page) => [page.ref, page.regions] as const,
+    ),
+  )
 
   const displayLimit = getHarnessArtifactDisplayLimit(result)
   const artifacts: ChatArtifactView[] = []
@@ -333,6 +339,7 @@ function toChatArtifactViewsFromHarness(
             artifact,
             assetsByRef,
             chunksByRef,
+            highlightsByRef,
             sources,
           })
     if (!artifactView) continue
@@ -381,6 +388,7 @@ function resolveHarnessArtifactView(input: {
   readonly artifact: OutputArtifact
   readonly assetsByRef: ReadonlyMap<string, EvidenceAsset>
   readonly chunksByRef: ReadonlyMap<string, EvidenceChunk>
+  readonly highlightsByRef: ReadonlyMap<string, readonly ChatImageHighlightBox[]>
   readonly sources: readonly AnswerQuestionInput["sources"][number][]
 }): ChatArtifactView | null {
   const asset = input.assetsByRef.get(input.artifact.ref)
@@ -388,6 +396,7 @@ function resolveHarnessArtifactView(input: {
     return toChatArtifactView({
       artifact: input.artifact,
       asset,
+      highlightRegions: input.highlightsByRef.get(asset.ref),
       sources: input.sources,
     })
   }
@@ -399,6 +408,9 @@ function resolveHarnessArtifactView(input: {
     ? toChatArtifactView({
         artifact: input.artifact,
         asset: chunkAsset,
+        highlightRegions:
+          input.highlightsByRef.get(chunkAsset.ref) ??
+          input.highlightsByRef.get(input.artifact.ref),
         sources: input.sources,
       })
     : null
@@ -407,6 +419,7 @@ function resolveHarnessArtifactView(input: {
 function toChatArtifactView(input: {
   readonly artifact: OutputArtifact
   readonly asset: EvidenceAsset
+  readonly highlightRegions?: readonly ChatImageHighlightBox[]
   readonly sources: readonly AnswerQuestionInput["sources"][number][]
 }): ChatArtifactView {
   const source = normalizeHarnessSource(input.asset.source, input.sources)
@@ -417,6 +430,9 @@ function toChatArtifactView(input: {
     reason: input.artifact.reason,
     ...(input.asset.assetUrl ? { assetUrl: input.asset.assetUrl } : {}),
     label: input.asset.label,
+    ...(input.highlightRegions && input.highlightRegions.length > 0
+      ? { highlightRegions: input.highlightRegions }
+      : {}),
     citation: {
       chunkType: input.asset.type,
       score: null,
