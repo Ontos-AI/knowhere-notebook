@@ -37,6 +37,7 @@ import {
 } from "@/components/ui/tooltip";
 import type {
   ChatCitationView,
+  ChatImageHighlightBox,
   ChatMessageView,
   ChatThreadView,
 } from "@/domains/chat/types";
@@ -54,7 +55,11 @@ export type ChatPanelProps = {
   onNewChat?: () => void;
   onThreadSelect?: (threadId: string) => void;
   onThreadArchive?: (threadId: string) => void;
-  onCitationClick?: (citation: ChatCitationView, citationId: string) => void;
+  onCitationClick?: (
+    citation: ChatCitationView,
+    citationId: string,
+    highlightRegions?: readonly ChatImageHighlightBox[],
+  ) => void;
   onLoginClick?: () => void;
   sourceTitlesByDocumentId?: Readonly<Record<string, string>>;
   sourceCount?: number;

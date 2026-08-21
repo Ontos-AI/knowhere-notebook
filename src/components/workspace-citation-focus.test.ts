@@ -226,8 +226,20 @@ describe("useWorkspaceCitationFocus", () => {
       pageNumber: 4,
       requestId: 1,
       citationId: "message_1:0",
+      highlightRegions: [],
     });
     expect(result.current.citationListViewRequestId).toBe(1);
+
+    await act(async () => {
+      await result.current.handleCitationClick(pageCitation, "message_1:0", [
+        { x: 0.1, y: 0.2, w: 0.3, h: 0.15 },
+      ]);
+    });
+
+    expect(result.current.focusedPage.highlightRegions).toEqual([
+      { x: 0.1, y: 0.2, w: 0.3, h: 0.15 },
+    ]);
+    expect(result.current.focusedPage.requestId).toBe(2);
   });
 
   it("uses cached SWR pages for file B while viewing A without loading all chunk types", async () => {

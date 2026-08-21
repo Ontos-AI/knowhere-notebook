@@ -5,7 +5,7 @@ import { useSWRConfig } from "swr"
 
 import { workspaceCitationState } from "@/components/workspace-citation-state"
 import { useWorkspaceSelectedChunks } from "@/components/workspace-selected-chunks"
-import type { ChatCitationView } from "@/domains/chat/types"
+import type { ChatCitationView, ChatImageHighlightBox } from "@/domains/chat/types"
 import type { ParsedChunkView } from "@/domains/chunks/types"
 import type { SourceView } from "@/domains/sources/types"
 import {
@@ -22,6 +22,7 @@ type FocusedPageState = {
   readonly pageNumber: number | null
   readonly requestId: number
   readonly citationId: string | null
+  readonly highlightRegions: readonly ChatImageHighlightBox[]
 }
 
 type PrefetchedChunksBySourceId = Readonly<Record<string, ParsedChunkView[]>>
@@ -47,6 +48,7 @@ type WorkspaceCitationFocus = {
   readonly handleCitationClick: (
     citation: ChatCitationView,
     citationId: string,
+    highlightRegions?: readonly ChatImageHighlightBox[],
   ) => Promise<void>
   readonly handleLoadMoreChunks: () => void
   readonly handleLoadAllChunks: () => void
@@ -78,6 +80,7 @@ export function useWorkspaceCitationFocus({
     pageNumber: null,
     requestId: 0,
     citationId: null,
+    highlightRegions: [],
   })
   const [pendingCitationId, setPendingCitationId] = useState<string | null>(
     null,
@@ -122,10 +125,15 @@ export function useWorkspaceCitationFocus({
     [],
   )
   const requestPageFocus = useCallback(
-    (pageNumber: number | null, citationId: string | null = null): void => {
+    (
+      pageNumber: number | null,
+      citationId: string | null = null,
+      highlightRegions: readonly ChatImageHighlightBox[] = [],
+    ): void => {
       setFocusedPage((current) => ({
         pageNumber,
         citationId,
+        highlightRegions: resolveFocusHighlightRegions(highlightRegions),
         requestId: current.requestId + 1,
       }))
     },
@@ -245,6 +253,7 @@ export function useWorkspaceCitationFocus({
     async (
       citation: ChatCitationView,
       citationId: string,
+      highlightRegions?: readonly ChatImageHighlightBox[],
     ): Promise<void> => {
       setPendingCitationId(citationId)
 
@@ -275,7 +284,7 @@ export function useWorkspaceCitationFocus({
         const applyFocus = (chunkId: string | null): void => {
           if (selectedSourceId !== source.id) onSelectSource(source.id)
           requestChunkFocus(chunkId)
-          requestPageFocus(pageNumber, citationId)
+          requestPageFocus(pageNumber, citationId, highlightRegions)
         }
 
         if (selectedSourceId === source.id) {
@@ -288,7 +297,7 @@ export function useWorkspaceCitationFocus({
           })
           if (loadedChunkId) {
             requestChunkFocus(loadedChunkId)
-            requestPageFocus(pageNumber, citationId)
+            requestPageFocus(pageNumber, citationId, highlightRegions)
             return
           }
         }
@@ -401,4 +410,11 @@ export function useWorkspaceCitationFocus({
     selectedChunks,
     selectedSource,
   }
+}
+
+function resolveFocusHighlightRegions(
+  highlightRegions: readonly ChatImageHighlightBox[] | undefined,
+): readonly ChatImageHighlightBox[] {
+  if (highlightRegions && highlightRegions.length > 0) return highlightRegions
+  return []
 }

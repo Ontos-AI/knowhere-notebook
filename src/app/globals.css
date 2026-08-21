@@ -43,6 +43,7 @@
   --color-secondary: var(--secondary);
   --color-primary-foreground: var(--primary-foreground);
   --color-primary: var(--primary);
+  --animate-citation-region-flash: citation-region-flash 4.6s ease-in-out forwards;
   --color-primary-light: var(--primary-light);
   --color-primary-dark: var(--primary-dark);
   --color-popover-foreground: var(--popover-foreground);
@@ -94,6 +95,36 @@
 
 .citation-card-highlight {
   animation: citation-pulse 1.2s ease-out;
+}
+
+@keyframes citation-region-flash {
+  0% { opacity: 0; }
+  4.3% { opacity: 1; }
+  8.7% { opacity: 0; }
+  13% { opacity: 1; }
+  17.4% { opacity: 0; }
+  21.7% { opacity: 1; }
+  82.6% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.citation-region-flash {
+  z-index: 10;
+  display: block;
+  border-radius: 8px;
+  background-color: rgb(142 81 255 / 0.25);
+  animation: citation-region-flash 4.6s ease-in-out forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .citation-region-flash {
+    animation: citation-region-flash-reduced 3.6s ease-out forwards;
+  }
+
+  @keyframes citation-region-flash-reduced {
+    0%, 83% { opacity: 1; }
+    100% { opacity: 0; }
+  }
 }
 
 

@@ -42,7 +42,7 @@ type KnowhereOperation =
   | "grep_chunks"
 
 const assetInstruction =
-  "Notebook returned image/page asset refs. Call inspectImage with the asset refs when OCR, visual details, or verification are needed. Do not expose raw asset URLs."
+  "Notebook returned image/page asset refs. Call inspectImage with the asset refs you will cite before finalize so OCR/visual context and provenance boxes exist. Do not expose raw asset URLs."
 
 export const knowhereToolText = {
   formatSearch(input: SearchTextInput): string {

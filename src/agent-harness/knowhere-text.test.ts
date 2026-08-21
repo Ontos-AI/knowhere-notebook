@@ -26,6 +26,7 @@ describe("knowhereToolText", () => {
     expect(text).toContain('ref="r1:result:1"')
     expect(text).toContain('ref="asset:r1:result:1"')
     expect(text).toContain("Call inspectImage")
+    expect(text).toContain("before finalize")
     expect(text).not.toContain("https://assets.example/page-1.png")
   })
 

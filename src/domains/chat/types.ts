@@ -16,22 +16,6 @@ export type RetrievalResultView = {
 }
 
 /**
- * Persisted chat citation metadata. This deliberately excludes source chunk
- * text so Notebook never stores upstream chunk content in Postgres.
- */
-export type CitationView = Omit<RetrievalResultView, "content"> & {
-  readonly description?: string
-}
-
-/**
- * UI chat citation. Fresh answers include retrieval content; persisted
- * history only has metadata, so content is optional here.
- */
-export type ChatCitationView = CitationView & {
-  readonly content?: string
-}
-
-/**
  * Normalized highlight box for page/image answer provenance.
  * Origin top-left; values in [0, 1]. No per-region labels.
  */
@@ -40,6 +24,23 @@ export type ChatImageHighlightBox = {
   readonly y: number
   readonly w: number
   readonly h: number
+}
+
+/**
+ * Persisted chat citation metadata. This deliberately excludes source chunk
+ * text so Notebook never stores upstream chunk content in Postgres.
+ */
+export type CitationView = Omit<RetrievalResultView, "content"> & {
+  readonly description?: string
+  readonly highlightRegions?: readonly ChatImageHighlightBox[]
+}
+
+/**
+ * UI chat citation. Fresh answers include retrieval content; persisted
+ * history only has metadata, so content is optional here.
+ */
+export type ChatCitationView = CitationView & {
+  readonly content?: string
 }
 
 export type ChatArtifactView = {

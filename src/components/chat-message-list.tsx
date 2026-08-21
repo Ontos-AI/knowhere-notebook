@@ -26,6 +26,7 @@ import type { ChatDiagramChartSpec } from "@/domains/chat/diagram";
 import type {
   ChatArtifactView,
   ChatCitationView,
+  ChatImageHighlightBox,
   ChatMessageView,
 } from "@/domains/chat/types";
 
@@ -89,6 +90,7 @@ export type ChatMessageListProps = {
   readonly onCitationClick?: (
     citation: ChatCitationView,
     citationId: string,
+    highlightRegions?: readonly ChatImageHighlightBox[],
   ) => void;
   readonly pendingCitationId?: string | null;
   readonly pendingStatusText?: string | null;
@@ -223,6 +225,7 @@ function VirtualMessageRow({
   readonly onCitationClick?: (
     citation: ChatCitationView,
     citationId: string,
+    highlightRegions?: readonly ChatImageHighlightBox[],
   ) => void;
   readonly pendingCitationId?: string | null;
   readonly sourceTitlesByDocumentId: Readonly<Record<string, string>>;
@@ -230,6 +233,19 @@ function VirtualMessageRow({
   if (!message) {
     return null;
   }
+
+  const boundCitationClick = onCitationClick
+    ? (citation: ChatCitationView, citationId: string): void => {
+        onCitationClick(
+          citation,
+          citationId,
+          chatCitationModel.getListHighlightRegions(
+            citation,
+            message.artifacts,
+          ),
+        )
+      }
+    : undefined
 
   const rowStyle: CSSProperties = {
     position: "absolute",
@@ -247,7 +263,7 @@ function VirtualMessageRow({
       <MessageBubble
         diagramState={diagramState ?? idleDiagramState}
         message={message}
-        onCitationClick={onCitationClick}
+        onCitationClick={boundCitationClick}
         pendingCitationId={pendingCitationId}
         sourceTitlesByDocumentId={sourceTitlesByDocumentId}
       />

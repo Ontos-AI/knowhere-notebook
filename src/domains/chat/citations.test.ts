@@ -63,6 +63,27 @@ describe("toChatCitationViews", () => {
 
     expect(citations[0]?.pageCitationPageNumber).toBe(26)
   })
+
+  it("copies inspect-image provenance boxes onto the citation", () => {
+    const citations = toChatCitationViews(
+      [
+        makeRetrievalResult({
+          chunkType: "page",
+          highlightRegions: [{ x: 0.1, y: 0.2, w: 0.3, h: 0.15 }],
+          source: {
+            documentId: "doc_1",
+            sourceFileName: "TSLA-Q4-2025-Update.pdf",
+            sectionPath: "Page 4",
+          },
+        }),
+      ],
+      "Automotive revenue was $17.7B.",
+    )
+
+    expect(citations[0]?.highlightRegions).toEqual([
+      { x: 0.1, y: 0.2, w: 0.3, h: 0.15 },
+    ])
+  })
 })
 
 function makeRetrievalResult(

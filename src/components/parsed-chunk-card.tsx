@@ -15,6 +15,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { parsedChunkCardModel } from "@/components/parsed-chunk-card-model";
+import { CitationRegionHighlight } from "@/components/citation-region-highlight";
+import type { ChatImageHighlightBox } from "@/domains/chat/types";
 import type { ParsedChunkView } from "@/domains/chunks/types";
 import type { SourceOriginalFileView } from "@/domains/sources/types";
 import { cn } from "@/lib/utils";
@@ -33,6 +35,8 @@ export function ParsedChunkCard({
   isFocused,
   focusedCitationId = null,
   focusedPageNumber = null,
+  focusedPageRequestId = 0,
+  highlightRegions = [],
   isOriginalPreviewAvailable = false,
   onChunkClick,
   onReferenceClick,
@@ -42,6 +46,8 @@ export function ParsedChunkCard({
   readonly isFocused: boolean;
   readonly focusedCitationId?: string | null;
   readonly focusedPageNumber?: number | null;
+  readonly focusedPageRequestId?: number;
+  readonly highlightRegions?: readonly ChatImageHighlightBox[];
   readonly isOriginalPreviewAvailable?: boolean;
   readonly onChunkClick?: (chunk: ParsedChunkView) => void;
   readonly onReferenceClick: (chunkId: string) => void;
@@ -55,6 +61,8 @@ export function ParsedChunkCard({
           isFocused={isFocused}
           focusedCitationId={focusedCitationId}
           focusedPageNumber={focusedPageNumber}
+          focusedPageRequestId={focusedPageRequestId}
+          highlightRegions={highlightRegions}
           isOriginalPreviewAvailable={isOriginalPreviewAvailable}
           onChunkClick={onChunkClick}
         />
@@ -67,6 +75,8 @@ export function ParsedChunkCard({
         <ImageChunkCard
           chunk={chunk}
           isFocused={isFocused}
+          focusedPageRequestId={focusedPageRequestId}
+          highlightRegions={highlightRegions}
           isOriginalPreviewAvailable={isOriginalPreviewAvailable}
           onChunkClick={onChunkClick}
           sourceOriginalFile={sourceOriginalFile}
@@ -396,6 +406,8 @@ function PageChunkCard({
   isFocused,
   focusedCitationId,
   focusedPageNumber,
+  focusedPageRequestId,
+  highlightRegions,
   isOriginalPreviewAvailable,
   onChunkClick,
 }: {
@@ -403,6 +415,8 @@ function PageChunkCard({
   readonly isFocused: boolean;
   readonly focusedCitationId: string | null;
   readonly focusedPageNumber: number | null;
+  readonly focusedPageRequestId: number;
+  readonly highlightRegions: readonly ChatImageHighlightBox[];
   readonly isOriginalPreviewAvailable: boolean;
   readonly onChunkClick?: (chunk: ParsedChunkView) => void;
 }): ReactNode {
@@ -424,6 +438,8 @@ function PageChunkCard({
             assets={pageAssets}
             focusedCitationId={focusedCitationId}
             focusedPageNumber={focusedPageNumber}
+            focusedPageRequestId={focusedPageRequestId}
+            highlightRegions={highlightRegions}
           />
         </ChunkContentPanel>
       ) : (
@@ -442,10 +458,14 @@ function PageCitationAssets({
   assets,
   focusedCitationId,
   focusedPageNumber,
+  focusedPageRequestId,
+  highlightRegions,
 }: {
   readonly assets: NonNullable<ParsedChunkView["pageAssets"]>;
   readonly focusedCitationId: string | null;
   readonly focusedPageNumber: number | null;
+  readonly focusedPageRequestId: number;
+  readonly highlightRegions: readonly ChatImageHighlightBox[];
 }): ReactNode {
   return (
     <div className="flex flex-col gap-3">
@@ -454,6 +474,8 @@ function PageCitationAssets({
           key={asset.pageNumber}
           asset={asset}
           focusedCitationId={focusedCitationId}
+          focusedPageRequestId={focusedPageRequestId}
+          highlightRegions={highlightRegions}
           isCitationFocus={
             focusedCitationId !== null &&
             focusedPageNumber === asset.pageNumber
@@ -467,10 +489,14 @@ function PageCitationAssets({
 function PageCitationAssetImage({
   asset,
   focusedCitationId,
+  focusedPageRequestId,
+  highlightRegions,
   isCitationFocus,
 }: {
   readonly asset: NonNullable<ParsedChunkView["pageAssets"]>[number];
   readonly focusedCitationId: string | null;
+  readonly focusedPageRequestId: number;
+  readonly highlightRegions: readonly ChatImageHighlightBox[];
   readonly isCitationFocus: boolean;
 }): ReactNode {
   const [failedAssetUrl, setFailedAssetUrl] = useState<string | null>(null);
@@ -503,6 +529,12 @@ function PageCitationAssetImage({
             onError={() => setFailedAssetUrl(imageAssetUrl)}
           />
         )}
+        {isCitationFocus ? (
+          <CitationRegionHighlight
+            regions={highlightRegions}
+            requestId={focusedPageRequestId}
+          />
+        ) : null}
       </div>
     </figure>
   );
@@ -531,12 +563,16 @@ function PageCitationAssetUnavailable({
 function ImageChunkCard({
   chunk,
   isFocused,
+  focusedPageRequestId,
+  highlightRegions,
   isOriginalPreviewAvailable,
   onChunkClick,
   sourceOriginalFile,
 }: {
   readonly chunk: ParsedChunkView;
   readonly isFocused: boolean;
+  readonly focusedPageRequestId: number;
+  readonly highlightRegions: readonly ChatImageHighlightBox[];
   readonly isOriginalPreviewAvailable: boolean;
   readonly onChunkClick?: (chunk: ParsedChunkView) => void;
   readonly sourceOriginalFile: SourceOriginalFileView | null;
@@ -557,12 +593,20 @@ function ImageChunkCard({
       <ChunkContentPanel chunk={chunk}>
         {inlineImageAssetUrl ? (
           <figure className="overflow-hidden rounded-lg border border-border bg-muted/30">
-            {/* eslint-disable-next-line @next/next/no-img-element -- Parsed artifact dimensions are not known before render. */}
-            <img
-              src={inlineImageAssetUrl}
-              alt={chunk.summary ?? "Image chunk"}
-              className="max-h-[520px] w-full object-contain"
-            />
+            <div className="relative">
+              {/* eslint-disable-next-line @next/next/no-img-element -- Parsed artifact dimensions are not known before render. */}
+              <img
+                src={inlineImageAssetUrl}
+                alt={chunk.summary ?? "Image chunk"}
+                className="max-h-[520px] w-full object-contain"
+              />
+              {isFocused ? (
+                <CitationRegionHighlight
+                  regions={highlightRegions}
+                  requestId={focusedPageRequestId}
+                />
+              ) : null}
+            </div>
           </figure>
         ) : (
           <div className="flex flex-col items-center gap-3 rounded-lg border border-border bg-muted/40 py-8 text-center">

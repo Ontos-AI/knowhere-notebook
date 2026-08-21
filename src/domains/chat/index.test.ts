@@ -1360,6 +1360,214 @@ describe("answerQuestionWithRetrieval", () => {
     expect(answer.citations[0]?.source.sectionPath).toBe("FINANCIAL SUMMARY");
   });
 
+  it("copies inspect-image provenance boxes onto cited page results", async () => {
+    const pageResult = makeRetrievalResult({
+      chunkType: "page",
+      metadata: { page_nums: [4] },
+      source: {
+        documentId: "doc_tsla",
+        sourceFileName: "TSLA-Q4-2025-Update.pdf",
+        sectionPath: "Page 4",
+      },
+    });
+    const generateAnswer = vi.fn(async () =>
+      makeHarnessRunResultWithLedger("Automotive revenue was $17.7B [[cite:1]].", {
+        citations: [makeOutputCitation("r1:result:1", pageResult)],
+        chunks: [
+          {
+            ...makeEvidenceChunkFromRetrievalResult("r1:result:1", pageResult),
+            assetRef: "asset:r1:result:1",
+          },
+        ],
+        assets: [
+          {
+            ref: "asset:r1:result:1",
+            chunkRef: "r1:result:1",
+            type: "image",
+            source: pageResult.source,
+            label: "TSLA-Q4-2025-Update.pdf / Page 4",
+          },
+        ],
+        imageHighlights: [
+          {
+            ref: "asset:r1:result:1",
+            regions: [{ x: 0.1, y: 0.2, w: 0.3, h: 0.15 }],
+          },
+        ],
+      }),
+    );
+
+    const answer = await Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "Tesla automotive revenue",
+        namespace: "notebook-workspace",
+        sources: [
+          makeSource({
+            id: "source_tsla",
+            title: "TSLA-Q4-2025-Update.pdf",
+            knowhereDocumentId: "doc_tsla",
+          }),
+        ],
+        excludedSourceIds: [],
+        retrieval: { query: vi.fn() },
+        generateAnswer,
+        messages: [],
+      }),
+    );
+
+    expect(answer.citations[0]?.highlightRegions).toEqual([
+      { x: 0.1, y: 0.2, w: 0.3, h: 0.15 },
+    ]);
+  });
+
+  it("copies boxes from a referenced page asset onto its cited result chunk", async () => {
+    const pageResult = makeRetrievalResult({
+      chunkId: "chunk_page_4",
+      chunkType: "page",
+      metadata: { page_nums: [4] },
+      source: {
+        documentId: "doc_tsla",
+        sourceFileName: "TSLA-Q4-2025-Update.pdf",
+        sectionPath: "FINANCIAL SUMMARY",
+      },
+    });
+    const resultChunk = makeEvidenceChunkFromRetrievalResult(
+      "r1:result:1",
+      pageResult,
+    );
+    const referencedChunk = {
+      ...resultChunk,
+      ref: "r1:referenced:1",
+      kind: "referenced_chunk" as const,
+      assetRef: "asset:r1:referenced:1",
+    };
+    const generateAnswer = vi.fn(async () =>
+      makeHarnessRunResultWithLedger("Revenue was $24.9B [[cite:1]].", {
+        citations: [makeOutputCitation("r1:result:1", pageResult)],
+        chunks: [resultChunk, referencedChunk],
+        assets: [
+          {
+            ref: "asset:r1:referenced:1",
+            chunkRef: "r1:referenced:1",
+            type: "image",
+            source: pageResult.source,
+            label: "TSLA-Q4-2025-Update.pdf / Page 4",
+          },
+        ],
+        imageHighlights: [
+          {
+            ref: "asset:r1:referenced:1",
+            regions: [{ x: 0.08, y: 0.42, w: 0.84, h: 0.12 }],
+          },
+        ],
+      }),
+    );
+
+    const answer = await Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "What was Tesla's Q4 revenue?",
+        namespace: "notebook-workspace",
+        sources: [
+          makeSource({
+            id: "source_tsla",
+            title: "TSLA-Q4-2025-Update.pdf",
+            knowhereDocumentId: "doc_tsla",
+          }),
+        ],
+        excludedSourceIds: [],
+        retrieval: { query: vi.fn() },
+        generateAnswer,
+        messages: [],
+      }),
+    );
+
+    expect(answer.citations[0]?.highlightRegions).toEqual([
+      { x: 0.08, y: 0.42, w: 0.84, h: 0.12 },
+    ]);
+  });
+
+  it("reuses boxes from a deduplicated page alias across namespaces", async () => {
+    const catalogResult = makeRetrievalResult({
+      chunkId: "chunk_page_4",
+      chunkType: "page",
+      metadata: { page_nums: [4] },
+      source: {
+        documentId: "doc_catalog",
+        sourceFileName: "original.pdf",
+        sectionPath: "FINANCIAL SUMMARY",
+      },
+    });
+    const workspaceResult = makeRetrievalResult({
+      ...catalogResult,
+      source: {
+        documentId: "doc_workspace",
+        sourceFileName: "TSLA-Q4-2025-Update.pdf",
+        sectionPath: "FINANCIAL SUMMARY",
+      },
+    });
+    const catalogChunk = {
+      ...makeEvidenceChunkFromRetrievalResult("r1:result:1", catalogResult),
+      assetRef: "asset:r1:result:1",
+    };
+    const workspaceChunk = {
+      ...makeEvidenceChunkFromRetrievalResult("r1:result:2", workspaceResult),
+      assetRef: "asset:r1:result:2",
+    };
+    const assets = [
+      {
+        ref: "asset:r1:result:1",
+        chunkRef: "r1:result:1",
+        type: "image" as const,
+        sourcePath: "page_citation_assets/page-4.png",
+        source: catalogResult.source,
+        label: "original.pdf / Page 4",
+      },
+      {
+        ref: "asset:r1:result:2",
+        chunkRef: "r1:result:2",
+        type: "image" as const,
+        sourcePath: "page_citation_assets/page-4.png",
+        source: workspaceResult.source,
+        label: "TSLA-Q4-2025-Update.pdf / Page 4",
+      },
+    ];
+    const generateAnswer = vi.fn(async () =>
+      makeHarnessRunResultWithLedger("Revenue was $24.9B [[cite:1]].", {
+        citations: [makeOutputCitation("r1:result:2", workspaceResult)],
+        chunks: [catalogChunk, workspaceChunk],
+        assets,
+        imageHighlights: [
+          {
+            ref: "asset:r1:result:1",
+            regions: [{ x: 0.2, y: 0.3, w: 0.5, h: 0.08 }],
+          },
+        ],
+      }),
+    );
+
+    const answer = await Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "What was Tesla's Q4 revenue?",
+        namespace: "notebook-workspace",
+        sources: [
+          makeSource({
+            id: "source_tsla",
+            title: "TSLA-Q4-2025-Update.pdf",
+            knowhereDocumentId: "doc_workspace",
+          }),
+        ],
+        excludedSourceIds: [],
+        retrieval: { query: vi.fn() },
+        generateAnswer,
+        messages: [],
+      }),
+    );
+
+    expect(answer.citations[0]?.highlightRegions).toEqual([
+      { x: 0.2, y: 0.3, w: 0.5, h: 0.08 },
+    ]);
+  });
+
   it("returns only harness-selected artifacts when retrieval has extra media candidates", async () => {
     const frontAssetUrl = "https://blob.example/images/id-front.jpg";
     const backAssetUrl = "https://blob.example/images/id-back.jpg";
@@ -2975,6 +3183,7 @@ function makeHarnessRunResultWithLedger(
     readonly chunks?: HarnessRunResult["trace"]["ledger"]["chunks"]
     readonly assets?: HarnessRunResult["trace"]["ledger"]["assets"]
     readonly artifacts?: HarnessRunResult["manifest"]["artifacts"]
+    readonly imageHighlights?: HarnessRunResult["trace"]["imageHighlights"]
   },
 ): HarnessRunResult {
   const chunks = input.chunks ?? [];
@@ -2987,6 +3196,7 @@ function makeHarnessRunResultWithLedger(
     },
     trace: {
       ...makeHarnessRunResult("").trace,
+      imageHighlights: input.imageHighlights ?? [],
       ledger: {
         retrievalCount: chunks.length > 0 ? 1 : 0,
         chunks,

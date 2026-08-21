@@ -376,7 +376,11 @@ describe("ChatPanel", () => {
 
     await user.click(duplicatedSourceLinks[0]);
 
-    expect(onCitationClick).toHaveBeenCalledWith(firstCitation, "assistant_1:0");
+    expect(onCitationClick).toHaveBeenCalledWith(
+      firstCitation,
+      "assistant_1:0",
+      [],
+    );
   });
 
   it("keeps separate source links when different documents share one displayed label", async () => {
@@ -430,6 +434,7 @@ describe("ChatPanel", () => {
     expect(onCitationClick).toHaveBeenCalledWith(
       secondCitation,
       "assistant_1:1",
+      [],
     );
   });
 

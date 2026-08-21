@@ -381,8 +381,9 @@ function getPageCitationAssetCandidate(
 ): EvidenceAssetCandidate | null {
   if (chunk.chunkType.toLowerCase() !== "page") return null
 
-  const candidates = parsePageCitationAssetCandidates(chunk.metadata?.pageAssets)
-    .filter(isSupportedPageCitationAsset)
+  const candidates = parsePageCitationAssetCandidates(
+    chunk.metadata?.pageAssets ?? chunk.metadata?.page_assets,
+  ).filter(isSupportedPageCitationAsset)
   if (candidates.length === 0) return null
 
   const pageNumbers = getPageNumbers(chunk.metadata)
@@ -463,20 +464,34 @@ function parsePageCitationAssetCandidates(
 
   return value.flatMap((item): PageCitationAssetCandidate[] => {
     if (!isRecord(item)) return []
-    const pageNum = getPositiveInteger(item.pageNum)
+    const pageNum =
+      getPositiveInteger(item.pageNum) ??
+      getPositiveInteger(item.page_num) ??
+      getPositiveInteger(item.pageNumber)
     if (!pageNum) return []
 
     return [
       {
         pageNum,
-        ...(getTrimmedString(item.artifactRef)
-          ? { artifactRef: getTrimmedString(item.artifactRef) ?? undefined }
+        ...(getTrimmedString(item.artifactRef ?? item.artifact_ref)
+          ? {
+              artifactRef:
+                getTrimmedString(item.artifactRef ?? item.artifact_ref) ??
+                undefined,
+            }
           : {}),
-        ...(getTrimmedString(item.assetUrl)
-          ? { assetUrl: getTrimmedString(item.assetUrl) ?? undefined }
+        ...(getTrimmedString(item.assetUrl ?? item.asset_url)
+          ? {
+              assetUrl:
+                getTrimmedString(item.assetUrl ?? item.asset_url) ?? undefined,
+            }
           : {}),
-        ...(getTrimmedString(item.contentType)
-          ? { contentType: getTrimmedString(item.contentType) ?? undefined }
+        ...(getTrimmedString(item.contentType ?? item.content_type)
+          ? {
+              contentType:
+                getTrimmedString(item.contentType ?? item.content_type) ??
+                undefined,
+            }
           : {}),
       },
     ]
@@ -507,7 +522,12 @@ function getPageNumbers(
 ): readonly number[] {
   if (!metadata) return []
 
-  const values = [metadata.pageNums, metadata.page_nums, metadata.pageNum]
+  const values = [
+    metadata.pageNums,
+    metadata.page_nums,
+    metadata.pageNum,
+    metadata.page_num,
+  ]
   const pageNumbers = new Set<number>()
 
   for (const value of values) {

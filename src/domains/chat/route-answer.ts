@@ -241,6 +241,14 @@ async function inspectChatImages(input: {
   }
 
   if (preparedAssets.length === 0) {
+    logger.warn("chat: image inspection skipped all assets", {
+      workspaceId: input.workspaceId,
+      requestedCount: input.request.assets.length,
+      skipped: skippedAssets.map((asset) => ({
+        ref: asset.ref,
+        reason: asset.reason,
+      })),
+    })
     return {
       analysis: "",
       inspected: [],

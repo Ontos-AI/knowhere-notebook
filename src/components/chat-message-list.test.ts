@@ -190,6 +190,50 @@ describe("ChatMessageList", () => {
         pageCitationPageNumber: 4,
       }),
       "assistant_1:0",
+      [],
+    );
+  });
+
+  it("passes persisted citation regions to page navigation", async () => {
+    const user = userEvent.setup();
+    const onCitationClick = vi.fn();
+    const regions = [
+      { x: 0.19, y: 0.16, w: 0.51, h: 0.03 },
+      { x: 0.04, y: 0.29, w: 0.15, h: 0.03 },
+    ];
+
+    render(
+      React.createElement(ChatMessageList, {
+        messages: [
+          {
+            id: "assistant_regions",
+            role: "assistant",
+            content: "Revenue was $24.9B [[cite:1]].",
+            citations: [
+              {
+                chunkType: "page",
+                score: 0.9,
+                pageCitationPageNumber: 4,
+                highlightRegions: regions,
+                source: {
+                  documentId: "doc_tsla",
+                  sourceFileName: "TSLA-Q4-2025-Update.pdf",
+                  sectionPath: "FINANCIAL SUMMARY",
+                },
+              },
+            ],
+          },
+        ],
+        onCitationClick,
+      }),
+    );
+
+    await user.click(screen.getByTestId("citation-chip"));
+
+    expect(onCitationClick).toHaveBeenCalledWith(
+      expect.objectContaining({ pageCitationPageNumber: 4 }),
+      "assistant_regions:0",
+      regions,
     );
   });
 

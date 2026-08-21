@@ -68,6 +68,52 @@ describe("createEvidenceLedger", () => {
     )
   })
 
+  it("creates page image assets from snake-case retrieval metadata", () => {
+    const ledger = createEvidenceLedger()
+
+    const snapshot = ledger.addRetrievalResponse({
+      namespace: "notebook",
+      query: "revenue",
+      routerUsed: "mapnav",
+      answerText: null,
+      evidenceText: "Revenue evidence",
+      stopReason: "completed",
+      failureReason: null,
+      results: [
+        {
+          chunkId: "chunk_page_4",
+          content: "Revenue was $24.9B.",
+          chunkType: "page",
+          score: 0.9,
+          metadata: {
+            page_nums: [4],
+            page_assets: [
+              {
+                page_num: 4,
+                artifact_ref: "page_citation_assets/page-4.png",
+                content_type: "image/png",
+              },
+            ],
+          },
+          source: {
+            documentId: "doc_tsla",
+            sourceFileName: "TSLA-Q4-2025-Update.pdf",
+            sectionPath: "FINANCIAL SUMMARY",
+          },
+        },
+      ],
+      referencedChunks: [],
+    })
+
+    expect(snapshot.assets).toContainEqual(
+      expect.objectContaining({
+        ref: "asset:r1:result:1",
+        sourcePath: "page_citation_assets/page-4.png",
+        type: "image",
+      }),
+    )
+  })
+
   it("adds read chunk refs and page image assets", () => {
     const ledger = createEvidenceLedger()
 

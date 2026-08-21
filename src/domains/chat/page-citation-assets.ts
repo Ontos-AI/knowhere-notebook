@@ -8,6 +8,12 @@ import type { HardenChatAssetUrl } from "./media-assets"
 export type PageCitationAssetRetrievalResult = RetrievalResult & {
   readonly pageCitationAssetUrl?: string
   readonly pageCitationPageNumber?: number
+  readonly highlightRegions?: readonly {
+    readonly x: number
+    readonly y: number
+    readonly w: number
+    readonly h: number
+  }[]
 }
 
 type EnrichRetrievalResultsWithPageCitationAssetUrlsInput = {

@@ -2,6 +2,7 @@ import { workspaceCitationState } from "@/components/workspace-citation-state"
 import type {
   ChatArtifactView,
   ChatCitationView,
+  ChatImageHighlightBox,
   ChatMessageView,
 } from "@/domains/chat/types"
 
@@ -28,6 +29,7 @@ export const chatCitationModel = {
   getCitationChipLabel,
   getCopyMarkdown,
   getExportMarkdown,
+  getListHighlightRegions,
   getSourceTitle,
   groupCitationsByFile,
   isKnowhereCiteHref,
@@ -144,6 +146,34 @@ function uniquePageLinkEntries(
   return uniqueEntries
 }
 
+function getListHighlightRegions(
+  citation: ChatCitationView,
+  artifacts: readonly ChatArtifactView[] | undefined,
+): readonly ChatImageHighlightBox[] {
+  if (citation.highlightRegions && citation.highlightRegions.length > 0) {
+    return citation.highlightRegions
+  }
+
+  const pageNumber = workspaceCitationState.getCitationPageNumber(citation)
+  const matchingRegions = (artifacts ?? []).flatMap((artifact) => {
+    if (!artifact.highlightRegions || artifact.highlightRegions.length === 0) {
+      return []
+    }
+
+    const artifactPage = artifact.citation
+      ? workspaceCitationState.getCitationPageNumber(artifact.citation)
+      : null
+    if (pageNumber !== null && artifactPage !== pageNumber) {
+      return []
+    }
+
+    return [...artifact.highlightRegions]
+  })
+
+  if (matchingRegions.length > 0) return matchingRegions
+  return []
+}
+
 function getCitationChipLabel(
   citation: ChatCitationView,
   sourceTitlesByDocumentId: Readonly<Record<string, string>>,
@@ -193,16 +223,27 @@ function replaceCitationTokens(
   replaceIndex: (index: number) => string,
 ): string {
   return text
-    .replace(/\[\[cite:(\d+)\]\]/g, (_match, rawIndex: string) => {
-      const index = Number.parseInt(rawIndex, 10)
-      if (!Number.isSafeInteger(index) || index < 1) return ""
-      return replaceIndex(index)
-    })
+    .replace(
+      /\[\[cite:\s*(\d+(?:\s*,\s*\d+)*)\s*\]\]/g,
+      (_match, rawIndices: string) =>
+        parseCiteIndices(rawIndices)
+          .map((index) => replaceIndex(index))
+          .filter((part) => part.length > 0)
+          .join(" "),
+    )
     .replace(/\[Source\s+(\d+)\s*:\s*[^\]]*\]/g, (_match, rawIndex: string) => {
       const index = Number.parseInt(rawIndex, 10)
       if (!Number.isSafeInteger(index) || index < 1) return ""
       return replaceIndex(index)
     })
+}
+
+function parseCiteIndices(rawIndices: string): readonly number[] {
+  return rawIndices.split(",").flatMap((rawIndex) => {
+    const index = Number.parseInt(rawIndex.trim(), 10)
+    if (!Number.isSafeInteger(index) || index < 1) return []
+    return [index]
+  })
 }
 
 function toCiteMarkdownLink(label: string, index: number): string {
