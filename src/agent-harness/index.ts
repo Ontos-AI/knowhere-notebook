@@ -1,3 +1,4 @@
+export * from "./image-highlights"
 export * from "./ledger"
 export * from "./knowhere-text"
 export * from "./runtime"

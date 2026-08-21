@@ -2949,6 +2949,7 @@ function makeHarnessRunResult(text: string): HarnessRunResult {
       finalized: true,
       priorTurnReads: [],
       toolCalls: [],
+      imageHighlights: [],
       validationErrors: [],
       revisionsUsed: 0,
     },

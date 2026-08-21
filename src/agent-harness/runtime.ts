@@ -10,6 +10,7 @@ import { z } from "zod"
 
 import { createEvidenceLedger } from "./ledger"
 import { knowhereToolText } from "./knowhere-text"
+import { mergeImageInspectionHighlights } from "./image-highlights"
 import type {
   AgentTurn,
   AgentTurnInput,
@@ -50,6 +51,7 @@ type HarnessToolState = {
   finalized?: boolean
   priorTurnReads?: string[]
   inspectedImageRefs?: string[]
+  imageHighlights?: ImageInspectionHighlights[]
   toolCalls?: HarnessToolCallTrace[]
 }
 
@@ -246,6 +248,7 @@ export async function runAgentHarness(
       finalized: state.finalized === true,
       priorTurnReads: [...(state.priorTurnReads ?? [])],
       toolCalls: [...(state.toolCalls ?? [])],
+      imageHighlights: [...(state.imageHighlights ?? [])],
       validationErrors: [],
       revisionsUsed: 0,
     },
@@ -761,8 +764,12 @@ async function inspectRetrievedImages(input: {
       question,
       assets: selectedAssets,
     })
+    input.state.imageHighlights = mergeImageInspectionHighlights(
+      input.state.imageHighlights,
+      response.highlights,
+    )
     return {
-      ok: true,
+      ok: true as const,
       analysis: response.analysis,
       inspected: response.inspected,
       skipped: [...skipped, ...response.skipped],

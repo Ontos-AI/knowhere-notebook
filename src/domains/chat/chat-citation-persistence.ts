@@ -51,6 +51,7 @@ function toArtifactView(artifact: ChatArtifactView): ChatArtifactView {
     label: artifact.label,
     display: artifact.display,
     reason: artifact.reason,
+    highlightRegions: artifact.highlightRegions,
     citation: artifact.citation
       ? toCitationView(artifact.citation)
       : undefined,

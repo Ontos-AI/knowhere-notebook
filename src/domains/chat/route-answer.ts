@@ -1,5 +1,4 @@
 import { Cause, Effect, Either, Option } from "effect"
-import { generateText } from "ai"
 
 import {
   generateAgenticOutputManifest,
@@ -12,6 +11,8 @@ import type {
   ImageInspectionSkippedAsset,
   InspectImages,
 } from "@/agent-harness"
+import { normalizeImageInspectionHighlights } from "@/agent-harness/image-highlights"
+import { generateImageInspectionModelResult } from "@/domains/chat/image-inspection-model"
 import { hardenChatMediaAssetUrls } from "@/domains/chat/media-asset-hardening"
 import {
   handleChatTurn,
@@ -256,14 +257,18 @@ async function inspectChatImages(input: {
     refs: preparedAssets.map((asset) => asset.ref),
   })
 
-  const response = await generateImageInspectionText({
+  const response = await generateImageInspectionModelResult({
     workspaceId: input.workspaceId,
     question: input.request.question,
     assets: preparedAssets,
   })
   const analysis = removeImageInspectionUrls({
-    text: response.text.trim(),
+    text: response.analysis,
     assets: preparedAssets,
+  })
+  const highlights = normalizeImageInspectionHighlights({
+    pages: response.pages,
+    allowedRefs: new Set(preparedAssets.map((asset) => asset.ref)),
   })
 
   logger.info("chat: image inspection response", {
@@ -272,6 +277,12 @@ async function inspectChatImages(input: {
     inspectedCount: preparedAssets.length,
     skippedCount: skippedAssets.length,
     analysisLength: analysis.length,
+    inspectionSource: response.source,
+    highlightPageCount: highlights.length,
+    highlightRegionCount: highlights.reduce(
+      (count, page) => count + page.regions.length,
+      0,
+    ),
   })
 
   return {
@@ -281,6 +292,7 @@ async function inspectChatImages(input: {
       label: asset.label,
     })),
     skipped: skippedAssets,
+    ...(highlights.length > 0 ? { highlights } : {}),
   }
 }
 
@@ -382,49 +394,6 @@ async function prepareImageInspectionAsset(input: {
   }
 }
 
-async function generateImageInspectionText(input: {
-  readonly workspaceId: string
-  readonly question: string
-  readonly assets: readonly PreparedImageInspectionAsset[]
-}): Promise<Awaited<ReturnType<typeof generateText>>> {
-  try {
-    return await generateText({
-      model: VISION_MODEL,
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: buildImageInspectionPrompt({
-                question: input.question,
-                assets: input.assets,
-              }),
-            },
-            ...input.assets.map((asset) => ({
-              type: "image" as const,
-              image: asset.body,
-              mediaType: asset.contentType,
-            })),
-          ],
-        },
-      ],
-      experimental_include: {
-        requestBody: false,
-        responseBody: false,
-      },
-    })
-  } catch (error) {
-    logger.warn("chat: image inspection model call failed", {
-      workspaceId: input.workspaceId,
-      model: VISION_MODEL,
-      inspectedCount: input.assets.length,
-      error: summarizeUnknownError(error),
-    })
-    throw error
-  }
-}
-
 async function fetchPreparedInspectionImage(input: {
   readonly url: URL
   readonly contentType: string
@@ -523,25 +492,6 @@ function getSupportedImageContentType(sourcePath: string): string | null {
     lowerPath.endsWith(candidate),
   )
   return extension ? SUPPORTED_IMAGE_CONTENT_TYPES[extension] ?? null : null
-}
-
-function buildImageInspectionPrompt(input: {
-  readonly question: string
-  readonly assets: readonly PreparedImageInspectionAsset[]
-}): string {
-  return [
-    "Inspect the attached Notebook image assets selected from retrieved Knowhere evidence.",
-    "Answer the inspection question using concise visual observations only.",
-    "Use the provided refs and labels to identify images. Do not include image URLs.",
-    "If OCR text is unclear, say it is unclear instead of guessing.",
-    "Do not create citations. The calling agent will cite the original retrieved asset refs.",
-    "",
-    "Inspection question:",
-    input.question,
-    "",
-    "Images:",
-    ...input.assets.map((asset) => `- ref=${asset.ref} label=${asset.label}`),
-  ].join("\n")
 }
 
 function removeImageInspectionUrls(input: {

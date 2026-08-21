@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   ensureDefaultChatThread: vi.fn(),
   findChatThreadInWorkspace: vi.fn(),
   generateAgenticOutputManifest: vi.fn(),
+  generateObject: vi.fn(),
   generateText: vi.fn(),
   getAuthenticated: vi.fn(),
   getAuthenticatedWithClient: vi.fn(),
@@ -19,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   loggerInfo: vi.fn(),
   loggerWarn: vi.fn(),
   listSourcesForWorkspace: vi.fn(),
+  makeKnowhereClientWithParsedStorage: vi.fn(),
   parsedStorageGetAssetUrl: vi.fn(),
   parsedStorageWriteAsset: vi.fn(),
   softDeleteChatThread: vi.fn(),
@@ -29,9 +31,14 @@ vi.mock("ai", async (importOriginal) => {
   const original = await importOriginal<typeof import("ai")>()
   return {
     ...original,
+    generateObject: mocks.generateObject,
     generateText: mocks.generateText,
   }
 })
+
+vi.mock("@/integrations/knowhere", () => ({
+  makeKnowhereClientWithParsedStorage: mocks.makeKnowhereClientWithParsedStorage,
+}))
 
 vi.mock("@/domains/chat", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/domains/chat")>()
@@ -99,6 +106,16 @@ describe("chat route services", () => {
     vi.clearAllMocks()
     mocks.parsedStorageGetAssetUrl.mockResolvedValue(null)
     mocks.parsedStorageWriteAsset.mockResolvedValue({ url: null })
+    mocks.makeKnowhereClientWithParsedStorage.mockReturnValue({
+      client: {},
+      knowledge: {},
+    })
+    mocks.generateObject.mockResolvedValue({
+      object: {
+        analysis: "The image shows a chart.",
+        pages: [],
+      },
+    })
     mocks.generateText.mockResolvedValue({ text: "The image shows a chart." })
     vi.stubGlobal(
       "fetch",
@@ -253,8 +270,11 @@ describe("chat route services", () => {
     const durableUrl =
       "https://fake.public.blob.vercel-storage.com/workspaces/workspace_1/parsed-documents/doc_identity/job_1/images/id-front.png"
     mocks.parsedStorageWriteAsset.mockResolvedValue({ url: durableUrl })
-    mocks.generateText.mockResolvedValue({
-      text: `The card number is visible. ${durableUrl} ${rawUrl}`,
+    mocks.generateObject.mockResolvedValue({
+      object: {
+        analysis: `The card number is visible. ${durableUrl} ${rawUrl}`,
+        pages: [],
+      },
     })
     mocks.getAuthenticatedWithClient.mockResolvedValue({
       user: { id: "user_1" },
@@ -338,7 +358,7 @@ describe("chat route services", () => {
       body: new Uint8Array([1, 2, 3]),
       contentType: "image/png",
     })
-    const generateInput = mocks.generateText.mock.calls[0]?.[0]
+    const generateInput = mocks.generateObject.mock.calls[0]?.[0]
     expect(generateInput).toMatchObject({
       model: "google/gemini-3-flash",
       experimental_include: {
@@ -368,8 +388,11 @@ describe("chat route services", () => {
     const durableUrl =
       "https://fake.public.blob.vercel-storage.com/workspaces/workspace_1/parsed-documents/doc_contract/job_1/page_citation_assets/page-8.png"
     mocks.parsedStorageGetAssetUrl.mockResolvedValue(durableUrl)
-    mocks.generateText.mockResolvedValue({
-      text: "The page states 5000 yuan per occurrence.",
+    mocks.generateObject.mockResolvedValue({
+      object: {
+        analysis: "The page states 5000 yuan per occurrence.",
+        pages: [],
+      },
     })
     mocks.getAuthenticatedWithClient.mockResolvedValue({
       user: { id: "user_1" },
@@ -454,7 +477,7 @@ describe("chat route services", () => {
     })
     expect(fetch).toHaveBeenCalledWith(durableUrl)
     expect(mocks.parsedStorageWriteAsset).not.toHaveBeenCalled()
-    const generateInput = mocks.generateText.mock.calls[0]?.[0]
+    const generateInput = mocks.generateObject.mock.calls[0]?.[0]
     const content = generateInput.messages[0].content
     const imagePart = content.find(
       (part: { readonly type: string }) => part.type === "image",
@@ -471,8 +494,11 @@ describe("chat route services", () => {
     const durableUrl =
       "https://fake.public.blob.vercel-storage.com/workspaces/workspace_1/parsed-documents/doc_remote/job_remote/page_citation_assets/page-8.png"
     mocks.parsedStorageWriteAsset.mockResolvedValue({ url: durableUrl })
-    mocks.generateText.mockResolvedValue({
-      text: "The page states 5000 yuan per occurrence.",
+    mocks.generateObject.mockResolvedValue({
+      object: {
+        analysis: "The page states 5000 yuan per occurrence.",
+        pages: [],
+      },
     })
     mocks.getAuthenticatedWithClient.mockResolvedValue({
       user: { id: "user_1" },
@@ -567,7 +593,7 @@ describe("chat route services", () => {
       body: new Uint8Array([1, 2, 3]),
       contentType: "image/png",
     })
-    const generateInput = mocks.generateText.mock.calls[0]?.[0]
+    const generateInput = mocks.generateObject.mock.calls[0]?.[0]
     expect(JSON.stringify(generateInput)).not.toContain(
       "knowhere-storage.example",
     )
@@ -674,6 +700,7 @@ describe("chat route services", () => {
     })
 
     expect(result.status).toBe(200)
+    expect(mocks.generateObject).not.toHaveBeenCalled()
     expect(mocks.generateText).not.toHaveBeenCalled()
     expect(fetch).not.toHaveBeenCalled()
   })

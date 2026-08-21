@@ -401,6 +401,62 @@ describe("ChatMessageList", () => {
     expect(screen.queryByRole("img", { name: "其他候选图片" })).toBeNull();
   });
 
+  it("renders multi-region answer highlights on displayed page artifacts", () => {
+    render(
+      React.createElement(ChatMessageList, {
+        messages: [
+          {
+            id: "assistant_1",
+            role: "assistant",
+            content: "风险辨识要求建立分级管控制度。",
+            artifacts: [
+              {
+                type: "image",
+                display: true,
+                assetUrl: "https://blob.example/pages/page-225.png",
+                label: "page 225",
+                highlightRegions: [
+                  { x: 0.1, y: 0.2, w: 0.4, h: 0.1 },
+                  { x: 0.2, y: 0.5, w: 0.5, h: 0.12 },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(screen.getByTestId("chat-image-highlights")).toBeTruthy();
+    expect(screen.getAllByTestId("chat-image-highlight-region")).toHaveLength(2);
+  });
+
+  it("keeps the original image layout when artifacts have no highlight regions", () => {
+    render(
+      React.createElement(ChatMessageList, {
+        messages: [
+          {
+            id: "assistant_1",
+            role: "assistant",
+            content: "Here is the page.",
+            artifacts: [
+              {
+                type: "image",
+                display: true,
+                assetUrl: "https://blob.example/pages/page-1.png",
+                label: "page 1",
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    const image = screen.getByRole("img", { name: "page 1" });
+    expect(image.className).toContain("object-contain");
+    expect(image.className).toContain("w-full");
+    expect(screen.queryByTestId("chat-image-highlights")).toBeNull();
+  });
+
   it("does not fall back to image citations when a harness message has empty artifacts", () => {
     render(
       React.createElement(ChatMessageList, {

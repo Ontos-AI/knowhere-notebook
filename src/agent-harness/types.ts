@@ -182,6 +182,23 @@ export type ImageInspectionInspectedAsset = {
   readonly label: string
 }
 
+/**
+ * Normalized box relative to image width/height. Origin is top-left.
+ * Values are clamped to [0, 1] before render.
+ */
+export type ImageHighlightBox = {
+  readonly x: number
+  readonly y: number
+  readonly w: number
+  readonly h: number
+}
+
+/** One page/image may contain multiple answer regions; no per-region labels. */
+export type ImageInspectionHighlights = {
+  readonly ref: string
+  readonly regions: readonly ImageHighlightBox[]
+}
+
 export type ImageInspectionRequest = {
   readonly question: string
   readonly assets: readonly ImageInspectionAsset[]
@@ -191,6 +208,7 @@ export type ImageInspectionResponse = {
   readonly analysis: string
   readonly inspected: readonly ImageInspectionInspectedAsset[]
   readonly skipped: readonly ImageInspectionSkippedAsset[]
+  readonly highlights?: readonly ImageInspectionHighlights[]
 }
 
 export type InspectImages = (
@@ -256,6 +274,7 @@ export type HarnessTrace = {
   readonly finalized: boolean
   readonly priorTurnReads: readonly string[]
   readonly toolCalls: readonly HarnessToolCallTrace[]
+  readonly imageHighlights: readonly ImageInspectionHighlights[]
   readonly validationErrors: readonly string[]
   readonly revisionsUsed: number
 }
