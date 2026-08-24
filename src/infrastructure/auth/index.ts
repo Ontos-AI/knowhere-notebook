@@ -9,13 +9,16 @@ import {
   HttpClientRequest,
 } from "@effect/platform"
 import { authURLs } from "./urls"
-import { sessionCookieNames } from "./session-cookie-names"
+import {
+  isSessionCookieName,
+  sessionCookieNames,
+} from "./session-cookie-names"
 import { logger } from "@/lib/logger"
 import { knowhereApiKeyOverride } from "@/integrations/knowhere-api-key"
 import { setEmptyJsonBody } from "@/integrations/dashboard/orpc-request"
 import { formatUnknownForLog } from "@/lib/format-log-value"
 
-export { sessionCookieNames }
+export { isSessionCookieName, sessionCookieNames }
 
 /**
  * Auth helpers for Knowhere Notebook.
@@ -222,10 +225,7 @@ export async function hasSessionCookie(): Promise<boolean> {
   if (knowhereApiKeyOverride.hasApiKey()) return true
 
   const jar = await cookies()
-  for (const name of sessionCookieNames()) {
-    if (jar.get(name) !== undefined) return true
-  }
-  return false
+  return jar.getAll().some((cookie) => isSessionCookieName(cookie.name))
 }
 
 /**
