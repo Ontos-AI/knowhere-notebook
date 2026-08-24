@@ -4,6 +4,8 @@ import type {
   KnowledgeGrepResponse,
   KnowledgeOutline,
   KnowledgeReadResponse,
+  RetrievalQueryParams,
+  RetrievalQueryResponse,
   RetrievalResult,
 } from "@ontos-ai/knowhere-sdk"
 import { Effect } from "effect"
@@ -360,6 +362,155 @@ describe("answerQuestionWithRetrieval", () => {
       citations: [],
       artifacts: [],
     });
+  });
+
+  it("queries at most four namespaces concurrently", async () => {
+    const namespaces = [
+      "default",
+      "notebook-1",
+      "notebook-2",
+      "notebook-3",
+      "notebook-4",
+      "notebook-5",
+    ];
+    const releases: Array<() => void> = [];
+    let activeCount = 0;
+    let maxActiveCount = 0;
+    const retrieval = {
+      query: vi.fn(async (params: RetrievalQueryParams) => {
+        const namespace = requireRetrievalQueryText(
+          params.namespace,
+          "namespace",
+        );
+        const query = requireRetrievalQueryText(params.query, "query");
+        activeCount += 1;
+        maxActiveCount = Math.max(maxActiveCount, activeCount);
+        await new Promise<void>((resolve) => {
+          releases.push(() => {
+            activeCount -= 1;
+            resolve();
+          });
+        });
+        return makeRetrievalQueryResponse(namespace, query);
+      }),
+    };
+    const generateAnswer = vi.fn(async ({ searchSources }) => {
+      await searchSources({ query: "parallel evidence" });
+      return makeHarnessRunResult("The answer is grounded.");
+    });
+
+    const answerPromise = Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "What do the documents say?",
+        namespace: "notebook-1",
+        namespaces,
+        sources: [makeSource()],
+        excludedSourceIds: [],
+        retrieval,
+        generateAnswer,
+        messages: [],
+      }),
+    );
+
+    await vi.waitFor(() => expect(retrieval.query).toHaveBeenCalledTimes(4));
+    expect(maxActiveCount).toBe(4);
+    releases.splice(0).forEach((release) => release());
+
+    await vi.waitFor(() => expect(retrieval.query).toHaveBeenCalledTimes(6));
+    expect(maxActiveCount).toBe(4);
+    releases.splice(0).forEach((release) => release());
+
+    await answerPromise;
+    expect(maxActiveCount).toBe(4);
+  });
+
+  it("retries rate-limited namespace queries sequentially", async () => {
+    const namespaces = ["default", "notebook-1", "notebook-2"];
+    const attempts = new Map<string, number>();
+    const fallbackReleases: Array<() => void> = [];
+    let activeFallbackCount = 0;
+    let maxActiveFallbackCount = 0;
+    const retrieval = {
+      query: vi.fn(async (params: RetrievalQueryParams) => {
+        const namespace = requireRetrievalQueryText(
+          params.namespace,
+          "namespace",
+        );
+        const query = requireRetrievalQueryText(params.query, "query");
+        const attempt = (attempts.get(namespace) ?? 0) + 1;
+        attempts.set(namespace, attempt);
+
+        if (namespace !== "default" && attempt === 1) {
+          throw Object.assign(
+            new Error(
+              "Too many concurrent requests. Please retry after 30 seconds.",
+            ),
+            {
+              statusCode: 429,
+              code: "RESOURCE_EXHAUSTED",
+            },
+          );
+        }
+
+        if (namespace !== "default") {
+          activeFallbackCount += 1;
+          maxActiveFallbackCount = Math.max(
+            maxActiveFallbackCount,
+            activeFallbackCount,
+          );
+          await new Promise<void>((resolve) => {
+            fallbackReleases.push(() => {
+              activeFallbackCount -= 1;
+              resolve();
+            });
+          });
+        }
+
+        return makeRetrievalQueryResponse(namespace, query);
+      }),
+    };
+    const generateAnswer = vi.fn(async ({ searchSources }) => {
+      await searchSources({ query: "rate-limited evidence" });
+      return makeHarnessRunResult("The answer is grounded.");
+    });
+
+    const answerPromise = Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "What do the documents say?",
+        namespace: "notebook-1",
+        namespaces,
+        sources: [makeSource()],
+        excludedSourceIds: [],
+        retrieval,
+        generateAnswer,
+        messages: [],
+      }),
+    );
+
+    await vi.waitFor(() => expect(retrieval.query).toHaveBeenCalledTimes(4));
+    expect(maxActiveFallbackCount).toBe(1);
+    expect(attempts.get("notebook-2")).toBe(1);
+    fallbackReleases.shift()?.();
+
+    await vi.waitFor(() => expect(retrieval.query).toHaveBeenCalledTimes(5));
+    expect(maxActiveFallbackCount).toBe(1);
+    fallbackReleases.shift()?.();
+
+    await answerPromise;
+    expect(attempts).toEqual(
+      new Map([
+        ["default", 1],
+        ["notebook-1", 2],
+        ["notebook-2", 2],
+      ]),
+    );
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      "chat-agent: searchSources rate limited; retrying failed namespaces sequentially",
+      {
+        namespaceCount: 2,
+        namespaces: ["notebook-1", "notebook-2"],
+      },
+    );
   });
 
   it("bounds merged retrieval evidence before passing it to the answer agent", async () => {
@@ -3113,6 +3264,33 @@ function makeRetrievalResult(
     },
     ...overrides,
   };
+}
+
+function makeRetrievalQueryResponse(
+  namespace: string,
+  query: string,
+): RetrievalQueryResponse {
+  return {
+    results: [makeRetrievalResult()],
+    evidenceText: `Evidence from ${namespace}`,
+    referencedChunks: [],
+    namespace,
+    query,
+    routerUsed: "workflow_single_step",
+    answerText: null,
+    stopReason: "answer_done",
+    failureReason: null,
+  };
+}
+
+function requireRetrievalQueryText(
+  value: string | undefined,
+  name: string,
+): string {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error(`Expected retrieval ${name}.`);
+  }
+  return value;
 }
 
 function makeSource(overrides: Partial<Source> = {}): Source {
