@@ -55,6 +55,16 @@ describe("chunksPanelState", () => {
       "chunk_page_7_second",
       "chunk_without_page",
     ])
+    expect(
+      chunksPanelState
+        .getChunksWithFocusedFirst(chunks, null, 7)
+        .map((chunk) => chunk.chunkId),
+    ).toEqual([
+      "chunk_page_7",
+      "chunk_page_2",
+      "chunk_page_7_second",
+      "chunk_without_page",
+    ])
   })
 
   it("moves a focused Parsed Chunk to the front without mutating the input", () => {
@@ -137,6 +147,184 @@ describe("chunksPanelState", () => {
       "First copy.",
       "Other chunk.",
     ])
+  })
+
+  it("deduplicates singleton page-asset chunks with the same page number", () => {
+    const chunks: ParsedChunkView[] = [
+      {
+        chunkId: "page_4_first",
+        type: "page",
+        content: "First page 4 summary.",
+        sourceTitle: "manual.pdf",
+        pageNums: [4],
+        pageAssets: [
+          {
+            pageNumber: 4,
+            assetUrl: "https://assets.example/page-4-a.png",
+            contentType: "image/png",
+          },
+        ],
+      },
+      {
+        chunkId: "page_4_duplicate",
+        type: "page",
+        content: "Duplicate page 4 summary.",
+        sourceTitle: "manual.pdf",
+        pageNums: [4],
+        pageAssets: [
+          {
+            pageNumber: 4,
+            assetUrl: "https://assets.example/page-4-b.png",
+            contentType: "image/png",
+          },
+        ],
+      },
+      {
+        chunkId: "page_5",
+        type: "page",
+        content: "Page 5 summary.",
+        sourceTitle: "manual.pdf",
+        pageAssets: [
+          {
+            pageNumber: 5,
+            assetUrl: "https://assets.example/page-5.png",
+            contentType: "image/png",
+          },
+        ],
+      },
+      {
+        chunkId: "table_1",
+        type: "table",
+        content: "<table />",
+        sourceTitle: "manual.pdf",
+        pageNums: [4],
+      },
+    ]
+
+    expect(
+      chunksPanelState
+        .getPageAssetChunksWithoutDuplicatePages(chunks)
+        .map((chunk) => chunk.chunkId),
+    ).toEqual(["page_4_first", "page_5"])
+  })
+
+  it("keeps overlapping page-memory section chunks that share a boundary page", () => {
+    const chunks: ParsedChunkView[] = [
+      {
+        chunkId: "kenneth",
+        type: "page",
+        content: "IR introduction.",
+        sectionPath: "call.pdf/Root/Kenneth Dorell",
+        sourceTitle: "call.pdf",
+        pageNums: [1],
+        pageAssets: [
+          {
+            pageNumber: 1,
+            assetUrl: "https://assets.example/page-1.png",
+            contentType: "image/png",
+          },
+        ],
+      },
+      {
+        chunkId: "zuckerberg",
+        type: "page",
+        content: "[SAME-AS call.pdf/Root/Kenneth Dorell p1] CEO remarks.",
+        sectionPath: "call.pdf/Root/Mark Zuckerberg, CEO",
+        sourceTitle: "call.pdf",
+        pageNums: [1, 2],
+        pageAssets: [
+          {
+            pageNumber: 1,
+            assetUrl: "https://assets.example/page-1.png",
+            contentType: "image/png",
+          },
+          {
+            pageNumber: 2,
+            assetUrl: "https://assets.example/page-2.png",
+            contentType: "image/png",
+          },
+        ],
+      },
+      {
+        chunkId: "outlook",
+        type: "page",
+        content: "Q2 outlook.",
+        sectionPath: "call.pdf/Root/Moving to our financial outlook.",
+        sourceTitle: "call.pdf",
+        pageNums: [8],
+        pageAssets: [
+          {
+            pageNumber: 8,
+            assetUrl: "https://assets.example/page-8.png",
+            contentType: "image/png",
+          },
+        ],
+      },
+      {
+        chunkId: "capex",
+        type: "page",
+        content: "[SAME-AS call.pdf/Root/Moving to our financial outlook. p8] Q&A.",
+        sectionPath: "call.pdf/Root/Turning to the expense and capex outlooks.",
+        sourceTitle: "call.pdf",
+        pageNums: [8, 9, 10],
+        pageAssets: [
+          {
+            pageNumber: 8,
+            assetUrl: "https://assets.example/page-8.png",
+            contentType: "image/png",
+          },
+          {
+            pageNumber: 9,
+            assetUrl: "https://assets.example/page-9.png",
+            contentType: "image/png",
+          },
+          {
+            pageNumber: 10,
+            assetUrl: "https://assets.example/page-10.png",
+            contentType: "image/png",
+          },
+        ],
+      },
+    ]
+
+    expect(
+      chunksPanelState
+        .getPageAssetChunksWithoutDuplicatePages(chunks)
+        .map((chunk) => chunk.chunkId),
+    ).toEqual(["kenneth", "zuckerberg", "outlook", "capex"])
+  })
+
+  it("hides table asset chunks from page-asset lists", () => {
+    const chunks: ParsedChunkView[] = [
+      {
+        chunkId: "page_4",
+        type: "page",
+        content: "Financial summary.",
+        sourceTitle: "TSLA-Q4-2025-Update.pdf",
+        pageNums: [4],
+        pageAssets: [
+          {
+            pageNumber: 4,
+            assetUrl: "https://assets.example/page-4.png",
+            contentType: "image/png",
+          },
+        ],
+      },
+      {
+        chunkId: "table_page_4_1",
+        type: "table",
+        content: "tables/table_page_4_1.html",
+        sourceTitle: "TSLA-Q4-2025-Update.pdf",
+        pageNums: [4],
+        filePath: "tables/table_page_4_1.html",
+      },
+    ]
+
+    expect(
+      chunksPanelState
+        .getPageAssetChunksWithoutDuplicatePages(chunks)
+        .map((chunk) => chunk.chunkId),
+    ).toEqual(["page_4"])
   })
 
   it("formats Knowhere section paths and reference labels for display", () => {

@@ -18,6 +18,7 @@ describe("retrySourceToKnowhereEffect", () => {
     const parsingSource = makeSource({
       status: "parsing",
       failureReason: null,
+      failureStage: null,
       knowhereJobId: "job_retry",
       knowhereDocumentId: "doc_retry",
     })
@@ -54,6 +55,7 @@ describe("retrySourceToKnowhereEffect", () => {
       namespace: "default",
       documentMetadata: {
         createdByClient: "notebook",
+        clientVersion: "0.1.0",
         sourceFileName: "notes.pdf",
         title: "notes.pdf",
         mimeType: "application/pdf",
@@ -123,6 +125,7 @@ function makeSource(overrides: Partial<Source> = {}): Source {
     sizeBytes: 5,
     status: "failed",
     failureReason: "Knowhere upload failed.",
+    failureStage: null,
     knowhereJobId: null,
     knowhereDocumentId: null,
     stagedBlobPathname: null,

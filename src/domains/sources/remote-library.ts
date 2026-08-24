@@ -3,6 +3,10 @@ import { Effect } from "effect"
 import type { Source } from "@/infrastructure/db/schema"
 import type { SourceView } from "./types"
 import type { SourceStatus } from "./types"
+import {
+  getCreatedByClient,
+  isNotebookVisibleRemoteMetadata,
+} from "./document-metadata"
 import { getCompatibleNamespaces, sharedLibraryNamespace } from "./namespace"
 
 type RemoteDocument = {
@@ -152,6 +156,7 @@ export function listRemoteLibrarySourceViews(
     )
     const remoteDocuments = (yield* listRemoteLibraryDocuments(input)).filter(
       (document) =>
+        isNotebookVisibleRemoteDocument(document) &&
         !localDocumentIds.has(document.documentId) &&
         !matchesActiveNotebookParsingSource(document, input.localSources),
     )
@@ -271,6 +276,12 @@ function normalizeRemoteDocument(
   }
 }
 
+export function isNotebookVisibleRemoteDocument(
+  document: Pick<RemoteLibraryDocument, "documentMetadata">,
+): boolean {
+  return isNotebookVisibleRemoteMetadata(document.documentMetadata)
+}
+
 function toRemoteSourceView(document: RemoteDocument): SourceView {
   return {
     id: encodeRemoteSourceId(document),
@@ -280,7 +291,7 @@ function toRemoteSourceView(document: RemoteDocument): SourceView {
     mimeType: document.mimeType ?? "application/octet-stream",
     status: document.status,
     documentId: document.documentId,
-    excludedFromQuery: true,
+    excludedFromQuery: false,
   }
 }
 
@@ -317,7 +328,7 @@ function matchesActiveNotebookParsingSource(
   document: RemoteDocument,
   localSources: readonly Source[],
 ): boolean {
-  if (document.documentMetadata?.createdByClient !== "notebook") return false
+  if (getCreatedByClient(document.documentMetadata) !== "notebook") return false
   if (!document.title || !document.mimeType || document.sizeBytes === undefined) {
     return false
   }

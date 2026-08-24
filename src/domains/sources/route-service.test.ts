@@ -22,6 +22,7 @@ const source: Source = {
   sizeBytes: 5,
   status: "parsing",
   failureReason: null,
+  failureStage: null,
   knowhereJobId: "job_1",
   knowhereDocumentId: null,
   stagedBlobPathname: null,
@@ -119,6 +120,51 @@ describe("source route service", () => {
     expect(listHiddenDemoSourceIds).toHaveBeenCalledWith(workspace.id);
   });
 
+  it("returns processing without building a client when a source is not ready", async () => {
+    const parsingSource: Source = {
+      ...source,
+      id: "00000000-0000-4000-8000-000000000002",
+      knowhereDocumentId: "doc_legacy",
+      knowhereJobId: null,
+      status: "parsing",
+    };
+    const makeKnowhereClient = vi.fn();
+    const service = createSourceRouteService({
+      ensureApiKeyForWorkspace: vi.fn(async () => "jwt_123"),
+      ensureWorkspace: vi.fn(async () => workspace),
+      getCurrentUser: vi.fn(async () => ({
+        id: "user_1",
+        email: null,
+        name: null,
+      })),
+      makeKnowhereClient,
+      sourceService: {
+        findInWorkspace: vi.fn(async () => parsingSource),
+      },
+    });
+
+    const result = await service.loadSourceChunks({
+      cookieHeader: "session=abc",
+      sourceId: parsingSource.id,
+      shouldLoadAll: false,
+      pageParams: { page: 1, pageSize: 50 },
+    });
+
+    expect(result).toEqual({
+      status: 202,
+      body: {
+        chunks: [],
+        pagination: {
+          page: 1,
+          pageSize: 50,
+          total: 0,
+          totalPages: 0,
+        },
+        message: "Source is still being prepared.",
+      },
+    });
+  });
+
   it("lists shared default and legacy namespace documents as lightweight remote sources", async () => {
     const localReadySource: Source = {
       ...source,
@@ -137,7 +183,32 @@ describe("source route service", () => {
             status: "active",
             sourceFileName: "cli.pdf",
             documentMetadata: {
+              createdByClient: "cli",
               mimeType: "application/pdf",
+            },
+          },
+          {
+            documentId: "doc_untagged",
+            namespace: "default",
+            status: "active",
+            sourceFileName: "dummy.pdf",
+          },
+          {
+            documentId: "doc_sdk",
+            namespace: "default",
+            status: "active",
+            sourceFileName: "sdk.pdf",
+            documentMetadata: {
+              createdByClient: "node-sdk",
+            },
+          },
+          {
+            documentId: "doc_api",
+            namespace: "default",
+            status: "active",
+            sourceFileName: "api.pdf",
+            documentMetadata: {
+              created_by_client: "api",
             },
           },
         ],
@@ -171,6 +242,9 @@ describe("source route service", () => {
             namespace: workspace.namespace,
             status: "active",
             sourceFileName: "legacy.pdf",
+            documentMetadata: {
+              createdByClient: "mcp",
+            },
           },
         ],
         pagination: {
@@ -255,7 +329,7 @@ describe("source route service", () => {
         mimeType: "application/pdf",
         status: "ready",
         documentId: "doc_default",
-        excludedFromQuery: true,
+        excludedFromQuery: false,
       },
       {
         id: "knowhere-doc:notebook-workspace_1:doc_legacy",
@@ -265,7 +339,7 @@ describe("source route service", () => {
         mimeType: "application/octet-stream",
         status: "ready",
         documentId: "doc_legacy",
-        excludedFromQuery: true,
+        excludedFromQuery: false,
       },
     ]);
   });
@@ -426,6 +500,9 @@ describe("source route service", () => {
     expect(getSourceViewOptionsBySourceId).toHaveBeenCalledWith(
       [source],
       knowhereClient,
+      expect.objectContaining({
+        documentPresentationDetection: "disabled",
+      }),
     );
     expect(result).toEqual({
       status: 200,
@@ -500,6 +577,9 @@ describe("source route service", () => {
     expect(getSourceViewOptionsBySourceId).toHaveBeenCalledWith(
       [],
       knowhereClient,
+      expect.objectContaining({
+        documentPresentationDetection: "disabled",
+      }),
     );
     expect(result).toEqual({
       status: 200,
@@ -582,6 +662,9 @@ describe("source route service", () => {
     expect(getSourceViewOptionsBySourceId).toHaveBeenCalledWith(
       [],
       knowhereClient,
+      expect.objectContaining({
+        documentPresentationDetection: "disabled",
+      }),
     );
     expect(result).toEqual({
       status: 200,
@@ -654,6 +737,9 @@ describe("source route service", () => {
     expect(getSourceViewOptionsBySourceId).toHaveBeenCalledWith(
       [],
       knowhereClient,
+      expect.objectContaining({
+        documentPresentationDetection: "disabled",
+      }),
     );
     expect(knowhereClient.documents.listChunks).not.toHaveBeenCalled();
     expect(result).toEqual({
@@ -788,6 +874,118 @@ describe("source route service", () => {
     expect(onUploadFinished).toHaveBeenCalledOnce();
   });
 
+  it("soft-deletes a source when Knowhere says its document is already missing", async () => {
+    const readySource: Source = {
+      ...source,
+      status: "ready",
+      knowhereJobId: null,
+      knowhereDocumentId: "doc_missing",
+    };
+    const archiveDocument = vi.fn(async () => {
+      throw new Error("Document not found");
+    });
+    const softDelete = vi.fn(async () => true);
+    const service = createSourceRouteService({
+      ensureApiKeyForWorkspace: vi.fn(async () => "jwt_123"),
+      ensureWorkspace: vi.fn(async () => workspace),
+      makeKnowhereClient: vi.fn(() => ({
+        documents: {
+          archive: archiveDocument,
+          listChunks: vi.fn(async () => ({
+            chunks: [],
+            pagination: {
+              page: 1,
+              pageSize: 1,
+              total: 0,
+              totalPages: 0,
+            },
+          })),
+        },
+        jobs: {
+          create: vi.fn(),
+          get: vi.fn(),
+          upload: vi.fn(),
+        },
+      })),
+      requireUser: vi.fn(async () => ({
+        id: "user_1",
+        email: null,
+        name: null,
+      })),
+      sourceService: {
+        findInWorkspace: vi.fn(async () => readySource),
+        softDelete,
+      },
+    });
+
+    const result = await service.archiveSource({
+      cookieHeader: "session=abc",
+      sourceId: "source_1",
+    });
+
+    expect(result).toEqual({
+      status: 200,
+      body: {
+        id: "source_1",
+        archived: true,
+      },
+    });
+    expect(archiveDocument).toHaveBeenCalledWith("doc_missing");
+    expect(softDelete).toHaveBeenCalledWith(workspace.id, "source_1");
+  });
+
+  it("does not soft-delete a source when Knowhere archive fails unexpectedly", async () => {
+    const readySource: Source = {
+      ...source,
+      status: "ready",
+      knowhereJobId: null,
+      knowhereDocumentId: "doc_unavailable",
+    };
+    const softDelete = vi.fn(async () => true);
+    const service = createSourceRouteService({
+      ensureApiKeyForWorkspace: vi.fn(async () => "jwt_123"),
+      ensureWorkspace: vi.fn(async () => workspace),
+      makeKnowhereClient: vi.fn(() => ({
+        documents: {
+          archive: vi.fn(async () => {
+            throw new Error("Knowhere unavailable");
+          }),
+          listChunks: vi.fn(async () => ({
+            chunks: [],
+            pagination: {
+              page: 1,
+              pageSize: 1,
+              total: 0,
+              totalPages: 0,
+            },
+          })),
+        },
+        jobs: {
+          create: vi.fn(),
+          get: vi.fn(),
+          upload: vi.fn(),
+        },
+      })),
+      requireUser: vi.fn(async () => ({
+        id: "user_1",
+        email: null,
+        name: null,
+      })),
+      sourceService: {
+        findInWorkspace: vi.fn(async () => readySource),
+        softDelete,
+      },
+    });
+
+    await expect(
+      service.archiveSource({
+        cookieHeader: "session=abc",
+        sourceId: "source_1",
+      }),
+    ).rejects.toThrow();
+    expect(softDelete).not.toHaveBeenCalled();
+  });
+
   it("retries a failed source from its saved original Blob", async () => {
     const failedSource: Source = {
       ...source,
@@ -801,6 +999,7 @@ describe("source route service", () => {
       ...failedSource,
       status: "parsing",
       failureReason: null,
+      failureStage: null,
       knowhereJobId: "job_retry",
     };
     const knowhereClient = {

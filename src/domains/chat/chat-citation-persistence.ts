@@ -51,6 +51,7 @@ function toArtifactView(artifact: ChatArtifactView): ChatArtifactView {
     label: artifact.label,
     display: artifact.display,
     reason: artifact.reason,
+    highlightRegions: artifact.highlightRegions,
     citation: artifact.citation
       ? toCitationView(artifact.citation)
       : undefined,
@@ -82,11 +83,18 @@ function replaceDemoCitationDocumentId(
 function toCitationView(
   citation: ChatCitationView | CitationView | RetrievalResultView,
 ): CitationView {
+  const highlightRegions =
+    "highlightRegions" in citation ? citation.highlightRegions : undefined
   return {
     chunkType: citation.chunkType,
     score: citation.score,
     assetUrl: citation.assetUrl,
+    pageCitationAssetUrl: citation.pageCitationAssetUrl,
+    pageCitationPageNumber: citation.pageCitationPageNumber,
     description: "description" in citation ? citation.description : undefined,
+    ...(highlightRegions && highlightRegions.length > 0
+      ? { highlightRegions }
+      : {}),
     source: {
       documentId: citation.source.documentId,
       sourceFileName: citation.source.sourceFileName,

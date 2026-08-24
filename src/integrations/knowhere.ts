@@ -1,5 +1,33 @@
 import Knowhere from "@ontos-ai/knowhere-sdk"
+import type {
+  Knowledge,
+  ParsedDocumentStorageLimits,
+  ParsedDocumentSyncScheduler,
+} from "@ontos-ai/knowhere-sdk"
 import { logger } from "@/lib/logger"
+import { BlobParsedDocumentStorage } from "@/domains/sources/parsed-document-blob-storage"
+
+/**
+ * Vercel-safe defaults for parsed-document reads and background sync. Each read
+ * miss and each background sync step is bounded by page count and a deadline so
+ * a single serverless invocation stays well under the platform ceiling; the
+ * SDK returns `completed:false` and the caller re-enqueues to continue.
+ */
+const defaultParsedStorageLimits: ParsedDocumentStorageLimits = {
+  remotePageSize: 100,
+  maxPagesPerSync: 10,
+  syncDeadlineMs: 8000,
+  grepMaxPages: 50,
+  grepDeadlineMs: 8000,
+  outlineMaxPages: 50,
+  outlineDeadlineMs: 8000,
+}
+
+type ParsedStorageOptions = {
+  readonly workspaceId: string
+  readonly scheduler?: ParsedDocumentSyncScheduler
+  readonly limits?: ParsedDocumentStorageLimits
+}
 
 /**
  * Create a Knowhere client with the given API key.
@@ -12,6 +40,29 @@ export function makeKnowhereClient(apiKey: string): Knowhere {
   }
   const client = new Knowhere(options)
   return wrapKnowhereClient(client)
+}
+
+/**
+ * Create a Knowhere client plus a `Knowledge` configured with a Vercel-Blob
+ * `ParsedDocumentStorage`. Reads through `knowledge` serve from Blob first and
+ * fall back to Knowhere remote transparently; the `scheduler` (when provided)
+ * backfills Blob in the background. Use `client` for retrieval/documents/jobs.
+ *
+ * `withParsedStorage` is invoked through the logging Proxy so `this` binds to
+ * the real Knowledge; the returned Knowledge wraps the unwrapped inner client
+ * (its internal `documents.listChunks` calls are not logged, which is fine).
+ */
+export function makeKnowhereClientWithParsedStorage(
+  apiKey: string,
+  options: ParsedStorageOptions,
+): { readonly client: Knowhere; readonly knowledge: Knowledge } {
+  const client = makeKnowhereClient(apiKey)
+  const knowledge = client.knowledge.withParsedStorage({
+    storage: new BlobParsedDocumentStorage({ workspaceId: options.workspaceId }),
+    scheduler: options.scheduler,
+    limits: options.limits ?? defaultParsedStorageLimits,
+  })
+  return { client, knowledge }
 }
 
 function wrapKnowhereClient(client: Knowhere): Knowhere {

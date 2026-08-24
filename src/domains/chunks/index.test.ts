@@ -169,6 +169,75 @@ describe("toParsedChunkView", () => {
     });
   });
 
+  it("maps usable page citation assets on page chunks", () => {
+    const chunk = makeDocumentChunk({
+      id: "document_page_1",
+      chunkId: "parser_page_1",
+      chunkType: "page" as DocumentChunk["chunkType"],
+      metadata: {
+        pageAssets: [
+          {
+            pageNum: 4,
+            assetUrl: "https://assets.example/page-4.png",
+            contentType: "image/png",
+            width: 1200,
+            height: 1600,
+          },
+          {
+            pageNum: 5,
+            assetUrl: "   ",
+            contentType: "image/png",
+          },
+        ],
+      },
+    });
+
+    expect(toParsedChunkView(chunk, "manual.pdf", "doc_123")).toMatchObject({
+      pageAssets: [
+        {
+          pageNumber: 4,
+          assetUrl: "https://assets.example/page-4.png",
+          contentType: "image/png",
+          width: 1200,
+          height: 1600,
+        },
+      ],
+    });
+  });
+
+  it("maps demo API snake_case page citation assets on page chunks", () => {
+    const chunk = makeDocumentChunk({
+      id: "document_page_1",
+      chunkId: "parser_page_1",
+      chunkType: "page" as DocumentChunk["chunkType"],
+      metadata: {
+        page_assets: [
+          {
+            page_num: 8,
+            asset_url:
+              "/api/demo-sources/demo-tsla-q4-2025/assets/page_citation_assets/page-8.png",
+            content_type: "image/png",
+            width: 1200,
+            height: 1600,
+          },
+        ],
+      },
+    });
+
+    expect(toParsedChunkView(chunk, "manual.pdf", "doc_123")).toMatchObject({
+      pageAssets: [
+        {
+          pageNumber: 8,
+          assetUrl:
+            "/api/demo-sources/demo-tsla-q4-2025/assets/page_citation_assets/page-8.png",
+          contentType: "image/png",
+          width: 1200,
+          height: 1600,
+        },
+      ],
+    });
+  });
+
   it("maps SDK-normalized page number metadata", () => {
     const chunk = makeDocumentChunk({
       metadata: {
@@ -409,6 +478,22 @@ describe("loadChunkPageForSource", () => {
     });
   });
 
+  it("reads optional chunkType from the chunks query", () => {
+    expect(
+      getChunkPageParams(
+        new URLSearchParams({
+          page: "2",
+          pageSize: "50",
+          chunkType: "page",
+        }),
+      ),
+    ).toEqual({
+      page: 2,
+      pageSize: 50,
+      chunkType: "page",
+    });
+  });
+
   it("resolves connection targets across already-loaded infinite pages", () => {
     const chunks = resolveChunkConnectionTargets([
       makeParsedChunkView({
@@ -578,6 +663,7 @@ function makeSource(overrides: Partial<Source> = {}): Source {
     sizeBytes: 100,
     status: "ready",
     failureReason: null,
+    failureStage: null,
     knowhereJobId: "job_123",
     knowhereDocumentId: "doc_123",
     stagedBlobPathname: null,

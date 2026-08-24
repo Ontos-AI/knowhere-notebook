@@ -274,6 +274,95 @@ describe("WorkspaceShell", () => {
     expect(countFetches(fetch, "/api/sources/source_2/chunks")).toBe(0);
   });
 
+  it("keeps a remote document open without refreshing sources after chunks load", async () => {
+    const remoteSourceId = "knowhere-doc:default:doc_remote";
+    const encodedRemoteSourceId = encodeURIComponent(remoteSourceId);
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
+      const url = getRequestURL(input);
+
+      if (
+        url.pathname === `/api/sources/${encodedRemoteSourceId}/chunks`
+      ) {
+        return Response.json({
+          chunks: [
+            {
+              chunkId: "remote_page_1",
+              documentId: "doc_remote",
+              sectionPath: "Page 1",
+              type: "page",
+              content: "Remote page summary.",
+              sourceTitle: "remote.pdf",
+              pageNums: [1],
+              pageAssets: [
+                {
+                  pageNumber: 1,
+                  assetUrl: "https://assets.example/page-1.png",
+                  contentType: "image/png",
+                },
+              ],
+            },
+          ],
+          pagination: {
+            page: Number(url.searchParams.get("page") ?? "1"),
+            pageSize: 50,
+            total: 1,
+            totalPages: 1,
+          },
+        });
+      }
+
+      if (url.pathname === "/api/sources") {
+        return Response.json({
+          sources: [
+            {
+              id: "source_localized",
+              kind: "workspace",
+              title: "remote.pdf",
+              status: "ready",
+              documentId: "doc_remote",
+            },
+          ],
+        });
+      }
+
+      return Response.json({ message: "Unexpected request" }, { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    render(
+      React.createElement(C, {
+        sources: [
+          {
+            id: remoteSourceId,
+            kind: "remote",
+            title: "remote.pdf",
+            status: "ready",
+            documentId: "doc_remote",
+            excludedFromQuery: false,
+          },
+        ],
+      }),
+    );
+
+    const desktopChunksPanel = within(screen.getByTestId("desktop-chunks-panel"));
+    await waitFor(() => {
+      expect(desktopChunksPanel.getByRole("button", { name: "List" })).toBeTruthy();
+    });
+    fireEvent.click(desktopChunksPanel.getByRole("button", { name: "List" }));
+    await waitFor(() => {
+      expect(desktopChunksPanel.getByRole("img", { name: "Page 1" }))
+        .toBeTruthy();
+    });
+
+    expect(countFetches(fetch, "/api/sources")).toBe(0);
+    expect(
+      countFetches(
+        fetch,
+        `/api/sources/${encodedRemoteSourceId}/chunks`,
+      ),
+    ).toBe(1);
+  });
+
   it("focuses guest citations on desktop using loaded demo chunks", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
       const url = getRequestURL(input);
@@ -358,6 +447,97 @@ describe("WorkspaceShell", () => {
         getRequestPath(input).startsWith("/demo-sources/"),
       ),
     ).toBe(false);
+  });
+
+  it("focuses guest Official Library demo citations instead of the empty login state", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
+      const url = getRequestURL(input);
+
+      if (url.pathname === "/api/sources/demo-tsla-q4-2025/chunks") {
+        return Response.json({
+          chunks: [
+            {
+              chunkId: "demo-tsla-q4-2025:chunk_1",
+              documentId: "demo-doc-tsla-q4-2025",
+              sectionPath: "TSLA-Q4-2025-Update.pdf/OTHER UPDATES",
+              type: "text",
+              content: "Tesla entered into an agreement to invest approximately",
+              sourceTitle: "TSLA-Q4-2025-Update.pdf",
+            },
+          ],
+          pagination: {
+            page: Number(url.searchParams.get("page") ?? "1"),
+            pageSize: 100,
+            total: 1,
+            totalPages: 1,
+          },
+        });
+      }
+
+      return Response.json({ message: "Unexpected request" }, { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    render(
+      React.createElement(C, {
+        isGuest: true,
+        sources: [
+          {
+            id: "demo-tsla-q4-2025",
+            kind: "demo",
+            demoSourceId: "demo-tsla-q4-2025",
+            title: "TSLA-Q4-2025-Update.pdf",
+            status: "ready",
+            mimeType: "application/pdf",
+            documentId: "demo-doc-tsla-q4-2025",
+            officialLibrary: {
+              librarySourceId: "financial-tsla-q4-2025",
+              categoryId: "financial-reports",
+              sourceUrl: "https://example.com/tsla-q4-2025.pdf",
+            },
+          },
+        ],
+        chatMessages: [
+          {
+            id: "assistant_1",
+            role: "assistant",
+            content: "Tesla invested in xAI. [[cite:1]]",
+            citations: [
+              {
+                content: "Tesla entered into an agreement to invest approximately",
+                description: "xAI investment",
+                chunkType: "text",
+                score: 0.95,
+                pageCitationPageNumber: 12,
+                source: {
+                  documentId: "demo-doc-tsla-q4-2025",
+                  sourceFileName: "TSLA-Q4-2025-Update.pdf",
+                  sectionPath: "TSLA-Q4-2025-Update.pdf/OTHER UPDATES",
+                },
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    const citationButton = await findStableConnectedElement(() => {
+      const desktopChatPanel = within(screen.getByTestId("desktop-chat-panel"));
+      return desktopChatPanel.getByRole("button", {
+        name: "Open source TSLA-Q4-2025-Update.pdf/p12",
+      });
+    });
+    fireEvent.click(citationButton);
+
+    await waitFor(() => {
+      const chunksPanel = screen.getByTestId("desktop-chunks-panel");
+      expect(within(chunksPanel).queryByText("Log in to add documents")).toBeNull();
+      const topRow = chunksPanel.querySelector<HTMLElement>('[data-index="0"]');
+      expect(topRow?.getAttribute("data-chunk-id")).toBe(
+        "demo-tsla-q4-2025:chunk_1",
+      );
+      expect(topRow?.getAttribute("data-focused-chunk")).toBe("true");
+    });
   });
 
   it("focuses guest citations from the mobile chat panel", async () => {
@@ -452,7 +632,7 @@ describe("WorkspaceShell", () => {
             {
               id: "assistant_1",
               role: "assistant",
-              content: "The answer uses two sections.",
+              content: "The answer uses two sections. [[cite:1]] [[cite:2]]",
               citations: [
                 {
                   content: "First cited section",
@@ -535,19 +715,17 @@ describe("WorkspaceShell", () => {
     });
     await user.click(sendButton);
 
-    await desktopChatPanel.findAllByRole("button", {
-      name: "Open source doc.pdf",
-    });
-    const citationButtons = desktopChatPanel.getAllByRole(
-      "button",
-      {
-        name: "Open source doc.pdf",
-      },
-    );
-    expect(citationButtons).toHaveLength(2);
-    const firstCitation = citationButtons[0] as HTMLButtonElement;
-    const secondCitation = citationButtons[1] as HTMLButtonElement;
-    await user.click(firstCitation);
+    await desktopChatPanel.findAllByTestId("citation-chip");
+    const getCitationChip = (citationId: string): HTMLButtonElement => {
+      const chip = desktopChatPanel
+        .getAllByTestId("citation-chip")
+        .find((element) => element.getAttribute("data-citation-id") === citationId);
+      expect(chip).toBeTruthy();
+      return chip as HTMLButtonElement;
+    };
+    expect(getCitationChip("assistant_1:0")).toBeTruthy();
+    expect(getCitationChip("assistant_1:1")).toBeTruthy();
+    await user.click(getCitationChip("assistant_1:0"));
 
     await waitFor(() => {
       expect(
@@ -565,9 +743,9 @@ describe("WorkspaceShell", () => {
     expect(countFetches(fetch, "/api/sources/source_1/chunks")).toBe(1);
 
     await waitFor(() => {
-      expect(secondCitation.disabled).toBe(false);
+      expect(getCitationChip("assistant_1:1").disabled).toBe(false);
     });
-    await user.click(secondCitation);
+    await user.click(getCitationChip("assistant_1:1"));
 
     await waitFor(() => {
       const topRow = screen

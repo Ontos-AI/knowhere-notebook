@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -79,6 +79,208 @@ describe("ParsedChunkCard", () => {
     expect(
       screen.getByRole("button", { name: "Open page 4 in original file" }),
     ).toBeTruthy();
+  });
+
+  it("renders page citation assets instead of page summary content", () => {
+    render(
+      React.createElement(ParsedChunkCard, {
+        chunk: {
+          chunkId: "page_4",
+          type: "page",
+          content: "The summary should not be primary when an image exists.",
+          readableContent: "The summary should not be primary when an image exists.",
+          sourceTitle: "manual.pdf",
+          pageNums: [4],
+          pageAssets: [
+            {
+              pageNumber: 4,
+              assetUrl: "https://assets.example/page-4.png",
+              contentType: "image/png",
+              width: 1200,
+              height: 1600,
+            },
+          ],
+        },
+        isFocused: false,
+        isOriginalPreviewAvailable: true,
+        onChunkClick: vi.fn(),
+        onReferenceClick: vi.fn(),
+      }),
+    );
+
+    const pageImage = screen.getByRole("img", { name: "Page 4" });
+
+    expect(pageImage.getAttribute("src")).toBe(
+      "https://assets.example/page-4.png",
+    );
+    expect(screen.getByText("image/png")).toBeTruthy();
+    expect(screen.queryByText(/summary should not be primary/i)).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /original file/i }),
+    ).toBeNull();
+
+    fireEvent.error(pageImage);
+    expect(screen.getByTestId("page-asset-image-unavailable-4")).toBeTruthy();
+  });
+
+  it("keeps the page image as a positioned citation target for a focused citation", () => {
+    render(
+      React.createElement(ParsedChunkCard, {
+        chunk: {
+          chunkId: "page_4",
+          type: "page",
+          content: "Page 4",
+          sourceTitle: "manual.pdf",
+          pageNums: [4],
+          pageAssets: [
+            {
+              pageNumber: 4,
+              assetUrl: "https://assets.example/page-4.png",
+              contentType: "image/png",
+            },
+          ],
+        },
+        isFocused: true,
+        focusedCitationId: "assistant_1:0",
+        focusedPageNumber: 4,
+        onReferenceClick: vi.fn(),
+      }),
+    );
+
+    const citationTarget = document.querySelector(
+      '[data-citation-page="4"]',
+    );
+    expect(citationTarget).not.toBeNull();
+    expect(screen.getByTestId("citation-image-stage").className).toContain(
+      "relative",
+    );
+    expect(citationTarget?.getAttribute("data-focused-citation-id")).toBe(
+      "assistant_1:0",
+    );
+  });
+
+  it("draws a temporary region highlight on the focused page image", () => {
+    render(
+      React.createElement(ParsedChunkCard, {
+        chunk: {
+          chunkId: "page_4",
+          type: "page",
+          content: "Page 4",
+          sourceTitle: "manual.pdf",
+          pageNums: [4],
+          pageAssets: [
+            {
+              pageNumber: 4,
+              assetUrl: "https://assets.example/page-4.png",
+              contentType: "image/png",
+            },
+          ],
+        },
+        isFocused: true,
+        focusedCitationId: "assistant_1:0",
+        focusedPageNumber: 4,
+        focusedPageRequestId: 2,
+        highlightRegions: [{ x: 0.1, y: 0.2, w: 0.3, h: 0.15 }],
+        onReferenceClick: vi.fn(),
+      }),
+    );
+
+    const highlight = screen.getByTestId("citation-region-highlight");
+    expect(highlight.className).toContain("citation-region-flash");
+    expect(highlight.getAttribute("style")).toContain("10%");
+    expect(highlight.getAttribute("style")).toContain("20%");
+    expect(highlight.getAttribute("style")).toContain("30%");
+    expect(highlight.getAttribute("style")).toContain("15%");
+    expect(
+      screen.getByTestId("citation-region-highlights").parentElement,
+    ).toBe(screen.getByTestId("citation-image-stage"));
+
+    fireEvent.error(screen.getByRole("img", { name: "Page 4" }));
+    expect(screen.queryByTestId("citation-region-highlight")).toBeNull();
+  });
+
+  it("hides the keywords row when a page card has none", () => {
+    render(
+      React.createElement(ParsedChunkCard, {
+        chunk: {
+          chunkId: "page_4",
+          type: "page",
+          content: "Page 4",
+          sourceTitle: "manual.pdf",
+          pageNums: [4],
+          keywords: [],
+          pageAssets: [
+            {
+              pageNumber: 4,
+              assetUrl: "https://assets.example/page-4.png",
+              contentType: "image/png",
+            },
+          ],
+        },
+        isFocused: false,
+        onReferenceClick: vi.fn(),
+      }),
+    );
+
+    expect(screen.queryByTestId("chunk-keywords-panel-page_4")).toBeNull();
+    expect(screen.getByRole("img", { name: "Page 4" })).toBeTruthy();
+  });
+
+  it("routes Notebook Blob page assets through the inline image endpoint", () => {
+    const assetUrl =
+      "https://store.public.blob.vercel-storage.com/workspaces/workspace_1/parsed-documents/doc_1/rev_1/page_citation_assets/page-4.png";
+
+    render(
+      React.createElement(ParsedChunkCard, {
+        chunk: {
+          chunkId: "page_4",
+          type: "page",
+          content: "The summary should not be primary when an image exists.",
+          readableContent: "The summary should not be primary when an image exists.",
+          sourceTitle: "manual.pdf",
+          pageNums: [4],
+          pageAssets: [
+            {
+              pageNumber: 4,
+              assetUrl,
+              contentType: "image/png",
+            },
+          ],
+        },
+        isFocused: false,
+        onReferenceClick: vi.fn(),
+      }),
+    );
+
+    const pageImage = screen.getByRole("img", { name: "Page 4" });
+    expect(pageImage.getAttribute("src")).toBe(
+      `/api/parsed-assets/inline?url=${encodeURIComponent(assetUrl)}`,
+    );
+  });
+
+  it("routes Notebook Blob image chunks through the inline image endpoint", () => {
+    const assetUrl =
+      "https://store.public.blob.vercel-storage.com/workspaces/workspace_1/sources/source_1/parsed-result/images/image-1.jpg";
+
+    render(
+      React.createElement(ParsedChunkCard, {
+        chunk: {
+          chunkId: "image_1",
+          type: "image",
+          content: "",
+          sourceTitle: "manual.pdf",
+          assetUrl,
+          summary: "A scanned diagram",
+        },
+        isFocused: false,
+        onReferenceClick: vi.fn(),
+      }),
+    );
+
+    const image = screen.getByRole("img", { name: "A scanned diagram" });
+    expect(image.getAttribute("src")).toBe(
+      `/api/parsed-assets/inline?url=${encodeURIComponent(assetUrl)}`,
+    );
   });
 
   it("routes resolved artifact reference clicks to the target chunk", async () => {

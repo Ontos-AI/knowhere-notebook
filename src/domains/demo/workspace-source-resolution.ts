@@ -39,7 +39,7 @@ export function resolveWorkspaceDemoSources(
   }
 }
 
-export function getWorkspaceSourcesNeedingKnowhereChunkCount(
+export function getWorkspaceSourcesNeedingChunkCount(
   sources: readonly Source[],
 ): Source[] {
   return sources.filter((source) => !source.demoKey)

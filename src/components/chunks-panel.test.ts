@@ -37,6 +37,7 @@ describe("ChunksPanel", () => {
       unobserve() {}
       disconnect() {}
     };
+    Element.prototype.scrollIntoView = vi.fn();
   });
 
   afterEach(async () => {
@@ -66,9 +67,269 @@ describe("ChunksPanel", () => {
     );
 
     expect(
-      screen.getByRole("heading", { name: "Parsed Chunks" }),
+      screen.getByRole("heading", { name: "Parsed Results" }),
     ).toBeTruthy();
-    expect(screen.getByText(/Showing all parsed chunks from/)).toBeTruthy();
+    expect(screen.getByText(/From/)).toBeTruthy();
+  });
+
+  it("renders page chunk assets inside the normal chunk list", async () => {
+    mockVisibleVirtualViewport();
+
+    render(
+      React.createElement(C, {
+        chunks: [
+          {
+            chunkId: "page_4",
+            type: "page",
+            content: "Page 4 summary",
+            sourceTitle: "report.pdf",
+            pageNums: [4],
+            pageAssets: [
+              {
+                pageNumber: 4,
+                assetUrl: "https://assets.example/page-000004.png",
+                contentType: "image/png",
+                width: 1200,
+                height: 1600,
+              },
+            ],
+          },
+          {
+            chunkId: "table_1",
+            type: "table",
+            content: "<table><tbody><tr><td>Budget</td></tr></tbody></table>",
+            sourceTitle: "report.pdf",
+          },
+        ],
+        selectedSource: "report.pdf",
+        selectedSourceView: {
+          id: "source_1",
+          title: "report.pdf",
+          mimeType: "application/pdf",
+          status: "ready",
+          documentPresentation: { kind: "page-assets", pageCount: 4 },
+        },
+      }),
+    );
+
+    expect(screen.getByRole("heading", { name: "Parsed Results" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Tree" })).toBeTruthy();
+    expect(screen.getByTestId("chunk-section-tree-zoom-overlay")).toBeTruthy();
+    selectListView();
+    expect(
+      await screen.findByRole("img", { name: "Page 4" }),
+    ).toBeTruthy();
+    expect(screen.getByText("image/png")).toBeTruthy();
+    expect(screen.queryByText("Budget")).toBeNull();
+    expect(screen.queryByTestId("chunk-card-shell-table_1")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Original" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /original file/i }),
+    ).toBeNull();
+  });
+
+  it("renders only the first page-asset chunk for each page number", async () => {
+    mockVisibleVirtualViewport();
+
+    render(
+      React.createElement(C, {
+        chunks: [
+          {
+            chunkId: "page_4_first",
+            type: "page",
+            content: "First page 4 summary",
+            sourceTitle: "report.pdf",
+            pageNums: [4],
+            pageAssets: [
+              {
+                pageNumber: 4,
+                assetUrl: "https://assets.example/page-000004-a.png",
+                contentType: "image/png",
+              },
+            ],
+          },
+          {
+            chunkId: "page_4_duplicate",
+            type: "page",
+            content: "Duplicate page 4 summary",
+            sourceTitle: "report.pdf",
+            pageNums: [4],
+            pageAssets: [
+              {
+                pageNumber: 4,
+                assetUrl: "https://assets.example/page-000004-b.png",
+                contentType: "image/png",
+              },
+            ],
+          },
+          {
+            chunkId: "page_5",
+            type: "page",
+            content: "Page 5 summary",
+            sourceTitle: "report.pdf",
+            pageNums: [5],
+            pageAssets: [
+              {
+                pageNumber: 5,
+                assetUrl: "https://assets.example/page-000005.png",
+                contentType: "image/png",
+              },
+            ],
+          },
+        ],
+        selectedSource: "report.pdf",
+        selectedSourceView: {
+          id: "source_1",
+          title: "report.pdf",
+          mimeType: "application/pdf",
+          status: "ready",
+          documentPresentation: { kind: "page-assets", pageCount: 5 },
+        },
+      }),
+    );
+
+    selectListView();
+    expect(await screen.findAllByRole("img", { name: "Page 4" }))
+      .toHaveLength(1);
+    expect(screen.getByRole("img", { name: "Page 5" })).toBeTruthy();
+    expect(screen.queryByTestId("chunk-card-shell-page_4_duplicate"))
+      .toBeNull();
+  });
+
+  it("keeps overlapping page-memory sections that share a first page image", async () => {
+    mockVisibleVirtualViewport();
+
+    render(
+      React.createElement(C, {
+        chunks: [
+          {
+            chunkId: "kenneth",
+            type: "page",
+            content: "IR introduction",
+            sectionPath: "call.pdf/Root/Kenneth Dorell",
+            sourceTitle: "call.pdf",
+            pageNums: [1],
+            pageAssets: [
+              {
+                pageNumber: 1,
+                assetUrl: "https://assets.example/page-1.png",
+                contentType: "image/png",
+              },
+            ],
+          },
+          {
+            chunkId: "zuckerberg",
+            type: "page",
+            content: "CEO remarks",
+            sectionPath: "call.pdf/Root/Mark Zuckerberg, CEO",
+            sourceTitle: "call.pdf",
+            pageNums: [1, 2],
+            pageAssets: [
+              {
+                pageNumber: 1,
+                assetUrl: "https://assets.example/page-1.png",
+                contentType: "image/png",
+              },
+              {
+                pageNumber: 2,
+                assetUrl: "https://assets.example/page-2.png",
+                contentType: "image/png",
+              },
+            ],
+          },
+        ],
+        selectedSource: "call.pdf",
+        selectedSourceView: {
+          id: "source_1",
+          title: "call.pdf",
+          mimeType: "application/pdf",
+          status: "ready",
+          documentPresentation: { kind: "page-assets", pageCount: 2 },
+        },
+      }),
+    );
+
+    selectListView();
+    expect(await screen.findByTestId("chunk-card-shell-kenneth")).toBeTruthy();
+    expect(screen.getByTestId("chunk-card-shell-zuckerberg")).toBeTruthy();
+    expect(screen.getByRole("img", { name: "Page 2" })).toBeTruthy();
+  });
+
+  it("renders page chunks normally when no page assets exist", async () => {
+    mockVisibleVirtualViewport();
+
+    render(
+      React.createElement(C, {
+        chunks: [
+          {
+            chunkId: "page_4",
+            type: "page",
+            content: "Page 4 summary",
+            readableContent: "Page 4 summary",
+            sourceTitle: "report.pdf",
+            pageNums: [4],
+          },
+        ],
+        selectedSource: "report.pdf",
+        selectedSourceView: {
+          id: "source_1",
+          title: "report.pdf",
+          mimeType: "application/pdf",
+          status: "ready",
+          documentPresentation: { kind: "page-assets", pageCount: 4 },
+        },
+      }),
+    );
+
+    selectListView();
+    expect(await screen.findByText("Page 4 summary")).toBeTruthy();
+    expect(screen.queryByRole("img", { name: "Page 4" })).toBeNull();
+  });
+
+  it("shows a page-level placeholder when a page asset image fails to load", async () => {
+    mockVisibleVirtualViewport();
+
+    render(
+      React.createElement(C, {
+        chunks: [
+          {
+            chunkId: "page_4",
+            type: "page",
+            content: "Page 4 summary",
+            sourceTitle: "report.pdf",
+            pageNums: [4],
+            pageAssets: [
+              {
+                pageNumber: 4,
+                assetUrl: "https://assets.example/page-000004.png",
+                contentType: "image/png",
+                width: 1200,
+                height: 1600,
+              },
+            ],
+          },
+        ],
+        selectedSource: "report.pdf",
+        selectedSourceView: {
+          id: "source_1",
+          title: "report.pdf",
+          mimeType: "application/pdf",
+          status: "ready",
+          documentPresentation: { kind: "page-assets", pageCount: 4 },
+        },
+      }),
+    );
+
+    selectListView();
+    const pageImage = await screen.findByRole("img", { name: "Page 4" });
+    fireEvent.error(pageImage);
+
+    expect(
+      screen.getByTestId("page-asset-image-unavailable-4"),
+    ).toBeTruthy();
+    expect(screen.getByText("Page image unavailable.")).toBeTruthy();
   });
 
   it("defaults parsed chunks into a section tree view", () => {
@@ -762,7 +1023,7 @@ describe("ChunksPanel", () => {
 
     await user.click(screen.getByRole("button", { name: "Parsed" }));
 
-    expect(screen.getByRole("heading", { name: "Parsed Chunks" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Parsed Results" })).toBeTruthy();
     expect(screen.getByTestId("source-original-preview")).toBe(
       mountedOriginalPreview,
     );
@@ -813,7 +1074,7 @@ describe("ChunksPanel", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByRole("heading", { name: "Referenced Chunks" }),
+        screen.getByRole("heading", { name: "Parsed Results" }),
       ).toBeTruthy();
     });
     expect(screen.getByTestId("chunk-card-shell-chunk_1")).toBeTruthy();

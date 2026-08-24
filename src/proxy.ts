@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { authURLs } from "@/infrastructure/auth/urls"
-import { sessionCookieNames } from "@/infrastructure/auth/session-cookie-names"
+import { isSessionCookieName } from "@/infrastructure/auth/session-cookie-names"
 import { knowhereApiKeyOverride } from "@/integrations/knowhere-api-key"
 
 /**
@@ -27,6 +27,7 @@ const PUBLIC_PATHS: readonly string[] = [
   "/favicon.ico",
   "/api/internal/health",
   "/api/sources/reconcile",
+  "/api/sources/parsed-sync",
 ]
 
 const STATIC_EXTENSIONS = /\.(?:svg|png|jpe?g|gif|webp|ico|woff2?|ttf|eot|css|js|map|txt|xml|webmanifest|json|pdf)$/i
@@ -58,8 +59,8 @@ export function proxy(req: NextRequest): NextResponse {
 
   if (isPublicPath(req)) return NextResponse.next()
 
-  for (const name of sessionCookieNames()) {
-    if (req.cookies.get(name)) return NextResponse.next()
+  if (req.cookies.getAll().some((cookie) => isSessionCookieName(cookie.name))) {
+    return NextResponse.next()
   }
 
   const origin = process.env.DASHBOARD_ORIGIN

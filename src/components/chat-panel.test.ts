@@ -376,7 +376,11 @@ describe("ChatPanel", () => {
 
     await user.click(duplicatedSourceLinks[0]);
 
-    expect(onCitationClick).toHaveBeenCalledWith(firstCitation, "assistant_1:0");
+    expect(onCitationClick).toHaveBeenCalledWith(
+      firstCitation,
+      "assistant_1:0",
+      [],
+    );
   });
 
   it("keeps separate source links when different documents share one displayed label", async () => {
@@ -430,6 +434,7 @@ describe("ChatPanel", () => {
     expect(onCitationClick).toHaveBeenCalledWith(
       secondCitation,
       "assistant_1:1",
+      [],
     );
   });
 
@@ -443,7 +448,7 @@ describe("ChatPanel", () => {
           {
             id: "assistant_1",
             role: "assistant",
-            content: "The deadline is Monday.",
+            content: "The deadline is Monday. [[cite:1]]",
             citations: [
               {
                 chunkType: "text",
@@ -462,29 +467,21 @@ describe("ChatPanel", () => {
       }),
     );
 
-    const citationButton = screen.getByRole("button", {
-      name: "Open source syllabus.pdf",
-    });
+    const citationButton = screen.getByTestId("citation-chip");
 
     expect(screen.getByText("Sources")).toBeTruthy();
     expect(citationButton.getAttribute("aria-busy")).toBe("true");
     expect(citationButton.textContent).toBe("syllabus.pdf");
-    expect(citationButton.className).toContain("rounded-md");
-    expect(citationButton.className).toContain("h-8");
+    expect(citationButton.className).toContain("rounded-[4px]");
+    expect(citationButton.className).toContain("h-5");
     expect(citationButton.className).toContain("max-w-[250px]");
     expect(citationButton.className).toContain("font-mono");
-    expect(citationButton.className).toContain("text-primary");
-    expect(citationButton.className).toContain("bg-primary/10");
-    expect(citationButton.className).toContain("border-primary/20");
-    expect(citationButton.className).toContain("hover:border-primary/35");
-    expect(citationButton.className).toContain("hover:bg-primary/15");
-    expect(citationButton.className).toContain("dark:bg-[#5c606b]");
-    expect(citationButton.className).toContain("dark:text-[#cfd3dc]");
-    expect(citationButton.className).toContain(
-      "hover:shadow-[0_0_0_2px_rgba(37,99,235,0.12)]",
-    );
-    expect(citationButton.className).not.toContain("border-border");
-    expect(citationButton.className).not.toContain("bg-background/80");
+    expect(citationButton.className).toContain("bg-muted");
+    expect(citationButton.className).toContain("text-muted-foreground");
+    expect(citationButton.className).toContain("text-[11px]");
+    expect(citationButton.className).not.toContain("h-8");
+    expect(citationButton.className).not.toContain("bg-primary/10");
+    expect(citationButton.className).not.toContain("text-primary");
     expect(citationButton.className).not.toContain("underline");
 
     await user.click(citationButton);
@@ -498,7 +495,7 @@ describe("ChatPanel", () => {
           {
             id: "assistant_1",
             role: "assistant",
-            content: "The chunk title is long.",
+            content: "The chunk title is long. [[cite:1]]",
             citations: [
               {
                 chunkType: "text",
@@ -516,13 +513,12 @@ describe("ChatPanel", () => {
       }),
     );
 
-    const sourceLink = screen.getByRole("button", {
-      name: /Open source TSLA-Q4-2025-UPDATE\.PDF/,
-    });
+    const sourceLink = screen.getByTestId("citation-chip");
 
     expect(screen.getByText("Sources")).toBeTruthy();
     expect(sourceLink.className).toContain("max-w-[250px]");
-    expect(sourceLink.className).toContain("rounded-md");
+    expect(sourceLink.className).toContain("rounded-[4px]");
+    expect(sourceLink.className).toContain("bg-muted");
     expect(sourceLink.className).not.toContain("underline");
     expect(
       within(sourceLink).getByText(

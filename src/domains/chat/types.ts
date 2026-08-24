@@ -1,12 +1,13 @@
 /**
  * Chat citation / retrieval hit. Mirrors RetrievalResult from the SDK.
- * No chunkId here; retrieval does not expose one.
  */
 export type RetrievalResultView = {
   readonly content: string
   readonly chunkType: string
   readonly score: number | null
   readonly assetUrl?: string
+  readonly pageCitationAssetUrl?: string
+  readonly pageCitationPageNumber?: number
   readonly source: {
     readonly documentId?: string | null
     readonly sourceFileName?: string | null
@@ -15,11 +16,23 @@ export type RetrievalResultView = {
 }
 
 /**
+ * Normalized highlight box for page/image answer provenance.
+ * Origin top-left; values in [0, 1]. No per-region labels.
+ */
+export type ChatImageHighlightBox = {
+  readonly x: number
+  readonly y: number
+  readonly w: number
+  readonly h: number
+}
+
+/**
  * Persisted chat citation metadata. This deliberately excludes source chunk
  * text so Notebook never stores upstream chunk content in Postgres.
  */
 export type CitationView = Omit<RetrievalResultView, "content"> & {
   readonly description?: string
+  readonly highlightRegions?: readonly ChatImageHighlightBox[]
 }
 
 /**
@@ -41,6 +54,7 @@ export type ChatArtifactView = {
   readonly label?: string
   readonly display?: boolean
   readonly reason?: string
+  readonly highlightRegions?: readonly ChatImageHighlightBox[]
   readonly citation?: ChatCitationView
 }
 

@@ -1,3 +1,4 @@
+import { normalizeHighlightBoxes } from "@/agent-harness/image-highlights"
 import { deriveChatThreadTitle } from "./title"
 import type { ChatMessage, ChatThread } from "@/infrastructure/db/schema"
 import type {
@@ -51,7 +52,10 @@ function toPersistedCitationViews(value: unknown): ChatCitationView[] | undefine
         chunkType: getString(item.chunkType) ?? "text",
         score: getNumber(item.score) ?? 0,
         assetUrl: getString(item.assetUrl),
+        pageCitationAssetUrl: getString(item.pageCitationAssetUrl),
+        pageCitationPageNumber: getNumber(item.pageCitationPageNumber),
         description: getString(item.description),
+        highlightRegions: getHighlightRegions(item.highlightRegions),
         source: {
           documentId: getString(item.source.documentId),
           sourceFileName: getString(item.source.sourceFileName),
@@ -81,7 +85,16 @@ function toPersistedArtifactViews(value: unknown): ChatArtifactView[] | undefine
             chunkType: getString(item.citation.chunkType) ?? "text",
             score: getNumber(item.citation.score) ?? 0,
             assetUrl: getString(item.citation.assetUrl),
+            pageCitationAssetUrl: getString(
+              item.citation.pageCitationAssetUrl,
+            ),
+            pageCitationPageNumber: getNumber(
+              item.citation.pageCitationPageNumber,
+            ),
             description: getString(item.citation.description),
+            highlightRegions: getHighlightRegions(
+              item.citation.highlightRegions,
+            ),
             source: {
               documentId: getString(item.citation.source.documentId),
               sourceFileName: getString(item.citation.source.sourceFileName),
@@ -129,12 +142,44 @@ function toPersistedArtifactViews(value: unknown): ChatArtifactView[] | undefine
         label: getString(item.label),
         display: typeof item.display === "boolean" ? item.display : undefined,
         reason: getString(item.reason),
+        highlightRegions: getHighlightRegions(item.highlightRegions),
         ...(citation ? { citation } : {}),
       },
     ]
   })
 
   return artifacts.length > 0 ? artifacts : undefined
+}
+
+function getHighlightRegions(
+  value: unknown,
+): ChatArtifactView["highlightRegions"] {
+  if (!Array.isArray(value) || value.length === 0) return undefined
+
+  const candidates = value.flatMap((item): Array<{
+    x: number
+    y: number
+    w: number
+    h: number
+  }> => {
+    if (!isRecord(item)) return []
+    const x = getNumber(item.x)
+    const y = getNumber(item.y)
+    const w = getNumber(item.w)
+    const h = getNumber(item.h)
+    if (
+      x === undefined ||
+      y === undefined ||
+      w === undefined ||
+      h === undefined
+    ) {
+      return []
+    }
+    return [{ x, y, w, h }]
+  })
+
+  const regions = normalizeHighlightBoxes(candidates)
+  return regions.length > 0 ? regions : undefined
 }
 
 function getString(value: unknown): string | undefined {

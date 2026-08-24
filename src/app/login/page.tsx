@@ -32,7 +32,7 @@ export async function LoginContent() {
             <NotebookLogoMark width={28} />
           </div>
           <h1 className="mb-8 text-2xl font-bold tracking-tight">
-            Knowhere Notebook
+            Knowhere Brain
           </h1>
           <Link
             href={loginHref}

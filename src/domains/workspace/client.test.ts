@@ -63,6 +63,105 @@ describe("workspaceClient", () => {
     })
   })
 
+  it("fetches all chunks filtered to page type until the cited page is found", async () => {
+    mockRouteClient.getJson.mockResolvedValueOnce({
+      chunks: [
+        {
+          chunkId: "page_1",
+          type: "page",
+          content: "Page 1",
+          sourceTitle: "report.pdf",
+          pageAssets: [{ pageNumber: 1, assetUrl: "https://a/1.png", contentType: "image/png" }],
+        },
+      ],
+      pagination: { page: 1, pageSize: 50, total: 2, totalPages: 2 },
+    })
+    mockRouteClient.getJson.mockResolvedValueOnce({
+      chunks: [
+        {
+          chunkId: "page_4",
+          type: "page",
+          content: "Page 4",
+          sourceTitle: "report.pdf",
+          pageAssets: [{ pageNumber: 4, assetUrl: "https://a/4.png", contentType: "image/png" }],
+        },
+      ],
+      pagination: { page: 2, pageSize: 50, total: 2, totalPages: 2 },
+    })
+
+    const chunks = await workspaceClient.fetchChunks("source_1", {
+      chunkType: "page",
+      untilPageNumber: 4,
+    })
+
+    expect(mockRouteClient.getJson).toHaveBeenNthCalledWith(
+      1,
+      "/api/sources/source_1/chunks?page=1&pageSize=50&chunkType=page",
+    )
+    expect(mockRouteClient.getJson).toHaveBeenNthCalledWith(
+      2,
+      "/api/sources/source_1/chunks?page=2&pageSize=50&chunkType=page",
+    )
+    expect(chunks.map((chunk) => chunk.chunkId)).toEqual(["page_1", "page_4"])
+  })
+
+  it("preserves source chunk processing messages", async () => {
+    mockRouteClient.getJson.mockResolvedValue({
+      chunks: [],
+      message: "Source parsed snapshot is still being prepared.",
+      pagination: {
+        page: 1,
+        pageSize: 50,
+        total: 0,
+        totalPages: 0,
+      },
+    })
+
+    const page = await workspaceClient.fetchChunkPage("source_1", 1)
+
+    expect(page).toEqual({
+      chunks: [],
+      isProcessing: true,
+      message: "Source parsed snapshot is still being prepared.",
+      pagination: {
+        page: 1,
+        pageSize: 50,
+        total: 0,
+        totalPages: 0,
+      },
+    })
+  })
+
+  it("preserves source chunk unavailable messages without processing state", async () => {
+    mockRouteClient.getJson.mockResolvedValue({
+      chunks: [],
+      message:
+        "Source is unavailable. The parsed document is not available locally and could not be loaded from Knowhere.",
+      isUnavailable: true,
+      pagination: {
+        page: 1,
+        pageSize: 50,
+        total: 0,
+        totalPages: 0,
+      },
+    })
+
+    const page = await workspaceClient.fetchChunkPage("source_1", 1)
+
+    expect(page).toEqual({
+      chunks: [],
+      isUnavailable: true,
+      message:
+        "Source is unavailable. The parsed document is not available locally and could not be loaded from Knowhere.",
+      pagination: {
+        page: 1,
+        pageSize: 50,
+        total: 0,
+        totalPages: 0,
+      },
+    })
+  })
+
   it("throws materialization route errors instead of treating them as empty sources", async () => {
     mockRouteClient.postJsonWithStatus.mockResolvedValue({
       status: 502,

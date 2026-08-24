@@ -1,7 +1,7 @@
 import "server-only"
 
 import { del } from "@vercel/blob"
-import type { JobResult } from "@ontos-ai/knowhere-sdk"
+import { NotFoundError, type JobResult } from "@ontos-ai/knowhere-sdk"
 
 import type { Source } from "@/infrastructure/db/schema"
 import { logger } from "@/lib/logger"
@@ -11,6 +11,12 @@ type SourceReconcileWorkflowClient = {
   readonly jobs: {
     get(jobId: string): Promise<JobResult>
   }
+}
+
+type ApiErrorLike = {
+  readonly name?: string
+  readonly statusCode?: number
+  readonly message?: string
 }
 
 type SourceReconcileWorkflowRepository = {
@@ -55,6 +61,14 @@ export type MarkSourceReadyAfterReconciliationInput = {
   readonly blobStore?: SourceReconcileWorkflowBlobStore
 }
 
+export type MarkSourceFailedAfterReconciliationInput = {
+  readonly workspaceId: string
+  readonly sourceId: string
+  readonly reason: string
+  readonly repository?: SourceReconcileWorkflowRepository
+  readonly blobStore?: SourceReconcileWorkflowBlobStore
+}
+
 export type PollSourceReconciliationResult =
   | {
       readonly kind: "waiting"
@@ -72,6 +86,10 @@ export type PollSourceReconciliationResult =
     }
 
 export type MarkSourceReadyAfterReconciliationResult = {
+  readonly status: string
+}
+
+export type MarkSourceFailedAfterReconciliationResult = {
   readonly status: string
 }
 
@@ -100,7 +118,15 @@ export async function pollSourceReconciliation({
     return { kind: "resolved", status: "failed" }
   }
 
-  const job = await client.jobs.get(jobId)
+  const job = await getJobOrFailMissingJob({
+    workspaceId,
+    source,
+    jobId,
+    client,
+    repository,
+    blobStore,
+  })
+  if (!job) return { kind: "resolved", status: "failed" }
   if (isFailedJob(job)) {
     await failSourceAndCleanup({
       workspaceId,
@@ -138,6 +164,30 @@ export async function pollSourceReconciliation({
   }
 }
 
+async function getJobOrFailMissingJob(input: {
+  readonly workspaceId: string
+  readonly source: Source
+  readonly jobId: string
+  readonly client: SourceReconcileWorkflowClient
+  readonly repository: SourceReconcileWorkflowRepository
+  readonly blobStore: SourceReconcileWorkflowBlobStore
+}): Promise<JobResult | null> {
+  try {
+    return await input.client.jobs.get(input.jobId)
+  } catch (error) {
+    if (!isKnowhereJobNotFoundError(error)) throw error
+
+    await failSourceAndCleanup({
+      workspaceId: input.workspaceId,
+      source: input.source,
+      reason: `Knowhere job ${input.jobId} was not found during reconciliation.`,
+      repository: input.repository,
+      blobStore: input.blobStore,
+    })
+    return null
+  }
+}
+
 export async function markSourceReadyAfterReconciliation({
   workspaceId,
   sourceId,
@@ -163,6 +213,27 @@ export async function markSourceReadyAfterReconciliation({
     blobStore,
   })
   return { status: readySource.status }
+}
+
+export async function markSourceFailedAfterReconciliation({
+  workspaceId,
+  sourceId,
+  reason,
+  repository = sourceWorkflowRuntime,
+  blobStore = vercelBlobStore,
+}: MarkSourceFailedAfterReconciliationInput): Promise<MarkSourceFailedAfterReconciliationResult> {
+  const source = await repository.findInWorkspace(workspaceId, sourceId)
+  if (!source) return { status: "gone" }
+  if (source.status !== "parsing") return { status: source.status }
+
+  await failSourceAndCleanup({
+    workspaceId,
+    source,
+    reason,
+    repository,
+    blobStore,
+  })
+  return { status: "failed" }
 }
 
 async function failSourceAndCleanup(input: {
@@ -210,6 +281,17 @@ function isDoneJob(job: JobResult): boolean {
 
 function isFailedJob(job: JobResult): boolean {
   return job.isFailed || job.status === "failed"
+}
+
+function isKnowhereJobNotFoundError(error: unknown): boolean {
+  if (error instanceof NotFoundError) return true
+  if (!isApiErrorLike(error)) return false
+
+  return error.name === "NotFoundError" || error.statusCode === 404
+}
+
+function isApiErrorLike(error: unknown): error is ApiErrorLike {
+  return error !== null && typeof error === "object"
 }
 
 const vercelBlobStore: SourceReconcileWorkflowBlobStore = {

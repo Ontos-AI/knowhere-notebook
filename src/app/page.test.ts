@@ -20,7 +20,7 @@ vi.mock("@/domains/workspace/initial-state", () => ({
   loadWorkspaceShellInitialState: mocks.loadWorkspaceShellInitialState,
 }))
 
-import { HomeContent } from "./page"
+import { HomeContent } from "./home-content"
 import { makeWorkspaceInitialStateFailureFixture } from "@/test/workspace-initial-state-failure-fixture"
 
 describe("Home", () => {

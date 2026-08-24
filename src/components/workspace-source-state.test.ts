@@ -28,7 +28,7 @@ describe("workspaceSourceState", () => {
     );
   });
 
-  it("can select an unmaterialized Official Library row for preview", () => {
+  it("skips unmaterialized Official Library rows when choosing the initial Source", () => {
     const sources: readonly SourceView[] = [
       {
         id: "demo-spacex-s1",
@@ -54,8 +54,41 @@ describe("workspaceSourceState", () => {
     ];
 
     expect(workspaceSourceState.getInitialSelectedSourceId(sources)).toBe(
-      "demo-spacex-s1",
+      "source_ready",
     );
+  });
+
+  it("keeps an explicitly selected Official Library demo source for citation jumps", () => {
+    const sources: readonly SourceView[] = [
+      {
+        id: "demo-spacex-s1",
+        kind: "demo",
+        demoSourceId: "demo-spacex-s1",
+        title: "spacex-s1.pdf",
+        status: "ready",
+        mimeType: "application/pdf",
+        excludedFromQuery: false,
+        officialLibrary: {
+          librarySourceId: "financial-spacex-s1",
+          categoryId: "financial-reports",
+          sourceUrl: "https://example.com/spacex-s1.pdf",
+        },
+      },
+      {
+        id: "source_ready",
+        title: "ready.pdf",
+        status: "ready",
+        mimeType: "application/pdf",
+        excludedFromQuery: false,
+      },
+    ];
+
+    expect(
+      workspaceSourceState.getResolvedSelectedSourceId(
+        sources,
+        "demo-spacex-s1",
+      ),
+    ).toBe("demo-spacex-s1");
   });
 
   it("selects a preferred document source when opening a chunk-tree link", () => {
@@ -81,6 +114,74 @@ describe("workspaceSourceState", () => {
     expect(
       workspaceSourceState.getInitialSelectedSourceId(sources, "doc_target"),
     ).toBe("source_target");
+  });
+
+  it("keeps a localized remote document selected after source refresh", () => {
+    const sources: readonly SourceView[] = [
+      {
+        id: "source_localized",
+        kind: "workspace",
+        title: "remote.pdf",
+        status: "ready",
+        mimeType: "application/pdf",
+        documentId: "doc_remote",
+        excludedFromQuery: false,
+      },
+    ];
+
+    expect(
+      workspaceSourceState.getResolvedSelectedSourceId(
+        sources,
+        "knowhere-doc:default:doc_remote",
+      ),
+    ).toBe("source_localized");
+  });
+
+  it("keeps an explicit non-ready Source selected instead of falling back", () => {
+    const sources: readonly SourceView[] = [
+      {
+        id: "source_pending",
+        title: "pending.pdf",
+        status: "parsing",
+        mimeType: "application/pdf",
+        excludedFromQuery: false,
+      },
+      {
+        id: "source_ready",
+        title: "ready.pdf",
+        status: "ready",
+        mimeType: "application/pdf",
+        excludedFromQuery: false,
+      },
+    ];
+
+    expect(
+      workspaceSourceState.getResolvedSelectedSourceId(
+        sources,
+        "source_pending",
+      ),
+    ).toBe("source_pending");
+  });
+
+  it("does not resolve a stale selected Source to an unrelated ready Source", () => {
+    const sources: readonly SourceView[] = [
+      {
+        id: "demo_ready",
+        kind: "demo",
+        demoSourceId: "demo_ready",
+        title: "demo.pdf",
+        status: "ready",
+        mimeType: "application/pdf",
+        excludedFromQuery: false,
+      },
+    ];
+
+    expect(
+      workspaceSourceState.getResolvedSelectedSourceId(
+        sources,
+        "source_stale",
+      ),
+    ).toBeNull();
   });
 
   it("applies source query exclusions without mutating the source list", () => {

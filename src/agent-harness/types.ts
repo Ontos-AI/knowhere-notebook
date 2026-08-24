@@ -1,4 +1,10 @@
 import type {
+  KnowledgeDocumentReference,
+  KnowledgeGrepParams,
+  KnowledgeGrepResponse,
+  KnowledgeOutline,
+  KnowledgeReadParams,
+  KnowledgeReadResponse,
   RetrievalQueryParams,
   RetrievalQueryResponse,
 } from "@ontos-ai/knowhere-sdk"
@@ -77,32 +83,71 @@ export type AgentTurnInput = {
   }
 }
 
-export type HarnessRetrievalRequest = Pick<
+export type KnowhereSearchTargetContent =
+  | "all"
+  | "text"
+  | "image"
+  | "table"
+  | "text_image"
+  | "text_table"
+
+export type KnowhereSearchRequest = Pick<
   RetrievalQueryParams,
   "query" | "topK" | "signalPaths" | "filterMode" | "threshold"
 > & {
-  readonly modalities: readonly TargetModality[]
+  readonly targetContent?: KnowhereSearchTargetContent
   readonly purpose?: string
 }
 
-export type RetrievalCapability = {
-  readonly query: (
-    input: HarnessRetrievalRequest,
+export type KnowhereDocumentSummary = {
+  readonly documentId?: string
+  readonly localDocumentId?: string
+  readonly revisionKey?: string
+  readonly namespace?: string
+  readonly sourceFileName: string
+  readonly title?: string
+  readonly status?: string
+  readonly chunkCount?: number
+  readonly typeCounts?: Readonly<Record<string, number>>
+}
+
+export type KnowhereListDocumentsResponse = {
+  readonly documents: readonly KnowhereDocumentSummary[]
+}
+
+export type KnowhereToolRuntime = {
+  readonly search: (
+    input: KnowhereSearchRequest,
   ) => Promise<RetrievalQueryResponse>
+  readonly listDocuments: () => Promise<KnowhereListDocumentsResponse>
+  readonly getDocumentOutline: (
+    input: KnowledgeDocumentReference,
+  ) => Promise<KnowledgeOutline>
+  readonly readChunks: (
+    input: KnowledgeReadParams,
+  ) => Promise<KnowledgeReadResponse>
+  readonly grepChunks: (
+    input: KnowledgeGrepParams,
+  ) => Promise<KnowledgeGrepResponse>
 }
 
 export type EvidenceChunk = {
   readonly ref: string
-  readonly kind: "result" | "referenced_chunk"
+  readonly kind: "result" | "referenced_chunk" | "read_chunk" | "grep_match"
+  readonly chunkId?: string
   readonly content: string
   readonly contentPreview: string
   readonly chunkType: string
   readonly score: number | null
+  readonly sourceChunkPath?: string | null
+  readonly filePath?: string | null
+  readonly metadata?: Readonly<Record<string, unknown>>
   readonly source: {
     readonly documentId?: string | null
     readonly sourceFileName?: string | null
     readonly sectionPath?: string | null
   }
+  readonly revisionKey?: string | null
   readonly assetRef?: string
   readonly assetUrl?: string
 }
@@ -111,10 +156,64 @@ export type EvidenceAsset = {
   readonly ref: string
   readonly chunkRef: string
   readonly type: "image" | "table"
-  readonly assetUrl: string
+  readonly assetUrl?: string
+  readonly sourcePath?: string
+  readonly revisionKey?: string | null
   readonly source: EvidenceChunk["source"]
   readonly label: string
 }
+
+export type ImageInspectionAsset = {
+  readonly ref: string
+  readonly label: string
+  readonly assetUrl?: string | null
+  readonly sourcePath?: string | null
+  readonly revisionKey?: string | null
+  readonly source: EvidenceChunk["source"]
+}
+
+export type ImageInspectionSkippedAsset = {
+  readonly ref: string
+  readonly reason: string
+}
+
+export type ImageInspectionInspectedAsset = {
+  readonly ref: string
+  readonly label: string
+}
+
+/**
+ * Normalized box relative to image width/height. Origin is top-left.
+ * Values are clamped to [0, 1] before render.
+ */
+export type ImageHighlightBox = {
+  readonly x: number
+  readonly y: number
+  readonly w: number
+  readonly h: number
+}
+
+/** One page/image may contain multiple answer regions; no per-region labels. */
+export type ImageInspectionHighlights = {
+  readonly ref: string
+  readonly regions: readonly ImageHighlightBox[]
+}
+
+export type ImageInspectionRequest = {
+  readonly question: string
+  readonly assets: readonly ImageInspectionAsset[]
+}
+
+export type ImageInspectionResponse = {
+  readonly analysis: string
+  readonly inspected: readonly ImageInspectionInspectedAsset[]
+  readonly skipped: readonly ImageInspectionSkippedAsset[]
+  readonly highlights?: readonly ImageInspectionHighlights[]
+}
+
+export type InspectImages = (
+  input: ImageInspectionRequest,
+) => Promise<ImageInspectionResponse>
 
 export type EvidenceLedgerSnapshot = {
   readonly retrievalCount: number
@@ -128,8 +227,8 @@ export type EvidenceLedgerSnapshot = {
 
 export type OutputCitation = {
   readonly ref: string
-  readonly label: string
-  readonly source: EvidenceChunk["source"]
+  readonly label?: string
+  readonly source?: EvidenceChunk["source"]
 }
 
 export type OutputArtifact = {
@@ -175,6 +274,7 @@ export type HarnessTrace = {
   readonly finalized: boolean
   readonly priorTurnReads: readonly string[]
   readonly toolCalls: readonly HarnessToolCallTrace[]
+  readonly imageHighlights: readonly ImageInspectionHighlights[]
   readonly validationErrors: readonly string[]
   readonly revisionsUsed: number
 }

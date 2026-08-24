@@ -67,9 +67,12 @@ type ChatTurnInput = {
   useAgentic?: boolean
   excludedSourceIds: readonly string[]
   retrieval: RetrievalClient
+  knowledge?: AnswerQuestionInput["knowledge"]
+  remoteDocumentClient?: AnswerQuestionInput["remoteDocumentClient"]
   generateAnswer: GenerateAnswer
-  loadSourceAssetUrls?: AnswerQuestionInput["loadSourceAssetUrls"]
+  hardenChatAssetUrl?: AnswerQuestionInput["hardenChatAssetUrl"]
   hardenMediaAssetUrls?: AnswerQuestionInput["hardenMediaAssetUrls"]
+  inspectImages?: AnswerQuestionInput["inspectImages"]
   repository: ChatRepository
 }
 
@@ -127,9 +130,12 @@ export const handleChatTurnEffect = (input: ChatTurnInput) =>
       useAgentic: input.useAgentic ?? true,
       excludedSourceIds: input.excludedSourceIds,
       retrieval: input.retrieval,
+      knowledge: input.knowledge,
+      remoteDocumentClient: input.remoteDocumentClient,
       generateAnswer: input.generateAnswer,
-      loadSourceAssetUrls: input.loadSourceAssetUrls,
+      hardenChatAssetUrl: input.hardenChatAssetUrl,
       hardenMediaAssetUrls: input.hardenMediaAssetUrls,
+      inspectImages: input.inspectImages,
       messages: chatHistoryMessages,
     }).pipe(Effect.catchAllCause(Effect.die))
 

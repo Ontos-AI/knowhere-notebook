@@ -1,5 +1,6 @@
 import { useCallback, type ReactElement } from "react"
 import {
+  BookOpen,
   Database,
   FileText,
   MessageSquare,
@@ -19,6 +20,7 @@ import { useWorkspaceResizeHandleWorkflow } from "@/components/workspace-resize-
 import { workspaceShellState } from "@/components/workspace-shell-state"
 import type {
   ChatCitationView,
+  ChatImageHighlightBox,
   ChatMessageView,
   ChatThreadView,
 } from "@/domains/chat/types"
@@ -39,6 +41,13 @@ type DesktopPanelWidths = Record<DesktopPanelKey, number>
 type FocusedChunkState = {
   readonly chunkId: string | null
   readonly requestId: number
+}
+
+type FocusedPageState = {
+  readonly pageNumber: number | null
+  readonly requestId: number
+  readonly citationId?: string | null
+  readonly highlightRegions?: readonly ChatImageHighlightBox[]
 }
 
 type WorkspaceShellUser = {
@@ -67,6 +76,7 @@ export type WorkspaceShellLayoutProps = {
   readonly dashboardUrl?: string
   readonly desktopPanelWidths: Readonly<DesktopPanelWidths>
   readonly focusedChunk: FocusedChunkState
+  readonly focusedPage?: FocusedPageState
   readonly hasMessages: boolean
   readonly hasMoreSelectedChunks: boolean
   readonly contentView: ContentView
@@ -81,9 +91,11 @@ export type WorkspaceShellLayoutProps = {
   readonly pendingCitationId: string | null
   readonly readySourceCount: number
   readonly selectedChunks: readonly ParsedChunkView[]
+  readonly selectedChunksMessage: string | null
   readonly selectedSourceFile: SourceOriginalFileView | null
   readonly selectedSourceId: string | null
   readonly selectedSourceTitle: string | null
+  readonly selectedSourceView?: SourceView
   readonly sourceTitlesByDocumentId: Readonly<Record<string, string>>
   readonly sources: readonly SourceView[]
   readonly officialLibrarySources: readonly OfficialLibrarySourceView[]
@@ -99,6 +111,7 @@ export type WorkspaceShellLayoutProps = {
   readonly onCitationClick: (
     citation: ChatCitationView,
     citationId: string,
+    highlightRegions?: readonly ChatImageHighlightBox[],
   ) => void | Promise<void>
   readonly onCreateChatThread: () => void | Promise<void>
   readonly onDesktopLayoutElementChange: (element: HTMLDivElement | null) => void
@@ -149,6 +162,15 @@ export function WorkspaceShellLayout(
     props.desktopPanelWidths.chat <=
     workspaceShellState.desktopSidePanelCompactThreshold
   const isSourcesPanelNarrow = props.desktopPanelWidths.sources < 220
+  const selectedSource =
+    props.selectedSourceView ??
+    props.sources.find((source) => source.id === props.selectedSourceId)
+  const focusedPage = props.focusedPage ?? {
+    pageNumber: null,
+    requestId: 0,
+    citationId: null,
+    highlightRegions: [],
+  }
   const handleDesktopLayoutRef = useCallback(
     (element: HTMLDivElement | null): void => {
       onDesktopLayoutElementChange(element)
@@ -197,7 +219,9 @@ export function WorkspaceShellLayout(
               <CompactSourcesSidebar
                 sources={props.sources}
                 selectedSourceId={props.selectedSourceId}
+                isLibraryOpen={props.contentView === "library"}
                 onExpand={() => props.onDesktopPanelExpand("sources")}
+                onLibraryOpen={props.onLibraryOpen}
                 onSourceSelected={props.onSourceSelected}
               />
             ) : (
@@ -268,13 +292,19 @@ export function WorkspaceShellLayout(
               <ChunksPanel
                 chunks={[...props.selectedChunks]}
                 selectedSource={props.selectedSourceTitle}
+                selectedSourceView={selectedSource}
                 selectedSourceFile={props.selectedSourceFile}
                 citationListViewRequestId={props.citationListViewRequestId}
                 focusedChunkId={props.focusedChunk.chunkId}
                 focusedChunkRequestId={props.focusedChunk.requestId}
+                focusedPageNumber={focusedPage.pageNumber}
+                focusedPageRequestId={focusedPage.requestId}
+                focusedCitationId={focusedPage.citationId ?? null}
+                focusedHighlightRegions={focusedPage.highlightRegions ?? []}
                 isLoading={props.isSelectedChunksLoading}
                 isLoadingAllChunks={props.isSelectedAllChunksLoading}
                 isLoadingMore={props.isSelectedChunksLoadingMore}
+                processingMessage={props.selectedChunksMessage}
                 hasMoreChunks={props.hasMoreSelectedChunks}
                 onLoadAllChunks={props.onLoadAllChunks}
                 onLoadMore={props.onLoadMoreChunks}
@@ -409,13 +439,19 @@ export function WorkspaceShellLayout(
           <ChunksPanel
             chunks={[...props.selectedChunks]}
             selectedSource={props.selectedSourceTitle}
+            selectedSourceView={selectedSource}
             selectedSourceFile={props.selectedSourceFile}
             citationListViewRequestId={props.citationListViewRequestId}
             focusedChunkId={props.focusedChunk.chunkId}
             focusedChunkRequestId={props.focusedChunk.requestId}
+            focusedPageNumber={focusedPage.pageNumber}
+            focusedPageRequestId={focusedPage.requestId}
+            focusedCitationId={focusedPage.citationId ?? null}
+            focusedHighlightRegions={focusedPage.highlightRegions ?? []}
             isLoading={props.isSelectedChunksLoading}
             isLoadingAllChunks={props.isSelectedAllChunksLoading}
             isLoadingMore={props.isSelectedChunksLoadingMore}
+            processingMessage={props.selectedChunksMessage}
             hasMoreChunks={props.hasMoreSelectedChunks}
             onLoadAllChunks={props.onLoadAllChunks}
             onLoadMore={props.onLoadMoreChunks}
@@ -455,9 +491,9 @@ export function WorkspaceShellLayout(
           onThreadArchive={props.isGuest ? undefined : props.onArchiveChatThread}
           onLoginClick={props.isGuest ? props.onLoginClick : undefined}
           sourceTitlesByDocumentId={props.sourceTitlesByDocumentId}
-          onCitationClick={(citation, citationId) => {
+          onCitationClick={(citation, citationId, highlightRegions) => {
             props.onMobilePanelChange("content")
-            props.onCitationClick(citation, citationId)
+            props.onCitationClick(citation, citationId, highlightRegions)
           }}
         />
       </div>
@@ -544,12 +580,16 @@ function DesktopPanelRestoreButton({
 }
 
 function CompactSourcesSidebar({
+  isLibraryOpen = false,
   onExpand,
+  onLibraryOpen,
   onSourceSelected,
   selectedSourceId,
   sources,
 }: {
+  readonly isLibraryOpen?: boolean
   readonly onExpand: () => void
+  readonly onLibraryOpen?: () => void
   readonly onSourceSelected: (sourceId: string | null) => void
   readonly selectedSourceId: string | null
   readonly sources: readonly SourceView[]
@@ -561,6 +601,16 @@ function CompactSourcesSidebar({
         side="left"
         onClick={onExpand}
       />
+      <div className="my-3 h-px w-9 bg-border" />
+      <CompactSidebarButton
+        ariaLabel="Open library"
+        isActive={isLibraryOpen}
+        label="Lib"
+        title="Open library"
+        onClick={() => onLibraryOpen?.()}
+      >
+        <BookOpen className="size-4" strokeWidth={1.8} />
+      </CompactSidebarButton>
       <div className="my-3 h-px w-9 bg-border" />
       <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-2 overflow-y-auto">
         {sources.length === 0 ? (

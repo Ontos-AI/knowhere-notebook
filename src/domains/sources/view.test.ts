@@ -12,6 +12,7 @@ function makeSource(overrides: Partial<Source> = {}): Source {
     sizeBytes: 1,
     status: "ready",
     failureReason: null,
+    failureStage: null,
     knowhereJobId: "job_1",
     knowhereDocumentId: "doc_1",
     stagedBlobPathname: null,
@@ -117,6 +118,18 @@ describe("toSourceView", () => {
         canDownload: false,
         pdfPreviewMode: "browser",
       },
+    });
+  });
+
+  it("includes document presentation options when provided", () => {
+    expect(
+      toSourceView(makeSource(), {
+        chunkCount: 4,
+        documentPresentation: { kind: "page-assets", pageCount: 4 },
+      }),
+    ).toMatchObject({
+      chunkCount: 4,
+      documentPresentation: { kind: "page-assets", pageCount: 4 },
     });
   });
 

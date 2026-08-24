@@ -6,9 +6,11 @@ import type {
 } from "@ontos-ai/knowhere-sdk"
 
 import { logger } from "@/lib/logger"
+import { getCanonicalImageAssetKey } from "@/agent-harness/image-asset-identity"
 import type {
   ChatArtifactView,
   ChatCitationView,
+  ChatImageHighlightBox,
 } from "@/domains/chat/types"
 import type {
   DerivedTableArtifact,
@@ -16,7 +18,6 @@ import type {
   EvidenceChunk,
   HarnessRunResult,
   OutputArtifact,
-  OutputCitation,
 } from "@/agent-harness"
 import {
   toChatCitationViews,
@@ -38,15 +39,23 @@ import {
   enrichRetrievalResultsWithAssetUrls,
   removeRetrievedMediaAssetUrls,
 } from "./media-assets"
+import {
+  enrichRetrievalResultsWithPageCitationAssetUrls,
+  resolvePageCitationPageNumber,
+} from "./page-citation-assets"
+import type { HardenableRetrievalResult } from "./media-asset-hardening"
+import { notebookKnowhereTools } from "./knowhere-tools"
 
 const DEFAULT_TOP_K = 8
 const MAX_AGENTIC_TOP_K = 12
+const MAX_AGENTIC_MERGED_RESULT_COUNT = 24
+const MAX_AGENTIC_MERGED_REFERENCED_CHUNK_COUNT = 24
+const MAX_AGENTIC_MERGED_TEXT_CHARS = 12_000
 const MAX_CITATION_RESULTS = 20
 const KNOWHERE_RESPONSE_TEXT_LOG_LIMIT = 200
 const KNOWHERE_CHUNK_LOG_LIMIT = 100
+const KNOWHERE_RESPONSE_LOG_ITEM_LIMIT = 20
 const NO_RESULTS_ANSWER = "I couldn't find that in your sources."
-const HARNESS_VALIDATION_FAILURE_ANSWER =
-  "I couldn't safely finish that response because the agent output did not pass Notebook's validation checks. Please try again."
 const RAW_URL_PATTERN = /https?:\/\/[^\s)\]}>"']+/g
 const REDACTED_MEDIA_URL = "[media asset URL hidden]"
 const RETRIEVAL_TARGET_CONTENT_DATA_TYPES: Readonly<
@@ -84,6 +93,13 @@ type KnowhereResultChunkLog = {
 type KnowhereReferencedChunkLog = {
   readonly chunkType: string
   readonly summary: string
+}
+
+type AgenticMergedEvidenceLimits = {
+  readonly resultCountPerResponse: number
+  readonly referencedChunkCountPerResponse: number
+  readonly resultCount: number
+  readonly referencedChunkCount: number
 }
 
 export type {
@@ -186,7 +202,14 @@ export const answerQuestionWithRetrieval = (
       ) {
         throw queryFailures[0]
       }
-      return mergeRetrievalResponses(queryResponses, retrievalPlan)
+      return mergeRetrievalResponses(
+        queryResponses,
+        retrievalPlan,
+        getAgenticMergedEvidenceLimits({
+          namespaceCount: queryResponses.length,
+          topK: queryInput.topK,
+        }),
+      )
     }
 
     const generatedAnswer = yield* Effect.tryPromise(() =>
@@ -196,6 +219,15 @@ export const answerQuestionWithRetrieval = (
         sources: input.sources,
         excludedSourceIds: input.excludedSourceIds,
         searchSources,
+        knowhereTools: notebookKnowhereTools.createRuntime({
+          namespace: input.namespace,
+          sources: input.sources,
+          excludedSourceIds: input.excludedSourceIds,
+          searchSources,
+          knowledge: input.knowledge,
+          remoteDocumentClient: input.remoteDocumentClient,
+        }),
+        ...(input.inspectImages ? { inspectImages: input.inspectImages } : {}),
       }),
     )
 
@@ -203,29 +235,18 @@ export const answerQuestionWithRetrieval = (
       answerLength: generatedAnswer.manifest.text.length,
       retrievalCallCount: retrievalResponses.length,
       citationCount: generatedAnswer.manifest.citations.length,
-      harnessValidationErrorCount: generatedAnswer.trace.validationErrors.length,
-      revisionsUsed: generatedAnswer.trace.revisionsUsed,
+      finalized: generatedAnswer.trace.finalized,
     })
-    if (generatedAnswer.trace.validationErrors.length > 0) {
-      logger.warn("chat-agent: validation failed; returning safe fallback", {
-        validationErrors: generatedAnswer.trace.validationErrors,
-        revisionsUsed: generatedAnswer.trace.revisionsUsed,
-        finalized: generatedAnswer.trace.finalized,
-        intentTask: generatedAnswer.trace.intent?.task ?? null,
-        retrievalCallCount: retrievalResponses.length,
-      })
-      return {
-        answer: HARNESS_VALIDATION_FAILURE_ANSWER,
-        citations: [] as ChatCitationView[],
-        artifacts: [] as ChatArtifactView[],
-      }
-    }
 
-    const rawResults = selectCitationRawResults({
-      generatedAnswer,
-      retrievalResponses,
-      sources: input.sources,
-    })
+    const rawResults = yield* Effect.tryPromise(() =>
+      hydrateMissingCitationPageMetadata({
+        results: selectCitationRawResults({
+          generatedAnswer,
+        }),
+        ledgerChunks: generatedAnswer.trace.ledger.chunks,
+        knowledge: input.knowledge,
+      }),
+    )
     if (
       rawResults.length === 0 &&
       generatedAnswer.manifest.text.trim().length === 0 &&
@@ -242,15 +263,22 @@ export const answerQuestionWithRetrieval = (
       enrichRetrievalResultsWithAssetUrls({
         results: useNotebookSourceTitles(rawResults, input.sources),
         sources: input.sources,
-        loadSourceAssetUrls: input.loadSourceAssetUrls,
+        hardenChatAssetUrl: input.hardenChatAssetUrl,
         evidenceText: formatRetrievalEvidenceText(retrievalResponses),
+      }),
+    )
+    const pageCitationResults = yield* Effect.tryPromise(() =>
+      enrichRetrievalResultsWithPageCitationAssetUrls({
+        results: enrichedResults,
+        sources: input.sources,
+        hardenChatAssetUrl: input.hardenChatAssetUrl,
       }),
     )
     const artifacts = toChatArtifactViewsFromHarness(generatedAnswer, input.sources)
     const hardenedMedia = yield* Effect.tryPromise(() =>
       hardenAnswerMediaAssetUrls({
         input,
-        results: enrichedResults,
+        results: pageCitationResults,
         artifacts,
       }),
     )
@@ -259,21 +287,21 @@ export const answerQuestionWithRetrieval = (
       results: getGeneratedAnswerSanitizerResults({
         rawResults,
         enrichedResults,
+        pageCitationResults,
         hardenedResults: hardenedMedia.results,
         artifacts,
         hardenedArtifacts: hardenedMedia.artifacts,
       }),
     })
-    const citationResults = hardenedMedia.results
     const displayArtifacts = hardenedMedia.artifacts ?? []
     logger.info("chat-agent: answer complete", {
       answerLength: answer.length,
-      citationCount: citationResults.length,
+      citationCount: hardenedMedia.results.length,
       artifactCount: displayArtifacts.length,
     })
     return {
       answer,
-      citations: toChatCitationViews(citationResults, answer),
+      citations: toChatCitationViews(hardenedMedia.results, answer),
       artifacts: displayArtifacts,
     }
   })
@@ -294,6 +322,11 @@ function toChatArtifactViewsFromHarness(
       chunk,
     ]),
   )
+  const highlightsByRef = new Map(
+    (result.trace.imageHighlights ?? []).map(
+      (page) => [page.ref, page.regions] as const,
+    ),
+  )
 
   const displayLimit = getHarnessArtifactDisplayLimit(result)
   const artifacts: ChatArtifactView[] = []
@@ -307,6 +340,7 @@ function toChatArtifactViewsFromHarness(
             artifact,
             assetsByRef,
             chunksByRef,
+            highlightsByRef,
             sources,
           })
     if (!artifactView) continue
@@ -355,6 +389,7 @@ function resolveHarnessArtifactView(input: {
   readonly artifact: OutputArtifact
   readonly assetsByRef: ReadonlyMap<string, EvidenceAsset>
   readonly chunksByRef: ReadonlyMap<string, EvidenceChunk>
+  readonly highlightsByRef: ReadonlyMap<string, readonly ChatImageHighlightBox[]>
   readonly sources: readonly AnswerQuestionInput["sources"][number][]
 }): ChatArtifactView | null {
   const asset = input.assetsByRef.get(input.artifact.ref)
@@ -362,6 +397,7 @@ function resolveHarnessArtifactView(input: {
     return toChatArtifactView({
       artifact: input.artifact,
       asset,
+      highlightRegions: input.highlightsByRef.get(asset.ref),
       sources: input.sources,
     })
   }
@@ -373,6 +409,9 @@ function resolveHarnessArtifactView(input: {
     ? toChatArtifactView({
         artifact: input.artifact,
         asset: chunkAsset,
+        highlightRegions:
+          input.highlightsByRef.get(chunkAsset.ref) ??
+          input.highlightsByRef.get(input.artifact.ref),
         sources: input.sources,
       })
     : null
@@ -381,6 +420,7 @@ function resolveHarnessArtifactView(input: {
 function toChatArtifactView(input: {
   readonly artifact: OutputArtifact
   readonly asset: EvidenceAsset
+  readonly highlightRegions?: readonly ChatImageHighlightBox[]
   readonly sources: readonly AnswerQuestionInput["sources"][number][]
 }): ChatArtifactView {
   const source = normalizeHarnessSource(input.asset.source, input.sources)
@@ -389,19 +429,22 @@ function toChatArtifactView(input: {
     ref: input.artifact.ref,
     display: input.artifact.display,
     reason: input.artifact.reason,
-    assetUrl: input.asset.assetUrl,
+    ...(input.asset.assetUrl ? { assetUrl: input.asset.assetUrl } : {}),
     label: input.asset.label,
+    ...(input.highlightRegions && input.highlightRegions.length > 0
+      ? { highlightRegions: input.highlightRegions }
+      : {}),
     citation: {
       chunkType: input.asset.type,
       score: null,
-      assetUrl: input.asset.assetUrl,
+      ...(input.asset.assetUrl ? { assetUrl: input.asset.assetUrl } : {}),
       source,
     },
   }
 }
 
 function normalizeHarnessSource(
-  source: OutputCitation["source"],
+  source: EvidenceChunk["source"],
   sources: readonly AnswerQuestionInput["sources"][number][],
 ): ChatCitationView["source"] {
   const sourceTitle = source.documentId
@@ -418,7 +461,7 @@ function normalizeHarnessSource(
 
 type AnswerMediaAssetHardeningInput = {
   readonly input: AnswerQuestionInput
-  readonly results: readonly RetrievalResult[]
+  readonly results: readonly HardenableRetrievalResult[]
   readonly artifacts?: readonly ChatArtifactView[]
 }
 
@@ -427,7 +470,7 @@ async function hardenAnswerMediaAssetUrls({
   results,
   artifacts,
 }: AnswerMediaAssetHardeningInput): Promise<{
-  readonly results: RetrievalResult[]
+  readonly results: HardenableRetrievalResult[]
   readonly artifacts?: ChatArtifactView[]
 }> {
   if (!input.hardenMediaAssetUrls) {
@@ -458,7 +501,8 @@ async function hardenAnswerMediaAssetUrls({
 type GeneratedAnswerSanitizerResultsInput = {
   readonly rawResults: readonly RetrievalResult[]
   readonly enrichedResults: readonly RetrievalResult[]
-  readonly hardenedResults: readonly RetrievalResult[]
+  readonly pageCitationResults: readonly HardenableRetrievalResult[]
+  readonly hardenedResults: readonly HardenableRetrievalResult[]
   readonly artifacts?: readonly ChatArtifactView[]
   readonly hardenedArtifacts?: readonly ChatArtifactView[]
 }
@@ -466,6 +510,7 @@ type GeneratedAnswerSanitizerResultsInput = {
 function getGeneratedAnswerSanitizerResults({
   rawResults,
   enrichedResults,
+  pageCitationResults,
   hardenedResults,
   artifacts,
   hardenedArtifacts,
@@ -473,10 +518,30 @@ function getGeneratedAnswerSanitizerResults({
   return [
     ...rawResults,
     ...enrichedResults,
+    ...toPageCitationSanitizerResults(pageCitationResults),
     ...hardenedResults,
+    ...toPageCitationSanitizerResults(hardenedResults),
     ...toArtifactSanitizerResults(artifacts),
     ...toArtifactSanitizerResults(hardenedArtifacts),
   ]
+}
+
+function toPageCitationSanitizerResults(
+  results: readonly HardenableRetrievalResult[],
+): RetrievalResult[] {
+  return results.flatMap((result): RetrievalResult[] => {
+    if (!result.pageCitationAssetUrl) return []
+
+    return [
+      {
+        content: result.content,
+        chunkType: result.chunkType,
+        score: result.score,
+        assetUrl: result.pageCitationAssetUrl,
+        source: result.source,
+      },
+    ]
+  })
 }
 
 function toArtifactSanitizerResults(
@@ -497,6 +562,15 @@ function toArtifactSanitizerResults(
       results.push(
         toArtifactSanitizerResult({
           assetUrl: artifact.citation.assetUrl,
+          artifact,
+          citation: artifact.citation,
+        }),
+      )
+    }
+    if (artifact.citation?.pageCitationAssetUrl) {
+      results.push(
+        toArtifactSanitizerResult({
+          assetUrl: artifact.citation.pageCitationAssetUrl,
           artifact,
           citation: artifact.citation,
         }),
@@ -555,10 +629,12 @@ function formatKnowhereQueryResponseForLog(
       response.evidenceText ?? "",
       KNOWHERE_RESPONSE_TEXT_LOG_LIMIT,
     ),
-    results: response.results.map(formatKnowhereResultChunkForLog),
-    referencedChunks: response.referencedChunks.map(
-      formatKnowhereReferencedChunkForLog,
-    ),
+    results: response.results
+      .slice(0, KNOWHERE_RESPONSE_LOG_ITEM_LIMIT)
+      .map(formatKnowhereResultChunkForLog),
+    referencedChunks: response.referencedChunks
+      .slice(0, KNOWHERE_RESPONSE_LOG_ITEM_LIMIT)
+      .map(formatKnowhereReferencedChunkForLog),
   }
 }
 
@@ -616,6 +692,7 @@ function getRetrievalNamespaces(input: AnswerQuestionInput): readonly string[] {
 function mergeRetrievalResponses(
   responses: readonly RetrievalQueryResponse[],
   retrievalPlan: AgenticRetrievalPlan,
+  evidenceLimits: AgenticMergedEvidenceLimits,
 ): AgenticRetrievalResponse {
   const [first] = responses
   if (!first) {
@@ -623,16 +700,27 @@ function mergeRetrievalResponses(
   }
 
   const statusResponses = getRetrievalStatusResponses(responses)
-  const results = responses.flatMap((response) => response.results)
-  const referencedChunks = responses.flatMap(
-    (response) => response.referencedChunks,
-  )
+  const results = responses
+    .flatMap((response) =>
+      response.results.slice(0, evidenceLimits.resultCountPerResponse),
+    )
+    .slice(0, evidenceLimits.resultCount)
+  const referencedChunks = responses
+    .flatMap((response) =>
+      response.referencedChunks.slice(
+        0,
+        evidenceLimits.referencedChunkCountPerResponse,
+      ),
+    )
+    .slice(0, evidenceLimits.referencedChunkCount)
   const evidenceTexts = responses
     .map((response) => response.evidenceText)
     .filter((value): value is string => Boolean(value))
+    .map(truncateAgenticModelText)
   const answerTexts = responses
     .map((response) => response.answerText)
     .filter((value): value is string => Boolean(value))
+    .map(truncateAgenticModelText)
 
   return {
     ...first,
@@ -653,6 +741,30 @@ function mergeRetrievalResponses(
     referencedChunks,
     retrievalPlan,
   }
+}
+
+function getAgenticMergedEvidenceLimits(input: {
+  readonly namespaceCount: number
+  readonly topK: number | undefined
+}): AgenticMergedEvidenceLimits {
+  const namespaceCount = Math.max(input.namespaceCount, 1)
+  const perResponseCount = normalizeTopK(input.topK)
+  const requestedCount = perResponseCount * namespaceCount
+  return {
+    resultCountPerResponse: perResponseCount,
+    referencedChunkCountPerResponse: perResponseCount,
+    resultCount: Math.min(requestedCount, MAX_AGENTIC_MERGED_RESULT_COUNT),
+    referencedChunkCount: Math.min(
+      requestedCount,
+      MAX_AGENTIC_MERGED_REFERENCED_CHUNK_COUNT,
+    ),
+  }
+}
+
+function truncateAgenticModelText(value: string): string {
+  const trimmed = value.trim()
+  if (trimmed.length <= MAX_AGENTIC_MERGED_TEXT_CHARS) return trimmed
+  return `${trimmed.slice(0, MAX_AGENTIC_MERGED_TEXT_CHARS)}\n...[truncated]`
 }
 
 function getRetrievalStatusResponses(
@@ -752,14 +864,12 @@ function normalizeTopK(value: number | undefined): number {
 
 /**
  * Display citations come from the agent-curated manifest (the refs it chose to
- * cite), resolved against the evidence ledger. Only when the agent cited
- * nothing do we fall back to the full set of retrieved results, so a grounded
- * answer still shows its sources instead of appearing unsupported.
+ * cite), resolved against the evidence ledger. If the manifest has no citations,
+ * only displayed artifacts produce citation chips; arbitrary retrieval results
+ * stay hidden so Notebook does not imply support from an unselected source.
  */
 function selectCitationRawResults(input: {
   readonly generatedAnswer: HarnessRunResult
-  readonly retrievalResponses: readonly RetrievalQueryResponse[]
-  readonly sources: readonly AnswerQuestionInput["sources"][number][]
 }): RetrievalResult[] {
   const curated = mapManifestCitationsToResults(input.generatedAnswer)
   if (curated.length > 0) return curated
@@ -767,7 +877,7 @@ function selectCitationRawResults(input: {
     input.generatedAnswer,
   )
   if (displayedArtifacts.length > 0) return displayedArtifacts
-  return collectRetrievalResults(input.retrievalResponses, input.sources)
+  return []
 }
 
 function mapManifestCitationsToResults(
@@ -787,7 +897,6 @@ function mapManifestCitationsToResults(
   )
 
   const results: RetrievalResult[] = []
-  const seenKeys = new Set<string>()
 
   for (const citation of result.manifest.citations) {
     const chunk =
@@ -795,22 +904,20 @@ function mapManifestCitationsToResults(
       resolveChunkForAssetRef(citation.ref, assetsByRef, chunksByRef)
     if (!chunk) continue
 
-    const retrievalResult: RetrievalResult = {
-      content: chunk.content,
-      chunkType: chunk.chunkType,
-      score: chunk.score,
-      ...(chunk.assetUrl ? { assetUrl: chunk.assetUrl } : {}),
-      source: {
-        documentId: chunk.source.documentId ?? undefined,
-        sourceFileName: chunk.source.sourceFileName ?? undefined,
-        sectionPath: chunk.source.sectionPath ?? undefined,
-      },
-    }
-    const key = getRetrievalResultKey(retrievalResult)
-    if (seenKeys.has(key)) continue
-
-    seenKeys.add(key)
-    results.push(retrievalResult)
+    const retrievalResult = toRetrievalResultFromEvidenceChunk(
+      mergeChunkPageMetadata(chunk, result.trace.ledger.chunks),
+    )
+    const highlightRegions = getHighlightRegionsForChunk(
+      chunk,
+      result.trace.imageHighlights,
+      chunksByRef,
+      assetsByRef,
+    )
+    const resultWithHighlights =
+      highlightRegions && highlightRegions.length > 0
+        ? { ...retrievalResult, highlightRegions }
+        : retrievalResult
+    results.push(resultWithHighlights as RetrievalResult)
     if (results.length >= MAX_CITATION_RESULTS) break
   }
 
@@ -825,6 +932,71 @@ function resolveChunkForAssetRef(
   const asset = assetsByRef.get(ref)
   if (!asset) return undefined
   return chunksByRef.get(asset.chunkRef)
+}
+
+function getHighlightRegionsForChunk(
+  chunk: EvidenceChunk,
+  imageHighlights: HarnessRunResult["trace"]["imageHighlights"],
+  chunksByRef: ReadonlyMap<string, EvidenceChunk>,
+  assetsByRef: ReadonlyMap<string, EvidenceAsset>,
+): ChatImageHighlightBox[] | undefined {
+  if (!imageHighlights || imageHighlights.length === 0) return undefined
+
+  const candidateRefs = new Set([chunk.ref])
+  const assetRef = resolveCitationImageAssetRef(
+    chunk,
+    chunksByRef,
+    assetsByRef,
+  )
+  if (assetRef) candidateRefs.add(assetRef)
+  const canonicalAssetKey = assetRef
+    ? getCanonicalCitationAssetKey(assetRef, chunksByRef, assetsByRef)
+    : null
+
+  for (const page of imageHighlights) {
+    const isDirectMatch = candidateRefs.has(page.ref)
+    const isCanonicalMatch =
+      canonicalAssetKey !== null &&
+      getCanonicalCitationAssetKey(page.ref, chunksByRef, assetsByRef) ===
+        canonicalAssetKey
+    if ((!isDirectMatch && !isCanonicalMatch) || page.regions.length === 0) {
+      continue
+    }
+    return [...page.regions]
+  }
+
+  return undefined
+}
+
+function resolveCitationImageAssetRef(
+  chunk: EvidenceChunk,
+  chunksByRef: ReadonlyMap<string, EvidenceChunk>,
+  assetsByRef: ReadonlyMap<string, EvidenceAsset>,
+): string | null {
+  if (chunk.assetRef && assetsByRef.get(chunk.assetRef)?.type === "image") {
+    return chunk.assetRef
+  }
+  if (!chunk.chunkId) return null
+
+  const sibling = Array.from(chunksByRef.values()).find(
+    (candidate) =>
+      candidate.ref !== chunk.ref &&
+      candidate.chunkId === chunk.chunkId &&
+      candidate.source.documentId === chunk.source.documentId &&
+      candidate.assetRef !== undefined &&
+      assetsByRef.get(candidate.assetRef)?.type === "image",
+  )
+  return sibling?.assetRef ?? null
+}
+
+function getCanonicalCitationAssetKey(
+  assetRef: string,
+  chunksByRef: ReadonlyMap<string, EvidenceChunk>,
+  assetsByRef: ReadonlyMap<string, EvidenceAsset>,
+): string {
+  const asset = assetsByRef.get(assetRef)
+  if (!asset) return assetRef
+  return getCanonicalImageAssetKey(asset, chunksByRef)
 }
 
 function mapDisplayedManifestArtifactsToResults(
@@ -860,7 +1032,9 @@ function mapDisplayedManifestArtifactsToResults(
           resolveChunkForAssetRef(sourceRef, assetsByRef, chunksByRef)
         if (!chunk) continue
 
-        const retrievalResult = toRetrievalResultFromEvidenceChunk(chunk)
+        const retrievalResult = toRetrievalResultFromEvidenceChunk(
+          mergeChunkPageMetadata(chunk, result.trace.ledger.chunks),
+        )
         const key = getRetrievalResultKey(retrievalResult)
         if (seenKeys.has(key)) continue
 
@@ -876,7 +1050,9 @@ function mapDisplayedManifestArtifactsToResults(
       resolveChunkForAssetRef(artifact.ref, assetsByRef, chunksByRef)
     if (!chunk) continue
 
-    const retrievalResult = toRetrievalResultFromEvidenceChunk(chunk)
+    const retrievalResult = toRetrievalResultFromEvidenceChunk(
+      mergeChunkPageMetadata(chunk, result.trace.ledger.chunks),
+    )
     const key = getRetrievalResultKey(retrievalResult)
     if (seenKeys.has(key)) continue
 
@@ -888,14 +1064,113 @@ function mapDisplayedManifestArtifactsToResults(
   return results
 }
 
+function mergeChunkPageMetadata(
+  chunk: EvidenceChunk,
+  ledgerChunks: readonly EvidenceChunk[],
+): EvidenceChunk {
+  if (hasResolvablePageNumber(chunk) || !chunk.chunkId) return chunk
+
+  const donor = ledgerChunks.find(
+    (candidate) =>
+      candidate.ref !== chunk.ref &&
+      candidate.chunkId === chunk.chunkId &&
+      hasResolvablePageNumber(candidate),
+  )
+  if (!donor?.metadata) return chunk
+
+  return {
+    ...chunk,
+    metadata: { ...donor.metadata, ...chunk.metadata },
+  }
+}
+
+async function hydrateMissingCitationPageMetadata(input: {
+  readonly results: readonly RetrievalResult[]
+  readonly ledgerChunks: readonly EvidenceChunk[]
+  readonly knowledge: AnswerQuestionInput["knowledge"]
+}): Promise<RetrievalResult[]> {
+  const results = input.results.map((result) => {
+    const donor = input.ledgerChunks.find(
+      (chunk) =>
+        Boolean(result.chunkId) &&
+        chunk.chunkId === result.chunkId &&
+        hasResolvablePageNumber(chunk),
+    )
+    if (!donor?.metadata || resolvePageCitationPageNumber(result)) {
+      return result
+    }
+    return {
+      ...result,
+      metadata: { ...donor.metadata, ...result.metadata },
+    }
+  })
+
+  const knowledge = input.knowledge
+  if (!knowledge) return results
+
+  return Promise.all(
+    results.map((result) =>
+      hydrateResultPageMetadataFromKnowledge(result, knowledge),
+    ),
+  )
+}
+
+async function hydrateResultPageMetadataFromKnowledge(
+  result: RetrievalResult,
+  knowledge: NonNullable<AnswerQuestionInput["knowledge"]>,
+): Promise<RetrievalResult> {
+  if (resolvePageCitationPageNumber(result)) return result
+  const documentId = result.source.documentId
+  const chunkId = result.chunkId
+  if (!documentId || !chunkId) return result
+
+  try {
+    const response = await knowledge.readChunks({ documentId, chunkId })
+    const chunk = response.chunks[0]
+    if (!chunk) return result
+    return {
+      ...result,
+      metadata: {
+        ...(chunk.metadata ?? {}),
+        ...(chunk.pageNumbers && chunk.pageNumbers.length > 0
+          ? { pageNums: chunk.pageNumbers }
+          : {}),
+        ...result.metadata,
+      },
+    }
+  } catch {
+    return result
+  }
+}
+
+function hasResolvablePageNumber(chunk: EvidenceChunk): boolean {
+  return (
+    resolvePageCitationPageNumber({
+      content: chunk.content,
+      chunkType: chunk.chunkType,
+      score: chunk.score,
+      metadata: chunk.metadata,
+      source: {
+        documentId: chunk.source.documentId ?? undefined,
+        sourceFileName: chunk.source.sourceFileName ?? undefined,
+        sectionPath: chunk.source.sectionPath ?? undefined,
+      },
+    }) !== undefined
+  )
+}
+
 function toRetrievalResultFromEvidenceChunk(
   chunk: EvidenceChunk,
 ): RetrievalResult {
   return {
+    ...(chunk.chunkId ? { chunkId: chunk.chunkId } : {}),
     content: chunk.content,
     chunkType: chunk.chunkType,
     score: chunk.score,
     ...(chunk.assetUrl ? { assetUrl: chunk.assetUrl } : {}),
+    ...(chunk.sourceChunkPath ? { sourceChunkPath: chunk.sourceChunkPath } : {}),
+    ...(chunk.filePath ? { filePath: chunk.filePath } : {}),
+    ...(chunk.metadata ? { metadata: chunk.metadata } : {}),
     source: {
       documentId: chunk.source.documentId ?? undefined,
       sourceFileName: chunk.source.sourceFileName ?? undefined,
@@ -906,45 +1181,6 @@ function toRetrievalResultFromEvidenceChunk(
 
 function hasDisplayedManifestArtifacts(result: HarnessRunResult): boolean {
   return result.manifest.artifacts.some((artifact) => artifact.display)
-}
-
-function collectRetrievalResults(
-  responses: readonly RetrievalQueryResponse[],
-  sources: readonly AnswerQuestionInput["sources"][number][],
-): RetrievalResult[] {
-  const results: RetrievalResult[] = []
-  const seenKeys = new Set<string>()
-  const sourceTitlesByDocumentId = new Map(
-    sources.flatMap((source): readonly [string, string][] =>
-      source.knowhereDocumentId ? [[source.knowhereDocumentId, source.title]] : [],
-    ),
-  )
-
-  for (const response of responses) {
-    for (const result of [
-      ...response.results,
-      ...response.referencedChunks.map((chunk): RetrievalResult => ({
-        content: "",
-        chunkType: chunk.chunkType,
-        score: null,
-        ...(chunk.assetUrl ? { assetUrl: chunk.assetUrl } : {}),
-        source: {
-          documentId: chunk.documentId,
-          sourceFileName: sourceTitlesByDocumentId.get(chunk.documentId),
-          sectionPath: chunk.sectionPath,
-        },
-      })),
-    ]) {
-      const key = getRetrievalResultKey(result)
-      if (seenKeys.has(key)) continue
-
-      seenKeys.add(key)
-      results.push(result)
-      if (results.length >= MAX_CITATION_RESULTS) return results
-    }
-  }
-
-  return results
 }
 
 function formatRetrievalEvidenceText(

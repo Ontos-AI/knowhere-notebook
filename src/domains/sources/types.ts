@@ -16,6 +16,18 @@ export type SourceOfficialLibraryView = {
   readonly sourceUrl: string
 }
 
+export type SourceDocumentPresentation =
+  | { readonly kind: "parsed-chunks" }
+  | { readonly kind: "page-assets"; readonly pageCount: number }
+
+export type SourcePageAssetView = {
+  readonly pageNumber: number
+  readonly assetUrl: string
+  readonly contentType: string
+  readonly width?: number
+  readonly height?: number
+}
+
 export type OfficialLibrarySourceView = {
   readonly librarySourceId: string
   readonly categoryId: string
@@ -48,8 +60,13 @@ export type SourceView = {
   readonly originalFile?: SourceOriginalFileView
   /** Official Library metadata when this row is an API-owned catalog item. */
   readonly officialLibrary?: SourceOfficialLibraryView
-  /** Count from the Knowhere chunks API, not a local aggregate. */
+  /** Count from the Notebook parsed snapshot manifest when available. */
   readonly chunkCount?: number
+  /**
+   * Preferred source content presentation. Missing values are treated as
+   * parsed chunks so older views and cached responses remain compatible.
+   */
+  readonly documentPresentation?: SourceDocumentPresentation
   /** User opt-out for this query session. Drives excludeDocumentIds. */
   readonly excludedFromQuery?: boolean
 }

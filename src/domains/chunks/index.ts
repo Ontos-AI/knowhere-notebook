@@ -1,5 +1,5 @@
 import { Effect } from "effect"
-import type { DocumentChunk } from "@ontos-ai/knowhere-sdk"
+import type { DocumentChunk, KnowledgeReadChunk } from "@ontos-ai/knowhere-sdk"
 
 import { parsedChunkNormalization } from "./normalization"
 import type { Source } from "@/infrastructure/db/schema"
@@ -17,6 +17,7 @@ export type ChunkKnowhereClient = {
       params: {
         page: number
         pageSize: number
+        chunkType?: "text" | "image" | "table" | "page"
         includeAssetUrls: boolean
       },
     ): Promise<{
@@ -39,9 +40,12 @@ export type LoadChunksOptions = {
   assetUrlsByFilePath?: Readonly<Record<string, string>>
 }
 
+export type ChunkReadType = "text" | "image" | "table" | "page"
+
 export type ChunkPageParams = {
   page: number
   pageSize: number
+  chunkType?: ChunkReadType
 }
 
 export type ChunkPagePagination = {
@@ -59,6 +63,7 @@ export type ChunkPage = {
 export function getChunkPageParams(
   searchParams: URLSearchParams,
 ): ChunkPageParams {
+  const chunkType = parseChunkReadType(searchParams.get("chunkType"))
   return {
     page: normalizePositiveInteger(searchParams.get("page"), 1),
     pageSize: normalizePageSize(
@@ -67,7 +72,15 @@ export function getChunkPageParams(
         defaultChunkPageSize,
       ),
     ),
+    ...(chunkType ? { chunkType } : {}),
   }
+}
+
+function parseChunkReadType(value: string | null): ChunkReadType | undefined {
+  if (value === "text" || value === "image" || value === "table" || value === "page") {
+    return value
+  }
+  return undefined
 }
 
 export const loadChunksForSource = (
@@ -129,6 +142,7 @@ export const loadChunkPageForSource = (
       client.documents.listChunks(source.knowhereDocumentId!, {
         page: params.page,
         pageSize: params.pageSize,
+        ...(params.chunkType ? { chunkType: params.chunkType } : {}),
         includeAssetUrls: true,
       }),
     )
@@ -175,6 +189,35 @@ export function toParsedChunkView(
     ],
     assetUrl: chunk.assetUrl,
     assetUrlsByFilePath: options.assetUrlsByFilePath,
+    sourceTitle,
+  })
+}
+
+/**
+ * Map an SDK `KnowledgeReadChunk` (from `knowledge.readChunks`) to the view
+ * model. Display reads request durable asset URLs from the SDK; chat still
+ * hardens only the specific assets it returns separately.
+ */
+export function toParsedChunkViewFromReadChunk(
+  chunk: KnowledgeReadChunk,
+  sourceTitle: string,
+  documentId?: string,
+): ParsedChunkView {
+  return parsedChunkNormalization.createParsedChunkView({
+    chunkId: chunk.chunkId,
+    documentId,
+    parserChunkId: chunk.chunkId,
+    sectionPath: chunk.sectionPath,
+    chunkType: chunk.chunkType,
+    contentSource: chunk.contentSource,
+    content: chunk.content,
+    metadata: chunk.metadata,
+    filePathCandidates: [
+      chunk.filePath,
+      chunk.metadata["filePath"],
+      chunk.metadata["file_path"],
+    ],
+    assetUrl: chunk.assetUrl,
     sourceTitle,
   })
 }

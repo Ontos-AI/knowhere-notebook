@@ -207,6 +207,7 @@ describe("chatRepository", () => {
               chunkType: "text",
               score: 0.99,
               assetUrl: "https://assets.example/doc.pdf",
+              pageCitationAssetUrl: "https://assets.example/page-4.png",
               description: "intro",
               source: {
                 documentId: "doc_1",
@@ -225,6 +226,7 @@ describe("chatRepository", () => {
         chunkType: "text",
         score: 0.99,
         assetUrl: "https://assets.example/doc.pdf",
+        pageCitationAssetUrl: "https://assets.example/page-4.png",
         description: "intro",
         source: {
           documentId: "doc_1",

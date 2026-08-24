@@ -53,7 +53,8 @@ function getInitialSelectedSourceId(
   if (preferredDocumentId) {
     const preferredSource = sources.find(
       (source) =>
-        source.documentId === preferredDocumentId && isReadySource(source),
+        source.documentId === preferredDocumentId &&
+        isReadyVisibleSource(source),
     )
     if (preferredSource) return preferredSource.id
   }
@@ -62,23 +63,43 @@ function getInitialSelectedSourceId(
 }
 
 function getFirstReadySourceId(sources: readonly SourceView[]): string | null {
-  return sources.find(isReadySource)?.id ?? null
+  return sources.find(isReadyVisibleSource)?.id ?? null
 }
 
 function getResolvedSelectedSourceId(
   sources: readonly SourceView[],
   selectedSourceId: string | null,
 ): string | null {
+  if (!selectedSourceId) return getFirstReadySourceId(sources)
+
   const selectedSource = sources.find((source) => source.id === selectedSourceId)
-  if (selectedSource && isReadySource(selectedSource)) {
+  if (selectedSource) {
     return selectedSource.id
   }
 
-  return getFirstReadySourceId(sources)
+  const selectedDocumentId = getRemoteSourceDocumentId(selectedSourceId)
+  if (selectedDocumentId) {
+    const localizedSource = sources.find(
+      (source) =>
+        source.documentId === selectedDocumentId &&
+        isReadyVisibleSource(source),
+    )
+    if (localizedSource) return localizedSource.id
+  }
+
+  return null
 }
 
 function isReadySource(source: SourceView): boolean {
   return source.status === "ready"
+}
+
+function isReadyVisibleSource(source: SourceView): boolean {
+  return isReadySource(source) && isVisibleSource(source)
+}
+
+function isVisibleSource(source: SourceView): boolean {
+  return source.officialLibrary === undefined
 }
 
 function applyQueryExclusions(
@@ -132,6 +153,20 @@ function removeRecordKey<T>(
     if (recordKey !== key) remaining[recordKey] = value
   })
   return remaining
+}
+
+function getRemoteSourceDocumentId(sourceId: string | null): string | null {
+  if (!sourceId) return null
+
+  const parts = sourceId.split(":")
+  if (parts.length !== 3 || parts[0] !== "knowhere-doc") return null
+
+  try {
+    const documentId = decodeURIComponent(parts[2] ?? "")
+    return documentId.length > 0 ? documentId : null
+  } catch {
+    return null
+  }
 }
 
 export const workspaceSourceState: WorkspaceSourceStateModule = {

@@ -39,7 +39,7 @@ describe("useWorkspaceSelectedChunks", () => {
     });
   });
 
-  it("returns prefetched chunks while checking the visible page for media", async () => {
+  it("returns prefetched chunks while loading the visible chunk page", async () => {
     const { result } = renderHook(
       () =>
         useWorkspaceSelectedChunks({
@@ -127,6 +127,218 @@ describe("useWorkspaceSelectedChunks", () => {
       chunkId: "image_1",
       assetUrl: "https://blob.example/chunk-assets/image-1.png",
     });
+  });
+
+  it("treats a processing chunk page as a loading state", async () => {
+    fetchChunkPageMock.mockResolvedValue({
+      chunks: [],
+      isProcessing: true,
+      message: "Source parsed snapshot is still being prepared.",
+      pagination: {
+        page: 1,
+        pageSize: 50,
+        total: 0,
+        totalPages: 0,
+      },
+    });
+
+    const { result } = renderHook(
+      () =>
+        useWorkspaceSelectedChunks({
+          selectedSourceId: "source_1",
+          sources: [readySource],
+          prefetchedChunksBySourceId: {},
+        }),
+      { wrapper: createSWRWrapper },
+    );
+
+    await waitFor(() =>
+      expect(result.current.selectedChunksMessage).toBe(
+        "Source parsed snapshot is still being prepared.",
+      ),
+    );
+    expect(result.current.isSelectedChunksLoading).toBe(true);
+    expect(result.current.selectedChunks).toEqual([]);
+  });
+
+  it("surfaces unavailable chunk messages without a loading state", async () => {
+    fetchChunkPageMock.mockResolvedValue({
+      chunks: [],
+      isUnavailable: true,
+      message:
+        "Source is unavailable. The parsed document is not available locally and could not be loaded from Knowhere.",
+      pagination: {
+        page: 1,
+        pageSize: 50,
+        total: 0,
+        totalPages: 0,
+      },
+    });
+
+    const { result } = renderHook(
+      () =>
+        useWorkspaceSelectedChunks({
+          selectedSourceId: "source_1",
+          sources: [readySource],
+          prefetchedChunksBySourceId: {},
+        }),
+      { wrapper: createSWRWrapper },
+    );
+
+    await waitFor(() =>
+      expect(result.current.selectedChunksMessage).toBe(
+        "Source is unavailable. The parsed document is not available locally and could not be loaded from Knowhere.",
+      ),
+    );
+    expect(result.current.isSelectedChunksLoading).toBe(false);
+    expect(result.current.selectedChunks).toEqual([]);
+  });
+
+  it("loads chunk pages for page-asset sources", async () => {
+    const pageAssetSource: SourceView = {
+      ...readySource,
+      documentPresentation: { kind: "page-assets", pageCount: 4 },
+    };
+    fetchChunkPageMock.mockResolvedValue({
+      chunks: [
+        {
+          chunkId: "page_1",
+          type: "page",
+          content: "Page summary",
+          sourceTitle: "lecture.pdf",
+          pageAssets: [
+            {
+              pageNumber: 1,
+              assetUrl: "https://blob.example/page-1.png",
+              contentType: "image/png",
+            },
+          ],
+        },
+      ],
+      pagination: {
+        page: 1,
+        pageSize: 50,
+        total: 1,
+        totalPages: 1,
+      },
+    });
+
+    const { result } = renderHook(
+      () =>
+        useWorkspaceSelectedChunks({
+          selectedSourceId: "source_1",
+          sources: [pageAssetSource],
+          prefetchedChunksBySourceId: {},
+        }),
+      { wrapper: createSWRWrapper },
+    );
+
+    await waitFor(() =>
+      expect(result.current.selectedChunks.map((chunk) => chunk.chunkId)).toEqual([
+        "page_1",
+      ]),
+    );
+    expect(result.current.isSelectedChunksLoading).toBe(false);
+    expect(fetchChunkPageMock).toHaveBeenCalledWith("source_1", 1, {
+      chunkType: "page",
+    });
+  });
+
+  it("detects page assets from selected source chunks without a second request", async () => {
+    fetchChunkPageMock.mockResolvedValue({
+      chunks: [
+        {
+          chunkId: "page_1",
+          type: "page",
+          content: "Page summary",
+          sourceTitle: "lecture.pdf",
+          pageAssets: [
+            {
+              pageNumber: 1,
+              assetUrl: "https://blob.example/page-1.png",
+              contentType: "image/png",
+            },
+            {
+              pageNumber: 20,
+              assetUrl: "https://blob.example/page-20.png",
+              contentType: "image/png",
+            },
+          ],
+        },
+      ],
+      pagination: {
+        page: 1,
+        pageSize: 50,
+        total: 1,
+        totalPages: 1,
+      },
+    });
+
+    const { result } = renderHook(
+      () =>
+        useWorkspaceSelectedChunks({
+          selectedSourceId: "source_1",
+          sources: [readySource],
+          prefetchedChunksBySourceId: {},
+        }),
+      { wrapper: createSWRWrapper },
+    );
+
+    await waitFor(() =>
+      expect(result.current.selectedSource?.documentPresentation).toEqual({
+        kind: "page-assets",
+        pageCount: 20,
+      }),
+    );
+    expect(result.current.selectedChunks.map((chunk) => chunk.chunkId)).toEqual([
+      "page_1",
+    ]);
+    expect(fetchChunkPageMock).toHaveBeenCalledWith("source_1", 1);
+  });
+
+  it("loads an unlocalized remote source without requesting a source refresh", async () => {
+    const remoteSource: SourceView = {
+      ...readySource,
+      id: "knowhere-doc:default:doc_remote",
+      kind: "remote",
+      documentId: "doc_remote",
+      excludedFromQuery: false,
+    };
+    fetchChunkPageMock.mockResolvedValue({
+      chunks: [
+        {
+          chunkId: "chunk_1",
+          type: "text",
+          content: "Remote content",
+          sourceTitle: "Remote.pdf",
+        },
+      ],
+      pagination: {
+        page: 1,
+        pageSize: 50,
+        total: 1,
+        totalPages: 1,
+      },
+    });
+
+    const { result } = renderHook(
+      () =>
+        useWorkspaceSelectedChunks({
+          selectedSourceId: "knowhere-doc:default:doc_remote",
+          sources: [remoteSource],
+          prefetchedChunksBySourceId: {},
+        }),
+      { wrapper: createSWRWrapper },
+    );
+
+    await waitFor(() =>
+      expect(result.current.selectedChunks.map((chunk) => chunk.chunkId)).toEqual([
+        "chunk_1",
+      ]),
+    );
+    expect(result.current.selectedSource?.id).toBe(
+      "knowhere-doc:default:doc_remote",
+    );
   });
 
   it("returns an empty chunk list when no source is selected", () => {

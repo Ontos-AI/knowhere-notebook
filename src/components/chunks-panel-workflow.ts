@@ -26,6 +26,8 @@ type ChunksPanelWorkflowInput = {
   readonly selectedSourceFile: SourceOriginalFileView | null
   readonly focusedChunkId: string | null
   readonly focusedChunkRequestId: number
+  readonly focusedPageNumber?: number | null
+  readonly focusedPageRequestId?: number
   readonly hasMoreChunks: boolean
   readonly isLoading: boolean
   readonly isLoadingMore: boolean
@@ -67,6 +69,8 @@ export function useChunksPanelWorkflow({
   selectedSourceFile,
   focusedChunkId,
   focusedChunkRequestId,
+  focusedPageNumber = null,
+  focusedPageRequestId = 0,
   hasMoreChunks,
   isLoading,
   isLoadingMore,
@@ -95,8 +99,13 @@ export function useChunksPanelWorkflow({
   const hasOriginalFile = selectedSource !== null && selectedSourceFile !== null
   const visibleView = hasOriginalView ? activeView : "parsed"
   const visibleChunks = useMemo(
-    () => chunksPanelState.getChunksWithFocusedFirst(chunks, activeFocusedChunkId),
-    [activeFocusedChunkId, chunks],
+    () =>
+      chunksPanelState.getChunksWithFocusedFirst(
+        chunks,
+        activeFocusedChunkId,
+        focusedPageNumber,
+      ),
+    [activeFocusedChunkId, chunks, focusedPageNumber],
   )
   const getVirtualChunkKey = useCallback(
     (index: number): string | number => visibleChunks[index]?.chunkId ?? index,
@@ -149,7 +158,7 @@ export function useChunksPanelWorkflow({
   )
 
   const scrollToFocusedChunk = useCallback((): void => {
-    if (!activeFocusedChunkId) return
+    if (!activeFocusedChunkId && focusedPageNumber === null) return
 
     chunkVirtualizer.scrollToOffset(0, {
       align: "start",
@@ -161,7 +170,7 @@ export function useChunksPanelWorkflow({
         behavior: "smooth",
       })
     })
-  }, [activeFocusedChunkId, chunkVirtualizer])
+  }, [activeFocusedChunkId, chunkVirtualizer, focusedPageNumber])
 
   const measureVirtualChunkElement = useCallback(
     (node: HTMLDivElement | null): void => {
@@ -216,12 +225,18 @@ export function useChunksPanelWorkflow({
   }, [requestMoreChunksIfNeeded, totalHeight, visibleChunks.length])
 
   useEffect(() => {
-    if (!activeFocusedChunkId) {
+    if (!activeFocusedChunkId && focusedPageNumber === null) {
       return
     }
 
     scrollToFocusedChunk()
-  }, [activeFocusedChunkId, activeFocusedChunkRequestId, scrollToFocusedChunk])
+  }, [
+    activeFocusedChunkId,
+    activeFocusedChunkRequestId,
+    focusedPageNumber,
+    focusedPageRequestId,
+    scrollToFocusedChunk,
+  ])
 
   useEffect(() => {
     if (!hasOriginalView) setActiveView("parsed")

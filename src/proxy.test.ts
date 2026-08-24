@@ -6,10 +6,12 @@ import { proxy } from "./proxy";
 describe("proxy", () => {
   const originalDashboardOrigin = process.env.DASHBOARD_ORIGIN;
   const originalKnowhereApiKey = process.env.KNOWHERE_API_KEY;
+  const originalSessionCookieNames = process.env.SESSION_COOKIE_NAMES;
 
   beforeEach(() => {
     delete process.env.DASHBOARD_ORIGIN;
     delete process.env.KNOWHERE_API_KEY;
+    delete process.env.SESSION_COOKIE_NAMES;
   });
 
   afterEach(() => {
@@ -22,6 +24,11 @@ describe("proxy", () => {
       delete process.env.KNOWHERE_API_KEY;
     } else {
       process.env.KNOWHERE_API_KEY = originalKnowhereApiKey;
+    }
+    if (originalSessionCookieNames === undefined) {
+      delete process.env.SESSION_COOKIE_NAMES;
+    } else {
+      process.env.SESSION_COOKIE_NAMES = originalSessionCookieNames;
     }
   });
 
@@ -63,6 +70,16 @@ describe("proxy", () => {
     );
   });
 
+  it("allows anonymous parsed-sync workflow callbacks", () => {
+    const response = proxy(
+      new NextRequest("http://localhost:3001/api/sources/parsed-sync", {
+        method: "POST",
+      }),
+    );
+
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+  });
+
   it("allows protected app routes without a session when KNOWHERE_API_KEY is configured", () => {
     process.env.KNOWHERE_API_KEY = "sk_dev_key";
 
@@ -73,5 +90,31 @@ describe("proxy", () => {
     );
 
     expect(response.headers.get("x-middleware-next")).toBe("1");
+  });
+
+  it("recognizes Dashboard session tokens with an environment prefix", () => {
+    const response = proxy(
+      new NextRequest("http://localhost:3001/inspect/doc-1/chunks", {
+        headers: {
+          cookie: "__Secure-better-auth-staging-session_token=token",
+        },
+      }),
+    );
+
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+  });
+
+  it("does not mistake Better Auth session data for a session token", () => {
+    const response = proxy(
+      new NextRequest("http://localhost:3001/inspect/doc-1/chunks", {
+        headers: {
+          cookie: "__Secure-better-auth-staging-session_data=data",
+        },
+      }),
+    );
+
+    expect(response.headers.get("location")).toBe(
+      "http://localhost:3001/login",
+    );
   });
 });

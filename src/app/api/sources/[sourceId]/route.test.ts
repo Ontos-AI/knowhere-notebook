@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => {
     ensureWorkspace: vi.fn(),
     fetchDemoCatalog: vi.fn(),
     findSourceInWorkspace: vi.fn(),
+    findByKnowhereDocumentId: vi.fn(),
     getCurrentUser: vi.fn(),
     hideDemoSource: vi.fn(),
     makeKnowhereClient: vi.fn(),
@@ -55,6 +56,7 @@ vi.mock("@/domains/sources/background-reconcile", () => ({
 vi.mock("@/domains/sources/service", () => ({
   sourceService: {
     findInWorkspace: mocks.findSourceInWorkspace,
+    findByKnowhereDocumentId: mocks.findByKnowhereDocumentId,
     hideDemoSource: mocks.hideDemoSource,
     retrySourceToKnowhere: mocks.retrySourceToKnowhere,
     softDelete: mocks.softDeleteSource,
@@ -116,11 +118,17 @@ describe("PATCH /api/sources/[sourceId]", () => {
     );
   });
 
-  it("rejects archive requests for unlocalized remote source ids", async () => {
+  it("archives unlocalized remote Knowhere documents", async () => {
     mocks.requireUser.mockResolvedValue({ id: "user_1" });
     mocks.ensureWorkspace.mockResolvedValue({ id: "workspace_1" });
     mocks.findSourceInWorkspace.mockResolvedValue(null);
+    mocks.findByKnowhereDocumentId.mockResolvedValue(null);
     mocks.fetchDemoCatalog.mockResolvedValue({ sources: [] });
+    mocks.ensureApiKeyForWorkspace.mockResolvedValue("jwt_123");
+    mocks.makeKnowhereClient.mockReturnValue({
+      documents: { archive: mocks.archive },
+    });
+    mocks.archive.mockResolvedValue(undefined);
 
     const response = await PATCH(
       new NextRequest(
@@ -138,16 +146,69 @@ describe("PATCH /api/sources/[sourceId]", () => {
     );
 
     await expect(response.json()).resolves.toEqual({
-      message: "Source not found.",
+      id: "knowhere-doc:default:doc_remote",
+      archived: true,
     });
-    expect(response.status).toBe(404);
+    expect(response.status).toBe(200);
     expect(mocks.findSourceInWorkspace).toHaveBeenCalledWith(
       "workspace_1",
       "knowhere-doc:default:doc_remote",
     );
-    expect(mocks.archive).not.toHaveBeenCalled();
+    expect(mocks.archive).toHaveBeenCalledWith("doc_remote");
+    expect(mocks.findByKnowhereDocumentId).toHaveBeenCalledWith(
+      "workspace_1",
+      "doc_remote",
+    );
     expect(mocks.softDeleteSource).not.toHaveBeenCalled();
     expect(mocks.deleteBlob).not.toHaveBeenCalled();
+  });
+
+  it("soft-deletes a matching local row when archiving a remote source id", async () => {
+    mocks.requireUser.mockResolvedValue({ id: "user_1" });
+    mocks.ensureWorkspace.mockResolvedValue({ id: "workspace_1" });
+    mocks.findSourceInWorkspace.mockResolvedValue(null);
+    mocks.findByKnowhereDocumentId.mockResolvedValue({
+      id: "source_1",
+      knowhereDocumentId: "doc_remote",
+      originalBlobPathname: "source-uploads/upload_1/document.pdf",
+      demoKey: null,
+    });
+    mocks.fetchDemoCatalog.mockResolvedValue({ sources: [] });
+    mocks.ensureApiKeyForWorkspace.mockResolvedValue("jwt_123");
+    mocks.makeKnowhereClient.mockReturnValue({
+      documents: { archive: mocks.archive },
+    });
+    mocks.archive.mockResolvedValue(undefined);
+    mocks.softDeleteSource.mockResolvedValue(true);
+
+    const response = await PATCH(
+      new NextRequest(
+        "http://localhost:3001/api/sources/knowhere-doc:default:doc_remote",
+        {
+          method: "PATCH",
+          body: JSON.stringify({ archived: true }),
+        },
+      ),
+      {
+        params: Promise.resolve({
+          sourceId: "knowhere-doc:default:doc_remote",
+        }),
+      },
+    );
+
+    await expect(response.json()).resolves.toEqual({
+      id: "knowhere-doc:default:doc_remote",
+      archived: true,
+    });
+    expect(response.status).toBe(200);
+    expect(mocks.archive).toHaveBeenCalledWith("doc_remote");
+    expect(mocks.softDeleteSource).toHaveBeenCalledWith(
+      "workspace_1",
+      "source_1",
+    );
+    expect(mocks.deleteBlob).toHaveBeenCalledWith(
+      "source-uploads/upload_1/document.pdf",
+    );
   });
 
   it("does not fail an already-soft-deleted source when original Blob cleanup fails", async () => {

@@ -48,7 +48,7 @@ describe("handleChatTurn", () => {
           {
             role: "assistant",
             content: "Grounded answer.",
-            citations: [makeRetrievalResult()],
+            citations: undefined,
           },
         ],
       });
@@ -67,6 +67,7 @@ describe("handleChatTurn", () => {
       sources,
       excludedSourceIds: ["source_excluded"],
       searchSources: expect.any(Function),
+      knowhereTools: expect.any(Object),
     });
     expect(repository.appendMessageToThread).toHaveBeenNthCalledWith(1, "workspace_1", {
       threadId: "thread_1",
@@ -77,7 +78,7 @@ describe("handleChatTurn", () => {
       threadId: "thread_1",
       role: "assistant",
       content: "Grounded answer.",
-      citations: [makeRetrievalResult()],
+      citations: [],
       artifacts: [],
     });
   });
@@ -216,6 +217,7 @@ describe("handleChatTurn", () => {
       sources,
       excludedSourceIds: [],
       searchSources: expect.any(Function),
+      knowhereTools: expect.any(Object),
     });
     expect(retrieval.query).toHaveBeenCalledWith({
       namespace: "notebook-namespace",
@@ -270,6 +272,7 @@ function makeSource(overrides: Partial<Source> = {}): Source {
     sizeBytes: 100,
     status: "ready",
     failureReason: null,
+    failureStage: null,
     knowhereJobId: "job_123",
     knowhereDocumentId: "doc_included",
     stagedBlobPathname: null,
@@ -347,6 +350,7 @@ function makeHarnessRunResult(text: string): HarnessRunResult {
       finalized: true,
       priorTurnReads: [],
       toolCalls: [],
+      imageHighlights: [],
       validationErrors: [],
       revisionsUsed: 0,
     },

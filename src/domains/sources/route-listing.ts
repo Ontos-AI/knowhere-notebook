@@ -3,7 +3,7 @@ import { Effect } from "effect"
 import { demoView } from "@/domains/demo/view"
 import {
   getMaterializedDemoSourceViewOptionsBySourceId,
-  getWorkspaceSourcesNeedingKnowhereChunkCount,
+  getWorkspaceSourcesNeedingChunkCount,
   resolveWorkspaceDemoSources,
 } from "@/domains/demo/workspace-source-resolution"
 import { routeResult } from "@/lib/route-result"
@@ -96,8 +96,8 @@ const listSourcesEffect = (
       client,
       localSources: demoSourceResolution.workspaceSources,
     })
-    const sourcesNeedingKnowhereChunkCount =
-      getWorkspaceSourcesNeedingKnowhereChunkCount(workspaceSources)
+    const sourcesNeedingChunkCount =
+      getWorkspaceSourcesNeedingChunkCount(workspaceSources)
     const materializedDemoSourceOptions =
       getMaterializedDemoSourceViewOptionsBySourceId(workspaceSources, catalog)
     yield* Effect.sync(() =>
@@ -111,8 +111,11 @@ const listSourcesEffect = (
       }),
     )
     const sourceOptions = yield* deps.getSourceViewOptionsBySourceId(
-      sourcesNeedingKnowhereChunkCount,
+      sourcesNeedingChunkCount,
       client,
+      {
+        documentPresentationDetection: "disabled",
+      },
     )
     const hiddenDemoSourceIds = new Set(
       yield* Effect.tryPromise(() =>

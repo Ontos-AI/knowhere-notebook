@@ -7,7 +7,7 @@ import type { ParsedChunkView } from "@/domains/chunks/types"
 import { demoView } from "@/domains/demo/view"
 import {
   getMaterializedDemoSourceViewOptionsBySourceId,
-  getWorkspaceSourcesNeedingKnowhereChunkCount,
+  getWorkspaceSourcesNeedingChunkCount,
   resolveWorkspaceDemoSources,
 } from "@/domains/demo/workspace-source-resolution"
 import { chatThreadService } from "@/domains/chat/thread-service"
@@ -149,6 +149,7 @@ type WorkspaceShellInitialStateDependencies = {
   readonly sourceViewOptionsBySourceId: (
     sources: readonly Source[],
     client: WorkspaceShellInitialStateClient,
+    options?: Parameters<typeof getSourceViewOptionsBySourceId>[2],
   ) => ReturnType<typeof getSourceViewOptionsBySourceId>
 }
 
@@ -331,8 +332,8 @@ export const loadWorkspaceShellInitialStateEffect = (
         localSources: demoSourceResolution.workspaceSources,
       }),
     )
-    const sourcesNeedingKnowhereChunkCount =
-      getWorkspaceSourcesNeedingKnowhereChunkCount(workspaceSources)
+    const sourcesNeedingChunkCount =
+      getWorkspaceSourcesNeedingChunkCount(workspaceSources)
     const materializedDemoSourceOptions =
       getMaterializedDemoSourceViewOptionsBySourceId(
         workspaceSources,
@@ -354,8 +355,11 @@ export const loadWorkspaceShellInitialStateEffect = (
         operation: "sourceViewOptionsBySourceId",
       },
       deps.sourceViewOptionsBySourceId(
-        sourcesNeedingKnowhereChunkCount,
+        sourcesNeedingChunkCount,
         client,
+        {
+          documentPresentationDetection: "disabled",
+        },
       ),
     )
 

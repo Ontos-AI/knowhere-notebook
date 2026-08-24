@@ -145,7 +145,7 @@ describeIfDb("workspace helpers — integration", () => {
       markSourceReady: sourceWorkflowRuntime.markReady,
       markSourceFailed: sourceWorkflowRuntime.markFailed,
       saveSourceParseResult: sourceWorkflowRuntime.saveParseResult,
-      getParseAssetUrls: sourceService.getParseAssetUrls,
+      getParseAssetUrls: sourceWorkflowRuntime.getParseAssetUrls,
       hideDemoSource: sourceService.hideDemoSource,
       listHiddenDemoSourceIds: sourceService.listHiddenDemoSourceIds,
       upsertMaterializedDemoSource:
@@ -331,6 +331,7 @@ describeIfDb("workspace helpers — integration", () => {
           chunkType: "text",
           score: 0.91,
           assetUrl: "https://assets.example/doc.pdf",
+          pageCitationAssetUrl: "https://assets.example/page-4.png",
           description: "intro summary",
           source: {
             documentId: "doc_123",
@@ -353,6 +354,7 @@ describeIfDb("workspace helpers — integration", () => {
       chunkType: "text",
       score: 0.91,
       assetUrl: "https://assets.example/doc.pdf",
+      pageCitationAssetUrl: "https://assets.example/page-4.png",
       description: "intro summary",
       source: {
         documentId: "doc_123",

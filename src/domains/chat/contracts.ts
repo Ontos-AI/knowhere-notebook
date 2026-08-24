@@ -1,16 +1,22 @@
 import type {
+  Knowledge,
   RetrievalQueryParams,
   RetrievalQueryResponse,
 } from "@ontos-ai/knowhere-sdk"
 
 import type { Source } from "@/infrastructure/db/schema"
-import type { HarnessRunResult } from "@/agent-harness"
+import type {
+  HarnessRunResult,
+  InspectImages,
+  KnowhereToolRuntime,
+} from "@/agent-harness"
 import type {
   ChatArtifactView,
   ChatCitationView,
 } from "@/domains/chat/types"
 import type { HardenMediaAssetUrls } from "./media-asset-hardening"
-import type { LoadSourceAssetUrls } from "./media-assets"
+import type { HardenChatAssetUrl } from "./media-assets"
+import type { NotebookKnowhereRemoteDocumentClient } from "./knowhere-tools"
 
 export type RetrievalClient = {
   query(params: RetrievalQueryParams): Promise<RetrievalQueryResponse>
@@ -57,6 +63,8 @@ export type GenerateAnswer = (input: {
   sources: readonly Source[]
   excludedSourceIds: readonly string[]
   searchSources: SearchSources
+  knowhereTools?: KnowhereToolRuntime
+  inspectImages?: InspectImages
 }) => Promise<HarnessRunResult>
 
 export type AnswerQuestionInput = {
@@ -67,9 +75,12 @@ export type AnswerQuestionInput = {
   excludedSourceIds: readonly string[]
   useAgentic?: boolean
   retrieval: RetrievalClient
+  knowledge?: Knowledge
+  remoteDocumentClient?: NotebookKnowhereRemoteDocumentClient
   generateAnswer: GenerateAnswer
-  loadSourceAssetUrls?: LoadSourceAssetUrls
+  hardenChatAssetUrl?: HardenChatAssetUrl
   hardenMediaAssetUrls?: HardenMediaAssetUrls
+  inspectImages?: InspectImages
   messages: readonly ChatHistoryMessage[]
 }
 

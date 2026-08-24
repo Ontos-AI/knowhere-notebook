@@ -2,6 +2,7 @@ import "server-only"
 
 import { databaseRuntime } from "@/domains/workspace/database-runtime"
 import { sourceRepository } from "./repository"
+import type { SourceParseSnapshotMetadata } from "./source-parse-result-repository"
 import type { Source, SourceParseResult } from "@/infrastructure/db/schema"
 import type { UploadSourceRepository } from "./upload"
 
@@ -15,6 +16,10 @@ type LocalizeRemoteDocumentInput = Parameters<
 
 type SaveSourceParseResultInput = Parameters<
   typeof sourceRepository.saveParseResultEffect
+>[2]
+
+type UpdateSyncStatusInput = Parameters<
+  typeof sourceRepository.updateSyncStatusEffect
 >[2]
 
 type UpsertMaterializedDemoSourceInput = Parameters<
@@ -38,6 +43,7 @@ type UploadRepositoryRuntime = {
     sourceId: string,
     reason: string,
     requiredStatus?: string,
+    failureStage?: string,
   ) => Promise<Source | null>
 }
 
@@ -53,6 +59,10 @@ type SourceWorkflowRuntime = UploadRepositoryRuntime & {
     workspaceId: string,
     sourceId: string,
   ) => Promise<Source | null>
+  readonly findByKnowhereDocumentId: (
+    workspaceId: string,
+    documentId: string,
+  ) => Promise<Source | null>
   readonly getParseAssetUrls: (
     workspaceId: string,
     sourceId: string,
@@ -60,10 +70,11 @@ type SourceWorkflowRuntime = UploadRepositoryRuntime & {
   readonly getParseResultProgress: (
     workspaceId: string,
     sourceId: string,
-  ) => Promise<{
-    readonly resultBlobUrl: string
-    readonly assetUrlsByFilePath: Readonly<Record<string, string>>
-  } | null>
+  ) => Promise<SourceParseSnapshotMetadata | null>
+  readonly getParseSnapshotMetadata: (
+    workspaceId: string,
+    sourceId: string,
+  ) => Promise<SourceParseSnapshotMetadata | null>
   readonly listForWorkspace: (workspaceId: string) => Promise<Source[]>
   readonly localizeRemoteDocument: (
     workspaceId: string,
@@ -94,6 +105,11 @@ type SourceWorkflowRuntime = UploadRepositoryRuntime & {
     sourceId: string,
     input: SaveSourceParseResultInput,
   ) => Promise<SourceParseResult | null>
+  readonly updateSyncStatus: (
+    workspaceId: string,
+    sourceId: string,
+    input: UpdateSyncStatusInput,
+  ) => Promise<SourceParseResult | null>
   readonly softDelete: (
     workspaceId: string,
     sourceId: string,
@@ -111,6 +127,12 @@ const findInWorkspace: SourceWorkflowRuntime["findInWorkspace"] = (
   databaseRuntime.runPromise(
     sourceRepository.findInWorkspaceEffect(workspaceId, sourceId),
   )
+
+const findByKnowhereDocumentId: SourceWorkflowRuntime["findByKnowhereDocumentId"] =
+  (workspaceId: string, documentId: string) =>
+    databaseRuntime.runPromise(
+      sourceRepository.findByKnowhereDocumentIdEffect(workspaceId, documentId),
+    )
 
 const listForWorkspace: SourceWorkflowRuntime["listForWorkspace"] = (
   workspaceId: string,
@@ -189,9 +211,16 @@ const markFailed: SourceWorkflowRuntime["markFailed"] = (
   sourceId: string,
   reason: string,
   requiredStatus?: string,
+  failureStage?: string,
 ) =>
   databaseRuntime.runPromise(
-    sourceRepository.markFailedEffect(workspaceId, sourceId, reason, requiredStatus),
+    sourceRepository.markFailedEffect(
+      workspaceId,
+      sourceId,
+      reason,
+      requiredStatus,
+      failureStage,
+    ),
   )
 
 const clearStagedBlob: SourceWorkflowRuntime["clearStagedBlob"] = (
@@ -234,6 +263,15 @@ const mergeParseAssetUrls: SourceWorkflowRuntime["mergeParseAssetUrls"] = (
     sourceRepository.mergeParseAssetUrlsEffect(workspaceId, sourceId, input),
   )
 
+const updateSyncStatus: SourceWorkflowRuntime["updateSyncStatus"] = (
+  workspaceId: string,
+  sourceId: string,
+  input: UpdateSyncStatusInput,
+) =>
+  databaseRuntime.runPromise(
+    sourceRepository.updateSyncStatusEffect(workspaceId, sourceId, input),
+  )
+
 const getParseResultProgress: SourceWorkflowRuntime["getParseResultProgress"] =
   (workspaceId: string, sourceId: string) =>
     databaseRuntime.runPromise(
@@ -247,6 +285,12 @@ const getParseAssetUrls: SourceWorkflowRuntime["getParseAssetUrls"] = (
   databaseRuntime.runPromise(
     sourceRepository.getParseAssetUrlsEffect(workspaceId, sourceId),
   )
+
+const getParseSnapshotMetadata: SourceWorkflowRuntime["getParseSnapshotMetadata"] =
+  (workspaceId: string, sourceId: string) =>
+    databaseRuntime.runPromise(
+      sourceRepository.getParseSnapshotMetadataEffect(workspaceId, sourceId),
+    )
 
 function createUploadRepository(
   runtime: UploadRepositoryRuntime = sourceWorkflowRuntime,
@@ -285,8 +329,10 @@ export const sourceWorkflowRuntime: SourceWorkflowRuntime = {
   createUploadRepository,
   createUploading,
   findInWorkspace,
+  findByKnowhereDocumentId,
   getParseAssetUrls,
   getParseResultProgress,
+  getParseSnapshotMetadata,
   hideDemoSource,
   listForWorkspace,
   listHiddenDemoSourceIds,
@@ -298,5 +344,6 @@ export const sourceWorkflowRuntime: SourceWorkflowRuntime = {
   mergeParseAssetUrls,
   saveParseResult,
   softDelete,
+  updateSyncStatus,
   upsertMaterializedDemoSource,
 }

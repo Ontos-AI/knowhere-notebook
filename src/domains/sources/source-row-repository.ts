@@ -26,6 +26,7 @@ type SourceUpdate = Partial<
     | "sizeBytes"
     | "status"
     | "failureReason"
+    | "failureStage"
     | "knowhereJobId"
     | "knowhereDocumentId"
     | "stagedBlobPathname"
@@ -49,6 +50,10 @@ type SourceRowRepository = {
   readonly findInWorkspaceEffect: (
     workspaceId: string,
     sourceId: string,
+  ) => Effect.Effect<Source | null, never, DbClient>
+  readonly findByKnowhereDocumentIdEffect: (
+    workspaceId: string,
+    documentId: string,
   ) => Effect.Effect<Source | null, never, DbClient>
   readonly listForWorkspaceEffect: (
     workspaceId: string,
@@ -83,6 +88,7 @@ type SourceRowRepository = {
     sourceId: string,
     reason: string,
     requiredStatus?: string,
+    failureStage?: string,
   ) => Effect.Effect<Source | null, never, DbClient>
   readonly clearStagedBlobEffect: (
     workspaceId: string,
@@ -123,6 +129,15 @@ const findInWorkspaceEffect: SourceRowRepository["findInWorkspaceEffect"] = (
       findInWorkspaceWithDb(db, workspaceId, sourceId),
     )
   })
+
+const findByKnowhereDocumentIdEffect: SourceRowRepository["findByKnowhereDocumentIdEffect"] =
+  (workspaceId: string, documentId: string) =>
+    Effect.gen(function* () {
+      const db = yield* DbClient
+      return yield* Effect.promise(() =>
+        findByKnowhereDocumentIdWithDb(db, workspaceId, documentId),
+      )
+    })
 
 const listForWorkspaceEffect: SourceRowRepository["listForWorkspaceEffect"] = (
   workspaceId: string,
@@ -193,6 +208,7 @@ const markParsingEffect: SourceRowRepository["markParsingEffect"] = (
     knowhereJobId: jobId,
     knowhereDocumentId: documentId,
     failureReason: null,
+    failureStage: null,
   }, requiredStatus)
 
 const markReadyEffect: SourceRowRepository["markReadyEffect"] = (
@@ -204,6 +220,7 @@ const markReadyEffect: SourceRowRepository["markReadyEffect"] = (
     status: "ready",
     knowhereDocumentId: documentId,
     failureReason: null,
+    failureStage: null,
   }, "parsing")
 
 const updateRevisionKeyEffect: SourceRowRepository["updateRevisionKeyEffect"] = (
@@ -220,10 +237,12 @@ const markFailedEffect: SourceRowRepository["markFailedEffect"] = (
   sourceId: string,
   reason: string,
   requiredStatus?: string,
+  failureStage?: string,
 ) =>
   updateInWorkspaceEffect(workspaceId, sourceId, {
     status: "failed",
     failureReason: reason,
+    failureStage: failureStage ?? null,
   }, requiredStatus)
 
 const clearStagedBlobEffect: SourceRowRepository["clearStagedBlobEffect"] = (
@@ -287,6 +306,28 @@ async function findInWorkspaceWithDb(
       and(
         eq(sources.id, sourceId),
         eq(sources.workspaceId, workspaceId),
+        isNull(sources.deletedAt),
+      ),
+    )
+    .limit(1)
+
+  return row[0] ?? null
+}
+
+async function findByKnowhereDocumentIdWithDb(
+  db: Db,
+  workspaceId: string,
+  documentId: string,
+): Promise<Source | null> {
+  if (documentId.length === 0) return null
+
+  const row = await db
+    .select()
+    .from(sources)
+    .where(
+      and(
+        eq(sources.workspaceId, workspaceId),
+        eq(sources.knowhereDocumentId, documentId),
         isNull(sources.deletedAt),
       ),
     )
@@ -408,6 +449,7 @@ function requireSource(source: Source | null, message: string): Source {
 
 export const sourceRowRepository: SourceRowRepository = {
   findInWorkspaceEffect,
+  findByKnowhereDocumentIdEffect,
   listForWorkspaceEffect,
   createUploadingEffect,
   localizeRemoteDocumentEffect,

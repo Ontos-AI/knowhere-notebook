@@ -23,6 +23,7 @@ function makeSource(overrides: Partial<Source> = {}): Source {
     sizeBytes: 12,
     status: "uploading",
     failureReason: null,
+    failureStage: null,
     knowhereJobId: null,
     knowhereDocumentId: null,
     stagedBlobPathname: null,
@@ -112,6 +113,7 @@ describe("uploadSourceToKnowhere", () => {
       namespace: "default",
       documentMetadata: {
         createdByClient: "notebook",
+        clientVersion: "0.1.0",
         sourceFileName: "notes.pdf",
         title: "notes.pdf",
         mimeType: "application/pdf",
@@ -323,6 +325,7 @@ describe("uploadSourceToKnowhere", () => {
       namespace: "default",
       documentMetadata: {
         createdByClient: "notebook",
+        clientVersion: "0.1.0",
         sourceFileName: "large.pdf",
         title: "large.pdf",
         mimeType: "application/pdf",

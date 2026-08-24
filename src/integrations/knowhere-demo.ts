@@ -11,6 +11,9 @@ export type DemoCitation = {
   readonly chunkType: string
   readonly content: string
   readonly description?: string
+  readonly pageCitationPageNumber?: number
+  readonly pageCitationAssetUrl?: string
+  readonly pageNums?: readonly number[]
   readonly source: {
     readonly documentId: string
     readonly sourceFileName: string
@@ -155,6 +158,9 @@ type DemoCitationResponse = {
   readonly chunk_type?: unknown
   readonly content?: unknown
   readonly description?: unknown
+  readonly page_citation_page_number?: unknown
+  readonly page_citation_asset_url?: unknown
+  readonly page_nums?: unknown
   readonly source?: {
     readonly document_id?: unknown
     readonly source_file_name?: unknown
@@ -442,6 +448,13 @@ function toDemoExample(example: DemoExampleResponse): DemoExample {
 function toDemoCitation(citation: DemoCitationResponse): DemoCitation {
   const source = citation.source ?? {}
   const description = optionalString(citation.description)
+  const pageNums = toPositiveIntegers(citation.page_nums)
+  const pageCitationPageNumber =
+    optionalPositiveInteger(citation.page_citation_page_number) ?? pageNums[0]
+  const pageCitationAssetUrl = toDemoAssetUrl(
+    requireString(citation.demo_source_id),
+    optionalString(citation.page_citation_asset_url),
+  )
   return {
     demoSourceId: requireString(citation.demo_source_id),
     canonicalDocumentId: requireString(citation.canonical_document_id),
@@ -450,6 +463,11 @@ function toDemoCitation(citation: DemoCitationResponse): DemoCitation {
     chunkType: requireString(citation.chunk_type),
     content: requireString(citation.content),
     ...(description ? { description } : {}),
+    ...(pageCitationPageNumber !== undefined
+      ? { pageCitationPageNumber }
+      : {}),
+    ...(pageCitationAssetUrl ? { pageCitationAssetUrl } : {}),
+    ...(pageNums.length > 0 ? { pageNums } : {}),
     source: {
       documentId: requireString(source.document_id),
       sourceFileName: requireString(source.source_file_name),
@@ -481,6 +499,10 @@ function toDemoChunk(
   demoSourceId: string,
   chunk: DemoChunkResponse,
 ): DemoChunk {
+  const metadata = rewriteDemoPageAssetMetadata(
+    demoSourceId,
+    toRecord(chunk.metadata),
+  )
   return {
     id: requireString(chunk.id),
     chunkId: requireString(chunk.chunk_id),
@@ -490,8 +512,10 @@ function toDemoChunk(
     sourceChunkPath: optionalString(chunk.source_chunk_path) ?? null,
     filePath: optionalString(chunk.file_path) ?? null,
     sortOrder: requireNumber(chunk.sort_order),
-    metadata: toRecord(chunk.metadata),
-    assetUrl: toDemoAssetUrl(demoSourceId, optionalString(chunk.asset_url)),
+    metadata,
+    assetUrl:
+      toDemoAssetUrl(demoSourceId, optionalString(chunk.asset_url)) ??
+      firstDemoPageAssetUrl(metadata),
   }
 }
 
@@ -601,6 +625,84 @@ function toRecord(value: unknown): Readonly<Record<string, unknown>> {
     return {}
   }
   return value as Readonly<Record<string, unknown>>
+}
+
+function rewriteDemoPageAssetMetadata(
+  demoSourceId: string,
+  metadata: Readonly<Record<string, unknown>>,
+): Readonly<Record<string, unknown>> {
+  const rawAssets = metadata.pageAssets ?? metadata.page_assets
+  if (!Array.isArray(rawAssets)) return metadata
+
+  const pageAssets = rawAssets.flatMap((item) => {
+    if (typeof item !== "object" || item === null || Array.isArray(item)) {
+      return []
+    }
+    const asset = item as Readonly<Record<string, unknown>>
+    const pageNum =
+      optionalPositiveNumber(asset.pageNum) ??
+      optionalPositiveNumber(asset.pageNumber) ??
+      optionalPositiveNumber(asset.page_num)
+    const contentType =
+      optionalString(asset.contentType) ?? optionalString(asset.content_type)
+    const artifactRef = optionalString(asset.artifact_ref)
+    const remoteAssetUrl =
+      optionalString(asset.assetUrl) ??
+      optionalString(asset.asset_url) ??
+      (artifactRef
+        ? `/api/v1/demo/sources/${encodeURIComponent(demoSourceId)}/assets/${artifactRef}`
+        : undefined)
+    const assetUrl = toDemoAssetUrl(demoSourceId, remoteAssetUrl)
+    if (!pageNum || !contentType || !assetUrl) return []
+
+    return [
+      {
+        pageNum,
+        assetUrl,
+        contentType,
+        ...(optionalPositiveNumber(asset.width) !== undefined
+          ? { width: optionalPositiveNumber(asset.width) }
+          : {}),
+        ...(optionalPositiveNumber(asset.height) !== undefined
+          ? { height: optionalPositiveNumber(asset.height) }
+          : {}),
+      },
+    ]
+  })
+
+  const next: Record<string, unknown> = { ...metadata, pageAssets }
+  delete next.page_assets
+  return next
+}
+
+function firstDemoPageAssetUrl(
+  metadata: Readonly<Record<string, unknown>>,
+): string | null {
+  const pageAssets = metadata.pageAssets
+  if (!Array.isArray(pageAssets) || pageAssets.length === 0) return null
+  const first = pageAssets[0]
+  if (typeof first !== "object" || first === null) return null
+  return optionalString((first as Readonly<Record<string, unknown>>).assetUrl) ?? null
+}
+
+function optionalPositiveNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? value
+    : undefined
+}
+
+function optionalPositiveInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0
+    ? value
+    : undefined
+}
+
+function toPositiveIntegers(value: unknown): readonly number[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((item) => {
+    const page = optionalPositiveInteger(item)
+    return page === undefined ? [] : [page]
+  })
 }
 
 function toDemoAssetUrl(

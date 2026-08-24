@@ -1,14 +1,21 @@
 import { Effect } from "effect"
 
 import { demoView } from "@/domains/demo/view"
+import { readAllSourceChunks, readSourceChunkPage } from "@/domains/chunks/read"
+import { resolveChunkConnectionTargets, type ChunkReadType } from "@/domains/chunks"
+import type { ParsedChunkView } from "@/domains/chunks/types"
 import type { DemoChunkPage } from "@/integrations/knowhere-demo"
 import { logger } from "@/lib/logger"
 import { routeResult } from "@/lib/route-result"
+import { displayReadUnavailable } from "./display-read-unavailable"
 import {
   decodeRemoteSourceId,
   findRemoteLibraryDocumentBySourceId,
 } from "./remote-library"
-import { getClientForWorkspace } from "./route-dependencies"
+import {
+  getClientForWorkspace,
+  getKnowledgeResourcesForSource,
+} from "./route-dependencies"
 import { sourceRowRepository } from "./source-row-repository"
 import type {
   JsonRouteResult,
@@ -23,8 +30,6 @@ type RouteChunksDependencies = Pick<
   | "ensureApiKeyForWorkspace"
   | "ensureWorkspace"
   | "getCurrentUser"
-  | "loadChunkPageForSource"
-  | "loadChunksForSource"
   | "makeKnowhereClient"
   | "sourceService"
 >
@@ -85,43 +90,58 @@ const loadSourceChunksEffect = (
       return demoResult ?? sourceNotFound()
     }
 
-    const client = yield* Effect.tryPromise(() =>
-      getClientForWorkspace(workspace.id, input.cookieHeader, deps),
-    )
-    if (input.shouldLoadAll) {
-      const chunks = yield* deps.loadChunksForSource(source, client, {
-        workspaceId: workspace.id,
-        onRevisionKey: async (revisionKey) => {
-          await deps.sourceService.updateSourceRevisionKey(
-            workspace.id,
-            source.id,
-            revisionKey,
-          )
-        },
-      })
-      return routeResult.ok({ chunks })
+    // Reads never return zero chunks for a ready remote document; the SDK falls
+    // back to Knowhere when Blob storage is missing or stale. A source that is
+    // not yet ready has no published document to read.
+    if (source.status !== "ready" || !source.knowhereDocumentId) {
+      return sourceSnapshotProcessing(input)
     }
 
-    const assetUrlsByFilePath = yield* Effect.tryPromise(() =>
-      deps.sourceService.getParseAssetUrls(workspace.id, source.id),
+    const apiKey = yield* Effect.tryPromise(() =>
+      deps.ensureApiKeyForWorkspace(workspace.id, input.cookieHeader),
     )
-    const chunkPage = yield* deps.loadChunkPageForSource(
-      source,
-      client,
-      input.pageParams,
-      {
-        assetUrlsByFilePath,
-        workspaceId: workspace.id,
-        onRevisionKey: async (revisionKey) => {
-          await deps.sourceService.updateSourceRevisionKey(
-            workspace.id,
-            source.id,
-            revisionKey,
-          )
-        },
-      },
+    const readResources = getKnowledgeResourcesForSource({
+      apiKey,
+      workspaceId: workspace.id,
+      sourceId: source.id,
+      documentId: source.knowhereDocumentId,
+      revisionKey: source.knowhereJobId,
+    })
+    const readableSource = {
+      documentId: source.knowhereDocumentId,
+      title: source.title,
+      revisionKey: source.knowhereJobId,
+    }
+
+    if (input.shouldLoadAll) {
+      return yield* Effect.tryPromise(() =>
+        readAllSourceChunks({
+          client: readResources.client,
+          knowledge: readResources.knowledge,
+          source: readableSource,
+          ...(input.pageParams.chunkType
+            ? { chunkType: input.pageParams.chunkType }
+            : {}),
+        }),
+      ).pipe(
+        Effect.map((chunks) =>
+          routeResult.ok({ chunks: resolveChunkConnectionTargets(chunks) }),
+        ),
+        Effect.catchAll((error) => recoverUnavailableChunks(input, error)),
+      )
+    }
+
+    return yield* Effect.tryPromise(() =>
+      readSourceChunkPage({
+        client: readResources.client,
+        knowledge: readResources.knowledge,
+        source: readableSource,
+        params: input.pageParams,
+      }),
+    ).pipe(
+      Effect.map((chunkPage) => routeResult.ok(chunkPage)),
+      Effect.catchAll((error) => recoverUnavailableChunks(input, error)),
     )
-    return routeResult.ok(chunkPage)
   })
 
 const loadRemoteChunkPageEffect = (
@@ -136,6 +156,9 @@ const loadRemoteChunkPageEffect = (
 
     const workspace = yield* Effect.tryPromise(() =>
       deps.ensureWorkspace(user.id),
+    )
+    const apiKey = yield* Effect.tryPromise(() =>
+      deps.ensureApiKeyForWorkspace(workspace.id, input.cookieHeader),
     )
     const client = yield* Effect.tryPromise(() =>
       getClientForWorkspace(workspace.id, input.cookieHeader, deps),
@@ -159,37 +182,50 @@ const loadRemoteChunkPageEffect = (
         revisionKey: remoteDocument.revisionKey ?? null,
       }),
     )
+    const documentId = source.knowhereDocumentId ?? remoteDocument.documentId
 
-    if (input.shouldLoadAll) {
-      const chunks = yield* deps.loadChunksForSource(source, client, {
-        workspaceId: workspace.id,
-        onRevisionKey: async (revisionKey) => {
-          await deps.sourceService.updateSourceRevisionKey(
-            workspace.id,
-            source.id,
-            revisionKey,
-          )
-        },
-      })
-      return routeResult.ok({ chunks })
+    const readResources = getKnowledgeResourcesForSource({
+      apiKey,
+      workspaceId: workspace.id,
+      sourceId: source.id,
+      documentId,
+      revisionKey: source.knowhereJobId ?? remoteDocument.revisionKey ?? null,
+    })
+    const readableSource = {
+      documentId,
+      title: source.title,
+      revisionKey: source.knowhereJobId ?? remoteDocument.revisionKey ?? null,
     }
 
-    const chunkPage = yield* deps.loadChunkPageForSource(
-      source,
-      client,
-      input.pageParams,
-      {
-        workspaceId: workspace.id,
-        onRevisionKey: async (revisionKey) => {
-          await deps.sourceService.updateSourceRevisionKey(
-            workspace.id,
-            source.id,
-            revisionKey,
-          )
-        },
-      },
+    if (input.shouldLoadAll) {
+      return yield* Effect.tryPromise(() =>
+        readAllSourceChunks({
+          client: readResources.client,
+          knowledge: readResources.knowledge,
+          source: readableSource,
+          ...(input.pageParams.chunkType
+            ? { chunkType: input.pageParams.chunkType }
+            : {}),
+        }),
+      ).pipe(
+        Effect.map((chunks) =>
+          routeResult.ok({ chunks: resolveChunkConnectionTargets(chunks) }),
+        ),
+        Effect.catchAll((error) => recoverUnavailableChunks(input, error)),
+      )
+    }
+
+    return yield* Effect.tryPromise(() =>
+      readSourceChunkPage({
+        client: readResources.client,
+        knowledge: readResources.knowledge,
+        source: readableSource,
+        params: input.pageParams,
+      }),
+    ).pipe(
+      Effect.map((chunkPage) => routeResult.ok(chunkPage)),
+      Effect.catchAll((error) => recoverUnavailableChunks(input, error)),
     )
-    return routeResult.ok(chunkPage)
   })
 
 const loadDemoChunkPageEffect = (
@@ -223,10 +259,13 @@ const loadDemoChunkPageEffect = (
       status: "ready" as const,
       documentId: documentIdOverride ?? page.canonicalDocumentId,
     }
-    const chunks = pages.flatMap((demoChunkPage) =>
-      demoChunkPage.chunks.map((chunk) =>
-        demoView.toParsedChunkView(source, chunk),
+    const chunks = filterChunksByType(
+      pages.flatMap((demoChunkPage) =>
+        demoChunkPage.chunks.map((chunk) =>
+          demoView.toParsedChunkView(source, chunk),
+        ),
       ),
+      input.pageParams.chunkType,
     )
 
     return routeResult.ok(
@@ -290,8 +329,96 @@ function getErrorMessage(error: unknown): string {
   return String(error)
 }
 
+function filterChunksByType(
+  chunks: readonly ParsedChunkView[],
+  chunkType: ChunkReadType | undefined,
+): ParsedChunkView[] {
+  if (!chunkType) return [...chunks]
+  return chunks.filter((chunk) => chunk.type === chunkType)
+}
+
 function sourceNotFound(): JsonRouteResult<{ readonly message: string }> {
   return routeResult.error(404, "Source not found.")
+}
+
+function sourceSnapshotProcessing(
+  input: LoadSourceChunksInput,
+): JsonRouteResult<{
+  readonly chunks: []
+  readonly pagination?: {
+    readonly page: number
+    readonly pageSize: number
+    readonly total: 0
+    readonly totalPages: 0
+  }
+  readonly message: string
+}> {
+  if (input.shouldLoadAll) {
+    return routeResult.ok(
+      {
+        chunks: [],
+        message: "Source is still being prepared.",
+      },
+      202,
+    )
+  }
+
+  return routeResult.ok(
+    {
+      chunks: [],
+      pagination: {
+        page: input.pageParams.page,
+        pageSize: input.pageParams.pageSize,
+        total: 0,
+        totalPages: 0,
+      },
+      message: "Source is still being prepared.",
+    },
+    202,
+  )
+}
+
+function sourceChunksUnavailable(
+  input: LoadSourceChunksInput,
+): JsonRouteResult<{
+  readonly chunks: []
+  readonly pagination?: {
+    readonly page: number
+    readonly pageSize: number
+    readonly total: 0
+    readonly totalPages: 0
+  }
+  readonly message: string
+  readonly isUnavailable: true
+}> {
+  if (input.shouldLoadAll) {
+    return routeResult.ok({
+      chunks: [],
+      message: displayReadUnavailable.message,
+      isUnavailable: true,
+    })
+  }
+
+  return routeResult.ok({
+    chunks: [],
+    pagination: {
+      page: input.pageParams.page,
+      pageSize: input.pageParams.pageSize,
+      total: 0,
+      totalPages: 0,
+    },
+    message: displayReadUnavailable.message,
+    isUnavailable: true,
+  })
+}
+
+function recoverUnavailableChunks(
+  input: LoadSourceChunksInput,
+  error: unknown,
+): Effect.Effect<ReturnType<typeof sourceChunksUnavailable>, unknown> {
+  return displayReadUnavailable.isError(error)
+    ? Effect.succeed(sourceChunksUnavailable(input))
+    : Effect.fail(error)
 }
 
 export { createRouteChunks }

@@ -85,7 +85,7 @@ describe("loadWorkspaceShellInitialState", () => {
       {
         id: "demo-example-1-assistant",
         role: "assistant",
-        content: "Tesla delivered higher revenue.",
+        content: "Tesla delivered higher revenue. [[cite:1]]",
         citations: [
           {
             chunkType: "text",
@@ -172,6 +172,9 @@ describe("loadWorkspaceShellInitialState", () => {
     expect(sourceViewOptionsBySourceId).toHaveBeenCalledWith(
       [source],
       expect.any(Object),
+      expect.objectContaining({
+        documentPresentationDetection: "disabled",
+      }),
     )
     expect(state.sources).toEqual([
       {
@@ -203,7 +206,13 @@ describe("loadWorkspaceShellInitialState", () => {
 
     const state = await loadWorkspaceShellInitialState(deps)
 
-    expect(sourceViewOptionsBySourceId).toHaveBeenCalledWith([], expect.any(Object))
+    expect(sourceViewOptionsBySourceId).toHaveBeenCalledWith(
+      [],
+      expect.any(Object),
+      expect.objectContaining({
+        documentPresentationDetection: "disabled",
+      }),
+    )
     expect(state.sources).toEqual([
       expect.objectContaining({
         id: "source_demo",
@@ -231,7 +240,13 @@ describe("loadWorkspaceShellInitialState", () => {
 
     const state = await loadWorkspaceShellInitialState(deps)
 
-    expect(sourceViewOptionsBySourceId).toHaveBeenCalledWith([], expect.any(Object))
+    expect(sourceViewOptionsBySourceId).toHaveBeenCalledWith(
+      [],
+      expect.any(Object),
+      expect.objectContaining({
+        documentPresentationDetection: "disabled",
+      }),
+    )
     expect(state.sources).toEqual([
       expect.objectContaining({
         id: "demo-tsla-q4-2025",
@@ -259,7 +274,13 @@ describe("loadWorkspaceShellInitialState", () => {
 
     const state = await loadWorkspaceShellInitialState(deps)
 
-    expect(sourceViewOptionsBySourceId).toHaveBeenCalledWith([], expect.any(Object))
+    expect(sourceViewOptionsBySourceId).toHaveBeenCalledWith(
+      [],
+      expect.any(Object),
+      expect.objectContaining({
+        documentPresentationDetection: "disabled",
+      }),
+    )
     expect(state.sources).toEqual([
       expect.objectContaining({
         id: "demo-tsla-q4-2025",
@@ -647,6 +668,7 @@ function makeSource(
     sizeBytes: 1024,
     status: "ready",
     failureReason: null,
+    failureStage: null,
     knowhereJobId: "job_1",
     knowhereDocumentId: "document_1",
     stagedBlobPathname: null,

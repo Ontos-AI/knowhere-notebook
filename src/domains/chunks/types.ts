@@ -1,3 +1,5 @@
+import type { SourcePageAssetView } from "@/domains/sources/types"
+
 export type ChunkType = "text" | "image" | "table" | "page"
 
 export type ParsedChunkConnection = {
@@ -30,6 +32,7 @@ export type ParsedChunkView = {
   readonly filePath?: string
   /** Public Blob URL for parsed media/table artifacts when Notebook stored it. */
   readonly assetUrl?: string
+  readonly pageAssets?: readonly SourcePageAssetView[]
   readonly summary?: string
   readonly keywords?: readonly string[]
   readonly pageNums?: readonly number[]

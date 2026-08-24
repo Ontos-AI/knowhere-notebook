@@ -42,7 +42,6 @@ export function SourceRow({
   const isFailed = source.status === "failed";
   const canRetry = isFailed && source.originalFile !== undefined;
   const isLibrarySource = source.officialLibrary !== undefined;
-  const isRemoteSource = source.kind === "remote";
 
   const iconBg = fileIconTint(source.title);
 
@@ -63,7 +62,7 @@ export function SourceRow({
       >
         <Checkbox
           checked={!source.excludedFromQuery}
-          disabled={!isReady || !onToggleIncluded || isAdding || isRemoteSource}
+          disabled={!isReady || !onToggleIncluded || isAdding}
           onCheckedChange={(checked) =>
             onToggleIncluded?.(source.id, checked === true)
           }
@@ -102,7 +101,7 @@ export function SourceRow({
             }`}
           >
             {isReady
-              ? `${getReadySourceLabel(source)} · ${source.chunkCount ?? 0} chunks`
+              ? getReadySourceStatusText(source)
               : source.status === "parsing"
                 ? "Preparing"
                 : source.status === "uploading"
@@ -193,8 +192,16 @@ export function SourceRow({
 
 function getReadySourceLabel(source: SourceView): string {
   if (source.officialLibrary !== undefined) return "Official Library";
-  if (source.kind === "remote") return "Remote";
   return "Processed";
+}
+
+function getReadySourceStatusText(source: SourceView): string {
+  if (source.kind === "remote") return getReadySourceLabel(source);
+  if (source.documentPresentation?.kind === "page-assets") {
+    return `${getReadySourceLabel(source)} · ${source.documentPresentation.pageCount} pages`;
+  }
+  if (typeof source.chunkCount !== "number") return getReadySourceLabel(source);
+  return `${getReadySourceLabel(source)} · ${source.chunkCount} chunks`;
 }
 
 function fileIconTint(title: string): { bg: string; fg: string } {

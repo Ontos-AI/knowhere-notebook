@@ -17,8 +17,8 @@ import {
  *   - Postgres stores only metadata, status, Knowhere IDs, and chat
  *     threads/messages.
  *   - It does NOT store file bytes or chunk copies in Postgres. Original
- *     uploads and parsed media artifacts live in Blob storage; chunks are
- *     fetched on demand from Knowhere's chunks API.
+ *     uploads and parsed-source snapshots live in Blob storage; retrieval
+ *     stays upstream in Knowhere.
  *
  * Soft delete:
  *   - Every user-visible resource has a nullable `deleted_at` timestamp.
@@ -66,10 +66,12 @@ export type NewWorkspace = typeof workspaces.$inferInsert;
  *   - `size_bytes`   — original upload size (for display + quota)
  *   - `status`       — lifecycle: uploading | parsing | ready | failed
  *   - `failure_reason` — human-readable error text when status=failed
+ *   - `failure_stage`  — which stage failed: parse | storage_sync; drives
+ *                        whether a retry reparses or only resumes storage sync
  *   - `knowhere_job_id`      — set once the parse job is created
- *   - `knowhere_document_id` — set when parsing completes; the sole handle
- *                              used to fetch chunks and to exclude a source
- *                              from a retrieval query
+ *   - `knowhere_document_id` — set when parsing completes; used to import
+ *                              parsed snapshots and to exclude a source from a
+ *                              retrieval query
  *   - `original_blob_*` — public Blob pointer for the original upload preview
  *                         and download path
  *   - `staged_blob_*`   — legacy temporary Blob staging pointer retained for
@@ -95,6 +97,7 @@ export const sources = pgTable(
     sizeBytes: bigint("size_bytes", { mode: "number" }).notNull(),
     status: text("status").notNull(),
     failureReason: text("failure_reason"),
+    failureStage: text("failure_stage"),
     knowhereJobId: text("knowhere_job_id"),
     knowhereDocumentId: text("knowhere_document_id"),
     stagedBlobPathname: text("staged_blob_pathname"),
@@ -161,10 +164,19 @@ export type NewDemoSourceVisibility = typeof demoSourceVisibilities.$inferInsert
 /**
  * Notebook-owned parse-result artifact index for one source.
  *
- * Knowhere's chunk list currently may omit media asset URLs, while parsed chunk
- * metadata still points to ZIP-relative files like `images/image-1.jpg`.
- * This table stores the Notebook Blob copy of the result ZIP plus a
- * file-path-to-public-URL map for those extracted parsed artifacts.
+ * Blob is the Notebook-owned read model for parsed chunks after source
+ * reconciliation completes. The parsed snapshot itself (manifest, chunk pages,
+ * assets, and resumable sync progress) lives in Vercel Blob under
+ * `workspaces/{ws}/parsed-documents/{documentId}/{revisionKey}/...`, managed by
+ * the SDK `ParsedDocumentStorage`. This row records:
+ *   - `revision_key`  — current parsed revision (jobResultId ?? jobId); the
+ *                       storage fast-path key passed into SDK reads
+ *   - `sync_status`   — pending | running | completed | failed for the
+ *                       background/parse-time storage sync
+ *   - `sync_error`    — last storage-sync error detail when sync_status=failed
+ *   - `result_blob_url` / `snapshot_manifest_*` — legacy columns retained for
+ *                       rows written by the pre-migration manifest format
+ *   - `asset_urls`    — legacy file-path-to-public-URL map for older rows
  */
 export const sourceParseResults = pgTable(
   "source_parse_results",
@@ -174,7 +186,12 @@ export const sourceParseResults = pgTable(
       .notNull()
       .references(() => sources.id, { onDelete: "cascade" })
       .unique(),
-    resultBlobUrl: text("result_blob_url").notNull(),
+    resultBlobUrl: text("result_blob_url"),
+    snapshotManifestUrl: text("snapshot_manifest_url"),
+    snapshotManifestKey: text("snapshot_manifest_key"),
+    revisionKey: text("revision_key"),
+    syncStatus: text("sync_status"),
+    syncError: text("sync_error"),
     assetUrls: jsonb("asset_urls")
       .$type<Readonly<Record<string, string>>>()
       .notNull(),
@@ -190,6 +207,61 @@ export const sourceParseResults = pgTable(
 
 export type SourceParseResult = typeof sourceParseResults.$inferSelect;
 export type NewSourceParseResult = typeof sourceParseResults.$inferInsert;
+
+/**
+ * Durable active-work leases for Notebook-owned parsed-document Blob sync.
+ *
+ * The sync workers acquire one row before calling the Knowhere SDK's
+ * Vercel-Blob mirror. Active rows (`released_at IS NULL`) are counted globally,
+ * per workspace, and per document so Vercel can scale route invocations without
+ * allowing one user or one document to consume all sync capacity. Expired rows
+ * are released during the next acquire attempt; normal workers release in a
+ * `finally` block after their bounded sync segment exits.
+ */
+export const parsedDocumentSyncLeases = pgTable(
+  "parsed_document_sync_leases",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    sourceId: uuid("source_id")
+      .notNull()
+      .references(() => sources.id, { onDelete: "cascade" }),
+    documentId: text("document_id").notNull(),
+    revisionKey: text("revision_key"),
+    leaseToken: text("lease_token").notNull(),
+    acquiredAt: timestamp("acquired_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    releasedAt: timestamp("released_at", { withTimezone: true }),
+    releaseReason: text("release_reason"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("parsed_document_sync_leases_token_idx").on(t.leaseToken),
+    index("parsed_document_sync_leases_active_idx")
+      .on(t.expiresAt)
+      .where(sql`released_at IS NULL`),
+    index("parsed_document_sync_leases_workspace_active_idx")
+      .on(t.workspaceId)
+      .where(sql`released_at IS NULL`),
+    index("parsed_document_sync_leases_document_active_idx")
+      .on(t.documentId)
+      .where(sql`released_at IS NULL`),
+  ],
+);
+
+export type ParsedDocumentSyncLease =
+  typeof parsedDocumentSyncLeases.$inferSelect;
+export type NewParsedDocumentSyncLease =
+  typeof parsedDocumentSyncLeases.$inferInsert;
 
 /**
  * A chat thread is a conversation within a workspace. `demo_key` is retained

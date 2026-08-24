@@ -222,6 +222,7 @@ function WorkspaceShellContent({
       dashboardUrl={dashboardUrl}
       citationListViewRequestId={citationFocus.citationListViewRequestId}
       focusedChunk={citationFocus.focusedChunk}
+      focusedPage={citationFocus.focusedPage}
       hasMessages={hasMessages}
       hasMoreSelectedChunks={citationFocus.hasMoreSelectedChunks}
       contentView={contentView}
@@ -236,9 +237,11 @@ function WorkspaceShellContent({
       pendingCitationId={citationFocus.pendingCitationId}
       readySourceCount={sourceWorkflow.readySourceCount}
       selectedChunks={citationFocus.selectedChunks}
+      selectedChunksMessage={citationFocus.selectedChunksMessage}
       selectedSourceFile={citationFocus.selectedSource?.originalFile ?? null}
       selectedSourceId={sourceWorkflow.selectedSourceId}
       selectedSourceTitle={selectedSourceTitle}
+      selectedSourceView={citationFocus.selectedSource}
       sourceTitlesByDocumentId={sourceWorkflow.sourceTitlesByDocumentId}
       sources={sourceWorkflow.sources}
       officialLibrarySources={officialLibrarySources ?? []}

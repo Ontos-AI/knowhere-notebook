@@ -6,8 +6,9 @@ import {
   markSourceReadyAfterReconciliation,
   pollSourceReconciliation,
 } from "@/domains/sources/source-reconcile-workflow"
-import { makeKnowhereClient } from "@/integrations/knowhere"
+import { makeKnowhereClientWithParsedStorage } from "@/integrations/knowhere"
 import { logger } from "@/lib/logger"
+import { enqueueParsedDocumentSync } from "./parsed-document-sync-scheduler"
 import { sourceWorkflowRuntime } from "./workflow-runtime"
 
 type ReconcilePayload = {
@@ -39,6 +40,22 @@ type ContinuationTriggerInput = {
   readonly workflowRunId: string
 }
 
+type RevisionKeyClient = {
+  readonly documents: {
+    readonly listChunks: (
+      documentId: string,
+      params: {
+        readonly page: number
+        readonly pageSize: number
+        readonly includeAssetUrls: boolean
+      },
+    ) => Promise<{
+      readonly jobResultId?: string | null
+      readonly jobId?: string | null
+    }>
+  }
+}
+
 const maxPollAttempts = 25
 const initialDelaySeconds = 3
 const maxDelaySeconds = 30
@@ -52,7 +69,9 @@ async function runPollAndMirrorWorkflow(input: {
 }): Promise<void> {
   const { context, payload } = input
   const { workspaceId, sourceId, apiKey } = payload
-  const client = makeKnowhereClient(apiKey)
+  const { client } = makeKnowhereClientWithParsedStorage(apiKey, {
+    workspaceId,
+  })
   let delay = initialDelaySeconds
   let completedJob: {
     readonly jobId: string
@@ -125,11 +144,90 @@ async function runPollAndMirrorWorkflow(input: {
       documentId: jobToPrepare.documentId,
     }),
   )
+  if (ready.status === "gone") return
+
+  const revisionKey = await context.run("resolve-revision-key", async () =>
+    resolveParsedRevisionKey({
+      client,
+      sourceId,
+      documentId: jobToPrepare.documentId,
+      fallbackRevisionKey: jobToPrepare.jobId,
+    }),
+  )
+
+  await context.run("record-source-revision-key", async () =>
+    sourceWorkflowRuntime.updateRevisionKey(workspaceId, sourceId, revisionKey),
+  )
+  await context.run("record-sync-pending", async () =>
+    sourceWorkflowRuntime.updateSyncStatus(workspaceId, sourceId, {
+      revisionKey,
+      syncStatus: "pending",
+      syncError: null,
+    }),
+  )
+  const enqueueResult = await context.run("enqueue-parsed-sync", async () =>
+    enqueueParsedSyncBestEffort({
+      workspaceId,
+      sourceId,
+      documentId: jobToPrepare.documentId,
+      apiKey,
+      revisionKey,
+    }),
+  )
+
   logger.info("workflow: source parse reconciliation finished", {
     sourceId,
     jobId: jobToPrepare.jobId,
+    revisionKey,
     status: ready.status,
+    parsedSyncEnqueued: enqueueResult.enqueued,
   })
+}
+
+async function resolveParsedRevisionKey(input: {
+  readonly client: RevisionKeyClient
+  readonly sourceId: string
+  readonly documentId: string
+  readonly fallbackRevisionKey: string
+}): Promise<string> {
+  try {
+    const firstPage = await input.client.documents.listChunks(input.documentId, {
+      page: 1,
+      pageSize: 1,
+      includeAssetUrls: false,
+    })
+    return firstPage.jobResultId ?? firstPage.jobId ?? input.fallbackRevisionKey
+  } catch (error) {
+    logger.warn("workflow: failed to resolve parsed revision key", {
+      sourceId: input.sourceId,
+      documentId: input.documentId,
+      fallbackRevisionKey: input.fallbackRevisionKey,
+      error: getErrorMessage(error),
+    })
+    return input.fallbackRevisionKey
+  }
+}
+
+async function enqueueParsedSyncBestEffort(input: {
+  readonly workspaceId: string
+  readonly sourceId: string
+  readonly documentId: string
+  readonly apiKey: string
+  readonly revisionKey: string
+}): Promise<{ readonly enqueued: boolean }> {
+  try {
+    await enqueueParsedDocumentSync(input)
+    return { enqueued: true }
+  } catch (error) {
+    logger.error("workflow: failed to enqueue parsed storage sync", {
+      workspaceId: input.workspaceId,
+      sourceId: input.sourceId,
+      documentId: input.documentId,
+      revisionKey: input.revisionKey,
+      error: getErrorMessage(error),
+    })
+    return { enqueued: false }
+  }
 }
 
 function normalizeReconcilePayload(
@@ -206,6 +304,10 @@ function getSafeFailureReason(value: string): string {
   const normalized = value.replace(/\s+/g, " ").trim()
   if (normalized.length === 0) return "retry attempts were exhausted."
   return normalized.slice(0, 500)
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
 export const sourceReconcileRouteWorkflow = {

@@ -33,6 +33,7 @@ export async function GET(
     status: 200,
     headers: {
       "content-type": response.headers.get("content-type") ?? "application/octet-stream",
+      "content-disposition": "inline",
       "cache-control": "public, max-age=3600",
     },
   })

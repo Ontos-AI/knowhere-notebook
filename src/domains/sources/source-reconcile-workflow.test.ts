@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from "vitest"
-import type { JobResult } from "@ontos-ai/knowhere-sdk"
+import { NotFoundError, type JobResult } from "@ontos-ai/knowhere-sdk"
 
 import type { Source, Workspace } from "@/infrastructure/db/schema"
 import {
+  markSourceFailedAfterReconciliation,
   markSourceReadyAfterReconciliation,
   pollSourceReconciliation,
 } from "./source-reconcile-workflow"
@@ -23,6 +24,7 @@ function makeSource(overrides: Partial<Source> = {}): Source {
     sizeBytes: 1,
     status: "parsing",
     failureReason: null,
+    failureStage: null,
     knowhereJobId: "job_1",
     knowhereDocumentId: null,
     stagedBlobPathname: null,
@@ -138,6 +140,68 @@ describe("pollSourceReconciliation", () => {
     )
   })
 
+  it("marks parsing sources failed when the Knowhere job no longer exists", async () => {
+    const source = makeSource({
+      stagedBlobPathname: "source-uploads/upload_1/document.pdf",
+    })
+    const repository = createRepository(source)
+    const blobStore = {
+      deleteStagedSourceBlob: vi.fn(async () => undefined),
+    }
+    const client = {
+      jobs: {
+        get: vi.fn(async () => {
+          throw new NotFoundError("Job not found")
+        }),
+      },
+    }
+
+    const result = await pollSourceReconciliation({
+      workspaceId: workspace.id,
+      sourceId: "source_1",
+      client,
+      repository,
+      blobStore,
+    })
+
+    expect(result).toEqual({ kind: "resolved", status: "failed" })
+    expect(repository.markFailed).toHaveBeenCalledWith(
+      workspace.id,
+      "source_1",
+      "Knowhere job job_1 was not found during reconciliation.",
+      "parsing",
+    )
+    expect(blobStore.deleteStagedSourceBlob).toHaveBeenCalledWith(
+      "source-uploads/upload_1/document.pdf",
+    )
+    expect(repository.clearStagedBlob).toHaveBeenCalledWith(
+      workspace.id,
+      "source_1",
+    )
+  })
+
+  it("rethrows non-not-found job lookup errors for workflow retries", async () => {
+    const repository = createRepository()
+    const client = {
+      jobs: {
+        get: vi.fn(async () => {
+          throw new Error("Knowhere timeout")
+        }),
+      },
+    }
+
+    await expect(
+      pollSourceReconciliation({
+        workspaceId: workspace.id,
+        sourceId: "source_1",
+        client,
+        repository,
+      }),
+    ).rejects.toThrow("Knowhere timeout")
+
+    expect(repository.markFailed).not.toHaveBeenCalled()
+  })
+
   it("accepts done jobs without a result URL when a document id is published", async () => {
     const repository = createRepository()
     const jobWithoutResultUrl = makeDoneJob()
@@ -194,6 +258,37 @@ describe("markSourceReadyAfterReconciliation", () => {
     expect(repository.clearStagedBlob).toHaveBeenCalledWith(
       workspace.id,
       "source_1",
+    )
+  })
+})
+
+describe("markSourceFailedAfterReconciliation", () => {
+  it("marks failed and cleans staged uploads after fatal preparation errors", async () => {
+    const source = makeSource({
+      stagedBlobPathname: "source-uploads/upload_1/document.pdf",
+    })
+    const repository = createRepository(source)
+    const blobStore = {
+      deleteStagedSourceBlob: vi.fn(async () => undefined),
+    }
+
+    const result = await markSourceFailedAfterReconciliation({
+      workspaceId: workspace.id,
+      sourceId: "source_1",
+      reason: "Page citation asset preparation failed.",
+      repository,
+      blobStore,
+    })
+
+    expect(result).toEqual({ status: "failed" })
+    expect(repository.markFailed).toHaveBeenCalledWith(
+      workspace.id,
+      "source_1",
+      "Page citation asset preparation failed.",
+      "parsing",
+    )
+    expect(blobStore.deleteStagedSourceBlob).toHaveBeenCalledWith(
+      "source-uploads/upload_1/document.pdf",
     )
   })
 })

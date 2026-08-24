@@ -24,6 +24,7 @@ type WorkspaceSelectedChunks = {
   readonly handleLoadMoreChunks: () => void
   readonly isSelectedChunksLoading: boolean
   readonly isSelectedChunksLoadingMore: boolean
+  readonly selectedChunksMessage: string | null
   readonly selectedChunks: ParsedChunkView[]
   readonly selectedSource: SourceView | undefined
 }
@@ -33,7 +34,10 @@ export function useWorkspaceSelectedChunks({
   sources,
   prefetchedChunksBySourceId,
 }: WorkspaceSelectedChunksInput): WorkspaceSelectedChunks {
-  const selectedSource = sources.find((source) => source.id === selectedSourceId)
+  const rawSelectedSource = sources.find(
+    (source) => source.id === selectedSourceId,
+  )
+  const selectedSource = rawSelectedSource
   const prefetchedSelectedChunks = selectedSourceId
     ? prefetchedChunksBySourceId[selectedSourceId]
     : undefined
@@ -41,6 +45,10 @@ export function useWorkspaceSelectedChunks({
     selectedSource && selectedSource.status === "ready"
       ? selectedSource.id
       : null
+  const pageChunkType =
+    selectedSource?.documentPresentation?.kind === "page-assets"
+      ? "page"
+      : undefined
   const {
     data: selectedChunkPages,
     isLoading: isChunksLoading,
@@ -53,12 +61,22 @@ export function useWorkspaceSelectedChunks({
         pageIndex,
         previousPageData,
       ),
-    fetchChunksByKey,
+    ([, sourceId, page]: SourceChunksKey) =>
+      pageChunkType
+        ? workspaceClient.fetchChunkPage(sourceId, page, {
+            chunkType: pageChunkType,
+          })
+        : workspaceClient.fetchChunkPage(sourceId, page),
     {
       revalidateIfStale: false,
       keepPreviousData: false,
+      refreshInterval: (pages: readonly SourceChunksResponse[] | undefined) =>
+        hasProcessingChunkPage(pages) ? 2_000 : 0,
     },
   )
+  const selectedChunksMessage = getSelectedChunksMessage(selectedChunkPages)
+  const hasProcessingSelectedChunkPage =
+    hasProcessingChunkPage(selectedChunkPages)
   const pagedSelectedChunks = useMemo(
     () =>
       resolveChunkConnectionTargets(
@@ -76,9 +94,17 @@ export function useWorkspaceSelectedChunks({
         : undefined,
     [pagedSelectedChunks, prefetchedSelectedChunks],
   )
-  const selectedChunks = selectedSourceId
-    ? (resolvedPrefetchedChunks ?? pagedSelectedChunks)
-    : []
+  const selectedChunks = useMemo(
+    () =>
+      selectedSourceId
+        ? (resolvedPrefetchedChunks ?? pagedSelectedChunks)
+        : [],
+    [pagedSelectedChunks, resolvedPrefetchedChunks, selectedSourceId],
+  )
+  const resolvedSelectedSource = useMemo(
+    () => getResolvedSelectedSource(selectedSource, selectedChunks),
+    [selectedChunks, selectedSource],
+  )
   const hasMoreSelectedChunks =
     !prefetchedSelectedChunks &&
     workspaceClientCache.hasMoreChunkPages(selectedChunkPages)
@@ -90,10 +116,11 @@ export function useWorkspaceSelectedChunks({
         typeof selectedChunkPages[selectedChunkPageCount - 1] === "undefined",
     )
   const isSelectedChunksLoading =
-    selectedChunkSourceId !== null &&
-    !prefetchedSelectedChunks &&
-    !selectedChunkPages &&
-    isChunksLoading
+    hasProcessingSelectedChunkPage ||
+    (selectedChunkSourceId !== null &&
+      !prefetchedSelectedChunks &&
+      !selectedChunkPages &&
+      isChunksLoading)
 
   function handleLoadMoreChunks(): void {
     if (!hasMoreSelectedChunks || isSelectedChunksLoadingMore) return
@@ -105,17 +132,57 @@ export function useWorkspaceSelectedChunks({
     handleLoadMoreChunks,
     isSelectedChunksLoading,
     isSelectedChunksLoadingMore,
+    selectedChunksMessage,
     selectedChunks,
-    selectedSource,
+    selectedSource: resolvedSelectedSource,
   }
 }
 
-function fetchChunksByKey([
-  ,
-  sourceId,
-  page,
-]: SourceChunksKey): Promise<SourceChunksResponse> {
-  return workspaceClient.fetchChunkPage(sourceId, page)
+function getResolvedSelectedSource(
+  source: SourceView | undefined,
+  chunks: readonly ParsedChunkView[],
+): SourceView | undefined {
+  if (!source) return undefined
+  if (source.documentPresentation?.kind === "page-assets") return source
+
+  const pageCount = getLoadedPageAssetCount(chunks)
+  if (!pageCount) return source
+
+  return {
+    ...source,
+    documentPresentation: {
+      kind: "page-assets",
+      pageCount,
+    },
+  }
+}
+
+function getLoadedPageAssetCount(
+  chunks: readonly ParsedChunkView[],
+): number | null {
+  const pageNumbers = chunks.flatMap((chunk) =>
+    (chunk.pageAssets ?? []).map((pageAsset) => pageAsset.pageNumber),
+  )
+  if (pageNumbers.length === 0) return null
+
+  return Math.max(...pageNumbers)
+}
+
+function hasProcessingChunkPage(
+  pages: readonly SourceChunksResponse[] | undefined,
+): boolean {
+  return pages?.some((page) => page.isProcessing) ?? false
+}
+
+function getSelectedChunksMessage(
+  pages: readonly SourceChunksResponse[] | undefined,
+): string | null {
+  const page = pages?.find(
+    (candidate) =>
+      (candidate.isProcessing || candidate.isUnavailable) &&
+      typeof candidate.message === "string",
+  )
+  return page?.message ?? null
 }
 
 function mergeVisibleChunkAssetUrls(

@@ -11,10 +11,11 @@ import type { Source } from "@/infrastructure/db/schema"
 
 describe("chat media assets", () => {
   it("enriches retrieved image chunks from Notebook parsed asset URLs", async () => {
-    const loadSourceAssetUrls = vi.fn().mockResolvedValue({
-      "images/image-9-Night Rocket Launch.jpg":
+    const hardenChatAssetUrl = vi
+      .fn()
+      .mockResolvedValue(
         "https://blob.example/images/image-9-Night%20Rocket%20Launch.jpg",
-    })
+      )
 
     const [result] = await enrichRetrievalResultsWithAssetUrls({
       results: [
@@ -33,20 +34,25 @@ describe("chat media assets", () => {
           knowhereDocumentId: "doc_spacex",
         }),
       ],
-      loadSourceAssetUrls,
+      hardenChatAssetUrl,
     })
 
-    expect(loadSourceAssetUrls).toHaveBeenCalledTimes(1)
+    expect(hardenChatAssetUrl).toHaveBeenCalledWith({
+      source: expect.objectContaining({ id: "source_spacex" }),
+      sourcePath: "images/image-9-Night Rocket Launch.jpg",
+      assetUrl: null,
+    })
     expect(result?.assetUrl).toBe(
       "https://blob.example/images/image-9-Night%20Rocket%20Launch.jpg",
     )
   })
 
   it("prefers Notebook parsed asset URLs over existing upstream asset URLs", async () => {
-    const loadSourceAssetUrls = vi.fn().mockResolvedValue({
-      "images/image-6-情感分类模型.jpg":
+    const hardenChatAssetUrl = vi
+      .fn()
+      .mockResolvedValue(
         "https://blob.example/workspaces/workspace_1/sources/source_doc/parsed-result/images/image-6-model.jpg",
-    })
+      )
 
     const [result] = await enrichRetrievalResultsWithAssetUrls({
       results: [
@@ -67,7 +73,7 @@ describe("chat media assets", () => {
           knowhereDocumentId: "doc_model",
         }),
       ],
-      loadSourceAssetUrls,
+      hardenChatAssetUrl,
     })
 
     expect(result?.assetUrl).toBe(
@@ -75,13 +81,8 @@ describe("chat media assets", () => {
     )
   })
 
-  it("adds image citation results for asset filenames that only appear in evidence text", async () => {
-    const loadSourceAssetUrls = vi.fn().mockResolvedValue({
-      "images/image-6-中华人民共和国居民身份证.jpg":
-        "https://blob.example/images/image-6-id-front.jpg",
-      "images/image-7-中国居民身份证.jpg":
-        "https://blob.example/images/image-7-id-back.jpg",
-    })
+  it("does not scan a source for asset filenames that only appear in evidence text", async () => {
+    const hardenChatAssetUrl = vi.fn().mockResolvedValue(null)
 
     const results = await enrichRetrievalResultsWithAssetUrls({
       results: [
@@ -101,25 +102,14 @@ describe("chat media assets", () => {
           knowhereDocumentId: "doc_identity",
         }),
       ],
-      loadSourceAssetUrls,
+      hardenChatAssetUrl,
       evidenceText:
         "[image-6-中华人民共和国居民身份证.jpg]\n[image-7-中国居民身份证.jpg]",
     })
 
-    expect(results).toHaveLength(3)
+    expect(results).toHaveLength(1)
     expect(results[0]?.assetUrl).toBeUndefined()
-    expect(results.slice(1).map((result) => result.assetUrl)).toEqual([
-      "https://blob.example/images/image-6-id-front.jpg",
-      "https://blob.example/images/image-7-id-back.jpg",
-    ])
-    expect(results.slice(1).map((result) => result.chunkType)).toEqual([
-      "image",
-      "image",
-    ])
-    expect(results.slice(1).map((result) => result.source.sectionPath)).toEqual([
-      "images/image-6-中华人民共和国居民身份证.jpg",
-      "images/image-7-中国居民身份证.jpg",
-    ])
+    expect(hardenChatAssetUrl).not.toHaveBeenCalled()
   })
 
   it("deduplicates media citation assets globally by asset URL", async () => {
@@ -298,6 +288,7 @@ function makeSource(overrides: Partial<Source> = {}): Source {
     sizeBytes: 100,
     status: "ready",
     failureReason: null,
+    failureStage: null,
     knowhereJobId: "job_1",
     knowhereDocumentId: "doc_1",
     stagedBlobPathname: null,
