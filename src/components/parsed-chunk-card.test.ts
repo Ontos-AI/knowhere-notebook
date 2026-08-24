@@ -185,6 +185,11 @@ describe("ParsedChunkCard", () => {
       }),
     );
 
+    const pageImage = screen.getByRole("img", { name: "Page 4" });
+    expect(screen.queryByTestId("citation-region-highlight")).toBeNull();
+
+    fireEvent.load(pageImage);
+
     const highlight = screen.getByTestId("citation-region-highlight");
     expect(highlight.className).toContain("citation-region-flash");
     expect(highlight.getAttribute("style")).toContain("10%");
@@ -195,7 +200,7 @@ describe("ParsedChunkCard", () => {
       screen.getByTestId("citation-region-highlights").parentElement,
     ).toBe(screen.getByTestId("citation-image-stage"));
 
-    fireEvent.error(screen.getByRole("img", { name: "Page 4" }));
+    fireEvent.error(pageImage);
     expect(screen.queryByTestId("citation-region-highlight")).toBeNull();
   });
 

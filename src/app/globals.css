@@ -88,9 +88,9 @@
 }
 
 @keyframes citation-pulse {
-  0% { box-shadow: 0 0 0 0 hsl(var(--ring) / 0.5); }
-  50% { box-shadow: 0 0 0 8px hsl(var(--ring) / 0.15); }
-  100% { box-shadow: 0 0 0 0 hsl(var(--ring) / 0); }
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ring) 50%, transparent); }
+  50% { box-shadow: 0 0 0 8px color-mix(in srgb, var(--ring) 15%, transparent); }
+  100% { box-shadow: 0 0 0 0 transparent; }
 }
 
 .citation-card-highlight {
@@ -112,7 +112,7 @@
   z-index: 10;
   display: block;
   border-radius: var(--radius);
-  background-color: hsl(var(--ring) / 0.25);
+  background-color: color-mix(in srgb, var(--ring) 25%, transparent);
   animation: citation-region-flash 4.6s ease-in-out forwards;
 }
 
