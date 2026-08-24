@@ -276,3 +276,103 @@ test("draws citation regions instead of a full-page highlight", async ({
     )
   }
 })
+
+test("moves a deduplicated cited page to the top from the same source", async ({
+  context,
+  page,
+}) => {
+  await context.addCookies([
+    {
+      name: "better-auth.session_token",
+      value: "playwright",
+      url: "http://localhost:3000",
+    },
+  ])
+  await page.setViewportSize({ width: 1280, height: 832 })
+  await page.route("**/api/sources/source_spacex/chunks**", async (route) => {
+    const pageAsset = {
+      pageNumber: 26,
+      assetUrl: "/images/knowhere/logo-icon.png",
+      contentType: "image/png",
+      width: 1000,
+      height: 1400,
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        chunks: [
+          {
+            chunkId: "page_1",
+            documentId: "doc_spacex",
+            sectionPath: "Page 1",
+            type: "page",
+            content: "Content from page 1.",
+            readableContent: "Content from page 1.",
+            pageNums: [1],
+            pageAssets: [{ ...pageAsset, pageNumber: 1 }],
+            sourceTitle: "spacex-s1.pdf",
+          },
+          {
+            chunkId: "page_26_first_section",
+            documentId: "doc_spacex",
+            sectionPath: "Page 26 / First section",
+            type: "page",
+            content: "Other content from page 26.",
+            readableContent: "Other content from page 26.",
+            pageNums: [26],
+            pageAssets: [pageAsset],
+            sourceTitle: "spacex-s1.pdf",
+          },
+          {
+            chunkId: "page_26_cited_section",
+            documentId: "doc_spacex",
+            sectionPath: "Page 26",
+            type: "page",
+            content: "Revenue evidence on page 26.",
+            readableContent: "Revenue evidence on page 26.",
+            pageNums: [26],
+            pageAssets: [pageAsset],
+            sourceTitle: "spacex-s1.pdf",
+          },
+        ],
+        pagination: {
+          page: 1,
+          pageSize: 50,
+          total: 3,
+          totalPages: 1,
+        },
+      }),
+    })
+  })
+
+  await page.goto("/e2e/citation-same-page")
+  await page
+    .getByTestId("desktop-sources-panel")
+    .getByRole("button", { name: "Open spacex-s1.pdf parsed chunks" })
+    .click()
+  const chunksPanel = page.getByTestId("desktop-chunks-panel")
+  await chunksPanel.getByRole("button", { name: "List" }).click()
+  await expect
+    .poll(() =>
+      chunksPanel
+        .locator('[data-index="0"]')
+        .getAttribute("data-chunk-id"),
+    )
+    .toBe("page_1")
+
+  await page
+    .getByTestId("desktop-chat-panel")
+    .getByTestId("citation-chip")
+    .first()
+    .click()
+
+  await expect
+    .poll(() =>
+      chunksPanel
+        .locator('[data-index="0"]')
+        .getAttribute("data-chunk-id"),
+    )
+    .toBe("page_26_first_section")
+  await expect(page.getByTestId("citation-region-highlight")).toHaveCount(1)
+})

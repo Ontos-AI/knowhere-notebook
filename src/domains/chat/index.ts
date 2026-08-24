@@ -48,6 +48,7 @@ import { notebookKnowhereTools } from "./knowhere-tools"
 
 const DEFAULT_TOP_K = 8
 const MAX_AGENTIC_TOP_K = 12
+const MAX_CONCURRENT_RETRIEVAL_NAMESPACES = 4
 const MAX_AGENTIC_MERGED_RESULT_COUNT = 24
 const MAX_AGENTIC_MERGED_REFERENCED_CHUNK_COUNT = 24
 const MAX_AGENTIC_MERGED_TEXT_CHARS = 12_000
@@ -102,6 +103,20 @@ type AgenticMergedEvidenceLimits = {
   readonly referencedChunkCount: number
 }
 
+type RetrievalNamespaceQueryMode = "concurrent" | "rate_limit_fallback"
+
+type RetrievalNamespaceQueryOutcome =
+  | {
+      readonly status: "success"
+      readonly namespace: string
+      readonly response: RetrievalQueryResponse
+    }
+  | {
+      readonly status: "failure"
+      readonly namespace: string
+      readonly error: unknown
+    }
+
 export type {
   AnswerQuestionInput,
   AnswerQuestionResult,
@@ -143,57 +158,69 @@ export const answerQuestionWithRetrieval = (
       const queryResponses: RetrievalQueryResponse[] = []
       const queryFailures: unknown[] = []
 
-      for (const namespace of namespaces) {
-        const retrievalQueryParams = buildRetrievalQueryParams({
-          input: queryInput,
-          fallbackQuestion: question,
-          namespace,
-          useAgentic: input.useAgentic ?? true,
-          sources: input.sources,
-          excludedSourceIds: input.excludedSourceIds,
-        })
-        logger.info("chat-agent: searchSources start", {
-          namespace,
-          query: retrievalQueryParams.query,
-          topK: retrievalQueryParams.topK,
-          useAgentic: retrievalQueryParams.useAgentic,
-          dataType: retrievalQueryParams.dataType ?? null,
-          signalPathCount: retrievalQueryParams.signalPaths?.length ?? 0,
-          filterMode: retrievalQueryParams.filterMode ?? null,
-          threshold: retrievalQueryParams.threshold ?? null,
-          targetContent: retrievalPlan.targetContent,
-          purpose: retrievalPlan.purpose,
-        })
+      const concurrentOutcomes = await queryRetrievalNamespaces({
+        namespaces,
+        queryInput,
+        answerInput: input,
+        fallbackQuestion: question,
+        retrievalPlan,
+        concurrency: MAX_CONCURRENT_RETRIEVAL_NAMESPACES,
+        mode: "concurrent",
+      })
+      const rateLimitedOutcomes = concurrentOutcomes.filter(
+        (outcome) =>
+          outcome.status === "failure" && isRateLimitError(outcome.error),
+      )
+      let finalOutcomes = concurrentOutcomes
 
-        try {
-          const response = await input.retrieval.query(retrievalQueryParams)
-          retrievalResponses.push(response)
-          queryResponses.push(response)
-          logger.info("chat-agent: searchSources ok", {
-            namespace,
-            query: response.query,
-            durationMs: Date.now() - startedAt,
-            resultCount: response.results.length,
-            referencedChunkCount: response.referencedChunks.length,
-            stopReason: response.stopReason ?? null,
-            failureReason: response.failureReason ?? null,
-            targetContent: retrievalPlan.targetContent,
-          })
-          logger.info("chat-agent: knowhere query response", {
-            durationMs: Date.now() - startedAt,
-            response: formatKnowhereQueryResponseForLog(response),
-          })
-        } catch (error) {
-          queryFailures.push(error)
-          logger.error("chat-agent: searchSources failed", {
-            namespace,
-            query: retrievalQueryParams.query,
-            durationMs: Date.now() - startedAt,
-            error: formatUnknownError(error),
-            targetContent: retrievalPlan.targetContent,
-          })
+      if (rateLimitedOutcomes.length > 0) {
+        logger.warn(
+          "chat-agent: searchSources rate limited; retrying failed namespaces sequentially",
+          {
+            namespaceCount: rateLimitedOutcomes.length,
+            namespaces: rateLimitedOutcomes.map((outcome) => outcome.namespace),
+          },
+        )
+        const fallbackOutcomes = await queryRetrievalNamespaces({
+          namespaces: rateLimitedOutcomes.map((outcome) => outcome.namespace),
+          queryInput,
+          answerInput: input,
+          fallbackQuestion: question,
+          retrievalPlan,
+          concurrency: 1,
+          mode: "rate_limit_fallback",
+        })
+        const fallbackByNamespace = new Map(
+          fallbackOutcomes.map(
+            (outcome): readonly [string, RetrievalNamespaceQueryOutcome] => [
+              outcome.namespace,
+              outcome,
+            ],
+          ),
+        )
+        finalOutcomes = concurrentOutcomes.map((outcome) =>
+          outcome.status === "failure" && isRateLimitError(outcome.error)
+            ? (fallbackByNamespace.get(outcome.namespace) ?? outcome)
+            : outcome,
+        )
+      }
+
+      for (const outcome of finalOutcomes) {
+        if (outcome.status === "success") {
+          retrievalResponses.push(outcome.response)
+          queryResponses.push(outcome.response)
+        } else {
+          queryFailures.push(outcome.error)
         }
       }
+
+      logger.info("chat-agent: searchSources batch complete", {
+        durationMs: Date.now() - startedAt,
+        namespaceCount: namespaces.length,
+        successCount: queryResponses.length,
+        failureCount: queryFailures.length,
+        rateLimitFallbackCount: rateLimitedOutcomes.length,
+      })
 
       if (queryResponses.length === 0) throw queryFailures[0]
       if (
@@ -672,6 +699,139 @@ function redactRawUrls(value: string): string {
 function formatUnknownError(error: unknown): string {
   if (error instanceof Error) return error.message
   return String(error)
+}
+
+function queryRetrievalNamespaces(input: {
+  readonly namespaces: readonly string[]
+  readonly queryInput: AgenticRetrievalQuery
+  readonly answerInput: AnswerQuestionInput
+  readonly fallbackQuestion: string
+  readonly retrievalPlan: AgenticRetrievalPlan
+  readonly concurrency: number
+  readonly mode: RetrievalNamespaceQueryMode
+}): Promise<RetrievalNamespaceQueryOutcome[]> {
+  return Effect.runPromise(
+    Effect.all(
+      input.namespaces.map((namespace) =>
+        Effect.promise(() =>
+          queryRetrievalNamespace({
+            namespace,
+            queryInput: input.queryInput,
+            answerInput: input.answerInput,
+            fallbackQuestion: input.fallbackQuestion,
+            retrievalPlan: input.retrievalPlan,
+            mode: input.mode,
+          }),
+        ),
+      ),
+      { concurrency: input.concurrency },
+    ),
+  )
+}
+
+async function queryRetrievalNamespace(input: {
+  readonly namespace: string
+  readonly queryInput: AgenticRetrievalQuery
+  readonly answerInput: AnswerQuestionInput
+  readonly fallbackQuestion: string
+  readonly retrievalPlan: AgenticRetrievalPlan
+  readonly mode: RetrievalNamespaceQueryMode
+}): Promise<RetrievalNamespaceQueryOutcome> {
+  const startedAt = Date.now()
+  const retrievalQueryParams = buildRetrievalQueryParams({
+    input: input.queryInput,
+    fallbackQuestion: input.fallbackQuestion,
+    namespace: input.namespace,
+    useAgentic: input.answerInput.useAgentic ?? true,
+    sources: input.answerInput.sources,
+    excludedSourceIds: input.answerInput.excludedSourceIds,
+  })
+  logger.info("chat-agent: searchSources start", {
+    namespace: input.namespace,
+    query: retrievalQueryParams.query,
+    topK: retrievalQueryParams.topK,
+    useAgentic: retrievalQueryParams.useAgentic,
+    dataType: retrievalQueryParams.dataType ?? null,
+    signalPathCount: retrievalQueryParams.signalPaths?.length ?? 0,
+    filterMode: retrievalQueryParams.filterMode ?? null,
+    threshold: retrievalQueryParams.threshold ?? null,
+    targetContent: input.retrievalPlan.targetContent,
+    purpose: input.retrievalPlan.purpose,
+    mode: input.mode,
+  })
+
+  try {
+    const response = await input.answerInput.retrieval.query(retrievalQueryParams)
+    logger.info("chat-agent: searchSources ok", {
+      namespace: input.namespace,
+      query: response.query,
+      durationMs: Date.now() - startedAt,
+      resultCount: response.results.length,
+      referencedChunkCount: response.referencedChunks.length,
+      stopReason: response.stopReason ?? null,
+      failureReason: response.failureReason ?? null,
+      targetContent: input.retrievalPlan.targetContent,
+      mode: input.mode,
+    })
+    logger.info("chat-agent: knowhere query response", {
+      durationMs: Date.now() - startedAt,
+      response: formatKnowhereQueryResponseForLog(response),
+      mode: input.mode,
+    })
+    return {
+      status: "success",
+      namespace: input.namespace,
+      response,
+    }
+  } catch (error) {
+    logger.error("chat-agent: searchSources failed", {
+      namespace: input.namespace,
+      query: retrievalQueryParams.query,
+      durationMs: Date.now() - startedAt,
+      error: formatUnknownError(error),
+      targetContent: input.retrievalPlan.targetContent,
+      mode: input.mode,
+      rateLimited: isRateLimitError(error),
+    })
+    return {
+      status: "failure",
+      namespace: input.namespace,
+      error,
+    }
+  }
+}
+
+function isRateLimitError(error: unknown): boolean {
+  const statusCode =
+    getUnknownProperty(error, "statusCode") ??
+    getUnknownProperty(error, "status")
+  if (statusCode === 429 || statusCode === "429") return true
+
+  const body = getUnknownProperty(error, "body")
+  const bodyError = getUnknownProperty(body, "error")
+  return [
+    getUnknownProperty(error, "name"),
+    getUnknownProperty(error, "code"),
+    getUnknownProperty(error, "message"),
+    getUnknownProperty(body, "message"),
+    getUnknownProperty(bodyError, "code"),
+    getUnknownProperty(bodyError, "message"),
+  ].some(
+    (value) =>
+      typeof value === "string" &&
+      /\b429\b|rate[\s_-]?limit|too many concurrent|resource_exhausted/i.test(
+        value,
+      ),
+  )
+}
+
+function getUnknownProperty(value: unknown, key: string): unknown {
+  if (typeof value !== "object" || value === null) return undefined
+  try {
+    return Reflect.get(value, key)
+  } catch {
+    return undefined
+  }
 }
 
 function getRetrievalNamespaces(input: AnswerQuestionInput): readonly string[] {
