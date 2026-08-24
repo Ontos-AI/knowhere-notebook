@@ -24,7 +24,7 @@ vi.mock("next/cache", () => nextCacheMocks)
  * Playwright flow added in a later PR.
  */
 
-import { extractUser, sessionCookieNames } from "."
+import { extractUser, isSessionCookieName, sessionCookieNames } from "."
 
 const SESSION_PATH = "/api/orpc/users/getCurrentUser"
 
@@ -146,6 +146,27 @@ describe("sessionCookieNames", () => {
       "better-auth.session_token",
       "__Secure-better-auth.session_token",
     ])
+  })
+
+  it("recognizes environment-prefixed Better Auth session tokens", () => {
+    delete process.env.SESSION_COOKIE_NAMES
+
+    expect(
+      isSessionCookieName("__Secure-better-auth-staging-session_token"),
+    ).toBe(true)
+    expect(isSessionCookieName("__Secure-better-auth-session_token")).toBe(true)
+    expect(
+      isSessionCookieName("__Secure-better-auth-staging-session_data"),
+    ).toBe(false)
+  })
+
+  it("adds an explicit cookie-name override without hiding Better Auth tokens", () => {
+    process.env.SESSION_COOKIE_NAMES = "custom-session"
+
+    expect(isSessionCookieName("custom-session")).toBe(true)
+    expect(
+      isSessionCookieName("__Secure-better-auth-staging-session_token"),
+    ).toBe(true)
   })
 })
 
