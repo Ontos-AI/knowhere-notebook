@@ -500,8 +500,10 @@ function PageCitationAssetImage({
   readonly isCitationFocus: boolean;
 }): ReactNode {
   const [failedAssetUrl, setFailedAssetUrl] = useState<string | null>(null);
+  const [loadedAssetUrl, setLoadedAssetUrl] = useState<string | null>(null);
   const imageAssetUrl = getInlineImageAssetUrl(asset.assetUrl);
   const hasImageError = failedAssetUrl === imageAssetUrl;
+  const isImageLoaded = loadedAssetUrl === imageAssetUrl;
 
   return (
     <figure className="overflow-hidden rounded-lg border border-border bg-muted/30">
@@ -530,8 +532,9 @@ function PageCitationAssetImage({
               className="block h-auto max-h-[680px] max-w-full object-contain"
               loading="lazy"
               onError={() => setFailedAssetUrl(imageAssetUrl)}
+              onLoad={() => setLoadedAssetUrl(imageAssetUrl)}
             />
-            {isCitationFocus ? (
+            {isCitationFocus && isImageLoaded ? (
               <CitationRegionHighlight
                 regions={highlightRegions}
                 requestId={focusedPageRequestId}
@@ -581,10 +584,12 @@ function ImageChunkCard({
   readonly onChunkClick?: (chunk: ParsedChunkView) => void;
   readonly sourceOriginalFile: SourceOriginalFileView | null;
 }): ReactNode {
+  const [loadedAssetUrl, setLoadedAssetUrl] = useState<string | null>(null);
   const imageAssetUrl = getImageChunkAssetUrl(chunk, sourceOriginalFile);
   const inlineImageAssetUrl = imageAssetUrl
     ? getInlineImageAssetUrl(imageAssetUrl)
     : null;
+  const isImageLoaded = loadedAssetUrl === inlineImageAssetUrl;
 
   return (
     <ChunkCardFrame
@@ -607,8 +612,9 @@ function ImageChunkCard({
                   src={inlineImageAssetUrl}
                   alt={chunk.summary ?? "Image chunk"}
                   className="block h-auto max-h-[520px] max-w-full object-contain"
+                  onLoad={() => setLoadedAssetUrl(inlineImageAssetUrl)}
                 />
-                {isFocused ? (
+                {isFocused && isImageLoaded ? (
                   <CitationRegionHighlight
                     regions={highlightRegions}
                     requestId={focusedPageRequestId}

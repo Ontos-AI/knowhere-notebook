@@ -121,6 +121,17 @@ test("draws citation regions instead of a full-page highlight", async ({
     },
   ])
   await page.setViewportSize({ width: 1280, height: 832 })
+  let releasePageImage = (): void => {}
+  const pageImageGate = new Promise<void>((resolve) => {
+    releasePageImage = resolve
+  })
+  await page.route(
+    "**/images/knowhere/logo-icon.png?citation-test=slow",
+    async (route) => {
+      await pageImageGate
+      await route.continue()
+    },
+  )
   await page.route("**/api/sources/source_spacex/chunks**", async (route) => {
     await route.fulfill({
       status: 200,
@@ -138,7 +149,8 @@ test("draws citation regions instead of a full-page highlight", async ({
             pageAssets: [
               {
                 pageNumber: 26,
-                assetUrl: "/images/knowhere/logo-icon.png",
+                assetUrl:
+                  "/images/knowhere/logo-icon.png?citation-test=slow",
                 contentType: "image/png",
                 width: 1000,
                 height: 1400,
@@ -165,6 +177,32 @@ test("draws citation regions instead of a full-page highlight", async ({
 
   await chips.first().click()
   const firstRegions = page.getByTestId("citation-region-highlight")
+  const pageImage = page.getByRole("img", { name: "Page 26" })
+  await expect(pageImage).toBeAttached()
+  await expect
+    .poll(() =>
+      pageImage.evaluate(
+        (element) =>
+          element instanceof HTMLImageElement &&
+          element.complete &&
+          element.naturalWidth > 0,
+      ),
+    )
+    .toBe(false)
+  await expect(firstRegions).toHaveCount(0)
+
+  releasePageImage()
+
+  await expect
+    .poll(() =>
+      pageImage.evaluate(
+        (element) =>
+          element instanceof HTMLImageElement &&
+          element.complete &&
+          element.naturalWidth > 0,
+      ),
+    )
+    .toBe(true)
   await expect(firstRegions).toHaveCount(1)
   await expect
     .poll(() =>
@@ -176,7 +214,6 @@ test("draws citation regions instead of a full-page highlight", async ({
       })),
     )
     .toEqual({ left: "12%", top: "18%", width: "46%", height: "8%" })
-  const pageImage = page.getByRole("img", { name: "Page 26" })
   await expect(pageImage).toBeVisible()
   const imageBox = await pageImage.boundingBox()
   const firstRegionBox = await firstRegions.first().boundingBox()
