@@ -34,6 +34,7 @@ const chatMessages: ChatMessageView[] = [
       {
         chunkType: "page",
         score: 0.91,
+        content: "Revenue evidence on page 26.",
         pageCitationPageNumber: 26,
         highlightRegions: [{ x: 0.12, y: 0.18, w: 0.46, h: 0.08 }],
         source: {
