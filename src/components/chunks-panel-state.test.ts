@@ -208,6 +208,44 @@ describe("chunksPanelState", () => {
     ).toEqual(["page_4_first", "page_5"])
   })
 
+  it("focuses the retained page card when the cited logical chunk was deduplicated", () => {
+    const chunks: ParsedChunkView[] = [
+      {
+        chunkId: "page_1",
+        type: "page",
+        content: "Page 1.",
+        sourceTitle: "cdn.pdf",
+        pageNums: [1],
+      },
+      {
+        chunkId: "page_4_first_section",
+        type: "page",
+        content: "First section on page 4.",
+        sourceTitle: "cdn.pdf",
+        pageNums: [4],
+      },
+      {
+        chunkId: "page_4_cited_section",
+        type: "page",
+        content: "Cited section on page 4.",
+        sourceTitle: "cdn.pdf",
+        pageNums: [4],
+      },
+    ]
+    const displayedChunks =
+      chunksPanelState.getPageAssetChunksWithoutDuplicatePages(chunks)
+
+    expect(
+      chunksPanelState
+        .getChunksWithFocusedFirst(
+          displayedChunks,
+          "page_4_cited_section",
+          4,
+        )
+        .map((chunk) => chunk.chunkId),
+    ).toEqual(["page_4_first_section", "page_1"])
+  })
+
   it("keeps overlapping page-memory section chunks that share a boundary page", () => {
     const chunks: ParsedChunkView[] = [
       {

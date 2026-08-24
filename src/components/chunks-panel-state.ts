@@ -63,8 +63,12 @@ function getChunksWithFocusedFirst(
   const orderedChunks = getChunksOrderedByPageNumber(
     dedupeChunksById(chunks),
   )
-  const targetChunkId =
-    focusedChunkId ?? findChunkIdForPageNumber(orderedChunks, focusedPageNumber)
+  const hasVisibleFocusedChunk =
+    focusedChunkId !== null &&
+    orderedChunks.some((chunk) => chunk.chunkId === focusedChunkId)
+  const targetChunkId = hasVisibleFocusedChunk
+    ? focusedChunkId
+    : findChunkIdForPageNumber(orderedChunks, focusedPageNumber)
   if (!targetChunkId) return orderedChunks
 
   const focusedIndex = orderedChunks.findIndex(
