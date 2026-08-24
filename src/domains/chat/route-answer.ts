@@ -29,6 +29,7 @@ import { CHAT_MODEL } from "@/lib/ai"
 import type { HardenChatAssetUrl } from "./media-assets"
 import { isAuthError } from "@/integrations/dashboard/api-key-service"
 import { makeKnowhereClientWithParsedStorage } from "@/integrations/knowhere"
+import { knowhereDemoApi } from "@/integrations/knowhere-demo"
 import { summarizeUnknownError } from "@/lib/format-log-value"
 import { logger } from "@/lib/logger"
 import { routeResult, type RouteResult } from "@/lib/route-result"
@@ -527,13 +528,30 @@ async function hardenSingleChatAsset(input: {
   readonly assetUrl?: string | null
   readonly contentType?: string | null
 }): Promise<string | null> {
-  if (
-    input.source.status !== "ready" ||
-    !input.source.knowhereDocumentId ||
-    !input.source.knowhereJobId
-  ) {
+  if (input.source.status !== "ready" || !input.source.knowhereDocumentId) {
     return null
   }
+
+  if (input.source.demoKey) {
+    const demoAssetUrl = resolveDemoSourceAssetUrl({
+      demoSourceId: input.source.demoKey,
+      sourcePath: input.sourcePath,
+    })
+    if (!demoAssetUrl) return null
+
+    return hardenChatAssetByDocument({
+      workspaceId: input.workspaceId,
+      parsedStorage: input.parsedStorage,
+      documentId: input.source.knowhereDocumentId,
+      revisionKey: input.source.knowhereDocumentId,
+      sourcePath: input.sourcePath,
+      assetUrl: demoAssetUrl,
+      contentType: input.contentType,
+      sourceId: input.source.id,
+    })
+  }
+
+  if (!input.source.knowhereJobId) return null
 
   return hardenChatAssetByDocument({
     workspaceId: input.workspaceId,
@@ -545,6 +563,28 @@ async function hardenSingleChatAsset(input: {
     contentType: input.contentType,
     sourceId: input.source.id,
   })
+}
+
+function resolveDemoSourceAssetUrl(input: {
+  readonly demoSourceId: string
+  readonly sourcePath: string
+}): string | null {
+  const normalizedPath = input.sourcePath
+    .replaceAll("\\", "/")
+    .replace(/^\.\/+/u, "")
+  const pathSegments = normalizedPath.split("/")
+  if (
+    pathSegments.some(
+      (segment) => segment.length === 0 || segment === "." || segment === "..",
+    )
+  ) {
+    return null
+  }
+
+  const encodedPath = pathSegments.map(encodeURIComponent).join("/")
+  return knowhereDemoApi.resolveApiURL(
+    `/api/v1/demo/sources/${encodeURIComponent(input.demoSourceId)}/assets/${encodedPath}`,
+  )
 }
 
 async function hardenChatAssetByDocument(input: {

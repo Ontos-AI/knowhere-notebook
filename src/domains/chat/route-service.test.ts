@@ -40,6 +40,12 @@ vi.mock("@/integrations/knowhere", () => ({
   makeKnowhereClientWithParsedStorage: mocks.makeKnowhereClientWithParsedStorage,
 }))
 
+vi.mock("@/integrations/knowhere-demo", () => ({
+  knowhereDemoApi: {
+    resolveApiURL: (pathname: string) => `https://demo.example${pathname}`,
+  },
+}))
+
 vi.mock("@/domains/chat", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/domains/chat")>()
   return {
@@ -371,6 +377,117 @@ describe("chat route services", () => {
     )
     expect(imagePart.image).toEqual(new Uint8Array([1, 2, 3]))
     expect(imagePart.mediaType).toBe("image/png")
+  })
+
+  it("hardens materialized demo page assets for image inspection", async () => {
+    const workspace = makeWorkspace()
+    const client = { retrieval: { query: vi.fn() } }
+    const readySource = makeSource({
+      title: "TSLA-Q4-2025-Update.pdf",
+      demoKey: "demo-tsla-q4-2025",
+      knowhereDocumentId: "doc_materialized_tesla",
+      knowhereJobId: null,
+    })
+    const demoAssetUrl =
+      "https://demo.example/api/v1/demo/sources/demo-tsla-q4-2025/assets/page_citation_assets/page-6.png"
+    const durableUrl =
+      "https://fake.public.blob.vercel-storage.com/workspaces/workspace_1/parsed-documents/doc_materialized_tesla/doc_materialized_tesla/page_citation_assets/page-6.png"
+    mocks.parsedStorageWriteAsset.mockResolvedValue({ url: durableUrl })
+    mocks.generateObject.mockResolvedValue({
+      object: {
+        analysis: "The total production row is visible.",
+        pages: [],
+      },
+    })
+    mocks.getAuthenticatedWithClient.mockResolvedValue({
+      user: { id: "user_1" },
+      workspace,
+      apiKey: "jwt_123",
+      client,
+    })
+    mocks.listSourcesForWorkspace.mockResolvedValue([readySource])
+    mocks.handleChatTurn.mockImplementation(
+      async (input: {
+        readonly inspectImages?: (request: {
+          readonly question: string
+          readonly assets: readonly {
+            readonly ref: string
+            readonly label: string
+            readonly sourcePath?: string | null
+            readonly source: {
+              readonly documentId?: string | null
+              readonly sourceFileName?: string | null
+              readonly sectionPath?: string | null
+            }
+          }[]
+        }) => Promise<{
+          readonly analysis: string
+          readonly inspected: readonly {
+            readonly ref: string
+            readonly label: string
+          }[]
+          readonly skipped: readonly {
+            readonly ref: string
+            readonly reason: string
+          }[]
+        }>
+      }) => {
+        const inspection = await input.inspectImages?.({
+          question: "Locate total production.",
+          assets: [
+            {
+              ref: "asset:r1:result:1",
+              label:
+                "TSLA-Q4-2025-Update.pdf / page_citation_assets/page-6.png",
+              sourcePath: "page_citation_assets/page-6.png",
+              source: {
+                documentId: "doc_materialized_tesla",
+                sourceFileName: "TSLA-Q4-2025-Update.pdf",
+                sectionPath: "OPERATIONAL SUMMARY",
+              },
+            },
+          ],
+        })
+        expect(inspection).toEqual({
+          analysis: "The total production row is visible.",
+          inspected: [
+            {
+              ref: "asset:r1:result:1",
+              label:
+                "TSLA-Q4-2025-Update.pdf / page_citation_assets/page-6.png",
+            },
+          ],
+          skipped: [],
+        })
+        return Either.right({
+          threadId: "thread_1",
+          messages: [
+            { id: "message_user", role: "user", content: "Inspect it" },
+            { id: "message_assistant", role: "assistant", content: "Answer" },
+          ],
+        })
+      },
+    )
+
+    const result = await chatAnswerRouteService.answerChat({
+      body: { message: "What was Tesla total production?" },
+    })
+
+    expect(result.status).toBe(200)
+    expect(mocks.parsedStorageGetAssetUrl).toHaveBeenCalledWith({
+      documentId: "doc_materialized_tesla",
+      revisionKey: "doc_materialized_tesla",
+      sourcePath: "page_citation_assets/page-6.png",
+    })
+    expect(fetch).toHaveBeenCalledWith(demoAssetUrl)
+    expect(fetch).toHaveBeenCalledWith(durableUrl)
+    expect(mocks.parsedStorageWriteAsset).toHaveBeenCalledWith({
+      documentId: "doc_materialized_tesla",
+      revisionKey: "doc_materialized_tesla",
+      sourcePath: "page_citation_assets/page-6.png",
+      body: new Uint8Array([1, 2, 3]),
+      contentType: "image/png",
+    })
   })
 
   it("uses image inspection source paths for retrieved page assets", async () => {
