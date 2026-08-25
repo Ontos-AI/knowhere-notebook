@@ -14,6 +14,22 @@ import { logger } from "@/lib/logger"
 const VISION_MODEL = process.env.VISION_MODEL ?? CHAT_MODEL
 const IMAGE_INSPECTION_BATCH_SIZE = 6
 
+/**
+ * Inspect is OCR + provenance boxes, not multi-step reasoning.
+ * Gemini 3 Flash cannot fully disable thinking; `minimal` is the lowest.
+ * Qwen 3.5 Flash thinks by default on the gateway; turn that off.
+ */
+const IMAGE_INSPECTION_PROVIDER_OPTIONS = {
+  google: {
+    thinkingConfig: {
+      thinkingLevel: "minimal",
+    },
+  },
+  alibaba: {
+    enableThinking: false,
+  },
+}
+
 export const imageInspectionResultSchema = z.object({
   analysis: z.string(),
   pages: z
@@ -105,6 +121,7 @@ async function generateImageInspectionBatchResult(input: {
     const response = await generateObject({
       model: VISION_MODEL,
       schema: imageInspectionResultSchema,
+      providerOptions: IMAGE_INSPECTION_PROVIDER_OPTIONS,
       messages: [
         {
           role: "user",
@@ -170,6 +187,7 @@ async function generateImageInspectionBatchResult(input: {
   try {
     const jsonTextResponse = await generateText({
       model: VISION_MODEL,
+      providerOptions: IMAGE_INSPECTION_PROVIDER_OPTIONS,
       messages: [
         {
           role: "user",
@@ -223,6 +241,7 @@ async function generateImageInspectionBatchResult(input: {
   try {
     const response = await generateText({
       model: VISION_MODEL,
+      providerOptions: IMAGE_INSPECTION_PROVIDER_OPTIONS,
       messages: [
         {
           role: "user",
