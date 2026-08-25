@@ -112,6 +112,20 @@ describe("image inspection model", () => {
       regions: [{ x: 0.4, y: 0.5, w: 0.2, h: 0.1 }],
     })
     expect(result.source).toBe("structured")
+    expect(generateObject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerOptions: {
+          google: {
+            thinkingConfig: {
+              thinkingLevel: "minimal",
+            },
+          },
+          alibaba: {
+            enableThinking: false,
+          },
+        },
+      }),
+    )
   })
 
   it("salvages valid structured JSON from failed generateObject text", async () => {
@@ -230,6 +244,20 @@ describe("image inspection model", () => {
       source: "structured_text",
     })
     expect(generateText).toHaveBeenCalledTimes(1)
+    expect(generateText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerOptions: {
+          google: {
+            thinkingConfig: {
+              thinkingLevel: "minimal",
+            },
+          },
+          alibaba: {
+            enableThinking: false,
+          },
+        },
+      }),
+    )
   })
 
   it("falls back to analysis-only text when unsupported structured models cannot emit JSON", async () => {
