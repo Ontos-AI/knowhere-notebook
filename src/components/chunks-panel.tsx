@@ -41,7 +41,6 @@ import type { ChatImageHighlightBox } from "@/domains/chat/types";
 import { chunksPanelState } from "@/components/chunks-panel-state";
 import { MAX_UPLOAD_MB } from "@/domains/sources/validation";
 import { useSourceOriginalPreviewWarmup } from "@/components/source-original-preview-warmup";
-import { sourceOriginalPreviewModel } from "@/components/source-original-preview-model";
 import type { ParsedChunkView } from "@/domains/chunks/types";
 import type {
   SourceOriginalFileView,
@@ -122,12 +121,6 @@ export function ChunksPanel({
   );
   const effectiveVisibleView = isPageAssetSource ? "parsed" : undefined;
   const originalPreviewCacheKey = selectedSourceFile?.url ?? null;
-  const isOriginalPreviewAvailable =
-    !isPageAssetSource &&
-    sourceOriginalPreviewModel.canPreviewOriginalFile(
-      selectedSource,
-      selectedSourceFile,
-    );
   const [mountedOriginalPreviewKey, setMountedOriginalPreviewKey] = useState<
     string | null
   >(null);
@@ -142,11 +135,9 @@ export function ChunksPanel({
     useState<number>(sectionTreeDefaultZoomPercent);
   const {
     activeFocusedChunkId,
-    handleChunkSelected: selectChunk,
     handleOriginalViewSelected: selectOriginalView,
     handleParsedViewSelected,
     handleViewportScroll,
-    hasOriginalFile,
     hasOriginalView,
     measureVirtualChunkElement,
     originalTargetPageNumber,
@@ -183,13 +174,6 @@ export function ChunksPanel({
     }
   }, [originalPreviewCacheKey]);
 
-  const handleChunkSelected = useCallback(
-    (chunk: ParsedChunkView): void => {
-      rememberOriginalPreview();
-      selectChunk(chunk);
-    },
-    [rememberOriginalPreview, selectChunk],
-  );
   const handleOriginalViewSelected = useCallback((): void => {
     rememberOriginalPreview();
     selectOriginalView();
@@ -438,13 +422,7 @@ export function ChunksPanel({
                       focusedPageNumber={focusedPageNumber}
                       focusedPageRequestId={focusedPageRequestId}
                       highlightRegions={focusedHighlightRegions}
-                      isOriginalPreviewAvailable={isOriginalPreviewAvailable}
                       measureElement={measureVirtualChunkElement}
-                      onChunkClick={
-                        hasOriginalFile && !isPageAssetSource
-                          ? handleChunkSelected
-                          : undefined
-                      }
                       onReferenceClick={requestChunkFocus}
                       selectedSourceFile={selectedSourceFile}
                     />
@@ -1223,9 +1201,7 @@ function VirtualChunkRow({
   focusedPageNumber,
   focusedPageRequestId,
   highlightRegions,
-  isOriginalPreviewAvailable,
   measureElement,
-  onChunkClick,
   onReferenceClick,
   selectedSourceFile,
 }: {
@@ -1236,9 +1212,7 @@ function VirtualChunkRow({
   focusedPageNumber: number | null;
   focusedPageRequestId: number;
   highlightRegions: readonly ChatImageHighlightBox[];
-  isOriginalPreviewAvailable: boolean;
   measureElement: (node: HTMLDivElement | null) => void;
-  onChunkClick?: (chunk: ParsedChunkView) => void;
   onReferenceClick: (chunkId: string) => void;
   selectedSourceFile: SourceOriginalFileView | null;
 }): ReactNode {
@@ -1268,8 +1242,6 @@ function VirtualChunkRow({
         focusedPageNumber={focusedPageNumber}
         focusedPageRequestId={focusedPageRequestId}
         highlightRegions={highlightRegions}
-        isOriginalPreviewAvailable={isOriginalPreviewAvailable}
-        onChunkClick={onChunkClick}
         onReferenceClick={onReferenceClick}
         sourceOriginalFile={selectedSourceFile}
       />
