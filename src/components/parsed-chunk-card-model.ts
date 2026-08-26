@@ -9,7 +9,9 @@ import type {
 type ChunkSourceMetadata = {
   readonly pageLabel: string | null
   readonly sectionLabel: string | null
+  readonly sectionSegments: readonly string[]
   readonly typeLabel: string
+  readonly leadLabel: string
 }
 
 type ChunkEntityTag = {
@@ -63,23 +65,32 @@ const tableAllowedAttributes = [
 ] as const
 
 function getSourceMetadata(chunk: ParsedChunkView): ChunkSourceMetadata {
-  if (chunk.type === "page") {
-    const pageFromAssets = chunk.pageAssets?.[0]?.pageNumber
-
-    return {
-      pageLabel: pageFromAssets
-        ? `Page ${pageFromAssets}`
-        : formatPageNumbers(chunk.pageNums),
-      sectionLabel: formatCardSectionPath(chunk),
-      typeLabel: getChunkTypeLabel(chunk.type),
-    }
-  }
+  const typeLabel = getChunkTypeLabel(chunk.type)
+  const pageFromAssets =
+    chunk.type === "page" ? chunk.pageAssets?.[0]?.pageNumber : undefined
+  const pageLabel = pageFromAssets
+    ? `Page ${pageFromAssets}`
+    : formatPageNumbers(chunk.pageNums)
+  const sectionLabel = formatCardSectionPath(chunk)
 
   return {
-    pageLabel: formatPageNumbers(chunk.pageNums),
-    sectionLabel: formatCardSectionPath(chunk),
-    typeLabel: getChunkTypeLabel(chunk.type),
+    pageLabel,
+    sectionLabel,
+    sectionSegments: getSectionPathSegments(sectionLabel),
+    typeLabel,
+    leadLabel: pageLabel ?? typeLabel,
   }
+}
+
+function getSectionPathSegments(
+  sectionLabel: string | null,
+): readonly string[] {
+  if (!sectionLabel) return []
+
+  return sectionLabel
+    .split(" / ")
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0)
 }
 
 function formatCardSectionPath(chunk: ParsedChunkView): string | null {
