@@ -13,6 +13,11 @@ export type ParsedChunkConnection = {
   }
 }
 
+export type ParsedChunkEntity = {
+  readonly text: string
+  readonly type?: string
+}
+
 /**
  * Parsed Content panel row. Mirrors the Knowhere document-chunk shape.
  */
@@ -36,7 +41,7 @@ export type ParsedChunkView = {
   readonly summary?: string
   readonly keywords?: readonly string[]
   readonly pageNums?: readonly number[]
-  readonly entities?: readonly Readonly<Record<string, unknown>>[]
+  readonly entities?: readonly ParsedChunkEntity[]
   readonly connections?: readonly ParsedChunkConnection[]
   /** Display-only attribution. */
   readonly sourceTitle: string

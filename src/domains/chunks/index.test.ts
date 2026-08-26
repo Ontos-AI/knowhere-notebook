@@ -149,7 +149,7 @@ describe("toParsedChunkView", () => {
         metadata: {
           summary: "Refund eligibility is summarized across pages 4 to 6.",
           page_nums: [4, 5, 6],
-          entities: [{ text: "refund", label: "topic" }],
+          entities: [{ text: "refund", type: "topic" }],
         },
         assetUrl: "https://assets.example/crop.pdf",
       }),
@@ -164,9 +164,42 @@ describe("toParsedChunkView", () => {
       content: "Refund eligibility is summarized across pages 4 to 6.",
       readableContent: "Refund eligibility is summarized across pages 4 to 6.",
       pageNums: [4, 5, 6],
-      entities: [{ text: "refund", label: "topic" }],
+      entities: [{ text: "refund", type: "topic" }],
       assetUrl: "https://assets.example/crop.pdf",
     });
+  });
+
+  it("normalizes Knowhere entity metadata into typed entity tags", () => {
+    const chunk = makeDocumentChunk({
+      metadata: {
+        entities: [
+          { text: "Form 10-K", type: "document" },
+          { text: "Alphabet Inc.", label: "organization" },
+          { text: "  " },
+          "Nasdaq",
+        ],
+      },
+    });
+
+    expect(toParsedChunkView(chunk, "manual.pdf", "doc_123").entities).toEqual([
+      { text: "Form 10-K", type: "document" },
+      { text: "Alphabet Inc.", type: "organization" },
+      { text: "Nasdaq" },
+    ]);
+  });
+
+  it("parses JSON-string entity metadata from parser rows", () => {
+    const chunk = makeDocumentChunk({
+      metadata: {
+        entities: JSON.stringify([
+          { text: "Nasdaq", type: "organization" },
+        ]),
+      },
+    });
+
+    expect(toParsedChunkView(chunk, "manual.pdf", "doc_123").entities).toEqual([
+      { text: "Nasdaq", type: "organization" },
+    ]);
   });
 
   it("maps usable page citation assets on page chunks", () => {
