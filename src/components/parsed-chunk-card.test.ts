@@ -343,6 +343,8 @@ describe("ParsedChunkCard", () => {
     expect(image.getAttribute("src")).toBe(
       `/api/parsed-assets/inline?url=${encodeURIComponent(assetUrl)}`,
     );
+    expect(screen.queryByText("Content")).toBeNull();
+    expect(screen.queryByTestId("chunk-summary-panel-image_1")).toBeNull();
   });
 
   it("routes resolved artifact reference clicks to the target chunk", async () => {

@@ -6,6 +6,7 @@ import {
   FileText,
   ImageIcon,
   ImageOff,
+  Link2,
   Table2,
   Tags,
   TextQuote,
@@ -25,10 +26,8 @@ const keywordPanelClassName =
   "rounded-lg border border-emerald-200/70 bg-emerald-50/70 p-3 shadow-[0_1px_0_rgba(16,185,129,0.08)] dark:border-emerald-400/20 dark:bg-emerald-950/20";
 const keywordBadgeClassName =
   "rounded-md border border-emerald-200/80 bg-emerald-100/90 px-2 py-0.5 text-[11px] font-semibold text-emerald-800 shadow-[0_1px_0_rgba(16,185,129,0.10)] hover:bg-emerald-100 dark:border-emerald-400/25 dark:bg-emerald-400/10 dark:text-emerald-200";
-const entityPanelClassName =
-  "rounded-lg border border-primary/20 bg-primary/5 p-3";
 const entityBadgeClassName =
-  "rounded-md border border-primary/30 bg-background px-2 py-0.5 text-[11px] font-medium text-primary hover:bg-primary/5 dark:border-primary/40 dark:bg-background dark:text-primary";
+  "rounded-md border border-primary/35 bg-background px-2 py-0.5 text-[11px] font-medium text-primary";
 type TextChunkReferencePart = Extract<
   ReturnType<typeof parsedChunkCardModel.getTextContentParts>[number],
   { readonly type: "reference" }
@@ -330,13 +329,10 @@ function ChunkEntities({
   return (
     <section
       data-testid={`chunk-entities-panel-${chunk.chunkId}`}
-      className={entityPanelClassName}
     >
       <SectionLabel
-        icon={<Tags className="size-3.5" />}
+        icon={<Link2 className="size-3.5" />}
         label="Entities"
-        className="text-primary"
-        iconClassName="text-primary"
       />
       <div className="mt-2 flex flex-wrap gap-1.5">
         {entities.map((entity) => (
@@ -635,10 +631,9 @@ function ImageChunkCard({
       isOriginalPreviewAvailable={isOriginalPreviewAvailable}
       onChunkClick={onChunkClick}
     >
-      <ChunkSummaryPanel chunk={chunk} />
-      <ChunkContentPanel chunk={chunk}>
-        {inlineImageAssetUrl ? (
-          <figure className="overflow-hidden rounded-lg border border-border bg-muted/30">
+      {inlineImageAssetUrl ? (
+        <div data-testid={`chunk-content-panel-${chunk.chunkId}`}>
+          <figure className="overflow-hidden">
             <div className="flex justify-center">
               <div
                 className="relative inline-block max-w-full"
@@ -660,22 +655,27 @@ function ImageChunkCard({
               </div>
             </div>
           </figure>
-        ) : (
-          <div className="flex flex-col items-center gap-3 rounded-lg border border-border bg-muted/40 py-8 text-center">
-            <ImageIcon className="size-8 text-muted-foreground" />
-            <div>
-              <p className="text-sm font-medium text-foreground">
-                Image chunk
-              </p>
-              <p className="mt-1 max-w-xs text-xs text-muted-foreground">
-                {chunk.summary
-                  ? chunk.summary
-                  : "Image content is not available in this view."}
-              </p>
+        </div>
+      ) : (
+        <>
+          <ChunkSummaryPanel chunk={chunk} />
+          <ChunkContentPanel chunk={chunk}>
+            <div className="flex flex-col items-center gap-3 rounded-lg border border-border bg-muted/40 py-8 text-center">
+              <ImageIcon className="size-8 text-muted-foreground" />
+              <div>
+                <p className="text-sm font-medium text-foreground">
+                  Image chunk
+                </p>
+                <p className="mt-1 max-w-xs text-xs text-muted-foreground">
+                  {chunk.summary
+                    ? chunk.summary
+                    : "Image content is not available in this view."}
+                </p>
+              </div>
             </div>
-          </div>
-        )}
-      </ChunkContentPanel>
+          </ChunkContentPanel>
+        </>
+      )}
       <ChunkEntities chunk={chunk} />
       <ChunkKeywords chunk={chunk} />
     </ChunkCardFrame>
