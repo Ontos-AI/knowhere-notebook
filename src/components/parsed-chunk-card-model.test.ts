@@ -18,7 +18,9 @@ describe("parsedChunkCardModel", () => {
     expect(metadata).toEqual({
       pageLabel: "Pages 2, 4, 8-9",
       sectionLabel: "Root / FINANCIAL SUMMARY",
+      sectionSegments: ["Root", "FINANCIAL SUMMARY"],
       typeLabel: "Text",
+      leadLabel: "Pages 2, 4, 8-9",
     })
   })
 
@@ -34,7 +36,9 @@ describe("parsedChunkCardModel", () => {
     expect(metadata).toEqual({
       pageLabel: "Pages 4-6",
       sectionLabel: "Root / pages/4-6",
+      sectionSegments: ["Root", "pages/4-6"],
       typeLabel: "Page",
+      leadLabel: "Pages 4-6",
     })
   })
 
@@ -59,7 +63,9 @@ describe("parsedChunkCardModel", () => {
     expect(metadata).toEqual({
       pageLabel: "Page 4",
       sectionLabel: "Root / Safe harbor statement",
+      sectionSegments: ["Root", "Safe harbor statement"],
       typeLabel: "Page",
+      leadLabel: "Page 4",
     })
   })
 

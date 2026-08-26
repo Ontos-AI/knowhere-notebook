@@ -29,8 +29,6 @@ const entityPanelClassName =
   "rounded-lg border border-primary/20 bg-primary/5 p-3";
 const entityBadgeClassName =
   "rounded-md border border-primary/30 bg-background px-2 py-0.5 text-[11px] font-medium text-primary hover:bg-primary/5 dark:border-primary/40 dark:bg-background dark:text-primary";
-const sourceChipClassName =
-  "h-6 max-w-full rounded-md px-2 text-[11px] font-medium";
 type TextChunkReferencePart = Extract<
   ReturnType<typeof parsedChunkCardModel.getTextContentParts>[number],
   { readonly type: "reference" }
@@ -148,16 +146,16 @@ function ChunkCardFrame({
   return (
     <Card
       className={cn(
-        "w-full min-w-0 cursor-default overflow-hidden rounded-lg shadow-xs transition-colors",
+        "w-full min-w-0 cursor-default gap-0 overflow-hidden rounded-lg py-0 shadow-xs transition-colors",
         parsedChunkCardModel.getFocusCardClasses(isFocused),
       )}
     >
+      <ChunkSourcePanel
+        chunk={chunk}
+        isOriginalPreviewAvailable={isOriginalPreviewAvailable}
+        onChunkClick={onChunkClick}
+      />
       <CardContent className="space-y-3 p-3 sm:p-4">
-        <ChunkSourcePanel
-          chunk={chunk}
-          isOriginalPreviewAvailable={isOriginalPreviewAvailable}
-          onChunkClick={onChunkClick}
-        />
         {children}
       </CardContent>
     </Card>
@@ -175,68 +173,59 @@ function ChunkSourcePanel({
 }): ReactNode {
   const sourceMetadata = parsedChunkCardModel.getSourceMetadata(chunk);
   const firstPageNumber = getFirstValidPageNumber(chunk);
+  const lastSegmentIndex = sourceMetadata.sectionSegments.length - 1;
 
   return (
     <section
       data-testid={`chunk-source-panel-${chunk.chunkId}`}
-      className="rounded-lg border border-border/70 bg-background/80 p-3"
+      className="flex min-w-0 items-center gap-3 border-b border-[#f3f4f6] bg-[rgba(249,250,251,0.6)] px-5 pt-[10px] pb-[11px] dark:border-border dark:bg-muted/40"
     >
-      <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start">
-        <div className="flex min-w-0 flex-1 gap-3">
-          <div
-            className={cn(
-              "grid size-9 shrink-0 place-items-center rounded-lg border shadow-inner",
-              getChunkIconClasses(chunk.type),
-            )}
-            aria-hidden="true"
-          >
-            {renderChunkIcon(chunk.type)}
-          </div>
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
-            <Badge
-              variant="outline"
-              className={cn(
-                sourceChipClassName,
-                "font-semibold uppercase tracking-wider text-muted-foreground",
-              )}
-            >
-              {sourceMetadata.typeLabel}
-            </Badge>
-            {sourceMetadata.pageLabel ? (
-              <Badge
-                variant="secondary"
-                className={cn(
-                  sourceChipClassName,
-                  "font-semibold text-foreground",
-                )}
+      <span className="inline-flex h-[27px] shrink-0 items-center rounded-[10px] border border-[#e5e7eb] bg-white px-2 py-1 text-[11px] font-semibold leading-[16.5px] tracking-normal text-[#27272a] dark:border-border dark:bg-card dark:text-card-foreground">
+        {sourceMetadata.leadLabel}
+      </span>
+      {sourceMetadata.sectionSegments.length > 0 ? (
+        <nav
+          aria-label="Section path"
+          className="flex min-w-0 flex-1 items-center gap-1"
+        >
+          {sourceMetadata.sectionSegments.map((segment, index) => {
+            const isCurrent = index === lastSegmentIndex;
+            return (
+              <span
+                key={`${segment}-${index}`}
+                className="flex min-w-0 items-center gap-1"
               >
-                {sourceMetadata.pageLabel}
-              </Badge>
-            ) : null}
-            {sourceMetadata.sectionLabel ? (
-              <Badge
-                variant="outline"
-                className={cn(
-                  sourceChipClassName,
-                  "break-words whitespace-normal font-normal leading-4 text-muted-foreground",
-                )}
-              >
-                {sourceMetadata.sectionLabel}
-              </Badge>
-            ) : null}
-          </div>
-        </div>
-        {onChunkClick &&
-        firstPageNumber !== null &&
-        !hasPageCitationAssets(chunk) ? (
-          <OpenOriginalButton
-            chunk={chunk}
-            firstPageNumber={firstPageNumber}
-            isOriginalPreviewAvailable={isOriginalPreviewAvailable}
-            onChunkClick={onChunkClick}
-          />
-        ) : null}
-      </div>
+                {index > 0 ? (
+                  <span className="shrink-0 text-[10px] leading-[15px] text-[#d1d5dc] dark:text-border">
+                    /
+                  </span>
+                ) : null}
+                <span
+                  className={
+                    isCurrent
+                      ? "truncate text-[12px] font-medium leading-[18px] text-[#27272a] dark:text-foreground"
+                      : "shrink-0 text-[12px] font-normal leading-[18px] text-[#71717b] dark:text-muted-foreground"
+                  }
+                >
+                  {segment}
+                </span>
+              </span>
+            );
+          })}
+        </nav>
+      ) : (
+        <div className="min-w-0 flex-1" />
+      )}
+      {onChunkClick &&
+      firstPageNumber !== null &&
+      !hasPageCitationAssets(chunk) ? (
+        <OpenOriginalButton
+          chunk={chunk}
+          firstPageNumber={firstPageNumber}
+          isOriginalPreviewAvailable={isOriginalPreviewAvailable}
+          onChunkClick={onChunkClick}
+        />
+      ) : null}
     </section>
   );
 }
@@ -835,24 +824,4 @@ function TableChunkCard({
       <ChunkKeywords chunk={chunk} />
     </ChunkCardFrame>
   );
-}
-
-function renderChunkIcon(type: ParsedChunkView["type"]): ReactNode {
-  if (type === "page") return <FileSearch className="size-4" />;
-  if (type === "image") return <ImageIcon className="size-4" />;
-  if (type === "table") return <Table2 className="size-4" />;
-  return <FileText className="size-4" />;
-}
-
-function getChunkIconClasses(type: ParsedChunkView["type"]): string {
-  if (type === "page") {
-    return "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300";
-  }
-  if (type === "image") {
-    return "border-violet-500/15 bg-violet-500/10 text-violet-600 dark:text-violet-300";
-  }
-  if (type === "table") {
-    return "border-primary/15 bg-primary/10 text-primary";
-  }
-  return "border-border bg-muted/60 text-muted-foreground";
 }

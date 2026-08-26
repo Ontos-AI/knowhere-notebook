@@ -1194,8 +1194,9 @@ describe("ChunksPanel", () => {
     expect(financialSourcePanel.textContent).not.toContain(
       "TSLA-Q4-2025-Update.pdf",
     );
+    expect(storageSourcePanel.textContent).toContain("OPERATIONAL SUMMARY");
     expect(storageSourcePanel.textContent).toContain(
-      "OPERATIONAL SUMMARY / Energy generation and storage",
+      "Energy generation and storage",
     );
     expect(storageSourcePanel.textContent).not.toContain("Default_Root");
     expect(storageSourcePanel.textContent).not.toContain(
