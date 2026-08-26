@@ -132,6 +132,19 @@ function getEntityTags(chunk: ParsedChunkView): readonly ChunkEntityTag[] {
     tags.push({ text, type })
   }
 
+  if (tags.length > 0) return tags
+
+  for (const keyword of chunk.keywords ?? []) {
+    const text = keyword.trim()
+    if (!text) continue
+
+    const dedupeKey = text.toLowerCase()
+    if (seenTexts.has(dedupeKey)) continue
+    seenTexts.add(dedupeKey)
+
+    tags.push({ text, type: null })
+  }
+
   return tags
 }
 

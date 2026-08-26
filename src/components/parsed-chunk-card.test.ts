@@ -11,7 +11,7 @@ describe("ParsedChunkCard", () => {
     cleanup();
   });
 
-  it("renders text chunks with source, summary, content, and keywords", () => {
+  it("renders text chunks with source, content, and entity tags", () => {
     render(
       React.createElement(ParsedChunkCard, {
         chunk: {
@@ -31,13 +31,14 @@ describe("ParsedChunkCard", () => {
     expect(screen.getByTestId("chunk-source-panel-text_1").textContent).toContain(
       "Capacity",
     );
-    expect(
-      screen.getByTestId("chunk-summary-panel-text_1").textContent,
-    ).toContain("Tesla continues to add capacity.");
+    expect(screen.queryByTestId("chunk-summary-panel-text_1")).toBeNull();
+    expect(screen.queryByText("Summary")).toBeNull();
+    expect(screen.queryByText("Content")).toBeNull();
+    expect(screen.queryByText("Keywords")).toBeNull();
     expect(screen.getByTestId("chunk-content-panel-text_1").textContent).toContain(
       "Tesla is adding Supercharging and AI training capacity.",
     );
-    expect(screen.getByTestId("chunk-keywords-panel-text_1").textContent).toContain(
+    expect(screen.getByTestId("chunk-entities-panel-text_1").textContent).toContain(
       "AI training capacity",
     );
     expect(screen.getByTestId("chunk-card-shell-text_1").className).toContain(
@@ -60,8 +61,6 @@ describe("ParsedChunkCard", () => {
           entities: [{ text: "refund", type: "topic" }],
         },
         isFocused: false,
-        isOriginalPreviewAvailable: true,
-        onChunkClick: vi.fn(),
         onReferenceClick: vi.fn(),
       }),
     );
@@ -83,8 +82,8 @@ describe("ParsedChunkCard", () => {
     );
     expect(screen.queryByTestId("chunk-summary-panel-page_1")).toBeNull();
     expect(
-      screen.getByRole("button", { name: "Open page 4 in original file" }),
-    ).toBeTruthy();
+      screen.queryByRole("button", { name: /original file/i }),
+    ).toBeNull();
   });
 
   it("renders extracted entities as tags and hides duplicate keyword rows", () => {
@@ -127,6 +126,8 @@ describe("ParsedChunkCard", () => {
     expect(sourcePanel.textContent).toContain("Safe harbor statement");
     expect(sourcePanel.textContent).not.toContain("PAGE");
     expect(screen.getByRole("img", { name: "Page 2" })).toBeTruthy();
+    expect(screen.queryByText("Page image")).toBeNull();
+    expect(screen.queryByText("image/png")).toBeNull();
     expect(screen.getByTestId("chunk-entities-panel-page_2").textContent).toContain(
       "Securities and Exchange Commission",
     );
@@ -156,8 +157,6 @@ describe("ParsedChunkCard", () => {
           ],
         },
         isFocused: false,
-        isOriginalPreviewAvailable: true,
-        onChunkClick: vi.fn(),
         onReferenceClick: vi.fn(),
       }),
     );
@@ -167,7 +166,8 @@ describe("ParsedChunkCard", () => {
     expect(pageImage.getAttribute("src")).toBe(
       "https://assets.example/page-4.png",
     );
-    expect(screen.getByText("image/png")).toBeTruthy();
+    expect(screen.queryByText("Page image")).toBeNull();
+    expect(screen.queryByText("image/png")).toBeNull();
     expect(screen.queryByText(/summary should not be primary/i)).toBeNull();
     expect(
       screen.queryByRole("button", { name: /original file/i }),
@@ -340,6 +340,8 @@ describe("ParsedChunkCard", () => {
     expect(image.getAttribute("src")).toBe(
       `/api/parsed-assets/inline?url=${encodeURIComponent(assetUrl)}`,
     );
+    expect(screen.queryByText("Content")).toBeNull();
+    expect(screen.queryByTestId("chunk-summary-panel-image_1")).toBeNull();
   });
 
   it("routes resolved artifact reference clicks to the target chunk", async () => {
@@ -372,51 +374,17 @@ describe("ParsedChunkCard", () => {
     expect(onReferenceClick).toHaveBeenCalledWith("image_1");
   });
 
-  it("shows an explicit original preview button when chunk preview is available", async () => {
-    const user = userEvent.setup();
-    const chunk = {
-      chunkId: "text_1",
-      type: "text" as const,
-      content: "Revenue details live on the second page.",
-      sourceTitle: "report.pdf",
-      pageNums: [2],
-    };
-    const onChunkClick = vi.fn();
-
-    render(
-      React.createElement(ParsedChunkCard, {
-        chunk,
-        isFocused: false,
-        isOriginalPreviewAvailable: true,
-        onChunkClick,
-        onReferenceClick: vi.fn(),
-      }),
-    );
-
-    const openOriginalButton = screen.getByRole("button", {
-      name: "Open page 2 in original file",
-    });
-
-    expect(openOriginalButton.className).toContain("font-semibold");
-    expect(openOriginalButton.className).toContain("text-primary");
-
-    await user.click(openOriginalButton);
-    expect(onChunkClick).toHaveBeenCalledWith(chunk);
-    expect(screen.getByTestId("chunk-card-shell-text_1").getAttribute("role")).toBeNull();
-  });
-
-  it("hides the original file button when a chunk has no page numbers", () => {
+  it("does not show an original file button on parsed cards", () => {
     render(
       React.createElement(ParsedChunkCard, {
         chunk: {
           chunkId: "text_1",
           type: "text",
-          content: "Revenue details do not include page metadata.",
+          content: "Revenue details live on the second page.",
           sourceTitle: "report.pdf",
+          pageNums: [2],
         },
         isFocused: false,
-        isOriginalPreviewAvailable: true,
-        onChunkClick: vi.fn(),
         onReferenceClick: vi.fn(),
       }),
     );
@@ -424,38 +392,6 @@ describe("ParsedChunkCard", () => {
     expect(
       screen.queryByRole("button", { name: /original file/i }),
     ).toBeNull();
-  });
-
-  it("keeps original file buttons quiet when preview is not supported", async () => {
-    const user = userEvent.setup();
-    const chunk = {
-      chunkId: "text_1",
-      type: "text" as const,
-      content: "Legacy report details.",
-      sourceTitle: "report.doc",
-      pageNums: [2],
-    };
-    const onChunkClick = vi.fn();
-
-    render(
-      React.createElement(ParsedChunkCard, {
-        chunk,
-        isFocused: false,
-        isOriginalPreviewAvailable: false,
-        onChunkClick,
-        onReferenceClick: vi.fn(),
-      }),
-    );
-
-    const openOriginalButton = screen.getByRole("button", {
-      name: "Open original file",
-    });
-
-    expect(openOriginalButton.className).toContain("font-normal");
-    expect(openOriginalButton.className).not.toContain("font-semibold");
-
-    await user.click(openOriginalButton);
-    expect(onChunkClick).toHaveBeenCalledWith(chunk);
   });
 
   it("sanitizes table HTML before rendering", () => {

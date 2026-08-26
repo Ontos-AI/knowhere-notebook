@@ -72,6 +72,7 @@ describe("parsedChunkCardModel", () => {
   it("extracts unique entity tags from typed Knowhere entities", () => {
     const tags = parsedChunkCardModel.getEntityTags(
       makeChunk({
+        keywords: ["Robotaxi"],
         entities: [
           { text: "Securities and Exchange Commission", type: "organization" },
           { text: "Form 10-K", type: "document" },
@@ -87,6 +88,19 @@ describe("parsedChunkCardModel", () => {
         type: "organization",
       },
       { text: "Form 10-K", type: "document" },
+    ])
+  })
+
+  it("falls back to keyword texts as entity tags when entities are missing", () => {
+    const tags = parsedChunkCardModel.getEntityTags(
+      makeChunk({
+        keywords: ["Robotaxi", "Supercharging", "Robotaxi", "  "],
+      }),
+    )
+
+    expect(tags).toEqual([
+      { text: "Robotaxi", type: null },
+      { text: "Supercharging", type: null },
     ])
   })
 
