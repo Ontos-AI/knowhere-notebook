@@ -119,7 +119,8 @@ describe("ChunksPanel", () => {
     expect(
       await screen.findByRole("img", { name: "Page 4" }),
     ).toBeTruthy();
-    expect(screen.getByText("image/png")).toBeTruthy();
+    expect(screen.queryByText("Page image")).toBeNull();
+    expect(screen.queryByText("image/png")).toBeNull();
     expect(screen.queryByText("Budget")).toBeNull();
     expect(screen.queryByTestId("chunk-card-shell-table_1")).toBeNull();
     expect(

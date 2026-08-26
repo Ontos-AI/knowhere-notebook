@@ -473,10 +473,7 @@ function PageChunkCard({
       onChunkClick={onChunkClick}
     >
       {pageAssets.length > 0 ? (
-        <ChunkContentPanel
-          chunk={chunk}
-          label={pageAssets.length === 1 ? "Page image" : "Page images"}
-        >
+        <div data-testid={`chunk-content-panel-${chunk.chunkId}`}>
           <PageCitationAssets
             assets={pageAssets}
             focusedCitationId={focusedCitationId}
@@ -484,13 +481,13 @@ function PageChunkCard({
             focusedPageRequestId={focusedPageRequestId}
             highlightRegions={highlightRegions}
           />
-        </ChunkContentPanel>
+        </div>
       ) : (
-        <ChunkContentPanel chunk={chunk} label="Page summary">
+        <div data-testid={`chunk-content-panel-${chunk.chunkId}`}>
           <p className="whitespace-pre-wrap break-words text-[13px] leading-relaxed text-foreground sm:text-sm">
             {chunk.readableContent ?? chunk.content}
           </p>
-        </ChunkContentPanel>
+        </div>
       )}
       <ChunkEntities chunk={chunk} />
       <ChunkKeywords chunk={chunk} />
@@ -550,13 +547,9 @@ function PageCitationAssetImage({
   const isImageLoaded = loadedAssetUrl === imageAssetUrl;
 
   return (
-    <figure className="overflow-hidden rounded-lg border border-border bg-muted/30">
-      <figcaption className="flex items-center justify-between gap-3 border-b border-border/70 px-3 py-2 text-xs font-semibold text-muted-foreground">
-        <span>Page {asset.pageNumber}</span>
-        <span>{asset.contentType}</span>
-      </figcaption>
+    <figure className="overflow-hidden">
       <div
-        className="flex justify-center overflow-hidden bg-muted/20"
+        className="flex justify-center overflow-hidden"
         data-citation-page={asset.pageNumber}
         data-focused-citation-id={isCitationFocus ? focusedCitationId : undefined}
       >

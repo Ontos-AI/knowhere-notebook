@@ -127,6 +127,8 @@ describe("ParsedChunkCard", () => {
     expect(sourcePanel.textContent).toContain("Safe harbor statement");
     expect(sourcePanel.textContent).not.toContain("PAGE");
     expect(screen.getByRole("img", { name: "Page 2" })).toBeTruthy();
+    expect(screen.queryByText("Page image")).toBeNull();
+    expect(screen.queryByText("image/png")).toBeNull();
     expect(screen.getByTestId("chunk-entities-panel-page_2").textContent).toContain(
       "Securities and Exchange Commission",
     );
@@ -167,7 +169,8 @@ describe("ParsedChunkCard", () => {
     expect(pageImage.getAttribute("src")).toBe(
       "https://assets.example/page-4.png",
     );
-    expect(screen.getByText("image/png")).toBeTruthy();
+    expect(screen.queryByText("Page image")).toBeNull();
+    expect(screen.queryByText("image/png")).toBeNull();
     expect(screen.queryByText(/summary should not be primary/i)).toBeNull();
     expect(
       screen.queryByRole("button", { name: /original file/i }),
