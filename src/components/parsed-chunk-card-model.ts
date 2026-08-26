@@ -12,6 +12,11 @@ type ChunkSourceMetadata = {
   readonly typeLabel: string
 }
 
+type ChunkEntityTag = {
+  readonly text: string
+  readonly type: string | null
+}
+
 type TextChunkContentPart =
   | {
       readonly type: "text"
@@ -28,6 +33,7 @@ type TextChunkContentPart =
 
 type ParsedChunkCardModelModule = {
   readonly getChunkTypeLabel: (type: ParsedChunkView["type"]) => string
+  readonly getEntityTags: (chunk: ParsedChunkView) => readonly ChunkEntityTag[]
   readonly getFocusCardClasses: (isFocused: boolean) => string
   readonly getSanitizedTableHtml: (content: string) => string | null
   readonly getSourceMetadata: (chunk: ParsedChunkView) => ChunkSourceMetadata
@@ -59,29 +65,63 @@ const tableAllowedAttributes = [
 function getSourceMetadata(chunk: ParsedChunkView): ChunkSourceMetadata {
   if (chunk.type === "page") {
     const pageFromAssets = chunk.pageAssets?.[0]?.pageNumber
-    const parsePath =
-      getTrimmedParsePath(chunk.filePath) ??
-      chunksPanelState.formatChunkSectionPath(chunk.sectionPath)
 
     return {
       pageLabel: pageFromAssets
         ? `Page ${pageFromAssets}`
         : formatPageNumbers(chunk.pageNums),
-      sectionLabel: parsePath,
+      sectionLabel: formatCardSectionPath(chunk),
       typeLabel: getChunkTypeLabel(chunk.type),
     }
   }
 
   return {
     pageLabel: formatPageNumbers(chunk.pageNums),
-    sectionLabel: chunksPanelState.formatChunkSectionPath(chunk.sectionPath),
+    sectionLabel: formatCardSectionPath(chunk),
     typeLabel: getChunkTypeLabel(chunk.type),
   }
 }
 
-function getTrimmedParsePath(value: string | null | undefined): string | null {
-  const trimmed = value?.trim() ?? ""
-  return trimmed.length > 0 ? trimmed : null
+function formatCardSectionPath(chunk: ParsedChunkView): string | null {
+  const formattedPath = chunksPanelState.formatChunkSectionPath(chunk.sectionPath)
+  if (formattedPath) {
+    return prefixKnowhereRoot(chunk.sectionPath, formattedPath)
+  }
+
+  const parsePath = chunk.filePath?.trim() ?? ""
+  return parsePath.length > 0 ? parsePath : null
+}
+
+function prefixKnowhereRoot(
+  sectionPath: ParsedChunkView["sectionPath"],
+  formattedPath: string,
+): string {
+  const trimmedSectionPath = sectionPath?.trim() ?? ""
+  if (!trimmedSectionPath.startsWith("Default_Root")) return formattedPath
+  if (formattedPath === "Root" || formattedPath.startsWith("Root / ")) {
+    return formattedPath
+  }
+
+  return `Root / ${formattedPath}`
+}
+
+function getEntityTags(chunk: ParsedChunkView): readonly ChunkEntityTag[] {
+  const seenTexts = new Set<string>()
+  const tags: ChunkEntityTag[] = []
+
+  for (const entity of chunk.entities ?? []) {
+    const text = entity.text.trim()
+    if (!text) continue
+
+    const dedupeKey = text.toLowerCase()
+    if (seenTexts.has(dedupeKey)) continue
+    seenTexts.add(dedupeKey)
+
+    const type = entity.type?.trim() || null
+    tags.push({ text, type })
+  }
+
+  return tags
 }
 
 function getTextContentParts(
@@ -181,6 +221,7 @@ function formatPageNumbers(
 
 export const parsedChunkCardModel: ParsedChunkCardModelModule = {
   getChunkTypeLabel,
+  getEntityTags,
   getFocusCardClasses,
   getSanitizedTableHtml,
   getSourceMetadata,

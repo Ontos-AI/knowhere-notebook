@@ -25,6 +25,12 @@ const keywordPanelClassName =
   "rounded-lg border border-emerald-200/70 bg-emerald-50/70 p-3 shadow-[0_1px_0_rgba(16,185,129,0.08)] dark:border-emerald-400/20 dark:bg-emerald-950/20";
 const keywordBadgeClassName =
   "rounded-md border border-emerald-200/80 bg-emerald-100/90 px-2 py-0.5 text-[11px] font-semibold text-emerald-800 shadow-[0_1px_0_rgba(16,185,129,0.10)] hover:bg-emerald-100 dark:border-emerald-400/25 dark:bg-emerald-400/10 dark:text-emerald-200";
+const entityPanelClassName =
+  "rounded-lg border border-primary/20 bg-primary/5 p-3";
+const entityBadgeClassName =
+  "rounded-md border border-primary/30 bg-background px-2 py-0.5 text-[11px] font-medium text-primary hover:bg-primary/5 dark:border-primary/40 dark:bg-background dark:text-primary";
+const sourceChipClassName =
+  "h-6 max-w-full rounded-md px-2 text-[11px] font-medium";
 type TextChunkReferencePart = Extract<
   ReturnType<typeof parsedChunkCardModel.getTextContentParts>[number],
   { readonly type: "reference" }
@@ -182,30 +188,41 @@ function ChunkSourcePanel({
               "grid size-9 shrink-0 place-items-center rounded-lg border shadow-inner",
               getChunkIconClasses(chunk.type),
             )}
+            aria-hidden="true"
           >
             {renderChunkIcon(chunk.type)}
           </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-1.5">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+            <Badge
+              variant="outline"
+              className={cn(
+                sourceChipClassName,
+                "font-semibold uppercase tracking-wider text-muted-foreground",
+              )}
+            >
+              {sourceMetadata.typeLabel}
+            </Badge>
+            {sourceMetadata.pageLabel ? (
+              <Badge
+                variant="secondary"
+                className={cn(
+                  sourceChipClassName,
+                  "font-semibold text-foreground",
+                )}
+              >
+                {sourceMetadata.pageLabel}
+              </Badge>
+            ) : null}
+            {sourceMetadata.sectionLabel ? (
               <Badge
                 variant="outline"
-                className="h-5 rounded-md px-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground"
+                className={cn(
+                  sourceChipClassName,
+                  "break-words whitespace-normal font-normal leading-4 text-muted-foreground",
+                )}
               >
-                {sourceMetadata.typeLabel}
-              </Badge>
-              {sourceMetadata.pageLabel ? (
-                <Badge
-                  variant="secondary"
-                  className="h-5 rounded-md px-1.5 text-[10px] font-semibold text-muted-foreground"
-                >
-                  {sourceMetadata.pageLabel}
-                </Badge>
-              ) : null}
-            </div>
-            {sourceMetadata.sectionLabel ? (
-              <p className="mt-2 break-words text-xs leading-5 text-muted-foreground">
                 {sourceMetadata.sectionLabel}
-              </p>
+              </Badge>
             ) : null}
           </div>
         </div>
@@ -313,11 +330,47 @@ function ChunkContentPanel({
   );
 }
 
+function ChunkEntities({
+  chunk,
+}: {
+  readonly chunk: ParsedChunkView;
+}): ReactNode {
+  const entities = parsedChunkCardModel.getEntityTags(chunk);
+  if (entities.length === 0) return null;
+
+  return (
+    <section
+      data-testid={`chunk-entities-panel-${chunk.chunkId}`}
+      className={entityPanelClassName}
+    >
+      <SectionLabel
+        icon={<Tags className="size-3.5" />}
+        label="Entities"
+        className="text-primary"
+        iconClassName="text-primary"
+      />
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {entities.map((entity) => (
+          <Badge
+            key={entity.text}
+            variant="outline"
+            className={entityBadgeClassName}
+            title={entity.type ?? undefined}
+          >
+            {entity.text}
+          </Badge>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function ChunkKeywords({
   chunk,
 }: {
   readonly chunk: ParsedChunkView;
 }): ReactNode {
+  if (parsedChunkCardModel.getEntityTags(chunk).length > 0) return null;
   if (!chunk.keywords || chunk.keywords.length === 0) return null;
 
   return (
@@ -396,6 +449,7 @@ function TextChunkCard({
           {renderTextChunkContent(chunk, onReferenceClick)}
         </pre>
       </ChunkContentPanel>
+      <ChunkEntities chunk={chunk} />
       <ChunkKeywords chunk={chunk} />
     </ChunkCardFrame>
   );
@@ -449,6 +503,7 @@ function PageChunkCard({
           </p>
         </ChunkContentPanel>
       )}
+      <ChunkEntities chunk={chunk} />
       <ChunkKeywords chunk={chunk} />
     </ChunkCardFrame>
   );
@@ -639,6 +694,7 @@ function ImageChunkCard({
           </div>
         )}
       </ChunkContentPanel>
+      <ChunkEntities chunk={chunk} />
       <ChunkKeywords chunk={chunk} />
     </ChunkCardFrame>
   );
@@ -775,6 +831,7 @@ function TableChunkCard({
           </div>
         )}
       </ChunkContentPanel>
+      <ChunkEntities chunk={chunk} />
       <ChunkKeywords chunk={chunk} />
     </ChunkCardFrame>
   );

@@ -57,7 +57,7 @@ describe("ParsedChunkCard", () => {
           sourceTitle: "manual.pdf",
           sectionPath: "Default_Root/manual.pdf-->pages/4-6",
           pageNums: [4, 5, 6],
-          entities: [{ text: "refund", label: "topic" }],
+          entities: [{ text: "refund", type: "topic" }],
         },
         isFocused: false,
         isOriginalPreviewAvailable: true,
@@ -72,13 +72,65 @@ describe("ParsedChunkCard", () => {
     expect(screen.getByTestId("chunk-source-panel-page_1").textContent).toContain(
       "Pages 4-6",
     );
+    expect(screen.getByTestId("chunk-source-panel-page_1").textContent).toContain(
+      "Root / pages/4-6",
+    );
     expect(screen.getByTestId("chunk-content-panel-page_1").textContent).toContain(
       "The refund policy is summarized",
+    );
+    expect(screen.getByTestId("chunk-entities-panel-page_1").textContent).toContain(
+      "refund",
     );
     expect(screen.queryByTestId("chunk-summary-panel-page_1")).toBeNull();
     expect(
       screen.getByRole("button", { name: "Open page 4 in original file" }),
     ).toBeTruthy();
+  });
+
+  it("renders extracted entities as tags and hides duplicate keyword rows", () => {
+    render(
+      React.createElement(ParsedChunkCard, {
+        chunk: {
+          chunkId: "page_2",
+          type: "page",
+          content: "Safe harbor statement",
+          sourceTitle: "Micron Q1-26 Earnings Deck_R.pdf",
+          sectionPath:
+            "Default_Root/Micron Q1-26 Earnings Deck_R.pdf-->Safe harbor statement",
+          pageNums: [2],
+          keywords: [
+            "Securities and Exchange Commission",
+            "Form 10-K",
+            "Forms ID-9",
+          ],
+          entities: [
+            { text: "Securities and Exchange Commission", type: "organization" },
+            { text: "Form 10-K", type: "document" },
+            { text: "Forms ID-9", type: "document" },
+          ],
+          pageAssets: [
+            {
+              pageNumber: 2,
+              assetUrl: "https://assets.example/page-2.png",
+              contentType: "image/png",
+            },
+          ],
+        },
+        isFocused: false,
+        onReferenceClick: vi.fn(),
+      }),
+    );
+
+    const sourcePanel = screen.getByTestId("chunk-source-panel-page_2");
+    expect(sourcePanel.textContent).toContain("Page 2");
+    expect(sourcePanel.textContent).toContain("Root / Safe harbor statement");
+    expect(screen.getByRole("img", { name: "Page 2" })).toBeTruthy();
+    expect(screen.getByTestId("chunk-entities-panel-page_2").textContent).toContain(
+      "Securities and Exchange Commission",
+    );
+    expect(screen.getByText("Form 10-K")).toBeTruthy();
+    expect(screen.getByText("Forms ID-9")).toBeTruthy();
+    expect(screen.queryByTestId("chunk-keywords-panel-page_2")).toBeNull();
   });
 
   it("renders page citation assets instead of page summary content", () => {
