@@ -67,13 +67,13 @@ describe("ParsedChunkCard", () => {
     );
 
     expect(screen.getByTestId("chunk-source-panel-page_1").textContent).toContain(
-      "Page",
-    );
-    expect(screen.getByTestId("chunk-source-panel-page_1").textContent).toContain(
       "Pages 4-6",
     );
     expect(screen.getByTestId("chunk-source-panel-page_1").textContent).toContain(
-      "Root / pages/4-6",
+      "Root",
+    );
+    expect(screen.getByTestId("chunk-source-panel-page_1").textContent).toContain(
+      "pages/4-6",
     );
     expect(screen.getByTestId("chunk-content-panel-page_1").textContent).toContain(
       "The refund policy is summarized",
@@ -123,7 +123,9 @@ describe("ParsedChunkCard", () => {
 
     const sourcePanel = screen.getByTestId("chunk-source-panel-page_2");
     expect(sourcePanel.textContent).toContain("Page 2");
-    expect(sourcePanel.textContent).toContain("Root / Safe harbor statement");
+    expect(sourcePanel.textContent).toContain("Root");
+    expect(sourcePanel.textContent).toContain("Safe harbor statement");
+    expect(sourcePanel.textContent).not.toContain("PAGE");
     expect(screen.getByRole("img", { name: "Page 2" })).toBeTruthy();
     expect(screen.getByTestId("chunk-entities-panel-page_2").textContent).toContain(
       "Securities and Exchange Commission",
