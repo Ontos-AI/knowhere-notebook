@@ -2,6 +2,7 @@ import type { ChatCitationView } from "@/domains/chat/types"
 import type {
   ChunkType,
   ParsedChunkConnection,
+  ParsedChunkEntity,
   ParsedChunkView,
 } from "@/domains/chunks/types"
 
@@ -304,13 +305,40 @@ function getStringArrayMetadata(
   return strings.length > 0 ? strings : undefined
 }
 
-function getEntities(
-  value: unknown,
-): readonly Readonly<Record<string, unknown>>[] | undefined {
-  if (!Array.isArray(value)) return undefined
+function getEntities(value: unknown): readonly ParsedChunkEntity[] | undefined {
+  const parsedValue = parseEntityPayload(value)
+  if (!Array.isArray(parsedValue)) return undefined
 
-  const entities = value.filter(isRecord)
+  const entities = parsedValue.flatMap(toParsedChunkEntity)
   return entities.length > 0 ? entities : undefined
+}
+
+function parseEntityPayload(value: unknown): unknown {
+  if (typeof value !== "string") return value
+
+  const trimmed = value.trim()
+  if (!trimmed) return undefined
+
+  try {
+    const parsed: unknown = JSON.parse(trimmed)
+    return parsed
+  } catch {
+    return undefined
+  }
+}
+
+function toParsedChunkEntity(value: unknown): readonly ParsedChunkEntity[] {
+  if (typeof value === "string") {
+    const text = getString(value)
+    return text ? [{ text }] : []
+  }
+  if (!isRecord(value)) return []
+
+  const text = getString(value["text"]) ?? getString(value["name"])
+  if (!text) return []
+
+  const type = getString(value["type"]) ?? getString(value["label"])
+  return type ? [{ text, type }] : [{ text }]
 }
 
 function getPageNumbers(value: unknown): number[] | undefined {

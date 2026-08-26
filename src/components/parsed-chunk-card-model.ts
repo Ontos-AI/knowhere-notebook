@@ -9,7 +9,14 @@ import type {
 type ChunkSourceMetadata = {
   readonly pageLabel: string | null
   readonly sectionLabel: string | null
+  readonly sectionSegments: readonly string[]
   readonly typeLabel: string
+  readonly leadLabel: string
+}
+
+type ChunkEntityTag = {
+  readonly text: string
+  readonly type: string | null
 }
 
 type TextChunkContentPart =
@@ -28,6 +35,7 @@ type TextChunkContentPart =
 
 type ParsedChunkCardModelModule = {
   readonly getChunkTypeLabel: (type: ParsedChunkView["type"]) => string
+  readonly getEntityTags: (chunk: ParsedChunkView) => readonly ChunkEntityTag[]
   readonly getFocusCardClasses: (isFocused: boolean) => string
   readonly getSanitizedTableHtml: (content: string) => string | null
   readonly getSourceMetadata: (chunk: ParsedChunkView) => ChunkSourceMetadata
@@ -57,31 +65,87 @@ const tableAllowedAttributes = [
 ] as const
 
 function getSourceMetadata(chunk: ParsedChunkView): ChunkSourceMetadata {
-  if (chunk.type === "page") {
-    const pageFromAssets = chunk.pageAssets?.[0]?.pageNumber
-    const parsePath =
-      getTrimmedParsePath(chunk.filePath) ??
-      chunksPanelState.formatChunkSectionPath(chunk.sectionPath)
-
-    return {
-      pageLabel: pageFromAssets
-        ? `Page ${pageFromAssets}`
-        : formatPageNumbers(chunk.pageNums),
-      sectionLabel: parsePath,
-      typeLabel: getChunkTypeLabel(chunk.type),
-    }
-  }
+  const typeLabel = getChunkTypeLabel(chunk.type)
+  const pageFromAssets =
+    chunk.type === "page" ? chunk.pageAssets?.[0]?.pageNumber : undefined
+  const pageLabel = pageFromAssets
+    ? `Page ${pageFromAssets}`
+    : formatPageNumbers(chunk.pageNums)
+  const sectionLabel = formatCardSectionPath(chunk)
 
   return {
-    pageLabel: formatPageNumbers(chunk.pageNums),
-    sectionLabel: chunksPanelState.formatChunkSectionPath(chunk.sectionPath),
-    typeLabel: getChunkTypeLabel(chunk.type),
+    pageLabel,
+    sectionLabel,
+    sectionSegments: getSectionPathSegments(sectionLabel),
+    typeLabel,
+    leadLabel: pageLabel ?? typeLabel,
   }
 }
 
-function getTrimmedParsePath(value: string | null | undefined): string | null {
-  const trimmed = value?.trim() ?? ""
-  return trimmed.length > 0 ? trimmed : null
+function getSectionPathSegments(
+  sectionLabel: string | null,
+): readonly string[] {
+  if (!sectionLabel) return []
+
+  return sectionLabel
+    .split(" / ")
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0)
+}
+
+function formatCardSectionPath(chunk: ParsedChunkView): string | null {
+  const formattedPath = chunksPanelState.formatChunkSectionPath(chunk.sectionPath)
+  if (formattedPath) {
+    return prefixKnowhereRoot(chunk.sectionPath, formattedPath)
+  }
+
+  const parsePath = chunk.filePath?.trim() ?? ""
+  return parsePath.length > 0 ? parsePath : null
+}
+
+function prefixKnowhereRoot(
+  sectionPath: ParsedChunkView["sectionPath"],
+  formattedPath: string,
+): string {
+  const trimmedSectionPath = sectionPath?.trim() ?? ""
+  if (!trimmedSectionPath.startsWith("Default_Root")) return formattedPath
+  if (formattedPath === "Root" || formattedPath.startsWith("Root / ")) {
+    return formattedPath
+  }
+
+  return `Root / ${formattedPath}`
+}
+
+function getEntityTags(chunk: ParsedChunkView): readonly ChunkEntityTag[] {
+  const seenTexts = new Set<string>()
+  const tags: ChunkEntityTag[] = []
+
+  for (const entity of chunk.entities ?? []) {
+    const text = entity.text.trim()
+    if (!text) continue
+
+    const dedupeKey = text.toLowerCase()
+    if (seenTexts.has(dedupeKey)) continue
+    seenTexts.add(dedupeKey)
+
+    const type = entity.type?.trim() || null
+    tags.push({ text, type })
+  }
+
+  if (tags.length > 0) return tags
+
+  for (const keyword of chunk.keywords ?? []) {
+    const text = keyword.trim()
+    if (!text) continue
+
+    const dedupeKey = text.toLowerCase()
+    if (seenTexts.has(dedupeKey)) continue
+    seenTexts.add(dedupeKey)
+
+    tags.push({ text, type: null })
+  }
+
+  return tags
 }
 
 function getTextContentParts(
@@ -181,6 +245,7 @@ function formatPageNumbers(
 
 export const parsedChunkCardModel: ParsedChunkCardModelModule = {
   getChunkTypeLabel,
+  getEntityTags,
   getFocusCardClasses,
   getSanitizedTableHtml,
   getSourceMetadata,

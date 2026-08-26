@@ -133,7 +133,7 @@ summary, keywords, and connection metadata.
 ## Parsed Chunk Card
 
 A Parsed Chunk Card renders one Parsed Chunk. It owns chunk source metadata,
-content rendering, summaries, keywords, artifact references, and sanitized
+content rendering, extracted entities, artifact references, and sanitized
 table HTML for that card only.
 
 ## Chat Thread

@@ -119,7 +119,8 @@ describe("ChunksPanel", () => {
     expect(
       await screen.findByRole("img", { name: "Page 4" }),
     ).toBeTruthy();
-    expect(screen.getByText("image/png")).toBeTruthy();
+    expect(screen.queryByText("Page image")).toBeNull();
+    expect(screen.queryByText("image/png")).toBeNull();
     expect(screen.queryByText("Budget")).toBeNull();
     expect(screen.queryByTestId("chunk-card-shell-table_1")).toBeNull();
     expect(
@@ -885,11 +886,10 @@ describe("ChunksPanel", () => {
     selectListView();
 
     const openOriginalButton = screen.getByRole("button", {
-      name: "Open original file",
+      name: "Original",
     });
 
-    expect(openOriginalButton.className).toContain("font-normal");
-    expect(openOriginalButton.className).not.toContain("font-semibold");
+    expect(openOriginalButton).toBeTruthy();
 
     await user.click(openOriginalButton);
 
@@ -941,7 +941,7 @@ describe("ChunksPanel", () => {
     );
   });
 
-  it("opens the original PDF preview at the clicked chunk page", async () => {
+  it("opens the original PDF preview from the Original tab", async () => {
     mockVisibleVirtualViewport();
     const user = userEvent.setup();
     vi.stubGlobal(
@@ -973,14 +973,10 @@ describe("ChunksPanel", () => {
     );
     selectListView();
 
-    await user.click(
-      screen.getByRole("button", { name: "Open page 2 in original file" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Original" }));
 
     expect(screen.getByRole("heading", { name: "Original File" })).toBeTruthy();
-    expect(screen.getByTestId("source-original-preview").getAttribute(
-      "data-target-page",
-    )).toBe("2");
+    expect(screen.getByTestId("source-original-preview")).toBeTruthy();
   });
 
   it("keeps the original PDF preview mounted when switching back to parsed chunks", async () => {
@@ -1015,9 +1011,7 @@ describe("ChunksPanel", () => {
     );
     selectListView();
 
-    await user.click(
-      screen.getByRole("button", { name: "Open page 2 in original file" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Original" }));
 
     const mountedOriginalPreview = screen.getByTestId("source-original-preview");
 
@@ -1194,8 +1188,9 @@ describe("ChunksPanel", () => {
     expect(financialSourcePanel.textContent).not.toContain(
       "TSLA-Q4-2025-Update.pdf",
     );
+    expect(storageSourcePanel.textContent).toContain("OPERATIONAL SUMMARY");
     expect(storageSourcePanel.textContent).toContain(
-      "OPERATIONAL SUMMARY / Energy generation and storage",
+      "Energy generation and storage",
     );
     expect(storageSourcePanel.textContent).not.toContain("Default_Root");
     expect(storageSourcePanel.textContent).not.toContain(
@@ -1203,7 +1198,7 @@ describe("ChunksPanel", () => {
     );
   });
 
-  it("renders text chunks with structured source, summary, content, and keyword sections", () => {
+  it("renders text chunks with source, unlabeled content, and entity tags", () => {
     mockVisibleVirtualViewport();
 
     render(
@@ -1231,20 +1226,18 @@ describe("ChunksPanel", () => {
     expect(
       screen.getByTestId("chunk-source-panel-text_1").textContent,
     ).not.toContain("TSLA-Q4-2025-UPDATE.PDF");
-    expect(screen.getByTestId("chunk-summary-panel-text_1").textContent).toContain(
-      "Tesla continues to use its North American footprint",
-    );
+    expect(screen.queryByTestId("chunk-summary-panel-text_1")).toBeNull();
+    expect(screen.queryByText("Summary")).toBeNull();
+    expect(screen.queryByText("Content")).toBeNull();
+    expect(screen.queryByText("Keywords")).toBeNull();
     expect(screen.getByTestId("chunk-content-panel-text_1").textContent).toContain(
       "Tesla is adding Supercharging and AI training capacity.",
     );
-    expect(screen.getByTestId("chunk-keywords-panel-text_1").textContent).toContain(
+    expect(screen.getByTestId("chunk-entities-panel-text_1").textContent).toContain(
       "AI training capacity",
     );
-    expect(
-      screen.getByTestId("chunk-keywords-panel-text_1").className,
-    ).toContain("bg-emerald-50/70");
-    expect(screen.getByText("Robotaxi").className).toContain("bg-emerald-100/90");
-    expect(screen.getByText("Robotaxi").className).toContain("text-emerald-800");
+    expect(screen.getByText("Robotaxi").className).toContain("text-primary");
+    expect(screen.getByText("Robotaxi").className).toContain("border-primary/35");
   });
 
   it("allows horizontal scrolling for wide chunk content", async () => {

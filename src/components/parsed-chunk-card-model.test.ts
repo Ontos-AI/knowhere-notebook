@@ -17,8 +17,10 @@ describe("parsedChunkCardModel", () => {
 
     expect(metadata).toEqual({
       pageLabel: "Pages 2, 4, 8-9",
-      sectionLabel: "FINANCIAL SUMMARY",
+      sectionLabel: "Root / FINANCIAL SUMMARY",
+      sectionSegments: ["Root", "FINANCIAL SUMMARY"],
       typeLabel: "Text",
+      leadLabel: "Pages 2, 4, 8-9",
     })
   })
 
@@ -33,18 +35,21 @@ describe("parsedChunkCardModel", () => {
 
     expect(metadata).toEqual({
       pageLabel: "Pages 4-6",
-      sectionLabel: "pages/4-6",
+      sectionLabel: "Root / pages/4-6",
+      sectionSegments: ["Root", "pages/4-6"],
       typeLabel: "Page",
+      leadLabel: "Pages 4-6",
     })
   })
 
-  it("uses Page N and the parse path for page-asset cards", () => {
+  it("uses Page N and the hierarchical section path for page-asset cards", () => {
     const metadata = parsedChunkCardModel.getSourceMetadata(
       makeChunk({
         type: "page",
         pageNums: [4],
         filePath: "pages/page-000004.png",
-        sectionPath: "Page 4",
+        sectionPath:
+          "Default_Root/Micron Q1-26 Earnings Deck_R.pdf-->Safe harbor statement",
         pageAssets: [
           {
             pageNumber: 4,
@@ -57,9 +62,46 @@ describe("parsedChunkCardModel", () => {
 
     expect(metadata).toEqual({
       pageLabel: "Page 4",
-      sectionLabel: "pages/page-000004.png",
+      sectionLabel: "Root / Safe harbor statement",
+      sectionSegments: ["Root", "Safe harbor statement"],
       typeLabel: "Page",
+      leadLabel: "Page 4",
     })
+  })
+
+  it("extracts unique entity tags from typed Knowhere entities", () => {
+    const tags = parsedChunkCardModel.getEntityTags(
+      makeChunk({
+        keywords: ["Robotaxi"],
+        entities: [
+          { text: "Securities and Exchange Commission", type: "organization" },
+          { text: "Form 10-K", type: "document" },
+          { text: "Form 10-K", type: "document" },
+          { text: "  ", type: "organization" },
+        ],
+      }),
+    )
+
+    expect(tags).toEqual([
+      {
+        text: "Securities and Exchange Commission",
+        type: "organization",
+      },
+      { text: "Form 10-K", type: "document" },
+    ])
+  })
+
+  it("falls back to keyword texts as entity tags when entities are missing", () => {
+    const tags = parsedChunkCardModel.getEntityTags(
+      makeChunk({
+        keywords: ["Robotaxi", "Supercharging", "Robotaxi", "  "],
+      }),
+    )
+
+    expect(tags).toEqual([
+      { text: "Robotaxi", type: null },
+      { text: "Supercharging", type: null },
+    ])
   })
 
   it("splits text content into text and reference parts with display-ready labels", () => {

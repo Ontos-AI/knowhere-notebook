@@ -1,18 +1,9 @@
 "use client";
 
 import { useMemo, useState, type MouseEvent, type ReactNode } from "react";
-import {
-  FileSearch,
-  FileText,
-  ImageIcon,
-  ImageOff,
-  Table2,
-  Tags,
-  TextQuote,
-} from "lucide-react";
+import { ImageIcon, ImageOff, Link2, Table2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { parsedChunkCardModel } from "@/components/parsed-chunk-card-model";
 import { CitationRegionHighlight } from "@/components/citation-region-highlight";
@@ -21,10 +12,8 @@ import type { ParsedChunkView } from "@/domains/chunks/types";
 import type { SourceOriginalFileView } from "@/domains/sources/types";
 import { cn } from "@/lib/utils";
 
-const keywordPanelClassName =
-  "rounded-lg border border-emerald-200/70 bg-emerald-50/70 p-3 shadow-[0_1px_0_rgba(16,185,129,0.08)] dark:border-emerald-400/20 dark:bg-emerald-950/20";
-const keywordBadgeClassName =
-  "rounded-md border border-emerald-200/80 bg-emerald-100/90 px-2 py-0.5 text-[11px] font-semibold text-emerald-800 shadow-[0_1px_0_rgba(16,185,129,0.10)] hover:bg-emerald-100 dark:border-emerald-400/25 dark:bg-emerald-400/10 dark:text-emerald-200";
+const entityBadgeClassName =
+  "rounded-md border border-primary/35 bg-background px-2 py-0.5 text-[11px] font-medium text-primary";
 type TextChunkReferencePart = Extract<
   ReturnType<typeof parsedChunkCardModel.getTextContentParts>[number],
   { readonly type: "reference" }
@@ -37,8 +26,6 @@ export function ParsedChunkCard({
   focusedPageNumber = null,
   focusedPageRequestId = 0,
   highlightRegions = [],
-  isOriginalPreviewAvailable = false,
-  onChunkClick,
   onReferenceClick,
   sourceOriginalFile = null,
 }: {
@@ -48,8 +35,6 @@ export function ParsedChunkCard({
   readonly focusedPageNumber?: number | null;
   readonly focusedPageRequestId?: number;
   readonly highlightRegions?: readonly ChatImageHighlightBox[];
-  readonly isOriginalPreviewAvailable?: boolean;
-  readonly onChunkClick?: (chunk: ParsedChunkView) => void;
   readonly onReferenceClick: (chunkId: string) => void;
   readonly sourceOriginalFile?: SourceOriginalFileView | null;
 }): ReactNode {
@@ -63,8 +48,6 @@ export function ParsedChunkCard({
           focusedPageNumber={focusedPageNumber}
           focusedPageRequestId={focusedPageRequestId}
           highlightRegions={highlightRegions}
-          isOriginalPreviewAvailable={isOriginalPreviewAvailable}
-          onChunkClick={onChunkClick}
         />
       </ChunkCardShell>
     );
@@ -77,8 +60,6 @@ export function ParsedChunkCard({
           isFocused={isFocused}
           focusedPageRequestId={focusedPageRequestId}
           highlightRegions={highlightRegions}
-          isOriginalPreviewAvailable={isOriginalPreviewAvailable}
-          onChunkClick={onChunkClick}
           sourceOriginalFile={sourceOriginalFile}
         />
       </ChunkCardShell>
@@ -87,12 +68,7 @@ export function ParsedChunkCard({
   if (chunk.type === "table") {
     return (
       <ChunkCardShell chunk={chunk}>
-        <TableChunkCard
-          chunk={chunk}
-          isFocused={isFocused}
-          isOriginalPreviewAvailable={isOriginalPreviewAvailable}
-          onChunkClick={onChunkClick}
-        />
+        <TableChunkCard chunk={chunk} isFocused={isFocused} />
       </ChunkCardShell>
     );
   }
@@ -101,8 +77,6 @@ export function ParsedChunkCard({
       <TextChunkCard
         chunk={chunk}
         isFocused={isFocused}
-        isOriginalPreviewAvailable={isOriginalPreviewAvailable}
-        onChunkClick={onChunkClick}
         onReferenceClick={onReferenceClick}
       />
     </ChunkCardShell>
@@ -129,29 +103,21 @@ function ChunkCardShell({
 function ChunkCardFrame({
   chunk,
   isFocused,
-  isOriginalPreviewAvailable,
-  onChunkClick,
   children,
 }: {
   readonly chunk: ParsedChunkView;
   readonly isFocused: boolean;
-  readonly isOriginalPreviewAvailable: boolean;
-  readonly onChunkClick?: (chunk: ParsedChunkView) => void;
   readonly children: ReactNode;
 }): ReactNode {
   return (
     <Card
       className={cn(
-        "w-full min-w-0 cursor-default overflow-hidden rounded-lg shadow-xs transition-colors",
+        "w-full min-w-0 cursor-default gap-0 overflow-hidden rounded-lg py-0 shadow-xs transition-colors",
         parsedChunkCardModel.getFocusCardClasses(isFocused),
       )}
     >
+      <ChunkSourcePanel chunk={chunk} />
       <CardContent className="space-y-3 p-3 sm:p-4">
-        <ChunkSourcePanel
-          chunk={chunk}
-          isOriginalPreviewAvailable={isOriginalPreviewAvailable}
-          onChunkClick={onChunkClick}
-        />
         {children}
       </CardContent>
     </Card>
@@ -160,185 +126,99 @@ function ChunkCardFrame({
 
 function ChunkSourcePanel({
   chunk,
-  isOriginalPreviewAvailable,
-  onChunkClick,
 }: {
   readonly chunk: ParsedChunkView;
-  readonly isOriginalPreviewAvailable: boolean;
-  readonly onChunkClick?: (chunk: ParsedChunkView) => void;
 }): ReactNode {
   const sourceMetadata = parsedChunkCardModel.getSourceMetadata(chunk);
-  const firstPageNumber = getFirstValidPageNumber(chunk);
+  const lastSegmentIndex = sourceMetadata.sectionSegments.length - 1;
 
   return (
     <section
       data-testid={`chunk-source-panel-${chunk.chunkId}`}
-      className="rounded-lg border border-border/70 bg-background/80 p-3"
+      className="flex min-w-0 items-center gap-3 border-b border-[#f3f4f6] bg-[rgba(249,250,251,0.6)] px-5 pt-[10px] pb-[11px] dark:border-border dark:bg-muted/40"
     >
-      <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start">
-        <div className="flex min-w-0 flex-1 gap-3">
-          <div
-            className={cn(
-              "grid size-9 shrink-0 place-items-center rounded-lg border shadow-inner",
-              getChunkIconClasses(chunk.type),
-            )}
-          >
-            {renderChunkIcon(chunk.type)}
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-1.5">
-              <Badge
-                variant="outline"
-                className="h-5 rounded-md px-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground"
+      <span className="inline-flex h-[27px] shrink-0 items-center rounded-[10px] border border-[#e5e7eb] bg-white px-2 py-1 text-[11px] font-semibold leading-[16.5px] tracking-normal text-[#27272a] dark:border-border dark:bg-card dark:text-card-foreground">
+        {sourceMetadata.leadLabel}
+      </span>
+      {sourceMetadata.sectionSegments.length > 0 ? (
+        <nav
+          aria-label="Section path"
+          className="flex min-w-0 flex-1 items-center gap-1"
+        >
+          {sourceMetadata.sectionSegments.map((segment, index) => {
+            const isCurrent = index === lastSegmentIndex;
+            return (
+              <span
+                key={`${segment}-${index}`}
+                className="flex min-w-0 items-center gap-1"
               >
-                {sourceMetadata.typeLabel}
-              </Badge>
-              {sourceMetadata.pageLabel ? (
-                <Badge
-                  variant="secondary"
-                  className="h-5 rounded-md px-1.5 text-[10px] font-semibold text-muted-foreground"
+                {index > 0 ? (
+                  <span className="shrink-0 text-[10px] leading-[15px] text-[#d1d5dc] dark:text-border">
+                    /
+                  </span>
+                ) : null}
+                <span
+                  className={
+                    isCurrent
+                      ? "truncate text-[12px] font-medium leading-[18px] text-[#27272a] dark:text-foreground"
+                      : "shrink-0 text-[12px] font-normal leading-[18px] text-[#71717b] dark:text-muted-foreground"
+                  }
                 >
-                  {sourceMetadata.pageLabel}
-                </Badge>
-              ) : null}
-            </div>
-            {sourceMetadata.sectionLabel ? (
-              <p className="mt-2 break-words text-xs leading-5 text-muted-foreground">
-                {sourceMetadata.sectionLabel}
-              </p>
-            ) : null}
-          </div>
-        </div>
-        {onChunkClick &&
-        firstPageNumber !== null &&
-        !hasPageCitationAssets(chunk) ? (
-          <OpenOriginalButton
-            chunk={chunk}
-            firstPageNumber={firstPageNumber}
-            isOriginalPreviewAvailable={isOriginalPreviewAvailable}
-            onChunkClick={onChunkClick}
-          />
-        ) : null}
-      </div>
-    </section>
-  );
-}
-
-function getFirstValidPageNumber(chunk: ParsedChunkView): number | null {
-  const pageNums = chunk.pageNums ?? [];
-  const validPageNums = pageNums.filter(
-    (pageNum) => Number.isFinite(pageNum) && pageNum > 0,
-  );
-  if (validPageNums.length === 0) return null;
-
-  return Math.min(...validPageNums);
-}
-
-function OpenOriginalButton({
-  chunk,
-  firstPageNumber,
-  isOriginalPreviewAvailable,
-  onChunkClick,
-}: {
-  readonly chunk: ParsedChunkView;
-  readonly firstPageNumber: number;
-  readonly isOriginalPreviewAvailable: boolean;
-  readonly onChunkClick: (chunk: ParsedChunkView) => void;
-}): ReactNode {
-  return (
-    <Button
-      type="button"
-      variant="outline"
-      size="sm"
-      className={cn(
-        "h-8 shrink-0 rounded-md px-2.5 text-xs",
-        isOriginalPreviewAvailable
-          ? "border-primary/40 bg-primary/5 font-semibold text-primary hover:bg-primary/10 hover:text-primary"
-          : "font-normal text-muted-foreground",
+                  {segment}
+                </span>
+              </span>
+            );
+          })}
+        </nav>
+      ) : (
+        <div className="min-w-0 flex-1" />
       )}
-      onClick={() => onChunkClick(chunk)}
-    >
-      <FileSearch className="size-3.5" />
-      {getOpenOriginalButtonLabel(firstPageNumber, isOriginalPreviewAvailable)}
-    </Button>
-  );
-}
-
-function getOpenOriginalButtonLabel(
-  firstPageNumber: number,
-  isOriginalPreviewAvailable: boolean,
-): string {
-  if (!isOriginalPreviewAvailable) return "Open original file";
-
-  return `Open page ${firstPageNumber} in original file`;
-}
-
-function ChunkSummaryPanel({
-  chunk,
-}: {
-  readonly chunk: ParsedChunkView;
-}): ReactNode {
-  if (!chunk.summary) return null;
-
-  return (
-    <section
-      data-testid={`chunk-summary-panel-${chunk.chunkId}`}
-      className="rounded-lg border border-border/70 bg-muted/35 p-3"
-    >
-      <SectionLabel icon={<TextQuote className="size-3.5" />} label="Summary" />
-      <p className="mt-2 text-sm leading-6 text-foreground/85">
-        {chunk.summary}
-      </p>
     </section>
   );
 }
 
 function ChunkContentPanel({
   chunk,
-  label = "Content",
   children,
 }: {
   readonly chunk: ParsedChunkView;
-  readonly label?: string;
   readonly children: ReactNode;
 }): ReactNode {
   return (
     <section
       data-testid={`chunk-content-panel-${chunk.chunkId}`}
-      className="rounded-lg border border-border/70 bg-card p-3"
+      className="min-w-0"
     >
-      <SectionLabel icon={<FileText className="size-3.5" />} label={label} />
-      <div className="mt-2 min-w-0">{children}</div>
+      {children}
     </section>
   );
 }
 
-function ChunkKeywords({
+function ChunkEntities({
   chunk,
 }: {
   readonly chunk: ParsedChunkView;
 }): ReactNode {
-  if (!chunk.keywords || chunk.keywords.length === 0) return null;
+  const entities = parsedChunkCardModel.getEntityTags(chunk);
+  if (entities.length === 0) return null;
 
   return (
     <section
-      data-testid={`chunk-keywords-panel-${chunk.chunkId}`}
-      className={keywordPanelClassName}
+      data-testid={`chunk-entities-panel-${chunk.chunkId}`}
     >
       <SectionLabel
-        icon={<Tags className="size-3.5" />}
-        label="Keywords"
-        className="text-emerald-800 dark:text-emerald-200"
-        iconClassName="text-emerald-600 dark:text-emerald-300"
+        icon={<Link2 className="size-3.5" />}
+        label="Entities"
       />
       <div className="mt-2 flex flex-wrap gap-1.5">
-        {chunk.keywords.map((keyword) => (
+        {entities.map((entity) => (
           <Badge
-            key={keyword}
-            variant="secondary"
-            className={keywordBadgeClassName}
+            key={entity.text}
+            variant="outline"
+            className={entityBadgeClassName}
+            title={entity.type ?? undefined}
           >
-            {keyword}
+            {entity.text}
           </Badge>
         ))}
       </div>
@@ -349,22 +229,13 @@ function ChunkKeywords({
 function SectionLabel({
   icon,
   label,
-  className,
-  iconClassName,
 }: {
   readonly icon: ReactNode;
   readonly label: string;
-  readonly className?: string;
-  readonly iconClassName?: string;
 }): ReactNode {
   return (
-    <div
-      className={cn(
-        "flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-muted-foreground",
-        className,
-      )}
-    >
-      <span className={cn("text-primary", iconClassName)}>{icon}</span>
+    <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
+      <span className="text-primary">{icon}</span>
       {label}
     </div>
   );
@@ -373,30 +244,20 @@ function SectionLabel({
 function TextChunkCard({
   chunk,
   isFocused,
-  isOriginalPreviewAvailable,
-  onChunkClick,
   onReferenceClick,
 }: {
   readonly chunk: ParsedChunkView;
   readonly isFocused: boolean;
-  readonly isOriginalPreviewAvailable: boolean;
-  readonly onChunkClick?: (chunk: ParsedChunkView) => void;
   readonly onReferenceClick: (chunkId: string) => void;
 }): ReactNode {
   return (
-    <ChunkCardFrame
-      chunk={chunk}
-      isFocused={isFocused}
-      isOriginalPreviewAvailable={isOriginalPreviewAvailable}
-      onChunkClick={onChunkClick}
-    >
-      <ChunkSummaryPanel chunk={chunk} />
+    <ChunkCardFrame chunk={chunk} isFocused={isFocused}>
       <ChunkContentPanel chunk={chunk}>
         <pre className="whitespace-pre-wrap break-words font-sans text-[13px] leading-relaxed text-foreground sm:text-sm">
           {renderTextChunkContent(chunk, onReferenceClick)}
         </pre>
       </ChunkContentPanel>
-      <ChunkKeywords chunk={chunk} />
+      <ChunkEntities chunk={chunk} />
     </ChunkCardFrame>
   );
 }
@@ -408,8 +269,6 @@ function PageChunkCard({
   focusedPageNumber,
   focusedPageRequestId,
   highlightRegions,
-  isOriginalPreviewAvailable,
-  onChunkClick,
 }: {
   readonly chunk: ParsedChunkView;
   readonly isFocused: boolean;
@@ -417,23 +276,13 @@ function PageChunkCard({
   readonly focusedPageNumber: number | null;
   readonly focusedPageRequestId: number;
   readonly highlightRegions: readonly ChatImageHighlightBox[];
-  readonly isOriginalPreviewAvailable: boolean;
-  readonly onChunkClick?: (chunk: ParsedChunkView) => void;
 }): ReactNode {
   const pageAssets = chunk.pageAssets ?? [];
 
   return (
-    <ChunkCardFrame
-      chunk={chunk}
-      isFocused={isFocused}
-      isOriginalPreviewAvailable={isOriginalPreviewAvailable}
-      onChunkClick={onChunkClick}
-    >
+    <ChunkCardFrame chunk={chunk} isFocused={isFocused}>
       {pageAssets.length > 0 ? (
-        <ChunkContentPanel
-          chunk={chunk}
-          label={pageAssets.length === 1 ? "Page image" : "Page images"}
-        >
+        <ChunkContentPanel chunk={chunk}>
           <PageCitationAssets
             assets={pageAssets}
             focusedCitationId={focusedCitationId}
@@ -443,13 +292,13 @@ function PageChunkCard({
           />
         </ChunkContentPanel>
       ) : (
-        <ChunkContentPanel chunk={chunk} label="Page summary">
+        <ChunkContentPanel chunk={chunk}>
           <p className="whitespace-pre-wrap break-words text-[13px] leading-relaxed text-foreground sm:text-sm">
             {chunk.readableContent ?? chunk.content}
           </p>
         </ChunkContentPanel>
       )}
-      <ChunkKeywords chunk={chunk} />
+      <ChunkEntities chunk={chunk} />
     </ChunkCardFrame>
   );
 }
@@ -506,13 +355,9 @@ function PageCitationAssetImage({
   const isImageLoaded = loadedAssetUrl === imageAssetUrl;
 
   return (
-    <figure className="overflow-hidden rounded-lg border border-border bg-muted/30">
-      <figcaption className="flex items-center justify-between gap-3 border-b border-border/70 px-3 py-2 text-xs font-semibold text-muted-foreground">
-        <span>Page {asset.pageNumber}</span>
-        <span>{asset.contentType}</span>
-      </figcaption>
+    <figure className="overflow-hidden">
       <div
-        className="flex justify-center overflow-hidden bg-muted/20"
+        className="flex justify-center overflow-hidden"
         data-citation-page={asset.pageNumber}
         data-focused-citation-id={isCitationFocus ? focusedCitationId : undefined}
       >
@@ -572,16 +417,12 @@ function ImageChunkCard({
   isFocused,
   focusedPageRequestId,
   highlightRegions,
-  isOriginalPreviewAvailable,
-  onChunkClick,
   sourceOriginalFile,
 }: {
   readonly chunk: ParsedChunkView;
   readonly isFocused: boolean;
   readonly focusedPageRequestId: number;
   readonly highlightRegions: readonly ChatImageHighlightBox[];
-  readonly isOriginalPreviewAvailable: boolean;
-  readonly onChunkClick?: (chunk: ParsedChunkView) => void;
   readonly sourceOriginalFile: SourceOriginalFileView | null;
 }): ReactNode {
   const [loadedAssetUrl, setLoadedAssetUrl] = useState<string | null>(null);
@@ -592,16 +433,10 @@ function ImageChunkCard({
   const isImageLoaded = loadedAssetUrl === inlineImageAssetUrl;
 
   return (
-    <ChunkCardFrame
-      chunk={chunk}
-      isFocused={isFocused}
-      isOriginalPreviewAvailable={isOriginalPreviewAvailable}
-      onChunkClick={onChunkClick}
-    >
-      <ChunkSummaryPanel chunk={chunk} />
-      <ChunkContentPanel chunk={chunk}>
-        {inlineImageAssetUrl ? (
-          <figure className="overflow-hidden rounded-lg border border-border bg-muted/30">
+    <ChunkCardFrame chunk={chunk} isFocused={isFocused}>
+      {inlineImageAssetUrl ? (
+        <ChunkContentPanel chunk={chunk}>
+          <figure className="overflow-hidden">
             <div className="flex justify-center">
               <div
                 className="relative inline-block max-w-full"
@@ -623,7 +458,9 @@ function ImageChunkCard({
               </div>
             </div>
           </figure>
-        ) : (
+        </ChunkContentPanel>
+      ) : (
+        <ChunkContentPanel chunk={chunk}>
           <div className="flex flex-col items-center gap-3 rounded-lg border border-border bg-muted/40 py-8 text-center">
             <ImageIcon className="size-8 text-muted-foreground" />
             <div>
@@ -637,9 +474,9 @@ function ImageChunkCard({
               </p>
             </div>
           </div>
-        )}
-      </ChunkContentPanel>
-      <ChunkKeywords chunk={chunk} />
+        </ChunkContentPanel>
+      )}
+      <ChunkEntities chunk={chunk} />
     </ChunkCardFrame>
   );
 }
@@ -675,10 +512,6 @@ function isNotebookBlobAssetUrl(assetUrl: string): boolean {
   } catch {
     return false;
   }
-}
-
-function hasPageCitationAssets(chunk: ParsedChunkView): boolean {
-  return (chunk.pageAssets?.length ?? 0) > 0;
 }
 
 function renderTextChunkContent(
@@ -731,13 +564,9 @@ function ChunkReferenceButton({
 function TableChunkCard({
   chunk,
   isFocused,
-  isOriginalPreviewAvailable,
-  onChunkClick,
 }: {
   readonly chunk: ParsedChunkView;
   readonly isFocused: boolean;
-  readonly isOriginalPreviewAvailable: boolean;
-  readonly onChunkClick?: (chunk: ParsedChunkView) => void;
 }): ReactNode {
   const safeHtml = useMemo(
     () => parsedChunkCardModel.getSanitizedTableHtml(chunk.content),
@@ -745,13 +574,7 @@ function TableChunkCard({
   );
 
   return (
-    <ChunkCardFrame
-      chunk={chunk}
-      isFocused={isFocused}
-      isOriginalPreviewAvailable={isOriginalPreviewAvailable}
-      onChunkClick={onChunkClick}
-    >
-      <ChunkSummaryPanel chunk={chunk} />
+    <ChunkCardFrame chunk={chunk} isFocused={isFocused}>
       <ChunkContentPanel chunk={chunk}>
         {safeHtml ? (
           <div
@@ -775,27 +598,7 @@ function TableChunkCard({
           </div>
         )}
       </ChunkContentPanel>
-      <ChunkKeywords chunk={chunk} />
+      <ChunkEntities chunk={chunk} />
     </ChunkCardFrame>
   );
-}
-
-function renderChunkIcon(type: ParsedChunkView["type"]): ReactNode {
-  if (type === "page") return <FileSearch className="size-4" />;
-  if (type === "image") return <ImageIcon className="size-4" />;
-  if (type === "table") return <Table2 className="size-4" />;
-  return <FileText className="size-4" />;
-}
-
-function getChunkIconClasses(type: ParsedChunkView["type"]): string {
-  if (type === "page") {
-    return "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300";
-  }
-  if (type === "image") {
-    return "border-violet-500/15 bg-violet-500/10 text-violet-600 dark:text-violet-300";
-  }
-  if (type === "table") {
-    return "border-primary/15 bg-primary/10 text-primary";
-  }
-  return "border-border bg-muted/60 text-muted-foreground";
 }
