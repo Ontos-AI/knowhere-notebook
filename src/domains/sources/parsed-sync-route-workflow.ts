@@ -4,6 +4,10 @@ import { Client, WorkflowAbort, type WorkflowContext } from "@upstash/workflow"
 import type { KnowledgeSyncParsedDocumentResponse } from "@ontos-ai/knowhere-sdk"
 
 import { makeKnowhereClientWithParsedStorage } from "@/integrations/knowhere"
+import {
+  ensureFreshKnowhereApiKey,
+  withFreshKnowhereApiKey,
+} from "@/integrations/dashboard/api-key-service"
 import { logger } from "@/lib/logger"
 import {
   getParsedSyncWorkflowRunId,
@@ -66,10 +70,11 @@ async function runParsedSyncWorkflow(input: {
   readonly payload: NormalizedParsedSyncPayload
 }): Promise<void> {
   const { context, payload } = input
-  const { workspaceId, sourceId, documentId, apiKey } = payload
-  const { knowledge } = makeKnowhereClientWithParsedStorage(apiKey, {
-    workspaceId,
-  })
+  const { workspaceId, sourceId, documentId } = payload
+  let apiKey = await context.run(
+    `refresh-knowhere-jwt-${payload.segmentIndex}`,
+    async () => ensureFreshKnowhereApiKey(payload.apiKey),
+  )
 
   let revisionKey = payload.revisionKey
   let completed = false
@@ -131,14 +136,22 @@ async function runParsedSyncWorkflow(input: {
 
   try {
     for (let step = 0; step < maxSyncStepsPerSegment; step++) {
-      const result: KnowledgeSyncParsedDocumentResponse = await context.run(
+      const stepResult = await context.run(
         `sync-${payload.segmentIndex}-${step}`,
         async () =>
-          knowledge.syncParsedDocument({
-            documentId,
-            ...(revisionKey ? { revisionKey } : {}),
+          withFreshKnowhereApiKey(apiKey, async (freshKey) => {
+            const { knowledge } = makeKnowhereClientWithParsedStorage(
+              freshKey,
+              { workspaceId },
+            )
+            return knowledge.syncParsedDocument({
+              documentId,
+              ...(revisionKey ? { revisionKey } : {}),
+            })
           }),
       )
+      apiKey = stepResult.apiKey
+      const result: KnowledgeSyncParsedDocumentResponse = stepResult.result
       revisionKey = result.revisionKey
 
       await context.run(`record-progress-${payload.segmentIndex}-${step}`, () =>
