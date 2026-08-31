@@ -7,10 +7,22 @@ const mocks = vi.hoisted(() => ({
   updateSyncStatus: vi.fn(),
   loggerInfo: vi.fn(),
   loggerError: vi.fn(),
+  ensureFreshKnowhereApiKey: vi.fn(async (apiKey: string) => apiKey),
+  withFreshKnowhereApiKey: vi.fn(
+    async (apiKey: string, run: (apiKey: string) => Promise<unknown>) => ({
+      result: await run(apiKey),
+      apiKey,
+    }),
+  ),
 }))
 
 vi.mock("@/integrations/knowhere", () => ({
   makeKnowhereClientWithParsedStorage: mocks.makeKnowhereClientWithParsedStorage,
+}))
+
+vi.mock("@/integrations/dashboard/api-key-service", () => ({
+  ensureFreshKnowhereApiKey: mocks.ensureFreshKnowhereApiKey,
+  withFreshKnowhereApiKey: mocks.withFreshKnowhereApiKey,
 }))
 
 vi.mock("./workflow-runtime", () => ({
@@ -62,6 +74,13 @@ describe("parsedSyncRouteWorkflow.runParsedSyncWorkflow", () => {
       },
     })
     mocks.releaseSyncCapacity.mockResolvedValue(undefined)
+    mocks.ensureFreshKnowhereApiKey.mockImplementation(async (apiKey: string) => apiKey)
+    mocks.withFreshKnowhereApiKey.mockImplementation(
+      async (apiKey: string, run: (apiKey: string) => Promise<unknown>) => ({
+        result: await run(apiKey),
+        apiKey,
+      }),
+    )
   })
 
   afterEach(() => {
@@ -107,12 +126,17 @@ describe("parsedSyncRouteWorkflow.runParsedSyncWorkflow", () => {
       client: {},
       knowledge: { syncParsedDocument },
     })
-    const triggered: Array<{ workflowRunId: string; segmentIndex?: number }> = []
+    const triggered: Array<{
+      workflowRunId: string
+      segmentIndex?: number
+      apiKey?: string
+    }> = []
     const restore = parsedSyncRouteWorkflow.setContinuationTriggerForTesting(
       async (input) => {
         triggered.push({
           workflowRunId: input.workflowRunId,
           segmentIndex: input.payload.segmentIndex,
+          apiKey: input.payload.apiKey,
         })
       },
     )
@@ -129,6 +153,7 @@ describe("parsedSyncRouteWorkflow.runParsedSyncWorkflow", () => {
     expect(triggered).toHaveLength(1)
     expect(triggered[0]?.segmentIndex).toBe(1)
     expect(triggered[0]?.workflowRunId).toBe("doc_1-sync-rev_1-1")
+    expect(triggered[0]?.apiKey).toBe("key_1")
     expect(mocks.updateSyncStatus).toHaveBeenLastCalledWith(
       "workspace_1",
       "source_1",
@@ -186,6 +211,7 @@ describe("parsedSyncRouteWorkflow.runParsedSyncWorkflow", () => {
       readonly workflowRunId: string
       readonly segmentIndex?: number
       readonly delaySeconds?: number
+      readonly apiKey?: string
     }> = []
     const restore = parsedSyncRouteWorkflow.setContinuationTriggerForTesting(
       async (input) => {
@@ -193,6 +219,7 @@ describe("parsedSyncRouteWorkflow.runParsedSyncWorkflow", () => {
           workflowRunId: input.workflowRunId,
           segmentIndex: input.payload.segmentIndex,
           delaySeconds: input.delaySeconds,
+          apiKey: input.payload.apiKey,
         })
       },
     )
@@ -221,9 +248,48 @@ describe("parsedSyncRouteWorkflow.runParsedSyncWorkflow", () => {
         workflowRunId: "doc_1-sync-rev_1-1",
         segmentIndex: 1,
         delaySeconds: 60,
+        apiKey: "key_1",
       },
     ])
     expect(mocks.releaseSyncCapacity).not.toHaveBeenCalled()
+  })
+
+  it("forwards a refreshed Knowhere JWT on sync continuation and capacity retry", async () => {
+    mocks.ensureFreshKnowhereApiKey.mockResolvedValue("jwt_refreshed")
+    mocks.withFreshKnowhereApiKey.mockImplementation(
+      async (_apiKey: string, run: (apiKey: string) => Promise<unknown>) => ({
+        result: await run("jwt_refreshed"),
+        apiKey: "jwt_refreshed",
+      }),
+    )
+    const syncParsedDocument = vi.fn(async () => ({
+      documentId: "doc_1",
+      revisionKey: "rev_1",
+      completed: false,
+    }))
+    mocks.makeKnowhereClientWithParsedStorage.mockReturnValue({
+      client: {},
+      knowledge: { syncParsedDocument },
+    })
+    const triggered: Array<{ apiKey?: string }> = []
+    const restore = parsedSyncRouteWorkflow.setContinuationTriggerForTesting(
+      async (input) => {
+        triggered.push({ apiKey: input.payload.apiKey })
+      },
+    )
+
+    try {
+      await parsedSyncRouteWorkflow.runParsedSyncWorkflow({
+        context: createContext(),
+        payload: basePayload,
+      })
+    } finally {
+      restore()
+    }
+
+    expect(mocks.ensureFreshKnowhereApiKey).toHaveBeenCalledWith("key_1")
+    expect(syncParsedDocument).toHaveBeenCalled()
+    expect(triggered[0]?.apiKey).toBe("jwt_refreshed")
   })
 
   it("does not release capacity when Upstash aborts during a planned step", async () => {

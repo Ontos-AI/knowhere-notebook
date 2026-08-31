@@ -7,6 +7,7 @@ import {
   pollSourceReconciliation,
 } from "@/domains/sources/source-reconcile-workflow"
 import { makeKnowhereClientWithParsedStorage } from "@/integrations/knowhere"
+import { withFreshKnowhereApiKey } from "@/integrations/dashboard/api-key-service"
 import { logger } from "@/lib/logger"
 import { enqueueParsedDocumentSync } from "./parsed-document-sync-scheduler"
 import { sourceWorkflowRuntime } from "./workflow-runtime"
@@ -68,10 +69,8 @@ async function runPollAndMirrorWorkflow(input: {
   readonly payload: NormalizedReconcilePayload
 }): Promise<void> {
   const { context, payload } = input
-  const { workspaceId, sourceId, apiKey } = payload
-  const { client } = makeKnowhereClientWithParsedStorage(apiKey, {
-    workspaceId,
-  })
+  const { workspaceId, sourceId } = payload
+  let apiKey = payload.apiKey
   let delay = initialDelaySeconds
   let completedJob: {
     readonly jobId: string
@@ -79,13 +78,20 @@ async function runPollAndMirrorWorkflow(input: {
   } | null = null
 
   for (let attempt = 0; attempt < maxPollAttempts; attempt++) {
-    const poll = await context.run(`poll-${attempt}`, async () => {
-      return pollSourceReconciliation({
-        workspaceId,
-        sourceId,
-        client,
-      })
-    })
+    const step = await context.run(`poll-${attempt}`, async () =>
+      withFreshKnowhereApiKey(apiKey, async (freshKey) => {
+        const { client } = makeKnowhereClientWithParsedStorage(freshKey, {
+          workspaceId,
+        })
+        return pollSourceReconciliation({
+          workspaceId,
+          sourceId,
+          client,
+        })
+      }),
+    )
+    apiKey = step.apiKey
+    const poll = step.result
 
     if (poll.kind === "ready-to-prepare") {
       completedJob = {
@@ -146,14 +152,21 @@ async function runPollAndMirrorWorkflow(input: {
   )
   if (ready.status === "gone") return
 
-  const revisionKey = await context.run("resolve-revision-key", async () =>
-    resolveParsedRevisionKey({
-      client,
-      sourceId,
-      documentId: jobToPrepare.documentId,
-      fallbackRevisionKey: jobToPrepare.jobId,
+  const revision = await context.run("resolve-revision-key", async () =>
+    withFreshKnowhereApiKey(apiKey, async (freshKey) => {
+      const { client } = makeKnowhereClientWithParsedStorage(freshKey, {
+        workspaceId,
+      })
+      return resolveParsedRevisionKey({
+        client,
+        sourceId,
+        documentId: jobToPrepare.documentId,
+        fallbackRevisionKey: jobToPrepare.jobId,
+      })
     }),
   )
+  apiKey = revision.apiKey
+  const revisionKey = revision.result
 
   await context.run("record-source-revision-key", async () =>
     sourceWorkflowRuntime.updateRevisionKey(workspaceId, sourceId, revisionKey),

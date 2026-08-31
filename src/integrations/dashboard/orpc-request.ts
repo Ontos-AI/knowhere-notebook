@@ -17,3 +17,14 @@ export function setEmptyJsonBody(
     JSON_CONTENT_TYPE,
   )
 }
+
+export function setJsonBody(
+  request: HttpClientRequest.HttpClientRequest,
+  body: unknown,
+): HttpClientRequest.HttpClientRequest {
+  return HttpClientRequest.bodyText(
+    request,
+    JSON.stringify(body),
+    JSON_CONTENT_TYPE,
+  )
+}
