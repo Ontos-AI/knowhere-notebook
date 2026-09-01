@@ -13,6 +13,12 @@ const mocks = vi.hoisted(() => ({
   makeKnowhereClientWithParsedStorage: vi.fn(),
   markSourceReadyAfterReconciliation: vi.fn(),
   pollSourceReconciliation: vi.fn(),
+  withFreshKnowhereApiKey: vi.fn(
+    async (apiKey: string, run: (apiKey: string) => Promise<unknown>) => ({
+      result: await run(apiKey),
+      apiKey,
+    }),
+  ),
 }))
 
 vi.mock("@/domains/sources/source-reconcile-workflow", () => ({
@@ -42,6 +48,10 @@ vi.mock("./parsed-document-sync-capacity", () => ({
 vi.mock("@/integrations/knowhere", () => ({
   makeKnowhereClientWithParsedStorage:
     mocks.makeKnowhereClientWithParsedStorage,
+}))
+
+vi.mock("@/integrations/dashboard/api-key-service", () => ({
+  withFreshKnowhereApiKey: mocks.withFreshKnowhereApiKey,
 }))
 
 vi.mock("@/lib/logger", () => ({
@@ -97,6 +107,12 @@ describe("sourceReconcileRouteWorkflow", () => {
       status: "ready",
     })
     mocks.updateRevisionKey.mockResolvedValue({ id: "source_1" })
+    mocks.withFreshKnowhereApiKey.mockImplementation(
+      async (apiKey: string, run: (apiKey: string) => Promise<unknown>) => ({
+        result: await run(apiKey),
+        apiKey,
+      }),
+    )
   })
 
   afterEach(() => {
@@ -271,6 +287,89 @@ describe("sourceReconcileRouteWorkflow", () => {
         ),
       },
     ])
+  })
+
+  it("forwards a refreshed Knowhere JWT on poll continuation and parsed-sync enqueue", async () => {
+    const context = createWorkflowContext()
+    const continuations: ContinuationTriggerInput[] = []
+    const restore =
+      sourceReconcileRouteWorkflow.setContinuationTriggerForTesting(
+        async (input) => {
+          continuations.push(input)
+        },
+      )
+    mocks.withFreshKnowhereApiKey.mockImplementation(
+      async (_apiKey: string, run: (apiKey: string) => Promise<unknown>) => ({
+        result: await run("jwt_refreshed"),
+        apiKey: "jwt_refreshed",
+      }),
+    )
+    mocks.makeKnowhereClientWithParsedStorage.mockReturnValue({
+      client: { jobs: {}, documents: { listChunks: vi.fn() } },
+      knowledge: { syncParsedDocument: vi.fn() },
+    })
+    mocks.pollSourceReconciliation.mockResolvedValue({
+      kind: "waiting",
+      jobId: "job_1",
+      jobStatus: "running",
+    })
+
+    try {
+      await sourceReconcileRouteWorkflow.runPollAndMirrorWorkflow({
+        context,
+        payload: sourceReconcileRouteWorkflow.normalizeReconcilePayload({
+          workspaceId: "workspace_1",
+          sourceId: "source_1",
+          apiKey: "jwt_expired",
+          segmentIndex: 0,
+        }),
+      })
+    } finally {
+      restore()
+    }
+
+    expect(mocks.makeKnowhereClientWithParsedStorage).toHaveBeenCalledWith(
+      "jwt_refreshed",
+      { workspaceId: "workspace_1" },
+    )
+    expect(continuations[0]?.payload.apiKey).toBe("jwt_refreshed")
+  })
+
+  it("enqueues parsed-sync with a refreshed Knowhere JWT", async () => {
+    const context = createWorkflowContext()
+    mocks.withFreshKnowhereApiKey.mockImplementation(
+      async (_apiKey: string, run: (apiKey: string) => Promise<unknown>) => ({
+        result: await run("jwt_refreshed"),
+        apiKey: "jwt_refreshed",
+      }),
+    )
+    const wired = createClient({})
+    mocks.makeKnowhereClientWithParsedStorage.mockReturnValue({
+      client: wired.client,
+      knowledge: wired.knowledge,
+    })
+    mocks.pollSourceReconciliation.mockResolvedValue({
+      kind: "ready-to-prepare",
+      jobId: "job_1",
+      documentId: "doc_1",
+    })
+
+    await sourceReconcileRouteWorkflow.runPollAndMirrorWorkflow({
+      context,
+      payload: sourceReconcileRouteWorkflow.normalizeReconcilePayload({
+        workspaceId: "workspace_1",
+        sourceId: "source_1",
+        apiKey: "jwt_expired",
+      }),
+    })
+
+    expect(mocks.enqueueParsedDocumentSync).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      sourceId: "source_1",
+      documentId: "doc_1",
+      apiKey: "jwt_refreshed",
+      revisionKey: "rev_1",
+    })
   })
 
   it("marks a parsing source failed after workflow retry exhaustion", async () => {
