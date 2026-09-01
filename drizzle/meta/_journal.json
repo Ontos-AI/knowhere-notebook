@@ -92,6 +92,20 @@
       "when": 1783231408481,
       "tag": "0012_lazy_wendell_rand",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1788247035130,
+      "tag": "0013_first_magus",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1788252035435,
+      "tag": "0014_messy_apocalypse",
+      "breakpoints": true
     }
   ]
 }

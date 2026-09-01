@@ -1,7 +1,9 @@
 import { sql } from "drizzle-orm";
 import {
   bigint,
+  doublePrecision,
   index,
+  integer,
   jsonb,
   pgTable,
   text,
@@ -338,3 +340,139 @@ export const chatMessages = pgTable(
 
 export type ChatMessage = typeof chatMessages.$inferSelect;
 export type NewChatMessage = typeof chatMessages.$inferInsert;
+
+/**
+ * Fluid memory: typed insights extracted from human-AI conversation turns
+ * (as opposed to "crystal memory", which is the parsed document knowledge
+ * that stays upstream in Knowhere).
+ *
+ * One row per extracted insight. `kind` discriminates the typed `payload`
+ * (see src/domains/memory/types.ts for the payload contract per kind):
+ *   - indicator_pref      — a metric the user cares about (name, aliases,
+ *                           polarity, importance)
+ *   - stance              — a stated position that shapes judgement
+ *   - decision_rule       — a when/then rule over indicators
+ *   - entity_of_interest  — a company/topic the user tracks
+ *
+ * `abstract_l0` / `overview_l1` are the tiered sidecar summaries (L0 =
+ * one line for pre-filter/dedup context, L1 = short paragraph for later
+ * cognition injection). L2 is the payload itself.
+ *
+ * Lifecycle: rows start `active`; user revisions deprecate rather than
+ * delete (conservative merge policy), with `version` bumped on merge.
+ *
+ * `source_message_id` points at the assistant message of the turn the
+ * insight was extracted from; it is set-null on message deletion because
+ * the insight outlives any single turn.
+ */
+export const fluidMemoryItems = pgTable(
+  "fluid_memory_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    payload: jsonb("payload").notNull(),
+    abstractL0: text("abstract_l0").notNull(),
+    overviewL1: text("overview_l1").notNull(),
+    sourceMessageId: uuid("source_message_id").references(
+      () => chatMessages.id,
+      { onDelete: "set null" },
+    ),
+    confidence: doublePrecision("confidence").notNull(),
+    status: text("status").notNull(),
+    version: integer("version").notNull().default(1),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    // Workspace lifecycle scans (active vs deprecated).
+    index("fluid_memory_items_workspace_status_idx").on(
+      t.workspaceId,
+      t.status,
+    ),
+    index("fluid_memory_items_workspace_kind_idx").on(t.workspaceId, t.kind),
+  ],
+);
+
+export type FluidMemoryItem = typeof fluidMemoryItems.$inferSelect;
+export type NewFluidMemoryItem = typeof fluidMemoryItems.$inferInsert;
+
+/**
+ * Lexical inverted index over active fluid memory items, used to retrieve
+ * dedup candidates at extraction time instead of loading the whole memory
+ * set into the prompt. One row per (item, token); `frequency` counts token
+ * occurrences in the item's search text.
+ *
+ * Invariant: token rows exist iff the owning item is `active`. Writers keep
+ * this in sync — create inserts rows, merge replaces them, deprecate deletes
+ * them — so lookups scan tokens alone (no status join) and never surface a
+ * deprecated item.
+ *
+ * Tokenization mirrors Knowhere map-nav: single CJK characters plus
+ * `[a-z0-9_]+` runs. Scoring is idf-weighted token overlap computed in SQL,
+ * keeping the mechanism on portable Postgres (no pg_trgm/pgvector).
+ */
+export const fluidMemoryTokens = pgTable(
+  "fluid_memory_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    itemId: uuid("item_id")
+      .notNull()
+      .references(() => fluidMemoryItems.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    token: text("token").notNull(),
+    frequency: integer("frequency").notNull().default(1),
+  },
+  (t) => [
+    // Lookup: candidate tokens within a workspace + kind scope.
+    index("fluid_memory_tokens_lookup_idx").on(
+      t.workspaceId,
+      t.kind,
+      t.token,
+    ),
+    // Rebuild/delete a single item's rows on merge/deprecate.
+    index("fluid_memory_tokens_item_idx").on(t.itemId),
+  ],
+);
+
+export type FluidMemoryToken = typeof fluidMemoryTokens.$inferSelect;
+export type NewFluidMemoryToken = typeof fluidMemoryTokens.$inferInsert;
+
+/**
+ * Append-only audit of extraction decisions, one row per processed turn.
+ * `operations` is a JSONB array of { op, kind, itemId?, summary, reason? }
+ * records (op = create | skip | merge | deprecate), mirroring OpenViking's
+ * memory_diff.json so memory growth stays observable and reversible.
+ */
+export const memoryDiffs = pgTable(
+  "memory_diffs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    sourceMessageId: uuid("source_message_id").references(
+      () => chatMessages.id,
+      { onDelete: "set null" },
+    ),
+    operations: jsonb("operations").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("memory_diffs_workspace_created_idx").on(t.workspaceId, t.createdAt),
+  ],
+);
+
+export type MemoryDiff = typeof memoryDiffs.$inferSelect;
+export type NewMemoryDiff = typeof memoryDiffs.$inferInsert;

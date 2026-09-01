@@ -26,6 +26,9 @@
 .DS_Store
 *.pem
 .repos/effect
+.tmp/
+.cursor/
+.agent/
 
 # debug
 npm-debug.log*
