@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
   parsedStorageWriteAsset: vi.fn(),
   softDeleteChatThread: vi.fn(),
   startBackgroundReconciliation: vi.fn(),
+  triggerMemoryExtraction: vi.fn(),
 }))
 
 vi.mock("ai", async (importOriginal) => {
@@ -60,6 +61,10 @@ vi.mock("@/domains/chat/service", () => ({
 
 vi.mock("@/domains/sources/background-reconcile", () => ({
   startBackgroundReconciliation: mocks.startBackgroundReconciliation,
+}))
+
+vi.mock("@/domains/memory/extract-trigger", () => ({
+  triggerMemoryExtraction: mocks.triggerMemoryExtraction,
 }))
 
 vi.mock("@/domains/sources/workflow-runtime", () => ({
@@ -836,7 +841,10 @@ describe("chat route services", () => {
     mocks.handleChatTurn.mockResolvedValue(
       Either.right({
         threadId: "thread_1",
-        messages: [],
+        messages: [
+          { id: "message_user", role: "user", content: "Summarize it" },
+          { id: "message_assistant", role: "assistant", content: "Summary" },
+        ],
       }),
     )
 
@@ -845,6 +853,12 @@ describe("chat route services", () => {
     })
 
     expect(result.status).toBe(200)
+    expect(mocks.triggerMemoryExtraction).toHaveBeenCalledWith({
+      workspaceId: workspace.id,
+      threadId: "thread_1",
+      userMessageId: "message_user",
+      assistantMessageId: "message_assistant",
+    })
     expect(mocks.startBackgroundReconciliation).toHaveBeenCalledWith(
       workspace.id,
       parsingSource.id,
