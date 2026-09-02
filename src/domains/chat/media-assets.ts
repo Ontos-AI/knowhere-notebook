@@ -27,7 +27,6 @@ export type RetrievalResultAssetInput = {
   readonly results: readonly RetrievalResult[]
   readonly sources: readonly Source[]
   readonly hardenChatAssetUrl?: HardenChatAssetUrl
-  readonly evidenceText?: string
 }
 
 export async function enrichRetrievalResultsWithAssetUrls({
