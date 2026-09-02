@@ -156,7 +156,8 @@ describe("agent harness runtime", () => {
 
     expect(firstResult).toContain('ref="r1:result:1"')
     expect(secondResult).toContain('retrievalCount="2"')
-    expect(secondResult).toContain("Second evidence")
+    expect(secondResult).toContain("Second retrieval evidence.")
+    expect(secondResult).not.toContain("<evidence>")
     expect(secondResult).toContain('ref="r2:result:1"')
     expect(JSON.stringify(secondResult)).not.toContain("r1:result:1")
     expect(ledger.snapshot().chunks.map((chunk) => chunk.ref)).toEqual([
