@@ -291,7 +291,6 @@ export const answerQuestionWithRetrieval = (
         results: useNotebookSourceTitles(rawResults, input.sources),
         sources: input.sources,
         hardenChatAssetUrl: input.hardenChatAssetUrl,
-        evidenceText: formatRetrievalEvidenceText(retrievalResponses),
       }),
     )
     const pageCitationResults = yield* Effect.tryPromise(() =>
@@ -1341,17 +1340,6 @@ function toRetrievalResultFromEvidenceChunk(
 
 function hasDisplayedManifestArtifacts(result: HarnessRunResult): boolean {
   return result.manifest.artifacts.some((artifact) => artifact.display)
-}
-
-function formatRetrievalEvidenceText(
-  responses: readonly RetrievalQueryResponse[],
-): string | undefined {
-  const evidenceText = responses
-    .map((response): string => response.evidenceText?.trim() ?? "")
-    .filter((value): boolean => value.length > 0)
-    .join("\n")
-
-  return evidenceText || undefined
 }
 
 function getRetrievalResultKey(result: RetrievalResult): string {

@@ -103,8 +103,6 @@ describe("chat media assets", () => {
         }),
       ],
       hardenChatAssetUrl,
-      evidenceText:
-        "[image-6-中华人民共和国居民身份证.jpg]\n[image-7-中国居民身份证.jpg]",
     })
 
     expect(results).toHaveLength(1)

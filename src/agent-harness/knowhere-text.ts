@@ -56,7 +56,8 @@ export const knowhereToolText = {
         stopReason: input.response.stopReason ?? undefined,
         failureReason: input.response.failureReason ?? undefined,
       }),
-      formatOptionalTextTag("evidence", input.response.evidenceText),
+      // Model grounding comes from <chunks> (results). Do not also inject
+      // evidenceText — same bodies, no citeable refs, doubles context.
       formatEvidenceChunks(input.chunks),
       formatEvidenceAssets(input.assets),
       formatAssetInstruction(input.assets),

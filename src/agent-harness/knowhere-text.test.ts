@@ -25,8 +25,11 @@ describe("knowhereToolText", () => {
     expect(text).toContain('<knowhere operation="search" status="ok">')
     expect(text).toContain('ref="r1:result:1"')
     expect(text).toContain('ref="asset:r1:result:1"')
+    expect(text).toContain("Page one summary.")
     expect(text).toContain("Call inspectImage")
     expect(text).toContain("before finalize")
+    expect(text).not.toContain("<evidence>")
+    expect(text).not.toContain("Page one evidence.")
     expect(text).not.toContain("https://assets.example/page-1.png")
   })
 
