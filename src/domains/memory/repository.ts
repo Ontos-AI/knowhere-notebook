@@ -1,8 +1,9 @@
 import "server-only"
 
-import { and, eq, inArray, sql } from "drizzle-orm"
+import { and, asc, count, eq, inArray, lt, sql } from "drizzle-orm"
 import { Effect } from "effect"
 
+import type { CapturedObservation } from "./observation-types"
 import { toDiffOperation, type ResolvedMemoryOperation } from "./resolve-operations"
 import { buildMemoryItemTokens } from "./search-index"
 import type {
@@ -10,14 +11,30 @@ import type {
   FluidMemoryPayload,
   MemoryDiffOperation,
 } from "./types"
-import { DbClient } from "@/infrastructure/db"
+import { DbClient, type Db } from "@/infrastructure/db"
 import {
   fluidMemoryItems,
   fluidMemoryTokens,
+  fluidObservations,
   memoryDiffs,
   type FluidMemoryItem,
+  type FluidObservation,
   type NewFluidMemoryToken,
 } from "@/infrastructure/db/schema"
+
+export type InsertObservationsInput = {
+  readonly workspaceId: string
+  readonly sourceMessageId: string | null
+  readonly referencedDocumentIds: readonly string[]
+  readonly observations: readonly CapturedObservation[]
+}
+
+export type ApplyDistillBatchInput = {
+  readonly workspaceId: string
+  readonly sourceMessageId: string | null
+  readonly operations: readonly ResolvedMemoryOperation[]
+  readonly observationIds: readonly string[]
+}
 
 type MemoryRepository = {
   readonly findDedupCandidatesEffect: (
@@ -26,14 +43,34 @@ type MemoryRepository = {
     tokens: readonly string[],
     limit: number,
   ) => Effect.Effect<FluidMemoryItem[], never, DbClient>
-  readonly applyOperationsEffect: (
+  readonly insertObservationsEffect: (
+    input: InsertObservationsInput,
+  ) => Effect.Effect<readonly FluidObservation[], never, DbClient>
+  readonly countPendingObservationsEffect: (
     workspaceId: string,
-    sourceMessageId: string | null,
-    operations: readonly ResolvedMemoryOperation[],
-  ) => Effect.Effect<readonly MemoryDiffOperation[], never, DbClient>
+  ) => Effect.Effect<number, never, DbClient>
+  readonly listPendingObservationsEffect: (
+    workspaceId: string,
+    limit: number,
+  ) => Effect.Effect<readonly FluidObservation[], never, DbClient>
+  readonly applyDistillBatchEffect: (
+    input: ApplyDistillBatchInput,
+  ) => Effect.Effect<
+    {
+      readonly diffs: readonly MemoryDiffOperation[]
+      readonly consumedCount: number
+    },
+    never,
+    DbClient
+  >
+  readonly deleteExpiredConsumedObservationsEffect: (
+    olderThan: Date,
+  ) => Effect.Effect<number, never, DbClient>
 }
 
 type RawRowsResult<Row> = readonly Row[] | { readonly rows: readonly Row[] }
+
+type TxClient = Parameters<Parameters<Db["transaction"]>[0]>[0]
 
 /**
  * Retrieve the most lexically-similar active items of one kind, ranked by
@@ -92,145 +129,272 @@ const findDedupCandidatesEffect: MemoryRepository["findDedupCandidatesEffect"] =
       })
     })
 
-const applyOperationsEffect: MemoryRepository["applyOperationsEffect"] = (
-  workspaceId,
-  sourceMessageId,
-  operations,
+/**
+ * Append-only write of coarse-capture clues. Never touches fluid_memory_items.
+ * Empty input is a no-op (returns []). Status is always `pending`.
+ */
+const insertObservationsEffect: MemoryRepository["insertObservationsEffect"] = (
+  input,
+) =>
+  Effect.gen(function* () {
+    const db = yield* DbClient
+    if (input.observations.length === 0) return []
+
+    const documentIds = [...input.referencedDocumentIds]
+    return yield* Effect.promise(() =>
+      db
+        .insert(fluidObservations)
+        .values(
+          input.observations.map((observation) => ({
+            workspaceId: input.workspaceId,
+            sourceMessageId: input.sourceMessageId,
+            signal: observation.signal,
+            evidenceQuote: observation.evidenceQuote,
+            subjectHint: observation.subjectHint ?? null,
+            referencedDocumentIds: documentIds,
+            confidence: observation.confidence,
+            status: "pending",
+          })),
+        )
+        .returning(),
+    )
+  })
+
+const countPendingObservationsEffect: MemoryRepository["countPendingObservationsEffect"] =
+  (workspaceId) =>
+    Effect.gen(function* () {
+      const db = yield* DbClient
+      const rows = yield* Effect.promise(() =>
+        db
+          .select({ value: count() })
+          .from(fluidObservations)
+          .where(
+            and(
+              eq(fluidObservations.workspaceId, workspaceId),
+              eq(fluidObservations.status, "pending"),
+            ),
+          ),
+      )
+      return Number(rows[0]?.value ?? 0)
+    })
+
+/**
+ * Oldest-first pending batch for distill. Concurrency across distill runs for
+ * the same workspace is primarily gated by trigger cooldown + bucketed
+ * workflowRunId; consume below is conditional on status still being pending.
+ */
+const listPendingObservationsEffect: MemoryRepository["listPendingObservationsEffect"] =
+  (workspaceId, limit) =>
+    Effect.gen(function* () {
+      const db = yield* DbClient
+      if (limit <= 0) return []
+      return yield* Effect.promise(() =>
+        db
+          .select()
+          .from(fluidObservations)
+          .where(
+            and(
+              eq(fluidObservations.workspaceId, workspaceId),
+              eq(fluidObservations.status, "pending"),
+            ),
+          )
+          .orderBy(asc(fluidObservations.createdAt))
+          .limit(limit),
+      )
+    })
+
+const applyDistillBatchEffect: MemoryRepository["applyDistillBatchEffect"] = (
+  input,
 ) =>
   Effect.gen(function* () {
     const db = yield* DbClient
     return yield* Effect.promise(() =>
       db.transaction(async (tx) => {
-        const diffOperations: MemoryDiffOperation[] = []
-
-        for (const operation of operations) {
-          switch (operation.op) {
-            case "create": {
-              const [inserted] = await tx
-                .insert(fluidMemoryItems)
-                .values({
-                  workspaceId,
-                  kind: operation.kind,
-                  payload: operation.payload,
-                  abstractL0: operation.abstractL0,
-                  overviewL1: operation.overviewL1,
-                  sourceMessageId,
-                  confidence: operation.confidence,
-                  status: "active",
-                })
-                .returning()
-              if (inserted?.id) {
-                const tokenRows = tokenRowsFor(
-                  workspaceId,
-                  inserted.id,
-                  operation.kind,
-                  operation.payload,
-                )
-                if (tokenRows.length > 0) {
-                  await tx.insert(fluidMemoryTokens).values(tokenRows)
-                }
-              }
-              diffOperations.push(toDiffOperation(operation, inserted?.id))
-              break
-            }
-            case "merge": {
-              const [updated] = await tx
-                .update(fluidMemoryItems)
-                .set({
-                  payload: operation.payload,
-                  abstractL0: operation.abstractL0,
-                  overviewL1: operation.overviewL1,
-                  confidence: operation.confidence,
-                  sourceMessageId,
-                  version: sql`${fluidMemoryItems.version} + 1`,
-                  updatedAt: sql`now()`,
-                })
-                .where(
-                  and(
-                    eq(fluidMemoryItems.id, operation.targetItemId),
-                    eq(fluidMemoryItems.status, "active"),
-                  ),
-                )
-                .returning({ id: fluidMemoryItems.id })
-              if (updated) {
-                await tx
-                  .delete(fluidMemoryTokens)
-                  .where(eq(fluidMemoryTokens.itemId, operation.targetItemId))
-                const tokenRows = tokenRowsFor(
-                  workspaceId,
-                  operation.targetItemId,
-                  operation.kind,
-                  operation.payload,
-                )
-                if (tokenRows.length > 0) {
-                  await tx.insert(fluidMemoryTokens).values(tokenRows)
-                }
-              }
-              diffOperations.push(
-                updated
-                  ? toDiffOperation(operation)
-                  : {
-                      op: "skip",
-                      kind: operation.kind,
-                      summary: operation.summary,
-                      reason: "merge target no longer active",
-                    },
-              )
-              break
-            }
-            case "deprecate": {
-              const [updated] = await tx
-                .update(fluidMemoryItems)
-                .set({
-                  status: "deprecated",
-                  updatedAt: sql`now()`,
-                })
-                .where(
-                  and(
-                    eq(fluidMemoryItems.id, operation.targetItemId),
-                    eq(fluidMemoryItems.status, "active"),
-                  ),
-                )
-                .returning({ id: fluidMemoryItems.id })
-              if (updated) {
-                await tx
-                  .delete(fluidMemoryTokens)
-                  .where(eq(fluidMemoryTokens.itemId, operation.targetItemId))
-              }
-              diffOperations.push(
-                updated
-                  ? toDiffOperation(operation)
-                  : {
-                      op: "skip",
-                      kind: operation.kind,
-                      summary: operation.summary,
-                      reason: "deprecate target no longer active",
-                    },
-              )
-              break
-            }
-            case "skip":
-              diffOperations.push(toDiffOperation(operation))
-              break
-          }
+        const diffs = await writeOperations(
+          tx,
+          input.workspaceId,
+          input.sourceMessageId,
+          input.operations,
+        )
+        let consumedCount = 0
+        if (input.observationIds.length > 0) {
+          const consumed = await tx
+            .update(fluidObservations)
+            .set({
+              status: "consumed",
+              consumedAt: sql`now()`,
+            })
+            .where(
+              and(
+                eq(fluidObservations.workspaceId, input.workspaceId),
+                eq(fluidObservations.status, "pending"),
+                inArray(fluidObservations.id, [...input.observationIds]),
+              ),
+            )
+            .returning({ id: fluidObservations.id })
+          consumedCount = consumed.length
         }
-
-        if (diffOperations.length > 0) {
-          await tx.insert(memoryDiffs).values({
-            workspaceId,
-            sourceMessageId,
-            operations: [...diffOperations],
-          })
-        }
-
-        return diffOperations
+        return { diffs, consumedCount }
       }),
     )
   })
 
+const deleteExpiredConsumedObservationsEffect: MemoryRepository["deleteExpiredConsumedObservationsEffect"] =
+  (olderThan) =>
+    Effect.gen(function* () {
+      const db = yield* DbClient
+      const deleted = yield* Effect.promise(() =>
+        db
+          .delete(fluidObservations)
+          .where(
+            and(
+              eq(fluidObservations.status, "consumed"),
+              lt(fluidObservations.createdAt, olderThan),
+            ),
+          )
+          .returning({ id: fluidObservations.id }),
+      )
+      return deleted.length
+    })
+
 export const memoryRepository: MemoryRepository = {
   findDedupCandidatesEffect,
-  applyOperationsEffect,
+  insertObservationsEffect,
+  countPendingObservationsEffect,
+  listPendingObservationsEffect,
+  applyDistillBatchEffect,
+  deleteExpiredConsumedObservationsEffect,
+}
+
+async function writeOperations(
+  tx: TxClient,
+  workspaceId: string,
+  sourceMessageId: string | null,
+  operations: readonly ResolvedMemoryOperation[],
+): Promise<MemoryDiffOperation[]> {
+  const diffOperations: MemoryDiffOperation[] = []
+
+  for (const operation of operations) {
+    switch (operation.op) {
+      case "create": {
+        const [inserted] = await tx
+          .insert(fluidMemoryItems)
+          .values({
+            workspaceId,
+            kind: operation.kind,
+            payload: operation.payload,
+            abstractL0: operation.abstractL0,
+            overviewL1: operation.overviewL1,
+            sourceMessageId,
+            confidence: operation.confidence,
+            status: "active",
+          })
+          .returning()
+        if (inserted?.id) {
+          const tokenRows = tokenRowsFor(
+            workspaceId,
+            inserted.id,
+            operation.kind,
+            operation.payload,
+          )
+          if (tokenRows.length > 0) {
+            await tx.insert(fluidMemoryTokens).values(tokenRows)
+          }
+        }
+        diffOperations.push(toDiffOperation(operation, inserted?.id))
+        break
+      }
+      case "merge": {
+        const [updated] = await tx
+          .update(fluidMemoryItems)
+          .set({
+            payload: operation.payload,
+            abstractL0: operation.abstractL0,
+            overviewL1: operation.overviewL1,
+            confidence: operation.confidence,
+            sourceMessageId,
+            version: sql`${fluidMemoryItems.version} + 1`,
+            updatedAt: sql`now()`,
+          })
+          .where(
+            and(
+              eq(fluidMemoryItems.id, operation.targetItemId),
+              eq(fluidMemoryItems.status, "active"),
+            ),
+          )
+          .returning({ id: fluidMemoryItems.id })
+        if (updated) {
+          await tx
+            .delete(fluidMemoryTokens)
+            .where(eq(fluidMemoryTokens.itemId, operation.targetItemId))
+          const tokenRows = tokenRowsFor(
+            workspaceId,
+            operation.targetItemId,
+            operation.kind,
+            operation.payload,
+          )
+          if (tokenRows.length > 0) {
+            await tx.insert(fluidMemoryTokens).values(tokenRows)
+          }
+        }
+        diffOperations.push(
+          updated
+            ? toDiffOperation(operation)
+            : {
+                op: "skip",
+                kind: operation.kind,
+                summary: operation.summary,
+                reason: "merge target no longer active",
+              },
+        )
+        break
+      }
+      case "deprecate": {
+        const [updated] = await tx
+          .update(fluidMemoryItems)
+          .set({
+            status: "deprecated",
+            updatedAt: sql`now()`,
+          })
+          .where(
+            and(
+              eq(fluidMemoryItems.id, operation.targetItemId),
+              eq(fluidMemoryItems.status, "active"),
+            ),
+          )
+          .returning({ id: fluidMemoryItems.id })
+        if (updated) {
+          await tx
+            .delete(fluidMemoryTokens)
+            .where(eq(fluidMemoryTokens.itemId, operation.targetItemId))
+        }
+        diffOperations.push(
+          updated
+            ? toDiffOperation(operation)
+            : {
+                op: "skip",
+                kind: operation.kind,
+                summary: operation.summary,
+                reason: "deprecate target no longer active",
+              },
+        )
+        break
+      }
+      case "skip":
+        diffOperations.push(toDiffOperation(operation))
+        break
+    }
+  }
+
+  if (diffOperations.length > 0) {
+    await tx.insert(memoryDiffs).values({
+      workspaceId,
+      sourceMessageId,
+      operations: [...diffOperations],
+    })
+  }
+
+  return diffOperations
 }
 
 function tokenRowsFor(

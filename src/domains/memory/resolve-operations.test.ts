@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import type { MemoryOperations } from "./prompts"
+import type { MemoryOperations } from "./resolve-operations"
 import {
   resolveMemoryOperations,
   toDiffOperation,

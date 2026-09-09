@@ -476,3 +476,53 @@ export const memoryDiffs = pgTable(
 
 export type MemoryDiff = typeof memoryDiffs.$inferSelect;
 export type NewMemoryDiff = typeof memoryDiffs.$inferInsert;
+
+/**
+ * Append-only raw observation layer for fluid memory (L2 evidence).
+ *
+ * Each chat turn may write zero or more pending rows here via cheap capture.
+ * A later distill job consumes a batch, upserts typed items into
+ * `fluid_memory_items`, and marks these rows `consumed`. Capture never writes
+ * the distilled layer; distill is the only writer of permanent memory.
+ *
+ * Capture stores points of concern only — no early kind classification.
+ * `subject_hint` is an optional topic anchor for later clustering; distill
+ * owns the final kind and merge decision.
+ */
+export const fluidObservations = pgTable(
+  "fluid_observations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    sourceMessageId: uuid("source_message_id").references(
+      () => chatMessages.id,
+      { onDelete: "set null" },
+    ),
+    signal: text("signal").notNull(),
+    evidenceQuote: text("evidence_quote").notNull(),
+    subjectHint: text("subject_hint"),
+    referencedDocumentIds: jsonb("referenced_document_ids")
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    confidence: doublePrecision("confidence").notNull(),
+    status: text("status").notNull().default("pending"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+  },
+  (t) => [
+    // Distill scan: pending rows for a workspace in capture order.
+    index("fluid_observations_workspace_status_created_idx").on(
+      t.workspaceId,
+      t.status,
+      t.createdAt,
+    ),
+  ],
+);
+
+export type FluidObservation = typeof fluidObservations.$inferSelect;
+export type NewFluidObservation = typeof fluidObservations.$inferInsert;

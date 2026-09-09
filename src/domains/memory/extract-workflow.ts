@@ -2,15 +2,9 @@ import "server-only"
 
 import type { WorkflowContext } from "@upstash/workflow"
 
-import { extractMemoryOperations } from "./extraction-model"
-import {
-  summarizePayloadForContext,
-  type ExistingMemoryContextItem,
-} from "./prompts"
-import { resolveMemoryOperations } from "./resolve-operations"
-import { tokenizeMemoryText } from "./search-index"
+import { triggerMemoryDistill } from "./distill-trigger"
+import { captureObservations } from "./extraction-model"
 import { memoryService } from "./service"
-import { fluidMemoryKinds, isFluidMemoryKind } from "./types"
 import { chatThreadService } from "@/domains/chat/thread-service"
 import { logger } from "@/lib/logger"
 
@@ -25,15 +19,6 @@ type MemoryExtractWorkflowContext = Pick<
   WorkflowContext<MemoryExtractPayload>,
   "run"
 >
-
-/** Prompt-context item that also carries status/payload for resolution. */
-type MemoryWorkflowItem = ExistingMemoryContextItem & {
-  readonly status: string
-  readonly payload: unknown
-}
-
-/** Per-kind cap on lexical neighbors fed into the merge-decision prompt. */
-const DEDUP_CANDIDATES_PER_KIND = 8
 
 export function normalizeMemoryExtractPayload(
   raw: unknown,
@@ -50,6 +35,11 @@ export function normalizeMemoryExtractPayload(
   return { workspaceId, threadId, userMessageId, assistantMessageId }
 }
 
+/**
+ * Per-turn coarse capture: load the turn → LLM observations → append-only
+ * insert into fluid_observations. Never writes fluid_memory_items (distill
+ * owns that). After persist, maybe-trigger distill when pending is high enough.
+ */
 export async function runMemoryExtractWorkflow(input: {
   readonly context: MemoryExtractWorkflowContext
   readonly payload: MemoryExtractPayload
@@ -77,73 +67,42 @@ export async function runMemoryExtractWorkflow(input: {
     }
   })
   if (!turn) {
-    logger.warn("memory: extract skipped — turn messages not found", {
+    logger.warn("memory: capture skipped — turn messages not found", {
       workspaceId: payload.workspaceId,
       threadId: payload.threadId,
     })
     return
   }
 
-  const existingItems = await context.run("retrieve-candidates", async () => {
-    const queryTokens = tokenizeMemoryText(turn.userText).map(
-      (entry) => entry.token,
-    )
-    if (queryTokens.length === 0) return []
-
-    const byId = new Map<string, MemoryWorkflowItem>()
-    for (const kind of fluidMemoryKinds) {
-      const items = await memoryService.findDedupCandidates(
-        payload.workspaceId,
-        kind,
-        queryTokens,
-        DEDUP_CANDIDATES_PER_KIND,
-      )
-      for (const item of items) {
-        if (!isFluidMemoryKind(item.kind) || byId.has(item.id)) continue
-        byId.set(item.id, {
-          id: item.id,
-          kind: item.kind,
-          status: item.status,
-          payload: item.payload,
-          abstractL0: item.abstractL0,
-          payloadSummary: summarizePayloadForContext(item.kind, item.payload),
-        })
-      }
-    }
-    return [...byId.values()]
-  })
-
-  const operations = await context.run("extract-operations", () =>
-    extractMemoryOperations({
+  const observations = await context.run("capture", () =>
+    captureObservations({
       workspaceId: payload.workspaceId,
       userText: turn.userText,
       assistantText: turn.assistantText,
       referencedDocumentIds: turn.referencedDocumentIds,
-      existingItems,
     }),
   )
-  if (!operations) return
+  if (!observations) return
 
-  const applied = await context.run("apply-operations", async () => {
-    const resolved = resolveMemoryOperations({
-      operations,
-      existingItems,
+  const inserted = await context.run("persist-observations", async () => {
+    if (observations.length === 0) return []
+    return memoryService.insertObservations({
+      workspaceId: payload.workspaceId,
+      sourceMessageId: payload.assistantMessageId,
       referencedDocumentIds: turn.referencedDocumentIds,
+      observations,
     })
-    if (resolved.length === 0) return null
-    return memoryService.applyOperations(
-      payload.workspaceId,
-      payload.assistantMessageId,
-      resolved,
-    )
   })
 
-  logger.info("memory: extract workflow finished", {
+  await context.run("maybe-trigger-distill", async () => {
+    await triggerMemoryDistill({ workspaceId: payload.workspaceId })
+  })
+
+  logger.info("memory: capture workflow finished", {
     workspaceId: payload.workspaceId,
     threadId: payload.threadId,
     assistantMessageId: payload.assistantMessageId,
-    candidateCount: existingItems.length,
-    appliedOperations: applied?.map((operation) => operation.op) ?? [],
+    observationCount: inserted.length,
   })
 }
 

@@ -1,11 +1,13 @@
+import type { MemoryOperations } from "./distill-types"
 import { buildMemoryItemTokens } from "./search-index"
-import type { MemoryOperations } from "./prompts"
 import {
   parseFluidMemoryPayload,
   type FluidMemoryKind,
   type FluidMemoryPayload,
   type MemoryDiffOperation,
 } from "./types"
+
+export type { MemoryOperations } from "./distill-types"
 
 /**
  * Pure normalization from raw LLM operations to repository-ready
@@ -14,12 +16,14 @@ import {
  *   - merge/deprecate must target an existing active item of the same kind
  *     (otherwise downgraded to skip — conservative, never fabricates)
  *   - entity knowhereDocumentIds are intersected with the document ids
- *     actually referenced in the turn (the model cannot invent provenance)
+ *     allowed for the batch (the model cannot invent provenance)
  *   - create ignores any targetItemId the model may have emitted
  *   - create/merge payloads must yield at least one lexical token, otherwise
  *     the item could never be retrieved for later dedup
  *   - merge unions aliases (and entity document ids) with the target so
  *     prior search terms / provenance are not wiped by a partial rewrite
+ *
+ * Used by distill (not by per-turn capture). Capture only writes observations.
  */
 
 export type ResolvedMemoryOperation =
@@ -65,17 +69,6 @@ export type ExistingMemoryItemRef = {
   readonly payload?: unknown
 }
 
-type CandidateEntry = {
-  readonly abstractL0: string
-  readonly overviewL1: string
-  readonly confidence: number
-  readonly decision: {
-    readonly op: "create" | "skip" | "merge" | "deprecate"
-    readonly targetItemId?: string
-    readonly reason?: string
-  }
-}
-
 const kindToArrayKey = {
   indicator_pref: "indicatorPrefs",
   stance: "stances",
@@ -98,8 +91,7 @@ export function resolveMemoryOperations(input: {
   const resolved: ResolvedMemoryOperation[] = []
 
   for (const kind of Object.keys(kindToArrayKey) as FluidMemoryKind[]) {
-    const entries = input.operations[kindToArrayKey[kind]] as readonly (CandidateEntry &
-      Record<string, unknown>)[]
+    const entries = input.operations[kindToArrayKey[kind]]
 
     for (const entry of entries) {
       const summary = entry.abstractL0
@@ -132,7 +124,11 @@ export function resolveMemoryOperations(input: {
           })
           continue
         }
-        const mergePayload = toPayload(kind, entry, allowedDocumentIds)
+        const mergePayload = toPayload(
+          kind,
+          entry as Record<string, unknown>,
+          allowedDocumentIds,
+        )
         if (!mergePayload) {
           resolved.push({
             op: "skip",
@@ -170,7 +166,11 @@ export function resolveMemoryOperations(input: {
         continue
       }
 
-      const createPayload = toPayload(kind, entry, allowedDocumentIds)
+      const createPayload = toPayload(
+        kind,
+        entry as Record<string, unknown>,
+        allowedDocumentIds,
+      )
       if (!createPayload) {
         resolved.push({
           op: "skip",
@@ -241,7 +241,7 @@ function isIndexable(kind: FluidMemoryKind, payload: FluidMemoryPayload): boolea
 }
 
 /**
- * Merge replaces the stored payload, but the model only sees this turn.
+ * Merge replaces the stored payload, but the model only sees this batch.
  * Union aliases (and entity document ids) with the target so earlier search
  * terms / provenance survive a partial rewrite.
  */
