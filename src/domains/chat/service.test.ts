@@ -54,7 +54,7 @@ describe("handleChatTurn", () => {
       });
     }
     expect(retrieval.query).toHaveBeenCalledWith({
-      namespace: "notebook-namespace",
+      namespace: "default",
       query: "What does the document say?",
       topK: 8,
       useAgentic: true,
@@ -245,7 +245,7 @@ describe("handleChatTurn", () => {
       knowhereTools: expect.any(Object),
     });
     expect(retrieval.query).toHaveBeenCalledWith({
-      namespace: "notebook-namespace",
+      namespace: "default",
       query: "Tesla Q4 2025 Update energy generation and storage deployments",
       topK: 8,
       useAgentic: true,
