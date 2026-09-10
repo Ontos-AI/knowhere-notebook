@@ -37,6 +37,7 @@ export function makeKnowhereClient(apiKey: string): Knowhere {
   const options: ConstructorParameters<typeof Knowhere>[0] = {
     apiKey,
     baseURL: process.env.KNOWHERE_BASE_URL,
+    timeout: 120_000,
   }
   const client = new Knowhere(options)
   return wrapKnowhereClient(client)

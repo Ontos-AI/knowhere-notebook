@@ -10,6 +10,7 @@ import { z } from "zod"
 import { createEvidenceLedger } from "./ledger"
 import { getCanonicalImageAssetKey } from "./image-asset-identity"
 import { knowhereToolText } from "./knowhere-text"
+import { memoryToolText } from "./memory-text"
 import { mergeImageInspectionHighlights } from "./image-highlights"
 import type {
   AgentTurn,
@@ -27,8 +28,11 @@ import type {
   IntentFrame,
   KnowhereSearchTargetContent,
   KnowhereToolRuntime,
+  MemorySearchKind,
+  MemoryToolRuntime,
   OutputManifest,
 } from "./types"
+import { memorySearchKinds } from "./types"
 
 const defaultMaxSteps = 14
 const imageInspectionReminderStepNumber = 12
@@ -42,6 +46,7 @@ export type RunAgentHarnessInput = {
   readonly model: AgentHarnessModel
   readonly turn: AgentTurnInput
   readonly knowhereTools: KnowhereToolRuntime
+  readonly memoryTools: MemoryToolRuntime
   readonly inspectImages?: InspectImages
   readonly maxSteps?: number
 }
@@ -171,6 +176,17 @@ const outputCitationSchema = z.object({
     .optional(),
 })
 
+const memoryCitationSchema = z.object({
+  ref: z.string().min(1),
+  itemId: z.string().min(1),
+  kind: z.enum(memorySearchKinds),
+})
+
+const memorySearchSchema = z.object({
+  query: z.string().min(1),
+  kinds: z.array(z.enum(memorySearchKinds)).optional(),
+})
+
 const selectedOutputArtifactSchema = z.object({
   type: z.enum(["image", "table"]),
   ref: z.string().min(1),
@@ -197,6 +213,7 @@ const outputArtifactSchema = z.union([
 const outputManifestSchema = z.object({
   text: z.string(),
   citations: z.array(outputCitationSchema).default([]),
+  memoryCitations: z.array(memoryCitationSchema).default([]),
   artifacts: z.array(outputArtifactSchema).default([]),
   unresolved: z.array(z.string()).default([]),
 })
@@ -214,6 +231,7 @@ export async function runAgentHarness(
     state,
     ledger,
     knowhereTools: input.knowhereTools,
+    memoryTools: input.memoryTools,
     inspectImages: input.inspectImages,
     recentTurns: input.turn.recentTurns,
   })
@@ -225,6 +243,7 @@ export async function runAgentHarness(
       prepareHarnessStep({
         messages: stepMessages,
         stepNumber,
+        intent: state.intent,
         hasUninspectedImageAssets:
           input.inspectImages !== undefined &&
           hasUninspectedImageAssets({ state, ledger }),
@@ -257,10 +276,42 @@ export async function runAgentHarness(
   }
 }
 
+const alwaysAvailableTools = [
+  "declareIntent",
+  "setContextPolicy",
+  "inspectImage",
+  "readPriorTurn",
+  "finalize",
+] as const
+
+const fluidRetrievalTools = ["memory_search"] as const
+
+const crystalRetrievalTools = [
+  "knowhere_search",
+  "knowhere_list_documents",
+  "knowhere_get_document_outline",
+  "knowhere_read_chunks",
+  "knowhere_grep_chunks",
+] as const
+
+/** Reserved third retrieval slot (cognition). Not registered this round. */
+const cognitionRetrievalTools = [] as const
+
+// TODO(memory-architecture): today the agent itself decides, per turn via
+// declareIntent, whether to call memory_search / knowhere_search as MCP
+// tools. An alternative considered and deferred: always query Memento
+// (including future "cognition") on every turn and let Memento decide what,
+// if anything, to inject into context, instead of the agent choosing to call
+// a tool. Not adopted now — it would replace this tool-invocation control
+// flow with a middleware/auto-inject model and needs its own design + test
+// rewrite. Revisit if agent misjudgment on retrieval-needed becomes a real
+// problem.
+
 export function prepareHarnessStep(input: {
   readonly stepNumber: number
   readonly messages: readonly ModelMessage[]
   readonly hasUninspectedImageAssets?: boolean
+  readonly intent?: IntentFrame
 }): HarnessStepPreparation {
   const messages = sanitizeHarnessModelMessagesForStep(input.messages)
 
@@ -285,24 +336,57 @@ export function prepareHarnessStep(input: {
     }
   }
 
-  if (input.stepNumber < forcedFinalizationStepNumber) {
-    return { messages }
+  if (input.stepNumber >= forcedFinalizationStepNumber) {
+    return {
+      messages: [
+        ...messages,
+        {
+          role: "user",
+          content: buildForcedFinalizationFeedback(),
+        },
+      ],
+      activeTools: ["finalize"],
+      toolChoice: {
+        type: "tool",
+        toolName: "finalize",
+      },
+    }
   }
 
   return {
-    messages: [
-      ...messages,
-      {
-        role: "user",
-        content: buildForcedFinalizationFeedback(),
-      },
-    ],
-    activeTools: ["finalize"],
-    toolChoice: {
-      type: "tool",
-      toolName: "finalize",
-    },
+    messages,
+    activeTools: selectHarnessActiveTools({
+      intent: input.intent,
+    }),
   }
+}
+
+function selectHarnessActiveTools(input: {
+  readonly intent?: IntentFrame
+}): Array<Extract<keyof HarnessTools, string>> {
+  const tools: Array<Extract<keyof HarnessTools, string>> = [
+    ...alwaysAvailableTools,
+  ]
+  if (!allowsRetrieval(input.intent)) {
+    return tools
+  }
+
+  // memory_search and knowhere_search are peers: both open together once
+  // retrieval is allowed. The agent decides which to call and in what
+  // order — neither tool gates the other.
+  tools.push(...fluidRetrievalTools)
+  if (input.intent?.groundingPolicy === "must_use_sources") {
+    tools.push(...crystalRetrievalTools)
+  }
+  tools.push(...cognitionRetrievalTools)
+  return tools
+}
+
+function allowsRetrieval(intent?: IntentFrame): boolean {
+  if (!intent) return false
+  return (
+    intent.groundingPolicy !== "no_retrieval" && intent.retrievalNeeded !== "no"
+  )
 }
 
 export function sanitizeHarnessModelMessagesForStep(
@@ -410,6 +494,7 @@ export function createHarnessTools(input: {
   readonly state: HarnessToolState
   readonly ledger: ReturnType<typeof createEvidenceLedger>
   readonly knowhereTools: KnowhereToolRuntime
+  readonly memoryTools: MemoryToolRuntime
   readonly inspectImages?: InspectImages
   readonly recentTurns: readonly AgentTurn[]
 }) {
@@ -443,6 +528,24 @@ export function createHarnessTools(input: {
             return policy
           },
           summarizeOutput: summarizeContextPolicy,
+        }),
+    }),
+
+    memory_search: tool({
+      description:
+        "Search distilled fluid memory for this workspace. Returns tagged text with memory refs such as mem:1. Use this before Knowhere document search.",
+      inputSchema: memorySearchSchema,
+      execute: async (request) =>
+        traceToolCall(input.state, {
+          toolName: "memory_search",
+          inputSummary: summarizeMemorySearchRequest(request),
+          execute: async () => {
+            return await executeMemorySearch({
+              memoryTools: input.memoryTools,
+              request,
+            })
+          },
+          summarizeOutput: summarizeMemoryTextOutput,
         }),
     }),
 
@@ -628,6 +731,7 @@ export function createHarnessTools(input: {
         "Finalize the user-facing output manifest. This is the only final answer " +
         "contract. Artifacts listed here with display=true are the exact set of " +
         "images/tables shown to the user; cite evidence refs when available. " +
+        "Use citations for Knowhere evidence and memoryCitations for fluid memory refs. " +
         "Cited page/image assets must be inspected with inspectImage first.",
       inputSchema: outputManifestSchema,
       execute: async (manifest) =>
@@ -912,6 +1016,7 @@ type KnowhereToolOperation =
   | "read_chunks"
   | "grep_chunks"
 
+type MemorySearchToolRequest = z.infer<typeof memorySearchSchema>
 type KnowhereSearchToolRequest = z.infer<typeof knowhereSearchSchema>
 type KnowhereDocumentReferenceRequest = z.infer<
   typeof knowhereDocumentReferenceSchema
@@ -923,6 +1028,24 @@ type DocumentReferenceSummary = {
   readonly localDocumentId?: string
   readonly hasJobId: boolean
   readonly hasRevisionKey: boolean
+}
+
+async function executeMemorySearch(input: {
+  readonly memoryTools: MemoryToolRuntime
+  readonly request: MemorySearchToolRequest
+}): Promise<string> {
+  try {
+    const response = await input.memoryTools.search({
+      query: input.request.query,
+      kinds: input.request.kinds,
+    })
+    return memoryToolText.formatSearch(response)
+  } catch (error) {
+    return memoryToolText.formatError({
+      operation: "search",
+      message: formatUnknownError(error),
+    })
+  }
 }
 
 async function executeKnowhereSearch(input: {
@@ -1114,6 +1237,25 @@ function summarizeContextPolicy(policy: ContextPolicy): unknown {
   }
 }
 
+function summarizeMemorySearchRequest(request: {
+  readonly query: string
+  readonly kinds?: readonly MemorySearchKind[]
+}): unknown {
+  return {
+    query: request.query,
+    kinds: request.kinds,
+  }
+}
+
+function summarizeMemoryTextOutput(output: unknown): unknown {
+  if (typeof output !== "string") return output
+  return {
+    ok: !output.includes('status="error"'),
+    textLength: output.length,
+    itemCount: countOccurrences(output, "<item "),
+  }
+}
+
 function summarizeKnowhereSearchRequest(request: {
   readonly query: string
   readonly targetContent?: KnowhereSearchTargetContent
@@ -1239,6 +1381,7 @@ function summarizeManifest(manifest: OutputManifest): unknown {
   return {
     textLength: manifest.text.length,
     citationCount: manifest.citations.length,
+    memoryCitationCount: manifest.memoryCitations.length,
     artifactCount: manifest.artifacts.length,
     displayedArtifactCount: manifest.artifacts.filter((artifact) => artifact.display)
       .length,
@@ -1255,6 +1398,9 @@ function summarizeFinalizeOutput(output: unknown): unknown {
     ok: output.ok,
     textLength: typeof output.text === "string" ? output.text.length : 0,
     citationCount: Array.isArray(output.citations) ? output.citations.length : 0,
+    memoryCitationCount: Array.isArray(output.memoryCitations)
+      ? output.memoryCitations.length
+      : 0,
     artifactCount: Array.isArray(output.artifacts) ? output.artifacts.length : 0,
     unresolvedCount: Array.isArray(output.unresolved)
       ? output.unresolved.length
@@ -1282,11 +1428,16 @@ export function buildHarnessSystemPrompt(turn: AgentTurnInput): string {
     "1. Call declareIntent when it helps you plan the response. Capture constraints like a requested image/table count in constraints.desiredCount.",
     "2. Call setContextPolicy when prior turns may influence this turn.",
     "3. When the policy needs prior-turn detail (references or corrections), call readPriorTurn for the relevant ids.",
-    "4. Call knowhere_search when relevance search is needed. Use knowhere_list_documents, knowhere_get_document_outline, knowhere_read_chunks, and knowhere_grep_chunks for focused document reads.",
+    "4. Call memory_search first when known fluid memory may answer the request. Call knowhere_search only when memory is insufficient and groundingPolicy requires citing source documents. Use knowhere_list_documents, knowhere_get_document_outline, knowhere_read_chunks, and knowhere_grep_chunks for focused document reads.",
     "5. After Knowhere returns image/page asset refs, call inspectImage on the page/image assets you will cite before finalize. This supplies OCR/visual context and provenance boxes.",
     "6. Inspect each unique cited page once; retrieval already bounds the available evidence set.",
     "7. knowhere_read_chunks returns complete chunk bodies; control size with page/pageSize, sectionPath, startChunk/endChunk, chunkId, and chunkType.",
     "8. Call finalize with text, citations, artifacts, and unresolved issues when you are ready to answer.",
+    "",
+    "Retrieval rules:",
+    "- First use memory_search to see whether known fluid memory can answer directly.",
+    "- Call knowhere_search only when memory is insufficient and groundingPolicy requires citing source documents.",
+    "- Do not treat every question as a document-retrieval task.",
     "",
     "Context rules:",
     "- If the current user request is unrelated to prior turns, set carryHistory to none and do not reuse prior topics.",
@@ -1347,6 +1498,7 @@ function buildFallbackManifest(text: string): OutputManifest {
   return {
     text,
     citations: [],
+    memoryCitations: [],
     artifacts: [],
     unresolved: text ? [] : ["The agent did not finalize an output manifest."],
   }

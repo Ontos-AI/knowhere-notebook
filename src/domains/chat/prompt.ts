@@ -16,6 +16,7 @@ import type {
   ChatHistoryMessage,
   SearchSources,
 } from "./contracts"
+import { mementoMemoryTools } from "@/integrations/memento/memory-tools"
 import { notebookKnowhereTools } from "./knowhere-tools"
 
 const RECENT_CONTEXT_MESSAGE_LIMIT = 8
@@ -23,6 +24,7 @@ const CONTEXT_CONTENT_CHAR_LIMIT = 900
 const SOURCE_CONTEXT_LIMIT = 12
 
 type GenerateAgenticOutputManifestInput = {
+  workspaceId: string
   question: string
   messages: readonly ChatHistoryMessage[]
   sources: readonly Source[]
@@ -63,6 +65,9 @@ export const generateAgenticOutputManifestEffect = (
           notebookKnowhereTools.createSearchOnlyRuntime({
             searchSources: input.searchSources,
           }),
+        memoryTools: mementoMemoryTools.createRuntime({
+          workspaceId: input.workspaceId,
+        }),
         ...(input.inspectImages ? { inspectImages: input.inspectImages } : {}),
       }),
     )

@@ -1,5 +1,6 @@
 export * from "./image-highlights"
 export * from "./ledger"
 export * from "./knowhere-text"
+export * from "./memory-text"
 export * from "./runtime"
 export * from "./types"

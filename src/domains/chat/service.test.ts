@@ -54,7 +54,7 @@ describe("handleChatTurn", () => {
       });
     }
     expect(retrieval.query).toHaveBeenCalledWith({
-      namespace: "notebook-namespace",
+      namespace: "default",
       query: "What does the document say?",
       topK: 8,
       useAgentic: true,
@@ -81,6 +81,31 @@ describe("handleChatTurn", () => {
       citations: [],
       artifacts: [],
     });
+  });
+
+  it("rejects a turn with no local sources without calling retrieval", async () => {
+    const retrieval = { query: vi.fn() };
+    const repository = makeRepository();
+
+    const result = await handleChatTurn({
+      workspace: makeWorkspace(),
+      sources: [],
+      question: "What does the document say?",
+      excludedSourceIds: [],
+      retrieval,
+      generateAnswer: vi.fn(),
+      repository,
+    });
+
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isLeft(result)) {
+      expect(result.left).toMatchObject({
+        status: 409,
+        message: "Upload and process a document before asking questions.",
+      });
+    }
+    expect(retrieval.query).not.toHaveBeenCalled();
+    expect(repository.appendMessageToThread).not.toHaveBeenCalled();
   });
 
   it("rejects chat before any source is ready without calling retrieval", async () => {
@@ -220,7 +245,7 @@ describe("handleChatTurn", () => {
       knowhereTools: expect.any(Object),
     });
     expect(retrieval.query).toHaveBeenCalledWith({
-      namespace: "notebook-namespace",
+      namespace: "default",
       query: "Tesla Q4 2025 Update energy generation and storage deployments",
       topK: 8,
       useAgentic: true,
@@ -334,6 +359,7 @@ function makeHarnessRunResult(text: string): HarnessRunResult {
     manifest: {
       text,
       citations: [],
+      memoryCitations: [],
       artifacts: [],
       unresolved: [],
     },

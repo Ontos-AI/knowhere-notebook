@@ -64,6 +64,21 @@ describe("toChatCitationViews", () => {
     expect(citations[0]?.pageCitationPageNumber).toBe(26)
   })
 
+  it("copies the chunk id onto the citation when the retrieval result has one", () => {
+    const citations = toChatCitationViews(
+      [makeRetrievalResult({ chunkId: "chunk_123" })],
+      "Grounded answer.",
+    )
+
+    expect(citations[0]?.chunkId).toBe("chunk_123")
+  })
+
+  it("omits chunkId when the retrieval result has none", () => {
+    const citations = toChatCitationViews([makeRetrievalResult()], "Grounded answer.")
+
+    expect(citations[0]).not.toHaveProperty("chunkId")
+  })
+
   it("copies inspect-image provenance boxes onto the citation", () => {
     const citations = toChatCitationViews(
       [
