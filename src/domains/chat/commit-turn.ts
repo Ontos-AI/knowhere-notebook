@@ -1,12 +1,11 @@
 import { Either } from "effect"
 
 import type { MemoryCitation } from "@/agent-harness"
+import {
+  captureMemoryTurn,
+  recordActivations,
+} from "@/integrations/memento/client"
 import { generateAgenticOutputManifest } from "./prompt"
-import { triggerMemoryExtraction } from "@/domains/memory/extract-trigger"
-import { retrievalActivationService } from "@/domains/retrieval-activation/service"
-import { toChunkUnitRef } from "@/domains/retrieval-activation/types"
-import { summarizeUnknownError } from "@/lib/format-log-value"
-import { logger } from "@/lib/logger"
 import type { ChatCitationView } from "./types"
 import {
   handleChatTurn,
@@ -17,9 +16,8 @@ import {
 type CommitChatTurnInput = Parameters<typeof handleChatTurn>[0]
 
 /**
- * Production chat-turn commit used by the HTTP route and the 观心 batch
- * script: answer → persist → extract fluid memory → record cited
- * crystal/memory activations.
+ * Production chat-turn commit used by the HTTP route: answer → persist →
+ * capture fluid memory on Memento → record cited crystal/memory activations.
  */
 export async function commitChatTurn(
   input: CommitChatTurnInput,
@@ -37,15 +35,19 @@ export async function commitChatTurn(
   })
 
   if (Either.isRight(result)) {
-    void triggerMemoryExtraction({
+    const [userMessage, assistantMessage] = result.right.messages
+    void captureMemoryTurn({
       workspaceId: input.workspace.id,
-      threadId: result.right.threadId,
-      userMessageId: result.right.messages[0].id,
-      assistantMessageId: result.right.messages[1].id,
+      sourceMessageId: assistantMessage.id,
+      userText: userMessage.content,
+      assistantText: assistantMessage.content,
+      referencedDocumentIds: collectCitationDocumentIds(
+        assistantMessage.citations,
+      ),
     })
     void recordChunkActivations({
       workspaceId: input.workspace.id,
-      citations: result.right.messages[1].citations,
+      citations: assistantMessage.citations,
     })
     void recordMemoryActivations({
       workspaceId: input.workspace.id,
@@ -91,17 +93,7 @@ export async function recordChunkActivations(input: {
       },
     ]
   })
-  if (activationInputs.length === 0) return
-
-  try {
-    await retrievalActivationService.recordActivations(activationInputs)
-  } catch (error) {
-    logger.warn("chat: failed to record chunk activations", {
-      workspaceId: input.workspaceId,
-      chunkCount: activationInputs.length,
-      error: summarizeUnknownError(error),
-    })
-  }
+  await recordActivations(activationInputs)
 }
 
 /**
@@ -117,15 +109,25 @@ export async function recordMemoryActivations(input: {
     unitType: "fluid_memory" as const,
     unitRef: citation.itemId,
   }))
-  if (activationInputs.length === 0) return
+  await recordActivations(activationInputs)
+}
 
-  try {
-    await retrievalActivationService.recordActivations(activationInputs)
-  } catch (error) {
-    logger.warn("chat: failed to record memory activations", {
-      workspaceId: input.workspaceId,
-      memoryCount: activationInputs.length,
-      error: summarizeUnknownError(error),
-    })
+function toChunkUnitRef(input: {
+  readonly documentId: string
+  readonly chunkId: string
+}): string {
+  return `${input.documentId}:${input.chunkId}`
+}
+
+function collectCitationDocumentIds(
+  citations: readonly ChatCitationView[] | undefined,
+): string[] {
+  const ids = new Set<string>()
+  for (const citation of citations ?? []) {
+    const documentId = citation.source.documentId
+    if (typeof documentId === "string" && documentId.length > 0) {
+      ids.add(documentId)
+    }
   }
+  return [...ids]
 }

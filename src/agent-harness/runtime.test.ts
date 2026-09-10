@@ -655,7 +655,6 @@ describe("agent harness runtime", () => {
     const state: {
       finalizedManifest?: OutputManifest
       finalized?: boolean
-      memorySearchInvoked?: boolean
     } = {}
     const tools = createHarnessTools({
       state,
@@ -671,7 +670,6 @@ describe("agent harness runtime", () => {
     expect(searchText).toContain('<memory operation="search" status="ok">')
     expect(searchText).toContain('ref="mem:1"')
     expect(searchText).toContain('itemId="item_1"')
-    expect(state.memorySearchInvoked).toBe(true)
     expect(search).toHaveBeenCalledWith({
       query: "毛利率",
       kinds: undefined,
@@ -1008,10 +1006,9 @@ describe("agent harness runtime", () => {
     expect(result.activeTools).not.toContain("knowhere_search")
   })
 
-  it("keeps Knowhere tools closed for no_retrieval even after memory_search", () => {
+  it("keeps Knowhere tools closed for no_retrieval", () => {
     const result = prepareHarnessStep({
       stepNumber: 4,
-      memorySearchInvoked: true,
       intent: {
         task: "answer",
         dependsOnPreviousTurn: false,
@@ -1027,8 +1024,8 @@ describe("agent harness runtime", () => {
     expect(result.activeTools).not.toContain("knowhere_search")
   })
 
-  it("opens Knowhere tools only after memory_search when sources are required", () => {
-    const beforeMemory = prepareHarnessStep({
+  it("opens memory_search and knowhere_search together as peers when sources are required", () => {
+    const result = prepareHarnessStep({
       stepNumber: 3,
       intent: {
         task: "answer",
@@ -1040,23 +1037,8 @@ describe("agent harness runtime", () => {
       },
       messages: [],
     })
-    const afterMemory = prepareHarnessStep({
-      stepNumber: 4,
-      memorySearchInvoked: true,
-      intent: {
-        task: "answer",
-        dependsOnPreviousTurn: false,
-        retrievalNeeded: "yes",
-        targetModalities: ["text"],
-        constraints: {},
-        groundingPolicy: "must_use_sources",
-      },
-      messages: [],
-    })
 
-    expect(beforeMemory.activeTools).toContain("memory_search")
-    expect(beforeMemory.activeTools).not.toContain("knowhere_search")
-    expect(afterMemory.activeTools).toEqual(
+    expect(result.activeTools).toEqual(
       expect.arrayContaining([
         "memory_search",
         "knowhere_search",

@@ -25,7 +25,8 @@ const mocks = vi.hoisted(() => ({
   parsedStorageWriteAsset: vi.fn(),
   softDeleteChatThread: vi.fn(),
   startBackgroundReconciliation: vi.fn(),
-  triggerMemoryExtraction: vi.fn(),
+  captureMemoryTurn: vi.fn(),
+  recordActivations: vi.fn(),
 }))
 
 vi.mock("ai", async (importOriginal) => {
@@ -63,8 +64,9 @@ vi.mock("@/domains/sources/background-reconcile", () => ({
   startBackgroundReconciliation: mocks.startBackgroundReconciliation,
 }))
 
-vi.mock("@/domains/memory/extract-trigger", () => ({
-  triggerMemoryExtraction: mocks.triggerMemoryExtraction,
+vi.mock("@/integrations/memento/client", () => ({
+  captureMemoryTurn: mocks.captureMemoryTurn,
+  recordActivations: mocks.recordActivations,
 }))
 
 vi.mock("@/domains/sources/workflow-runtime", () => ({
@@ -853,11 +855,12 @@ describe("chat route services", () => {
     })
 
     expect(result.status).toBe(200)
-    expect(mocks.triggerMemoryExtraction).toHaveBeenCalledWith({
+    expect(mocks.captureMemoryTurn).toHaveBeenCalledWith({
       workspaceId: workspace.id,
-      threadId: "thread_1",
-      userMessageId: "message_user",
-      assistantMessageId: "message_assistant",
+      sourceMessageId: "message_assistant",
+      userText: "Summarize it",
+      assistantText: "Summary",
+      referencedDocumentIds: [],
     })
     expect(mocks.startBackgroundReconciliation).toHaveBeenCalledWith(
       workspace.id,

@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
   handleChatTurn: vi.fn(),
-  triggerMemoryExtraction: vi.fn(),
+  captureMemoryTurn: vi.fn(),
   recordActivations: vi.fn(),
 }))
 
@@ -11,14 +11,9 @@ vi.mock("./service", () => ({
   handleChatTurn: mocks.handleChatTurn,
 }))
 
-vi.mock("@/domains/memory/extract-trigger", () => ({
-  triggerMemoryExtraction: mocks.triggerMemoryExtraction,
-}))
-
-vi.mock("@/domains/retrieval-activation/service", () => ({
-  retrievalActivationService: {
-    recordActivations: mocks.recordActivations,
-  },
+vi.mock("@/integrations/memento/client", () => ({
+  captureMemoryTurn: mocks.captureMemoryTurn,
+  recordActivations: mocks.recordActivations,
 }))
 
 import { commitChatTurn } from "./commit-turn"
@@ -27,7 +22,8 @@ import type { Workspace } from "@/infrastructure/db/schema"
 describe("commitChatTurn", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.recordActivations.mockResolvedValue(1)
+    mocks.recordActivations.mockResolvedValue(undefined)
+    mocks.captureMemoryTurn.mockResolvedValue(undefined)
   })
 
   it("records fluid memory activations from finalize after a successful turn", async () => {
@@ -105,11 +101,12 @@ describe("commitChatTurn", () => {
     })
 
     expect(Either.isRight(result)).toBe(true)
-    expect(mocks.triggerMemoryExtraction).toHaveBeenCalledWith({
+    expect(mocks.captureMemoryTurn).toHaveBeenCalledWith({
       workspaceId: "workspace_1",
-      threadId: "thread_1",
-      userMessageId: "msg_user",
-      assistantMessageId: "msg_assistant",
+      sourceMessageId: "msg_assistant",
+      userText: "毛利率",
+      assistantText: "按已有记忆。",
+      referencedDocumentIds: ["doc_1"],
     })
     expect(mocks.recordActivations).toHaveBeenCalledWith([
       {

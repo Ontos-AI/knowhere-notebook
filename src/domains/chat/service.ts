@@ -85,7 +85,7 @@ export const handleChatTurnEffect = (input: ChatTurnInput) =>
     const readySources = input.sources.filter(
       (source) => source.status === "ready" && source.knowhereDocumentId,
     )
-    if (input.sources.length > 0 && readySources.length === 0) {
+    if (readySources.length === 0) {
       return yield* Effect.fail(noReadySources)
     }
 

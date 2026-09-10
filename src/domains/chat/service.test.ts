@@ -83,23 +83,9 @@ describe("handleChatTurn", () => {
     });
   });
 
-  it("allows a turn with no local sources so remote retrieval can still run", async () => {
-    const retrieval = {
-      query: vi.fn().mockResolvedValue({
-        results: [makeRetrievalResult()],
-        evidenceText: "Grounding content",
-        referencedChunks: [],
-        namespace: "notebook-namespace",
-        query: "What does the document say?",
-        routerUsed: "workflow_single_step",
-        answerText: null,
-      }),
-    };
+  it("rejects a turn with no local sources without calling retrieval", async () => {
+    const retrieval = { query: vi.fn() };
     const repository = makeRepository();
-    const generateAnswer = vi.fn(async ({ searchSources }) => {
-      await searchSources({ query: "What does the document say?" });
-      return makeHarnessRunResult("Grounded answer.");
-    });
 
     const result = await handleChatTurn({
       workspace: makeWorkspace(),
@@ -107,13 +93,19 @@ describe("handleChatTurn", () => {
       question: "What does the document say?",
       excludedSourceIds: [],
       retrieval,
-      generateAnswer,
+      generateAnswer: vi.fn(),
       repository,
     });
 
-    expect(Either.isRight(result)).toBe(true);
-    expect(generateAnswer).toHaveBeenCalled();
-    expect(repository.appendMessageToThread).toHaveBeenCalled();
+    expect(Either.isLeft(result)).toBe(true);
+    if (Either.isLeft(result)) {
+      expect(result.left).toMatchObject({
+        status: 409,
+        message: "Upload and process a document before asking questions.",
+      });
+    }
+    expect(retrieval.query).not.toHaveBeenCalled();
+    expect(repository.appendMessageToThread).not.toHaveBeenCalled();
   });
 
   it("rejects chat before any source is ready without calling retrieval", async () => {

@@ -60,7 +60,6 @@ type HarnessToolState = {
   inspectedImageRefs?: string[]
   imageHighlights?: ImageInspectionHighlights[]
   toolCalls?: HarnessToolCallTrace[]
-  memorySearchInvoked?: boolean
 }
 
 type HarnessTools = ReturnType<typeof createHarnessTools>
@@ -245,7 +244,6 @@ export async function runAgentHarness(
         messages: stepMessages,
         stepNumber,
         intent: state.intent,
-        memorySearchInvoked: state.memorySearchInvoked === true,
         hasUninspectedImageAssets:
           input.inspectImages !== undefined &&
           hasUninspectedImageAssets({ state, ledger }),
@@ -299,12 +297,21 @@ const crystalRetrievalTools = [
 /** Reserved third retrieval slot (cognition). Not registered this round. */
 const cognitionRetrievalTools = [] as const
 
+// TODO(memory-architecture): today the agent itself decides, per turn via
+// declareIntent, whether to call memory_search / knowhere_search as MCP
+// tools. An alternative considered and deferred: always query Memento
+// (including future "cognition") on every turn and let Memento decide what,
+// if anything, to inject into context, instead of the agent choosing to call
+// a tool. Not adopted now — it would replace this tool-invocation control
+// flow with a middleware/auto-inject model and needs its own design + test
+// rewrite. Revisit if agent misjudgment on retrieval-needed becomes a real
+// problem.
+
 export function prepareHarnessStep(input: {
   readonly stepNumber: number
   readonly messages: readonly ModelMessage[]
   readonly hasUninspectedImageAssets?: boolean
   readonly intent?: IntentFrame
-  readonly memorySearchInvoked?: boolean
 }): HarnessStepPreparation {
   const messages = sanitizeHarnessModelMessagesForStep(input.messages)
 
@@ -350,14 +357,12 @@ export function prepareHarnessStep(input: {
     messages,
     activeTools: selectHarnessActiveTools({
       intent: input.intent,
-      memorySearchInvoked: input.memorySearchInvoked === true,
     }),
   }
 }
 
 function selectHarnessActiveTools(input: {
   readonly intent?: IntentFrame
-  readonly memorySearchInvoked: boolean
 }): Array<Extract<keyof HarnessTools, string>> {
   const tools: Array<Extract<keyof HarnessTools, string>> = [
     ...alwaysAvailableTools,
@@ -366,11 +371,11 @@ function selectHarnessActiveTools(input: {
     return tools
   }
 
+  // memory_search and knowhere_search are peers: both open together once
+  // retrieval is allowed. The agent decides which to call and in what
+  // order — neither tool gates the other.
   tools.push(...fluidRetrievalTools)
-  if (
-    input.intent?.groundingPolicy === "must_use_sources" &&
-    input.memorySearchInvoked
-  ) {
+  if (input.intent?.groundingPolicy === "must_use_sources") {
     tools.push(...crystalRetrievalTools)
   }
   tools.push(...cognitionRetrievalTools)
@@ -535,12 +540,10 @@ export function createHarnessTools(input: {
           toolName: "memory_search",
           inputSummary: summarizeMemorySearchRequest(request),
           execute: async () => {
-            const output = await executeMemorySearch({
+            return await executeMemorySearch({
               memoryTools: input.memoryTools,
               request,
             })
-            input.state.memorySearchInvoked = true
-            return output
           },
           summarizeOutput: summarizeMemoryTextOutput,
         }),
