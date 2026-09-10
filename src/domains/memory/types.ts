@@ -91,6 +91,17 @@ export function parseFluidMemoryPayload(
   return result.success ? result.data : null
 }
 
+/**
+ * Why an item left `active` for `inactive`. Orthogonal to `status`: `status`
+ * says whether the item is retrievable today, `deactivationReason` says
+ * which mechanism moved it out.
+ *   - contradicted — distill decided a later turn reverses this item
+ *   - decayed — the activation-decay job flagged it as unused past threshold
+ */
+export const fluidMemoryDeactivationReasons = ["contradicted", "decayed"] as const
+export type FluidMemoryDeactivationReason =
+  (typeof fluidMemoryDeactivationReasons)[number]
+
 /** One decided operation over the memory set; persisted into memory_diffs. */
 export type MemoryDiffOperation = {
   readonly op: "create" | "skip" | "merge" | "deprecate"

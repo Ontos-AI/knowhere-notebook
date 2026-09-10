@@ -191,7 +191,7 @@ describe("chat route services", () => {
         useAgentic: true,
         excludedSourceIds: ["source_skipped"],
         retrieval: client.retrieval,
-        generateAnswer: mocks.generateAgenticOutputManifest,
+        generateAnswer: expect.any(Function),
         hardenChatAssetUrl: expect.any(Function),
         repository: expect.objectContaining({
           appendMessageToThread: expect.any(Function),

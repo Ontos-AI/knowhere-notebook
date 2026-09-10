@@ -131,6 +131,43 @@ export type KnowhereToolRuntime = {
   ) => Promise<KnowledgeGrepResponse>
 }
 
+export const memorySearchKinds = [
+  "indicator_pref",
+  "stance",
+  "decision_rule",
+  "entity_of_interest",
+] as const
+
+export type MemorySearchKind = (typeof memorySearchKinds)[number]
+
+export type MemorySearchRequest = {
+  readonly query: string
+  readonly kinds?: readonly MemorySearchKind[]
+}
+
+export type MemorySearchItem = {
+  readonly ref: string
+  readonly itemId: string
+  readonly kind: MemorySearchKind
+  readonly abstractL0: string
+  readonly overviewL1: string
+}
+
+export type MemorySearchResponse = {
+  readonly query: string
+  readonly items: readonly MemorySearchItem[]
+}
+
+export type MemoryToolRuntime = {
+  readonly search: (input: MemorySearchRequest) => Promise<MemorySearchResponse>
+}
+
+export type MemoryCitation = {
+  readonly ref: string
+  readonly itemId: string
+  readonly kind: MemorySearchKind
+}
+
 export type EvidenceChunk = {
   readonly ref: string
   readonly kind: "result" | "referenced_chunk" | "read_chunk" | "grep_match"
@@ -254,6 +291,7 @@ export type OutputArtifactView = OutputArtifact | DerivedTableArtifact
 export type OutputManifest = {
   readonly text: string
   readonly citations: readonly OutputCitation[]
+  readonly memoryCitations: readonly MemoryCitation[]
   readonly artifacts: readonly OutputArtifactView[]
   readonly unresolved: readonly string[]
 }

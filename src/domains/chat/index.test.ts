@@ -1040,6 +1040,7 @@ describe("answerQuestionWithRetrieval", () => {
         manifest: {
           text: `Use this image. ${rawAssetUrl}`,
           citations: [],
+          memoryCitations: [],
           artifacts: [
             {
               type: "image",
@@ -1773,6 +1774,7 @@ describe("answerQuestionWithRetrieval", () => {
         manifest: {
           text: "已找到相关身份证图片，见下方图片。",
           citations: [],
+          memoryCitations: [],
           artifacts: [
             {
               type: "image",
@@ -2063,6 +2065,7 @@ describe("answerQuestionWithRetrieval", () => {
               },
             },
           ],
+          memoryCitations: [],
           artifacts: [],
           unresolved: [],
         });
@@ -2081,7 +2084,11 @@ describe("answerQuestionWithRetrieval", () => {
         sources: [makeSource()],
         excludedSourceIds: [],
         retrieval,
-        generateAnswer: generateAgenticOutputManifest,
+        generateAnswer: (input) =>
+          generateAgenticOutputManifest({
+            ...input,
+            workspaceId: "workspace_1",
+          }),
         messages: [],
       }),
     );
@@ -2128,6 +2135,7 @@ describe("answerQuestionWithRetrieval", () => {
         manifest: {
           text: "",
           citations: [],
+          memoryCitations: [],
           artifacts: [
             {
               type: "image",
@@ -2243,6 +2251,7 @@ describe("answerQuestionWithRetrieval", () => {
         manifest: {
           text: "I organized the comparison into a table.",
           citations: [],
+          memoryCitations: [],
           artifacts: [
             {
               type: "derived_table",
@@ -2639,6 +2648,7 @@ describe("answerQuestionWithRetrieval", () => {
         content: "",
         chunkType: "image",
         score: null,
+        chunkId: "chunk_1",
         assetUrl: "https://blob.example/images/launch.jpg",
         source: {
           documentId: "doc_spacex",
@@ -2699,6 +2709,7 @@ describe("generateAgenticOutputManifest", () => {
               },
             },
           ],
+          memoryCitations: [],
           artifacts: [
             {
               type: "image",
@@ -2739,6 +2750,7 @@ describe("generateAgenticOutputManifest", () => {
     });
 
     const result = await generateAgenticOutputManifest({
+      workspaceId: "workspace_1",
       question: "请只返回冯荣洲的 2 张身份证图片",
       messages: [
         {
@@ -2836,6 +2848,7 @@ describe("generateAgenticOutputManifest", () => {
               },
             },
           ],
+          memoryCitations: [],
           artifacts: [
             {
               type: "image",
@@ -2885,6 +2898,7 @@ describe("generateAgenticOutputManifest", () => {
     });
 
     const result = await generateAgenticOutputManifest({
+      workspaceId: "workspace_1",
       question: "Inspect and show the ID card image.",
       messages: [],
       sources: [
@@ -2976,6 +2990,7 @@ describe("generateAgenticOutputManifest", () => {
               },
             },
           ],
+          memoryCitations: [],
           artifacts: [],
           unresolved: [],
         });
@@ -3029,6 +3044,7 @@ describe("generateAgenticOutputManifest", () => {
     });
 
     const result = await generateAgenticOutputManifest({
+      workspaceId: "workspace_1",
       question: "承包人自行修改发包人审批的进度时需要赔偿多少违约金？",
       messages: [],
       sources: [
@@ -3126,6 +3142,7 @@ describe("generateAgenticOutputManifest", () => {
                 },
               },
             ],
+            memoryCitations: [],
             artifacts: [1, 2, 3].map((index) => ({
               type: "image",
               ref: `asset:r1:result:${index}`,
@@ -3148,6 +3165,7 @@ describe("generateAgenticOutputManifest", () => {
                 },
               },
             ],
+            memoryCitations: [],
             artifacts: [1, 2].map((index) => ({
               type: "image",
               ref: `asset:r1:result:${index}`,
@@ -3188,6 +3206,7 @@ describe("generateAgenticOutputManifest", () => {
     });
 
     const result = await generateAgenticOutputManifest({
+      workspaceId: "workspace_1",
       question: "只要 2 张身份证图片",
       messages: [],
       sources: [
@@ -3322,6 +3341,7 @@ function makeHarnessRunResult(text: string): HarnessRunResult {
     manifest: {
       text,
       citations: [],
+      memoryCitations: [],
       artifacts: [],
       unresolved: [],
     },
@@ -3371,6 +3391,7 @@ function makeHarnessRunResultWithLedger(
     manifest: {
       text,
       citations: input.citations ?? [],
+      memoryCitations: [],
       artifacts: input.artifacts ?? [],
       unresolved: [],
     },

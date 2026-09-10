@@ -358,8 +358,15 @@ export type NewChatMessage = typeof chatMessages.$inferInsert;
  * one line for pre-filter/dedup context, L1 = short paragraph for later
  * cognition injection). L2 is the payload itself.
  *
- * Lifecycle: rows start `active`; user revisions deprecate rather than
+ * Lifecycle: rows start `active`; user revisions deactivate rather than
  * delete (conservative merge policy), with `version` bumped on merge.
+ *
+ * `status` is `active` | `inactive`. `inactive` is not itself a
+ * disambiguated state — `deactivation_reason` records why an item left
+ * `active` (e.g. `contradicted`, when distill decides a new turn reverses
+ * this item). This keeps the decay/lifecycle axis (`status`) separate from
+ * the reason axis, so an activation-decay job can later flip items to
+ * `inactive` with a different reason without inventing a new status value.
  *
  * `source_message_id` points at the assistant message of the turn the
  * insight was extracted from; it is set-null on message deletion because
@@ -382,6 +389,7 @@ export const fluidMemoryItems = pgTable(
     ),
     confidence: doublePrecision("confidence").notNull(),
     status: text("status").notNull(),
+    deactivationReason: text("deactivation_reason"),
     version: integer("version").notNull().default(1),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -391,7 +399,7 @@ export const fluidMemoryItems = pgTable(
       .defaultNow(),
   },
   (t) => [
-    // Workspace lifecycle scans (active vs deprecated).
+    // Workspace lifecycle scans (active vs inactive).
     index("fluid_memory_items_workspace_status_idx").on(
       t.workspaceId,
       t.status,
@@ -411,8 +419,8 @@ export type NewFluidMemoryItem = typeof fluidMemoryItems.$inferInsert;
  *
  * Invariant: token rows exist iff the owning item is `active`. Writers keep
  * this in sync — create inserts rows, merge replaces them, deprecate deletes
- * them — so lookups scan tokens alone (no status join) and never surface a
- * deprecated item.
+ * them — so lookups scan tokens alone (no status join) and never surface an
+ * inactive item.
  *
  * Tokenization mirrors Knowhere map-nav: single CJK characters plus
  * `[a-z0-9_]+` runs. Scoring is idf-weighted token overlap computed in SQL,
@@ -526,3 +534,47 @@ export const fluidObservations = pgTable(
 
 export type FluidObservation = typeof fluidObservations.$inferSelect;
 export type NewFluidObservation = typeof fluidObservations.$inferInsert;
+
+/**
+ * Unified activation ledger for retrievable units, driving time-decay
+ * importance (see src/domains/retrieval-activation/decay-score.ts).
+ *
+ * A "unit" is anything that can be surfaced by retrieval and actually cited
+ * into an answer: today `fluid_memory` (a `fluid_memory_items` row, keyed by
+ * its id) and `crystal_chunk` (a Knowhere chunk, which has no local row —
+ * keyed by `${documentId}:${chunkId}`, composed at write time).
+ *
+ * Only "really used in an answer" writes here (a citation), not "entered
+ * the candidate pool" — this avoids overcounting recall as usage.
+ *
+ * For `crystal_chunk`, `created_at` is this row's first-write time (the
+ * first time Notebook observed this chunk being cited), not the chunk's
+ * true ingestion time in Knowhere — that timestamp is not available to
+ * Notebook. This is a known, deliberate approximation.
+ */
+export const retrievalActivations = pgTable(
+  "retrieval_activations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    unitType: text("unit_type").notNull(),
+    unitRef: text("unit_ref").notNull(),
+    activationCount: integer("activation_count").notNull().default(0),
+    lastActivatedAt: timestamp("last_activated_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("retrieval_activations_unit_idx").on(
+      t.workspaceId,
+      t.unitType,
+      t.unitRef,
+    ),
+  ],
+);
+
+export type RetrievalActivation = typeof retrievalActivations.$inferSelect;
+export type NewRetrievalActivation = typeof retrievalActivations.$inferInsert;

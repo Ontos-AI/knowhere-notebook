@@ -1,12 +1,14 @@
 import "server-only"
 
 import { databaseRuntime } from "@/domains/workspace/database-runtime"
+import { selectDecayCandidates, type DecayCandidate } from "./decay-candidates"
 import {
   memoryRepository,
   type ApplyDistillBatchInput,
   type InsertObservationsInput,
 } from "./repository"
 import type { FluidMemoryKind, MemoryDiffOperation } from "./types"
+import { retrievalActivationService } from "@/domains/retrieval-activation/service"
 import type {
   FluidMemoryItem,
   FluidObservation,
@@ -33,6 +35,20 @@ type MemoryService = {
   }>
   readonly deleteExpiredConsumedObservations: (
     olderThan: Date,
+  ) => Promise<number>
+  /**
+   * Active items whose activation-decay score is below `scoreThreshold`.
+   * Read-only — does not change any item's status. The caller decides the
+   * threshold and what to do with the result (see
+   * `deactivateDecayedItems` to actually move candidates to `inactive`).
+   */
+  readonly listDecayCandidates: (
+    workspaceId: string,
+    options: { readonly now: Date; readonly scoreThreshold: number },
+  ) => Promise<readonly DecayCandidate[]>
+  readonly deactivateDecayedItems: (
+    workspaceId: string,
+    itemIds: readonly string[],
   ) => Promise<number>
 }
 
@@ -78,6 +94,46 @@ const deleteExpiredConsumedObservations: MemoryService["deleteExpiredConsumedObs
       memoryRepository.deleteExpiredConsumedObservationsEffect(olderThan),
     )
 
+const listDecayCandidates: MemoryService["listDecayCandidates"] = async (
+  workspaceId,
+  options,
+) => {
+  const items = await databaseRuntime.runPromise(
+    memoryRepository.listActiveItemsEffect(workspaceId),
+  )
+  if (items.length === 0) return []
+
+  const activations = await retrievalActivationService.getActivations(
+    workspaceId,
+    "fluid_memory",
+    items.map((item) => item.id),
+  )
+  const activationsById = new Map(
+    activations.map((activation) => [
+      activation.unitRef,
+      {
+        activationCount: activation.activationCount,
+        lastActivatedAt: activation.lastActivatedAt,
+      },
+    ]),
+  )
+
+  return selectDecayCandidates({
+    items,
+    activationsById,
+    now: options.now,
+    scoreThreshold: options.scoreThreshold,
+  })
+}
+
+const deactivateDecayedItems: MemoryService["deactivateDecayedItems"] = (
+  workspaceId,
+  itemIds,
+) =>
+  databaseRuntime.runPromise(
+    memoryRepository.deactivateDecayedItemsEffect(workspaceId, itemIds),
+  )
+
 export const memoryService: MemoryService = {
   findDedupCandidates,
   insertObservations,
@@ -85,4 +141,6 @@ export const memoryService: MemoryService = {
   listPendingObservations,
   applyDistillBatch,
   deleteExpiredConsumedObservations,
+  listDecayCandidates,
+  deactivateDecayedItems,
 }

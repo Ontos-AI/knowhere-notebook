@@ -20,7 +20,7 @@ const existingItems = [
     },
   },
   { id: "item-2", kind: "stance", status: "active" },
-  { id: "item-3", kind: "stance", status: "deprecated" },
+  { id: "item-3", kind: "stance", status: "inactive" },
   {
     id: "item-4",
     kind: "entity_of_interest",
@@ -140,7 +140,7 @@ describe("resolveMemoryOperations", () => {
     expect(resolved[0]?.op).toBe("skip")
   })
 
-  it("downgrades merge to skip when the target is already deprecated", () => {
+  it("downgrades merge to skip when the target is already inactive", () => {
     const resolved = resolveMemoryOperations({
       operations: makeOperations({
         stances: [

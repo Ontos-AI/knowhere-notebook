@@ -5,6 +5,7 @@ export type RetrievalResultView = {
   readonly content: string
   readonly chunkType: string
   readonly score: number | null
+  readonly chunkId?: string
   readonly assetUrl?: string
   readonly pageCitationAssetUrl?: string
   readonly pageCitationPageNumber?: number

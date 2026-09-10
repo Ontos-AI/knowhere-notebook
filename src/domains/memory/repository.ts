@@ -7,6 +7,7 @@ import type { CapturedObservation } from "./observation-types"
 import { toDiffOperation, type ResolvedMemoryOperation } from "./resolve-operations"
 import { buildMemoryItemTokens } from "./search-index"
 import type {
+  FluidMemoryDeactivationReason,
   FluidMemoryKind,
   FluidMemoryPayload,
   MemoryDiffOperation,
@@ -65,6 +66,24 @@ type MemoryRepository = {
   >
   readonly deleteExpiredConsumedObservationsEffect: (
     olderThan: Date,
+  ) => Effect.Effect<number, never, DbClient>
+  readonly listActiveItemsEffect: (
+    workspaceId: string,
+  ) => Effect.Effect<
+    readonly Pick<FluidMemoryItem, "id" | "kind" | "createdAt">[],
+    never,
+    DbClient
+  >
+  /**
+   * Move a specific set of active items to `inactive` with reason
+   * `decayed` (the activation-decay job's candidates, already confirmed by
+   * the caller — this never decides which items on its own). Mirrors the
+   * distill `deprecate` write path: drops the item's token rows so it stops
+   * surfacing as a dedup candidate.
+   */
+  readonly deactivateDecayedItemsEffect: (
+    workspaceId: string,
+    itemIds: readonly string[],
   ) => Effect.Effect<number, never, DbClient>
 }
 
@@ -257,6 +276,66 @@ const deleteExpiredConsumedObservationsEffect: MemoryRepository["deleteExpiredCo
       return deleted.length
     })
 
+const listActiveItemsEffect: MemoryRepository["listActiveItemsEffect"] = (
+  workspaceId,
+) =>
+  Effect.gen(function* () {
+    const db = yield* DbClient
+    return yield* Effect.promise(() =>
+      db
+        .select({
+          id: fluidMemoryItems.id,
+          kind: fluidMemoryItems.kind,
+          createdAt: fluidMemoryItems.createdAt,
+        })
+        .from(fluidMemoryItems)
+        .where(
+          and(
+            eq(fluidMemoryItems.workspaceId, workspaceId),
+            eq(fluidMemoryItems.status, "active"),
+          ),
+        ),
+    )
+  })
+
+const deactivateDecayedItemsEffect: MemoryRepository["deactivateDecayedItemsEffect"] =
+  (workspaceId, itemIds) =>
+    Effect.gen(function* () {
+      if (itemIds.length === 0) return 0
+
+      const db = yield* DbClient
+      return yield* Effect.promise(() =>
+        db.transaction(async (tx) => {
+          const updated = await tx
+            .update(fluidMemoryItems)
+            .set({
+              status: "inactive",
+              deactivationReason:
+                "decayed" satisfies FluidMemoryDeactivationReason,
+              updatedAt: sql`now()`,
+            })
+            .where(
+              and(
+                eq(fluidMemoryItems.workspaceId, workspaceId),
+                eq(fluidMemoryItems.status, "active"),
+                inArray(fluidMemoryItems.id, [...itemIds]),
+              ),
+            )
+            .returning({ id: fluidMemoryItems.id })
+
+          if (updated.length > 0) {
+            await tx.delete(fluidMemoryTokens).where(
+              inArray(
+                fluidMemoryTokens.itemId,
+                updated.map((item) => item.id),
+              ),
+            )
+          }
+          return updated.length
+        }),
+      )
+    })
+
 export const memoryRepository: MemoryRepository = {
   findDedupCandidatesEffect,
   insertObservationsEffect,
@@ -264,6 +343,8 @@ export const memoryRepository: MemoryRepository = {
   listPendingObservationsEffect,
   applyDistillBatchEffect,
   deleteExpiredConsumedObservationsEffect,
+  listActiveItemsEffect,
+  deactivateDecayedItemsEffect,
 }
 
 async function writeOperations(
@@ -353,7 +434,8 @@ async function writeOperations(
         const [updated] = await tx
           .update(fluidMemoryItems)
           .set({
-            status: "deprecated",
+            status: "inactive",
+            deactivationReason: "contradicted" satisfies FluidMemoryDeactivationReason,
             updatedAt: sql`now()`,
           })
           .where(

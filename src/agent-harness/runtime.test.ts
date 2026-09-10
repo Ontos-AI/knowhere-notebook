@@ -16,10 +16,23 @@ import type {
   ImageInspectionRequest,
   IntentFrame,
   KnowhereToolRuntime,
+  MemoryToolRuntime,
   OutputManifest,
 } from "./types"
 
 describe("agent harness runtime", () => {
+  it("tells the agent to search fluid memory first and not treat every question as document retrieval", () => {
+    const prompt = buildHarnessSystemPrompt(makeTurnInput())
+
+    expect(prompt).toContain("Call memory_search first")
+    expect(prompt).toContain(
+      "Call knowhere_search only when memory is insufficient and groundingPolicy requires citing source documents",
+    )
+    expect(prompt).toContain(
+      "Do not treat every question as a document-retrieval task",
+    )
+  })
+
   it("keeps KNOWHERE as an evidence provider instead of exposing internal navigation", () => {
     const prompt = buildHarnessSystemPrompt(makeTurnInput())
 
@@ -72,6 +85,7 @@ describe("agent harness runtime", () => {
     const tools = createHarnessTools({
       state,
       ledger: createEvidenceLedger(),
+      memoryTools: makeMemoryTools(),
       knowhereTools: makeKnowhereTools(query),
       recentTurns: [],
     })
@@ -147,6 +161,7 @@ describe("agent harness runtime", () => {
     const tools = createHarnessTools({
       state,
       ledger,
+      memoryTools: makeMemoryTools(),
       knowhereTools: makeKnowhereTools(query),
       recentTurns: [],
     })
@@ -171,6 +186,7 @@ describe("agent harness runtime", () => {
     const tools = createHarnessTools({
       state: {},
       ledger: createEvidenceLedger(),
+      memoryTools: makeMemoryTools(),
       knowhereTools: makeKnowhereTools(),
       inspectImages,
       recentTurns: [],
@@ -203,6 +219,7 @@ describe("agent harness runtime", () => {
     const tools = createHarnessTools({
       state: {},
       ledger,
+      memoryTools: makeMemoryTools(),
       knowhereTools: makeKnowhereTools(),
       inspectImages,
       recentTurns: [],
@@ -244,6 +261,7 @@ describe("agent harness runtime", () => {
     const tools = createHarnessTools({
       state: {},
       ledger,
+      memoryTools: makeMemoryTools(),
       knowhereTools: makeKnowhereTools(),
       inspectImages,
       recentTurns: [],
@@ -274,6 +292,7 @@ describe("agent harness runtime", () => {
     const tools = createHarnessTools({
       state: {},
       ledger,
+      memoryTools: makeMemoryTools(),
       knowhereTools: makeKnowhereTools(),
       inspectImages,
       recentTurns: [],
@@ -330,6 +349,7 @@ describe("agent harness runtime", () => {
     const tools = createHarnessTools({
       state: {},
       ledger,
+      memoryTools: makeMemoryTools(),
       knowhereTools: makeKnowhereTools(),
       inspectImages,
       recentTurns: [],
@@ -435,6 +455,7 @@ describe("agent harness runtime", () => {
     const tools = createHarnessTools({
       state,
       ledger,
+      memoryTools: makeMemoryTools(),
       knowhereTools: makeKnowhereTools(),
       inspectImages,
       recentTurns: [],
@@ -451,6 +472,7 @@ describe("agent harness runtime", () => {
       await executeTool(tools.finalize, {
         text: "Revenue was $24.9B [[cite:1]] [[cite:2]].",
         citations: [{ ref: "r1:result:1" }, { ref: "r1:result:2" }],
+        memoryCitations: [],
         artifacts: [],
         unresolved: [],
       }),
@@ -523,6 +545,7 @@ describe("agent harness runtime", () => {
     const tools = createHarnessTools({
       state: {},
       ledger,
+      memoryTools: makeMemoryTools(),
       knowhereTools: makeKnowhereTools(),
       inspectImages,
       recentTurns: [],
@@ -547,6 +570,7 @@ describe("agent harness runtime", () => {
     const tools = createHarnessTools({
       state,
       ledger,
+      memoryTools: makeMemoryTools(),
       knowhereTools: makeKnowhereTools(),
       inspectImages: vi.fn().mockResolvedValue({
         analysis: "",
@@ -575,6 +599,7 @@ describe("agent harness runtime", () => {
     const finalize = await executeTool(tools.finalize, {
       text: "The amount is 5000 yuan [[cite:1]].",
       citations: [{ ref: "r1:referenced:1" }],
+      memoryCitations: [],
       artifacts: [],
       unresolved: [],
     })
@@ -593,6 +618,7 @@ describe("agent harness runtime", () => {
     const tools = createHarnessTools({
       state,
       ledger: createEvidenceLedger(),
+      memoryTools: makeMemoryTools(),
       knowhereTools: makeKnowhereTools(),
       recentTurns: [],
     })
@@ -600,6 +626,7 @@ describe("agent harness runtime", () => {
     const manifest = {
       text: "Answer.",
       citations: [],
+      memoryCitations: [],
       artifacts: [],
       unresolved: [],
     }
@@ -610,6 +637,60 @@ describe("agent harness runtime", () => {
     })
     expect(state.finalizedManifest).toEqual(manifest)
     expect(state.finalized).toBe(true)
+  })
+
+  it("returns memory refs from memory_search and stores memoryCitations on finalize", async () => {
+    const search = vi.fn<MemoryToolRuntime["search"]>().mockResolvedValue({
+      query: "毛利率",
+      items: [
+        {
+          ref: "mem:1",
+          itemId: "item_1",
+          kind: "stance",
+          abstractL0: "关注毛利率下滑",
+          overviewL1: "用户把毛利率当作核心观察指标。",
+        },
+      ],
+    })
+    const state: {
+      finalizedManifest?: OutputManifest
+      finalized?: boolean
+      memorySearchInvoked?: boolean
+    } = {}
+    const tools = createHarnessTools({
+      state,
+      ledger: createEvidenceLedger(),
+      memoryTools: makeMemoryTools(search),
+      knowhereTools: makeKnowhereTools(),
+      recentTurns: [],
+    })
+
+    const searchText = await executeTool(tools.memory_search, {
+      query: "毛利率",
+    })
+    expect(searchText).toContain('<memory operation="search" status="ok">')
+    expect(searchText).toContain('ref="mem:1"')
+    expect(searchText).toContain('itemId="item_1"')
+    expect(state.memorySearchInvoked).toBe(true)
+    expect(search).toHaveBeenCalledWith({
+      query: "毛利率",
+      kinds: undefined,
+    })
+
+    const manifest = {
+      text: "按已有记忆，毛利率是核心观察指标。",
+      citations: [],
+      memoryCitations: [
+        { ref: "mem:1", itemId: "item_1", kind: "stance" as const },
+      ],
+      artifacts: [],
+      unresolved: [],
+    }
+    expect(await executeTool(tools.finalize, manifest)).toMatchObject({
+      ok: true,
+      memoryCitations: manifest.memoryCitations,
+    })
+    expect(state.finalizedManifest).toEqual(manifest)
   })
 
   it("rejects finalize of cited page images until inspectImage has run", async () => {
@@ -623,6 +704,7 @@ describe("agent harness runtime", () => {
     const tools = createHarnessTools({
       state,
       ledger,
+      memoryTools: makeMemoryTools(),
       knowhereTools: makeKnowhereTools(),
       inspectImages: vi.fn().mockResolvedValue({
         analysis: "The clause shows 5000 yuan per occurrence.",
@@ -640,6 +722,7 @@ describe("agent harness runtime", () => {
     const manifest = {
       text: "The contractor pays 5000 yuan per occurrence [[cite:1]].",
       citations: [{ ref: "r1:referenced:1" }],
+      memoryCitations: [],
       artifacts: [],
       unresolved: [],
     }
@@ -692,6 +775,7 @@ describe("agent harness runtime", () => {
     const tools = createHarnessTools({
       state: {},
       ledger,
+      memoryTools: makeMemoryTools(),
       knowhereTools: makeKnowhereTools(),
       inspectImages: vi.fn(),
       recentTurns: [],
@@ -700,6 +784,7 @@ describe("agent harness runtime", () => {
     const result = await executeTool(tools.finalize, {
       text: "The contractor pays 5000 yuan [[cite:1]].",
       citations: [{ ref: "r1:result:1" }],
+      memoryCitations: [],
       artifacts: [],
       unresolved: [],
     })
@@ -725,6 +810,7 @@ describe("agent harness runtime", () => {
     const tools = createHarnessTools({
       state,
       ledger: createEvidenceLedger(),
+      memoryTools: makeMemoryTools(),
       knowhereTools: makeKnowhereTools(),
       recentTurns: [
         {
@@ -757,6 +843,7 @@ describe("agent harness runtime", () => {
     const tools = createHarnessTools({
       state,
       ledger: createEvidenceLedger(),
+      memoryTools: makeMemoryTools(),
       knowhereTools: makeKnowhereTools(),
       recentTurns: [
         {
@@ -881,7 +968,7 @@ describe("agent harness runtime", () => {
     ])
   })
 
-  it("keeps normal steps unconstrained before the finalization step", () => {
+  it("keeps retrieval tools closed until declareIntent allows them", () => {
     const result = prepareHarnessStep({
       stepNumber: 11,
       messages: [
@@ -892,14 +979,93 @@ describe("agent harness runtime", () => {
       ],
     })
 
-    expect(result).toEqual({
-      messages: [
-        {
-          role: "user",
-          content: "Find the penalty amount.",
-        },
-      ],
+    expect(result.activeTools).toEqual([
+      "declareIntent",
+      "setContextPolicy",
+      "inspectImage",
+      "readPriorTurn",
+      "finalize",
+    ])
+    expect(result.activeTools).not.toContain("memory_search")
+    expect(result.activeTools).not.toContain("knowhere_search")
+  })
+
+  it("opens only memory_search after intent says retrieval may be needed", () => {
+    const result = prepareHarnessStep({
+      stepNumber: 3,
+      intent: {
+        task: "answer",
+        dependsOnPreviousTurn: false,
+        retrievalNeeded: "maybe",
+        targetModalities: ["text"],
+        constraints: {},
+        groundingPolicy: "can_use_context",
+      },
+      messages: [],
     })
+
+    expect(result.activeTools).toContain("memory_search")
+    expect(result.activeTools).not.toContain("knowhere_search")
+  })
+
+  it("keeps Knowhere tools closed for no_retrieval even after memory_search", () => {
+    const result = prepareHarnessStep({
+      stepNumber: 4,
+      memorySearchInvoked: true,
+      intent: {
+        task: "answer",
+        dependsOnPreviousTurn: false,
+        retrievalNeeded: "no",
+        targetModalities: ["text"],
+        constraints: {},
+        groundingPolicy: "no_retrieval",
+      },
+      messages: [],
+    })
+
+    expect(result.activeTools).not.toContain("memory_search")
+    expect(result.activeTools).not.toContain("knowhere_search")
+  })
+
+  it("opens Knowhere tools only after memory_search when sources are required", () => {
+    const beforeMemory = prepareHarnessStep({
+      stepNumber: 3,
+      intent: {
+        task: "answer",
+        dependsOnPreviousTurn: false,
+        retrievalNeeded: "yes",
+        targetModalities: ["text"],
+        constraints: {},
+        groundingPolicy: "must_use_sources",
+      },
+      messages: [],
+    })
+    const afterMemory = prepareHarnessStep({
+      stepNumber: 4,
+      memorySearchInvoked: true,
+      intent: {
+        task: "answer",
+        dependsOnPreviousTurn: false,
+        retrievalNeeded: "yes",
+        targetModalities: ["text"],
+        constraints: {},
+        groundingPolicy: "must_use_sources",
+      },
+      messages: [],
+    })
+
+    expect(beforeMemory.activeTools).toContain("memory_search")
+    expect(beforeMemory.activeTools).not.toContain("knowhere_search")
+    expect(afterMemory.activeTools).toEqual(
+      expect.arrayContaining([
+        "memory_search",
+        "knowhere_search",
+        "knowhere_list_documents",
+        "knowhere_get_document_outline",
+        "knowhere_read_chunks",
+        "knowhere_grep_chunks",
+      ]),
+    )
   })
 
   it("forces image inspection before forced finalization when image assets are available", () => {
@@ -1032,6 +1198,14 @@ describe("agent harness runtime", () => {
 
 function executeTool(tool: unknown, input: unknown): Promise<unknown> {
   return (tool as { execute: (input: unknown) => Promise<unknown> }).execute(input)
+}
+
+function makeMemoryTools(
+  search: MemoryToolRuntime["search"] = vi
+    .fn()
+    .mockResolvedValue({ query: "", items: [] }),
+): MemoryToolRuntime {
+  return { search }
 }
 
 function makeKnowhereTools(
