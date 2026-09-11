@@ -373,7 +373,7 @@ describe("chat route services", () => {
     })
     const generateInput = mocks.generateObject.mock.calls[0]?.[0]
     expect(generateInput).toMatchObject({
-      model: "google/gemini-3-flash",
+      model: "deepseek/deepseek-v4.1-flash",
     })
     expect(JSON.stringify(generateInput)).not.toContain(
       "knowhere-storage.example",
