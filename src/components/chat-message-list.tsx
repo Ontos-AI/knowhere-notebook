@@ -931,10 +931,14 @@ function isImageCitation(
   citation: ChatCitationView,
   assetUrl: string,
 ): boolean {
-  return (
-    citation.chunkType.toLowerCase() === "image" ||
-    hasImageFileExtension(assetUrl)
-  );
+  // chunkType is sourced from Knowhere retrieval results, which can omit it
+  // at runtime even though the type says it's a required string. Normalize
+  // defensively instead of calling .toLowerCase() on a possibly-missing value.
+  const chunkType =
+    typeof citation.chunkType === "string"
+      ? citation.chunkType.toLowerCase()
+      : "";
+  return chunkType === "image" || hasImageFileExtension(assetUrl);
 }
 
 function hasImageFileExtension(assetUrl: string): boolean {

@@ -1,10 +1,4 @@
 import type {
-  KnowledgeDocumentReference,
-  KnowledgeGrepParams,
-  KnowledgeGrepResponse,
-  KnowledgeOutline,
-  KnowledgeReadParams,
-  KnowledgeReadResponse,
   RetrievalQueryParams,
   RetrievalQueryResponse,
 } from "@ontos-ai/knowhere-sdk"
@@ -99,36 +93,10 @@ export type KnowhereSearchRequest = Pick<
   readonly purpose?: string
 }
 
-export type KnowhereDocumentSummary = {
-  readonly documentId?: string
-  readonly localDocumentId?: string
-  readonly revisionKey?: string
-  readonly namespace?: string
-  readonly sourceFileName: string
-  readonly title?: string
-  readonly status?: string
-  readonly chunkCount?: number
-  readonly typeCounts?: Readonly<Record<string, number>>
-}
-
-export type KnowhereListDocumentsResponse = {
-  readonly documents: readonly KnowhereDocumentSummary[]
-}
-
 export type KnowhereToolRuntime = {
   readonly search: (
     input: KnowhereSearchRequest,
   ) => Promise<RetrievalQueryResponse>
-  readonly listDocuments: () => Promise<KnowhereListDocumentsResponse>
-  readonly getDocumentOutline: (
-    input: KnowledgeDocumentReference,
-  ) => Promise<KnowledgeOutline>
-  readonly readChunks: (
-    input: KnowledgeReadParams,
-  ) => Promise<KnowledgeReadResponse>
-  readonly grepChunks: (
-    input: KnowledgeGrepParams,
-  ) => Promise<KnowledgeGrepResponse>
 }
 
 export const memorySearchKinds = [
@@ -170,7 +138,7 @@ export type MemoryCitation = {
 
 export type EvidenceChunk = {
   readonly ref: string
-  readonly kind: "result" | "referenced_chunk" | "read_chunk" | "grep_match"
+  readonly kind: "result" | "referenced_chunk"
   readonly chunkId?: string
   readonly content: string
   readonly contentPreview: string

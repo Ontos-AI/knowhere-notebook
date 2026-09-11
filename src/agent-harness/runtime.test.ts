@@ -29,6 +29,14 @@ describe("agent harness runtime", () => {
       "Call knowhere_search only when memory is insufficient and groundingPolicy requires citing source documents",
     )
     expect(prompt).toContain(
+      "call knowhere_search again with a refined query",
+    )
+    expect(prompt).toContain("Refine knowhere_search at most twice")
+    expect(prompt).not.toContain("knowhere_list_documents")
+    expect(prompt).not.toContain("knowhere_get_document_outline")
+    expect(prompt).not.toContain("knowhere_read_chunks")
+    expect(prompt).not.toContain("knowhere_grep_chunks")
+    expect(prompt).toContain(
       "Do not treat every question as a document-retrieval task",
     )
   })
@@ -42,16 +50,14 @@ describe("agent harness runtime", () => {
     expect(prompt).not.toContain("navigation action")
   })
 
-  it("tells the agent citation metadata is optional and ledger-resolved", () => {
+  it("tells the agent to cite by search-chunk pick numbers", () => {
     const prompt = buildHarnessSystemPrompt(makeTurnInput())
 
-    expect(prompt).toContain(
-      "Citation label and source metadata are optional",
-    )
-    expect(prompt).toContain(
-      "Notebook resolves citation metadata from evidence refs when possible",
-    )
-    expect(prompt).not.toContain("must match the selected evidence ref exactly")
+    expect(prompt).toContain("citations is a list of { pick }")
+    expect(prompt).toContain("Notebook writes the citation list from those picks")
+    expect(prompt).toContain("Do not pass documentId or evidence refs as citations")
+    expect(prompt).not.toContain("Citation refs must be evidence refs")
+    expect(prompt).not.toContain("Citation label and source metadata are optional")
   })
 
   it("tells the agent to emit [[cite:n]] markers instead of title/pN or [1]", () => {
@@ -98,6 +104,7 @@ describe("agent harness runtime", () => {
     })
 
     expect(result).toContain('<knowhere operation="search" status="ok">')
+    expect(result).toContain('pick="1"')
     expect(result).toContain('ref="r1:result:1"')
     expect(result).toContain('ref="asset:r1:result:1"')
     expect(query).toHaveBeenCalledWith({
@@ -169,10 +176,12 @@ describe("agent harness runtime", () => {
     const firstResult = await executeTool(tools.knowhere_search, { query: "first" })
     const secondResult = await executeTool(tools.knowhere_search, { query: "second" })
 
+    expect(firstResult).toContain('pick="1"')
     expect(firstResult).toContain('ref="r1:result:1"')
     expect(secondResult).toContain('retrievalCount="2"')
     expect(secondResult).toContain("Second retrieval evidence.")
     expect(secondResult).not.toContain("<evidence>")
+    expect(secondResult).toContain('pick="2"')
     expect(secondResult).toContain('ref="r2:result:1"')
     expect(JSON.stringify(secondResult)).not.toContain("r1:result:1")
     expect(ledger.snapshot().chunks.map((chunk) => chunk.ref)).toEqual([
@@ -471,7 +480,7 @@ describe("agent harness runtime", () => {
     expect(
       await executeTool(tools.finalize, {
         text: "Revenue was $24.9B [[cite:1]] [[cite:2]].",
-        citations: [{ ref: "r1:result:1" }, { ref: "r1:result:2" }],
+        citations: [{ pick: 1 }, { pick: 2 }],
         memoryCitations: [],
         artifacts: [],
         unresolved: [],
@@ -598,7 +607,7 @@ describe("agent harness runtime", () => {
 
     const finalize = await executeTool(tools.finalize, {
       text: "The amount is 5000 yuan [[cite:1]].",
-      citations: [{ ref: "r1:referenced:1" }],
+      citations: [{ pick: 1 }],
       memoryCitations: [],
       artifacts: [],
       unresolved: [],
@@ -608,6 +617,98 @@ describe("agent harness runtime", () => {
       inspectRefs: ["asset:r1:referenced:1"],
     })
     expect(state.finalized).not.toBe(true)
+  })
+
+  it("writes citation refs from ledger picks and rejects picks outside the ledger", async () => {
+    const ledger = createEvidenceLedger()
+    ledger.addRetrievalResponse(makeRetrievalResponse())
+    const state: {
+      finalized?: boolean
+      finalizedManifest?: OutputManifest
+    } = {}
+    const tools = createHarnessTools({
+      state,
+      ledger,
+      memoryTools: makeMemoryTools(),
+      knowhereTools: makeKnowhereTools(),
+      recentTurns: [],
+    })
+
+    const rejected = await executeTool(tools.finalize, {
+      text: "Target is <130/80 mmHg [[cite:1]].",
+      citations: [{ pick: 99 }],
+      memoryCitations: [],
+      artifacts: [],
+      unresolved: [],
+    })
+
+    expect(rejected).toMatchObject({
+      ok: false,
+      unknownPicks: [99],
+    })
+    expect(String((rejected as { message: string }).message)).toContain(
+      "Available picks: 1-1",
+    )
+    expect(state.finalized).not.toBe(true)
+
+    const accepted = await executeTool(tools.finalize, {
+      text: "Target is <130/80 mmHg [[cite:1]].",
+      citations: [{ pick: 1 }],
+      memoryCitations: [],
+      artifacts: [],
+      unresolved: [],
+    })
+    expect(accepted).toMatchObject({
+      ok: true,
+      citations: [{ ref: "r1:result:1" }],
+    })
+    expect(state.finalized).toBe(true)
+    expect(state.finalizedManifest?.citations).toEqual([{ ref: "r1:result:1" }])
+  })
+
+  it("maps finalize picks across successive searches", async () => {
+    const ledger = createEvidenceLedger()
+    ledger.addRetrievalResponse(makeRetrievalResponse())
+    ledger.addRetrievalResponse({
+      ...makeRetrievalResponse(),
+      query: "second query",
+      results: [
+        {
+          content: "Second retrieval evidence.",
+          chunkType: "text",
+          score: 0.8,
+          source: {
+            documentId: "doc_2",
+            sourceFileName: "second.pdf",
+            sectionPath: "Second",
+          },
+        },
+      ],
+    })
+    const state: {
+      finalizedManifest?: OutputManifest
+    } = {}
+    const tools = createHarnessTools({
+      state,
+      ledger,
+      memoryTools: makeMemoryTools(),
+      knowhereTools: makeKnowhereTools(),
+      recentTurns: [],
+    })
+
+    const accepted = await executeTool(tools.finalize, {
+      text: "Second source [[cite:1]].",
+      citations: [{ pick: 2 }],
+      memoryCitations: [],
+      artifacts: [],
+      unresolved: [],
+    })
+
+    expect(accepted).toMatchObject({
+      ok: true,
+      citations: [{ ref: "r2:result:1" }],
+    })
+    expect(state.finalizedManifest?.citations).toEqual([{ ref: "r2:result:1" }])
   })
 
   it("accepts finalize output without planning-tool gating", async () => {
@@ -719,7 +820,7 @@ describe("agent harness runtime", () => {
     })
     const manifest = {
       text: "The contractor pays 5000 yuan per occurrence [[cite:1]].",
-      citations: [{ ref: "r1:referenced:1" }],
+      citations: [{ pick: 1 }],
       memoryCitations: [],
       artifacts: [],
       unresolved: [],
@@ -781,7 +882,7 @@ describe("agent harness runtime", () => {
 
     const result = await executeTool(tools.finalize, {
       text: "The contractor pays 5000 yuan [[cite:1]].",
-      citations: [{ ref: "r1:result:1" }],
+      citations: [{ pick: 1 }],
       memoryCitations: [],
       artifacts: [],
       unresolved: [],
@@ -1024,6 +1125,15 @@ describe("agent harness runtime", () => {
     expect(result.activeTools).not.toContain("knowhere_search")
   })
 
+  it("forces a tool call on ordinary steps so the model cannot skip finalize with bare text", () => {
+    const result = prepareHarnessStep({
+      stepNumber: 3,
+      messages: [],
+    })
+
+    expect(result.toolChoice).toBe("required")
+  })
+
   it("opens memory_search and knowhere_search together as peers when sources are required", () => {
     const result = prepareHarnessStep({
       stepNumber: 3,
@@ -1039,15 +1149,12 @@ describe("agent harness runtime", () => {
     })
 
     expect(result.activeTools).toEqual(
-      expect.arrayContaining([
-        "memory_search",
-        "knowhere_search",
-        "knowhere_list_documents",
-        "knowhere_get_document_outline",
-        "knowhere_read_chunks",
-        "knowhere_grep_chunks",
-      ]),
+      expect.arrayContaining(["memory_search", "knowhere_search"]),
     )
+    expect(result.activeTools).not.toContain("knowhere_list_documents")
+    expect(result.activeTools).not.toContain("knowhere_get_document_outline")
+    expect(result.activeTools).not.toContain("knowhere_read_chunks")
+    expect(result.activeTools).not.toContain("knowhere_grep_chunks")
   })
 
   it("forces image inspection before forced finalization when image assets are available", () => {
@@ -1195,10 +1302,6 @@ function makeKnowhereTools(
 ): KnowhereToolRuntime {
   return {
     search,
-    listDocuments: vi.fn().mockResolvedValue({ documents: [] }),
-    getDocumentOutline: vi.fn().mockRejectedValue(new Error("Not configured.")),
-    readChunks: vi.fn().mockRejectedValue(new Error("Not configured.")),
-    grepChunks: vi.fn().mockRejectedValue(new Error("Not configured.")),
   }
 }
 

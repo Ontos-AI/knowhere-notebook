@@ -62,7 +62,7 @@ export const generateAgenticOutputManifestEffect = (
         turn,
         knowhereTools:
           input.knowhereTools ??
-          notebookKnowhereTools.createSearchOnlyRuntime({
+          notebookKnowhereTools.createRuntime({
             searchSources: input.searchSources,
           }),
         memoryTools: mementoMemoryTools.createRuntime({

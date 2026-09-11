@@ -1,8 +1,4 @@
 import type {
-  KnowledgeGrepMatch,
-  KnowledgeGrepResponse,
-  KnowledgeReadChunk,
-  KnowledgeReadResponse,
   RetrievalQueryResponse,
   RetrievalResult,
 } from "@ontos-ai/knowhere-sdk"
@@ -18,8 +14,6 @@ const imageExtensions = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg"] as co
 
 type MutableLedger = {
   retrievalCount: number
-  readCount: number
-  grepCount: number
   chunks: EvidenceChunk[]
   assets: EvidenceAsset[]
   evidenceText: string[]
@@ -47,8 +41,6 @@ export type EvidenceLedger = ReturnType<typeof createEvidenceLedger>
 export function createEvidenceLedger() {
   const ledger: MutableLedger = {
     retrievalCount: 0,
-    readCount: 0,
-    grepCount: 0,
     chunks: [],
     assets: [],
     evidenceText: [],
@@ -84,6 +76,15 @@ export function createEvidenceLedger() {
       })
 
       response.referencedChunks.forEach((chunk, index) => {
+        // Knowhere's agent_explore router returns referencedChunks entries
+        // that may carry only a summary id with no chunkType/content
+        // (despite the SDK type declaring chunkType as required). Skip
+        // entries missing a usable chunkType: they have no real content
+        // (content is always "" here) and chunkType is required downstream
+        // (asset-type detection calls chunkType.toLowerCase()).
+        if (typeof chunk.chunkType !== "string" || chunk.chunkType.trim().length === 0) {
+          return
+        }
         const content = ""
         addChunk({
           ledger,
@@ -106,38 +107,6 @@ export function createEvidenceLedger() {
             ...(chunk.jobId ? { revisionKey: chunk.jobId } : {}),
             ...(chunk.assetUrl ? { assetUrl: chunk.assetUrl } : {}),
           },
-        })
-      })
-
-      return snapshot(ledger)
-    },
-
-    addReadChunksResponse(response: KnowledgeReadResponse): EvidenceLedgerSnapshot {
-      ledger.readCount += 1
-      const readIndex = ledger.readCount
-
-      response.chunks.forEach((chunk, index) => {
-        addChunkFromReadChunk({
-          ledger,
-          response,
-          chunk,
-          ref: `read${readIndex}:chunk:${index + 1}`,
-        })
-      })
-
-      return snapshot(ledger)
-    },
-
-    addGrepChunksResponse(response: KnowledgeGrepResponse): EvidenceLedgerSnapshot {
-      ledger.grepCount += 1
-      const grepIndex = ledger.grepCount
-
-      response.matches.forEach((match, index) => {
-        addChunkFromGrepMatch({
-          ledger,
-          response,
-          match,
-          ref: `grep${grepIndex}:match:${index + 1}`,
         })
       })
 
@@ -177,13 +146,6 @@ export function createEvidenceLedger() {
       return ledger.chunks.length > 0 || ledger.evidenceText.length > 0
     },
 
-    hasRef(ref: string): boolean {
-      return (
-        ledger.chunks.some((chunk) => chunk.ref === ref) ||
-        ledger.assets.some((asset) => asset.ref === ref)
-      )
-    },
-
     snapshot(): EvidenceLedgerSnapshot {
       return snapshot(ledger)
     },
@@ -216,100 +178,6 @@ function addChunkFromResult(input: {
       },
       ...(input.result.assetUrl ? { assetUrl: input.result.assetUrl } : {}),
     },
-  })
-}
-
-function addChunkFromReadChunk(input: {
-  readonly ledger: MutableLedger
-  readonly response: KnowledgeReadResponse
-  readonly chunk: KnowledgeReadChunk
-  readonly ref: string
-}): void {
-  addChunk({
-    ledger: input.ledger,
-    chunk: {
-      ref: input.ref,
-      kind: "read_chunk",
-      chunkId: input.chunk.chunkId,
-      content: input.chunk.content,
-      contentPreview: buildContentPreview(input.chunk.content),
-      chunkType: input.chunk.chunkType,
-      score: null,
-      sourceChunkPath: input.chunk.sourceChunkPath,
-      filePath: input.chunk.filePath,
-      metadata: input.chunk.metadata,
-      source: {
-        documentId: input.response.document.documentId,
-        sourceFileName: input.response.document.sourceFileName,
-        sectionPath: input.chunk.sectionPath,
-      },
-      revisionKey: input.response.document.jobId,
-      ...(input.chunk.assetUrl ? { assetUrl: input.chunk.assetUrl } : {}),
-    },
-  })
-}
-
-function addChunkFromGrepMatch(input: {
-  readonly ledger: MutableLedger
-  readonly response: KnowledgeGrepResponse
-  readonly match: KnowledgeGrepMatch
-  readonly ref: string
-}): void {
-  const donor = input.ledger.chunks.find(
-    (chunk) =>
-      chunk.chunkId === input.match.chunkId && hasPageMetadata(chunk.metadata),
-  )
-  const pageNums =
-    input.match.pageNumbers && input.match.pageNumbers.length > 0
-      ? [...input.match.pageNumbers]
-      : undefined
-
-  addChunk({
-    ledger: input.ledger,
-    chunk: {
-      ref: input.ref,
-      kind: "grep_match",
-      chunkId: input.match.chunkId,
-      content: input.match.snippet,
-      contentPreview: buildContentPreview(input.match.snippet),
-      chunkType: input.match.chunkType,
-      score: null,
-      sourceChunkPath: input.match.sourceChunkPath,
-      filePath: input.match.filePath,
-      metadata: {
-        ...(donor?.metadata ?? {}),
-        ...(pageNums ? { pageNums } : {}),
-        position: input.match.position,
-        startOffset: input.match.startOffset,
-        endOffset: input.match.endOffset,
-      },
-      source: {
-        documentId: input.response.document.documentId,
-        sourceFileName: input.response.document.sourceFileName,
-        sectionPath: input.match.sectionPath,
-      },
-      revisionKey: input.response.document.jobId,
-    },
-  })
-}
-
-function hasPageMetadata(
-  metadata: Readonly<Record<string, unknown>> | undefined,
-): boolean {
-  if (!metadata) return false
-  const values = [
-    metadata.pageNums,
-    metadata.page_nums,
-    metadata.pageNum,
-    metadata.page_num,
-    metadata.pageAssets,
-    metadata.page_assets,
-  ]
-  return values.some((value) => {
-    if (Array.isArray(value)) return value.length > 0
-    if (typeof value === "number") return Number.isSafeInteger(value) && value > 0
-    if (typeof value === "string") return value.trim().length > 0
-    return false
   })
 }
 
@@ -347,8 +215,16 @@ function buildContentPreview(content: string): string {
   return `${normalized.slice(0, contentPreviewLimit)}...`
 }
 
+// Knowhere's chunkType is declared as a required string in the SDK type,
+// but real API responses (seen on referencedChunks; results are the same
+// contract) can omit it. Normalize defensively instead of calling
+// .toLowerCase() on a value that may be undefined at runtime.
+function normalizeChunkType(chunkType: string): string {
+  return typeof chunkType === "string" ? chunkType.toLowerCase() : ""
+}
+
 function isRenderableAsset(chunkType: string, assetUrl: string): boolean {
-  const normalizedChunkType = chunkType.toLowerCase()
+  const normalizedChunkType = normalizeChunkType(chunkType)
   return (
     normalizedChunkType === "image" ||
     normalizedChunkType === "table" ||
@@ -379,7 +255,7 @@ function getEvidenceAssetCandidate(
 function getPageCitationAssetCandidate(
   chunk: Omit<EvidenceChunk, "assetRef">,
 ): EvidenceAssetCandidate | null {
-  if (chunk.chunkType.toLowerCase() !== "page") return null
+  if (normalizeChunkType(chunk.chunkType) !== "page") return null
 
   const candidates = [
     ...parsePageCitationAssetCandidates(chunk.metadata?.pageAssets),
@@ -409,7 +285,7 @@ function getPageCitationAssetCandidate(
 }
 
 function getAssetType(chunkType: string, assetUrl: string): "image" | "table" {
-  return chunkType.toLowerCase() === "table" && !isImageAssetUrl(assetUrl)
+  return normalizeChunkType(chunkType) === "table" && !isImageAssetUrl(assetUrl)
     ? "table"
     : "image"
 }

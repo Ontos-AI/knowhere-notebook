@@ -16,7 +16,6 @@ import type {
 } from "@/domains/chat/types"
 import type { HardenMediaAssetUrls } from "./media-asset-hardening"
 import type { HardenChatAssetUrl } from "./media-assets"
-import type { NotebookKnowhereRemoteDocumentClient } from "./knowhere-tools"
 
 export type RetrievalClient = {
   query(params: RetrievalQueryParams): Promise<RetrievalQueryResponse>
@@ -76,7 +75,6 @@ export type AnswerQuestionInput = {
   useAgentic?: boolean
   retrieval: RetrievalClient
   knowledge?: Knowledge
-  remoteDocumentClient?: NotebookKnowhereRemoteDocumentClient
   generateAnswer: GenerateAnswer
   hardenChatAssetUrl?: HardenChatAssetUrl
   hardenMediaAssetUrls?: HardenMediaAssetUrls

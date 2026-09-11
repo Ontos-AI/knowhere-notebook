@@ -145,7 +145,6 @@ const answerChatEffect = (input: AnswerChatInput) =>
           excludedSourceIds: body.value.excludedSourceIds,
           retrieval: client.retrieval,
           knowledge: knowhereResources.knowledge,
-          remoteDocumentClient: client,
           hardenChatAssetUrl,
           hardenMediaAssetUrls: ({ results, artifacts }) =>
             hardenChatMediaAssetUrls({
