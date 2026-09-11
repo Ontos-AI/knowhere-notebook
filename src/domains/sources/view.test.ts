@@ -20,6 +20,7 @@ function makeSource(overrides: Partial<Source> = {}): Source {
     originalBlobPathname: null,
     originalBlobUrl: null,
     demoKey: null,
+    chunkCount: null,
     createdAt: new Date("2026-05-06T00:00:00Z"),
     updatedAt: new Date("2026-05-06T00:00:00Z"),
     deletedAt: null,
@@ -35,8 +36,8 @@ describe("toSourceView", () => {
           originalBlobPathname: "source-uploads/upload_1/document.pdf",
           originalBlobUrl:
             "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
+          chunkCount: 7,
         }),
-        { chunkCount: 7 },
       ),
     ).toEqual({
       id: "source_1",
@@ -105,8 +106,8 @@ describe("toSourceView", () => {
           sizeBytes: 5648867,
           knowhereDocumentId: "doc_user_copy",
           originalBlobUrl: "https://example.com/tsla-q4-2025.pdf",
+          chunkCount: 70,
         }),
-        { chunkCount: 70 },
       ),
     ).toMatchObject({
       title: "TSLA-Q4-2025-Update.pdf",

@@ -17,6 +17,7 @@ type UpsertMaterializedDemoSourceInput = {
   readonly sizeBytes: number
   readonly knowhereDocumentId: string
   readonly originalBlobUrl: string | null
+  readonly chunkCount?: number
 }
 
 type DemoSourceRepository = {
@@ -102,6 +103,9 @@ const upsertMaterializedDemoSourceEffect: DemoSourceRepository["upsertMaterializ
             knowhereDocumentId: input.knowhereDocumentId,
             originalBlobUrl: input.originalBlobUrl,
             demoKey: input.demoSourceId,
+            ...(typeof input.chunkCount === "number"
+              ? { chunkCount: input.chunkCount }
+              : {}),
           })
           .onConflictDoUpdate({
             target: [sources.workspaceId, sources.demoKey],
@@ -114,6 +118,9 @@ const upsertMaterializedDemoSourceEffect: DemoSourceRepository["upsertMaterializ
               knowhereJobId: null,
               knowhereDocumentId: input.knowhereDocumentId,
               originalBlobUrl: input.originalBlobUrl,
+              ...(typeof input.chunkCount === "number"
+                ? { chunkCount: input.chunkCount }
+                : {}),
               deletedAt: null,
               updatedAt: sql`now()`,
             },

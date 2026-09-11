@@ -1,11 +1,7 @@
 import { Effect } from "effect"
 
 import { demoView } from "@/domains/demo/view"
-import {
-  getMaterializedDemoSourceViewOptionsBySourceId,
-  getWorkspaceSourcesNeedingChunkCount,
-  resolveWorkspaceDemoSources,
-} from "@/domains/demo/workspace-source-resolution"
+import { resolveWorkspaceDemoSources } from "@/domains/demo/workspace-source-resolution"
 import { routeResult } from "@/lib/route-result"
 import { logger } from "@/lib/logger"
 import { knowhereDemoApi } from "@/integrations/knowhere-demo"
@@ -27,7 +23,6 @@ type RouteListingDependencies = Pick<
   | "ensureApiKeyForWorkspace"
   | "ensureWorkspace"
   | "getCurrentUser"
-  | "getSourceViewOptionsBySourceId"
   | "listSourcesForWorkspace"
   | "makeKnowhereClient"
 > & {
@@ -96,10 +91,6 @@ const listSourcesEffect = (
       client,
       localSources: demoSourceResolution.workspaceSources,
     })
-    const sourcesNeedingChunkCount =
-      getWorkspaceSourcesNeedingChunkCount(workspaceSources)
-    const materializedDemoSourceOptions =
-      getMaterializedDemoSourceViewOptionsBySourceId(workspaceSources, catalog)
     yield* Effect.sync(() =>
       triggerBackgroundReconciliationForParsingSources({
         workspaceId: workspace.id,
@@ -109,13 +100,6 @@ const listSourcesEffect = (
           deps.startBackgroundReconciliation ??
           defaultStartBackgroundReconciliation,
       }),
-    )
-    const sourceOptions = yield* deps.getSourceViewOptionsBySourceId(
-      sourcesNeedingChunkCount,
-      client,
-      {
-        documentPresentationDetection: "disabled",
-      },
     )
     const hiddenDemoSourceIds = new Set(
       yield* Effect.tryPromise(() =>
@@ -135,13 +119,7 @@ const listSourcesEffect = (
     return routeResult.ok({
       sources: [
         ...visibleDemoSources,
-        ...workspaceSources.map((source) =>
-          toSourceView(
-            source,
-            materializedDemoSourceOptions.get(source.id) ??
-              sourceOptions.get(source.id),
-          ),
-        ),
+        ...workspaceSources.map((source) => toSourceView(source)),
         ...remoteSourceViews,
       ],
     })

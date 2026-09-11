@@ -1,4 +1,3 @@
-import { Effect } from "effect"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { loadWorkspaceShellInitialState } from "./initial-state"
@@ -114,14 +113,11 @@ describe("loadWorkspaceShellInitialState", () => {
 
   it("lists visible API demos before authenticated workspace sources", async () => {
     const workspace = makeWorkspace()
-    const source = makeSource(workspace.id)
+    const source = makeSource(workspace.id, { chunkCount: 2 })
     const thread = makeThread(workspace.id)
     const deps = createDependencies({
       listChatThreads: vi.fn(async () => [thread]),
       listSourcesForWorkspace: vi.fn(async () => [source]),
-      sourceViewOptionsBySourceId: vi.fn(() =>
-        Effect.succeed(new Map([[source.id, { chunkCount: 2 }]])),
-      ),
     })
 
     const state = await loadWorkspaceShellInitialState(deps)
@@ -149,33 +145,22 @@ describe("loadWorkspaceShellInitialState", () => {
 
   it("keeps authenticated workspace sources when the demo catalog is unavailable", async () => {
     const workspace = makeWorkspace()
-    const source = makeSource(workspace.id)
+    const source = makeSource(workspace.id, { chunkCount: 2 })
     const legacyFakeSource = makeSource(workspace.id, {
       id: "source_legacy_demo",
       demoKey: "demo-tsla-q4-2025",
       knowhereJobId: null,
       knowhereDocumentId: "demo-doc-tsla-q4-2025",
     })
-    const sourceViewOptionsBySourceId = vi.fn(() =>
-      Effect.succeed(new Map([[source.id, { chunkCount: 2 }]])),
-    )
     const deps = createDependencies({
       fetchDemoCatalog: vi.fn(async () => {
         throw new Error("Demo API unavailable.")
       }),
       listSourcesForWorkspace: vi.fn(async () => [legacyFakeSource, source]),
-      sourceViewOptionsBySourceId,
     })
 
     const state = await loadWorkspaceShellInitialState(deps)
 
-    expect(sourceViewOptionsBySourceId).toHaveBeenCalledWith(
-      [source],
-      expect.any(Object),
-      expect.objectContaining({
-        documentPresentationDetection: "disabled",
-      }),
-    )
     expect(state.sources).toEqual([
       {
         id: source.id,
@@ -196,23 +181,15 @@ describe("loadWorkspaceShellInitialState", () => {
       demoKey: "demo-tsla-q4-2025",
       title: "TSLA-Q4-2025-Update.pdf",
       knowhereDocumentId: "doc_user_copy",
+      chunkCount: 70,
     })
-    const sourceViewOptionsBySourceId = vi.fn(() => Effect.succeed(new Map()))
     const deps = createDependencies({
       listHiddenDemoSourceIds: vi.fn(async () => ["another-demo"]),
       listSourcesForWorkspace: vi.fn(async () => [materializedSource]),
-      sourceViewOptionsBySourceId,
     })
 
     const state = await loadWorkspaceShellInitialState(deps)
 
-    expect(sourceViewOptionsBySourceId).toHaveBeenCalledWith(
-      [],
-      expect.any(Object),
-      expect.objectContaining({
-        documentPresentationDetection: "disabled",
-      }),
-    )
     expect(state.sources).toEqual([
       expect.objectContaining({
         id: "source_demo",
@@ -232,21 +209,12 @@ describe("loadWorkspaceShellInitialState", () => {
       knowhereJobId: null,
       knowhereDocumentId: "demo-doc-tsla-q4-2025",
     })
-    const sourceViewOptionsBySourceId = vi.fn(() => Effect.succeed(new Map()))
     const deps = createDependencies({
       listSourcesForWorkspace: vi.fn(async () => [legacyFakeSource]),
-      sourceViewOptionsBySourceId,
     })
 
     const state = await loadWorkspaceShellInitialState(deps)
 
-    expect(sourceViewOptionsBySourceId).toHaveBeenCalledWith(
-      [],
-      expect.any(Object),
-      expect.objectContaining({
-        documentPresentationDetection: "disabled",
-      }),
-    )
     expect(state.sources).toEqual([
       expect.objectContaining({
         id: "demo-tsla-q4-2025",
@@ -266,21 +234,12 @@ describe("loadWorkspaceShellInitialState", () => {
       knowhereJobId: null,
       knowhereDocumentId: null,
     })
-    const sourceViewOptionsBySourceId = vi.fn(() => Effect.succeed(new Map()))
     const deps = createDependencies({
       listSourcesForWorkspace: vi.fn(async () => [nonReadyLegacySource]),
-      sourceViewOptionsBySourceId,
     })
 
     const state = await loadWorkspaceShellInitialState(deps)
 
-    expect(sourceViewOptionsBySourceId).toHaveBeenCalledWith(
-      [],
-      expect.any(Object),
-      expect.objectContaining({
-        documentPresentationDetection: "disabled",
-      }),
-    )
     expect(state.sources).toEqual([
       expect.objectContaining({
         id: "demo-tsla-q4-2025",
@@ -509,26 +468,6 @@ describe("loadWorkspaceShellInitialState", () => {
     }
   })
 
-  it("adds operation context when chunk-count lookup fails", async () => {
-    const deps = createDependencies({
-      listSourcesForWorkspace: vi.fn(async () => [makeSource("workspace_1")]),
-      sourceViewOptionsBySourceId: vi.fn(() =>
-        Effect.die(new Error("Knowhere document list timed out")),
-      ),
-    })
-
-    try {
-      await loadWorkspaceShellInitialState(deps)
-      throw new Error("Expected initial state loading to fail.")
-    } catch (error) {
-      const formatted = formatUnknownForLog(error)
-
-      expect(formatted).toContain(
-        "Workspace initial state sourceViewOptionsBySourceId failed",
-      )
-      expect(formatted).toContain("Knowhere document list timed out")
-    }
-  })
 })
 
 function createDependencies(
@@ -553,7 +492,6 @@ function createDependencies(
     listMessages: vi.fn(async () => []),
     listSourcesForWorkspace: vi.fn(async () => []),
     reconcileSourcesForWorkspace: vi.fn(async () => []),
-    sourceViewOptionsBySourceId: vi.fn(() => Effect.succeed(new Map())),
     ...overrides,
   }
 }
@@ -676,6 +614,7 @@ function makeSource(
     originalBlobPathname: null,
     originalBlobUrl: null,
     demoKey: null,
+    chunkCount: null,
     createdAt: new Date("2026-05-10T00:00:00.000Z"),
     updatedAt: new Date("2026-05-10T00:00:00.000Z"),
     deletedAt: null,

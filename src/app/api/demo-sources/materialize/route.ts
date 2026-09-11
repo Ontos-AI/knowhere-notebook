@@ -71,9 +71,10 @@ export async function POST(request: Request): Promise<NextResponse> {
                 sizeBytes: source.sizeBytes,
                 knowhereDocumentId: source.documentId,
                 originalBlobUrl: demoOriginalFile.getPublicUrl(source),
+                chunkCount: source.chunkCount,
               }),
             )
-            return toSourceView(row, { chunkCount: source.chunkCount })
+            return toSourceView(row)
           }),
         ),
         { concurrency: "unbounded" },

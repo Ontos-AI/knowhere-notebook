@@ -39,6 +39,7 @@ function makeSource(status: Source["status"]): Source {
     originalBlobPathname: null,
     originalBlobUrl: null,
     demoKey: null,
+    chunkCount: null,
     createdAt: new Date("2026-05-10T00:00:00.000Z"),
     updatedAt: new Date("2026-05-10T00:00:00.000Z"),
     deletedAt: null,

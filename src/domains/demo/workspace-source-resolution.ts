@@ -6,10 +6,6 @@ type WorkspaceDemoSourceResolution = {
   readonly workspaceSources: readonly Source[]
 }
 
-type SourceViewOptions = {
-  readonly chunkCount?: number
-}
-
 export function resolveWorkspaceDemoSources(
   sources: readonly Source[],
   catalog: DemoCatalog,
@@ -37,32 +33,6 @@ export function resolveWorkspaceDemoSources(
     materializedDemoSourceIds,
     workspaceSources,
   }
-}
-
-export function getWorkspaceSourcesNeedingChunkCount(
-  sources: readonly Source[],
-): Source[] {
-  return sources.filter((source) => !source.demoKey)
-}
-
-export function getMaterializedDemoSourceViewOptionsBySourceId(
-  sources: readonly Source[],
-  catalog: DemoCatalog,
-): ReadonlyMap<string, SourceViewOptions> {
-  const chunkCountByDemoSourceId: ReadonlyMap<string, number> = new Map(
-    catalog.sources.map((source) => [source.demoSourceId, source.chunkCount]),
-  )
-
-  return new Map(
-    sources.flatMap((source): readonly [string, SourceViewOptions][] => {
-      if (!source.demoKey) return []
-
-      const chunkCount = chunkCountByDemoSourceId.get(source.demoKey)
-      if (chunkCount === undefined) return []
-
-      return [[source.id, { chunkCount }]]
-    }),
-  )
 }
 
 function isLegacyCanonicalDemoSource(

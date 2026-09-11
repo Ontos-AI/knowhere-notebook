@@ -319,6 +319,7 @@ function makeSource(overrides: Partial<Source> = {}): Source {
     originalBlobPathname: null,
     originalBlobUrl: null,
     demoKey: null,
+    chunkCount: null,
     createdAt: new Date("2026-06-04T00:00:00Z"),
     updatedAt: new Date("2026-06-04T00:00:00Z"),
     deletedAt: null,

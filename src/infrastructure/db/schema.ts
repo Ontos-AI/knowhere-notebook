@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   bigint,
   index,
+  integer,
   jsonb,
   pgTable,
   text,
@@ -78,6 +79,9 @@ export type NewWorkspace = typeof workspaces.$inferInsert;
  *                         older rows during the PR #28 transition
  *   - `demo_key`    — canonical demo source identifier when this row is a
  *                     materialized API-owned demo copy
+ *   - `chunk_count`  — Knowhere document total written when parse completes
+ *                      (or when a demo is materialized); homepage reads this
+ *                      locally and does not refetch chunks for the sidebar
  *   - `deleted_at`   — soft delete timestamp; reads filter it out
  *
  * Indexes:
@@ -105,6 +109,7 @@ export const sources = pgTable(
     originalBlobPathname: text("original_blob_pathname"),
     originalBlobUrl: text("original_blob_url"),
     demoKey: text("demo_key"),
+    chunkCount: integer("chunk_count"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
