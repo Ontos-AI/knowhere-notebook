@@ -105,7 +105,7 @@ describe("generateChatDiagramSpec", () => {
     })
 
     expect(generateObject).toHaveBeenCalledWith({
-      model: "google/gemini-3-flash",
+      model: "deepseek/deepseek-v4.1-flash",
       schema: expect.any(Object),
       prompt: expect.stringContaining("Cloud revenue was 42"),
     })
@@ -144,7 +144,7 @@ describe("generateChatDiagramSpec", () => {
 
     expect(generateObject).toHaveBeenCalledTimes(2)
     expect(vi.mocked(generateObject).mock.calls[1]?.[0]).toEqual({
-      model: "google/gemini-3-flash",
+      model: "deepseek/deepseek-v4.1-flash",
       schema: expect.any(Object),
       prompt: expect.stringContaining("The previous diagram-generation output"),
     })
