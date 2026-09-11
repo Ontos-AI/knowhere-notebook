@@ -9,4 +9,4 @@
  * Change CHAT_MODEL here (or via env) when we want to try a different model.
  */
 
-export const CHAT_MODEL = process.env.CHAT_MODEL ?? "google/gemini-3-flash"
+export const CHAT_MODEL = process.env.CHAT_MODEL ?? "deepseek/deepseek-v4.1-flash"
