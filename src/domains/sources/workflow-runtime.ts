@@ -100,6 +100,11 @@ type SourceWorkflowRuntime = UploadRepositoryRuntime & {
     sourceId: string,
     chunkCount: number,
   ) => Promise<Source | null>
+  readonly assignFolder: (
+    workspaceId: string,
+    sourceId: string,
+    folderId: string | null,
+  ) => Promise<Source | null>
   readonly saveParseResult: (
     workspaceId: string,
     sourceId: string,
@@ -222,6 +227,15 @@ const recordChunkCount: SourceWorkflowRuntime["recordChunkCount"] = (
       sourceId,
       chunkCount,
     ),
+  )
+
+const assignFolder: SourceWorkflowRuntime["assignFolder"] = (
+  workspaceId: string,
+  sourceId: string,
+  folderId: string | null,
+) =>
+  databaseRuntime.runPromise(
+    sourceRepository.assignFolderEffect(workspaceId, sourceId, folderId),
   )
 
 const markFailed: SourceWorkflowRuntime["markFailed"] = (
@@ -360,6 +374,7 @@ export const sourceWorkflowRuntime: SourceWorkflowRuntime = {
   markReady,
   updateRevisionKey,
   recordChunkCount,
+  assignFolder,
   mergeParseAssetUrls,
   saveParseResult,
   softDelete,

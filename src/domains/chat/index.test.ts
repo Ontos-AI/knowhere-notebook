@@ -3187,6 +3187,7 @@ describe("parseChatRequestBody", () => {
         message: "  What changed?  ",
         threadId: "thread_1",
         excludedSourceIds: ["source_1", 7, "source_2"],
+        folderId: " folder_1 ",
       }),
     ).toEqual({
       ok: true,
@@ -3195,6 +3196,7 @@ describe("parseChatRequestBody", () => {
         threadId: "thread_1",
         useAgentic: true,
         excludedSourceIds: ["source_1", "source_2"],
+        folderId: "folder_1",
       },
     });
   });
@@ -3285,6 +3287,7 @@ function makeSource(overrides: Partial<Source> = {}): Source {
     originalBlobUrl: null,
     demoKey: null,
     chunkCount: null,
+    folderId: null,
     createdAt: new Date("2026-05-06T00:00:00Z"),
     updatedAt: new Date("2026-05-06T00:00:00Z"),
     deletedAt: null,

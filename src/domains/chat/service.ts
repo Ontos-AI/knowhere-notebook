@@ -66,6 +66,11 @@ type ChatTurnInput = {
   threadId?: string
   useAgentic?: boolean
   excludedSourceIds: readonly string[]
+  folderId?: string
+  resolveFolderScopeSourceIds?: (
+    workspaceId: string,
+    folderId: string,
+  ) => Promise<readonly string[]>
   retrieval: RetrievalClient
   knowledge?: AnswerQuestionInput["knowledge"]
   generateAnswer: GenerateAnswer
@@ -121,6 +126,16 @@ export const handleChatTurnEffect = (input: ChatTurnInput) =>
       return yield* Effect.fail(threadNotFound)
     }
 
+    const folderScopeSourceIds =
+      input.folderId && input.resolveFolderScopeSourceIds
+        ? yield* tryPromiseOrDie(() =>
+            input.resolveFolderScopeSourceIds!(
+              input.workspace.id,
+              input.folderId!,
+            ),
+          )
+        : undefined
+
     const answer = yield* answerQuestionWithRetrieval({
       question: input.question,
       namespace: input.workspace.namespace,
@@ -128,6 +143,7 @@ export const handleChatTurnEffect = (input: ChatTurnInput) =>
       sources: readySources,
       useAgentic: input.useAgentic ?? true,
       excludedSourceIds: input.excludedSourceIds,
+      folderScopeSourceIds,
       retrieval: input.retrieval,
       knowledge: input.knowledge,
       generateAnswer: input.generateAnswer,

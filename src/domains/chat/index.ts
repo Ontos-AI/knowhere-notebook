@@ -740,6 +740,7 @@ async function queryRetrievalNamespace(input: {
     useAgentic: input.answerInput.useAgentic ?? true,
     sources: input.answerInput.sources,
     excludedSourceIds: input.answerInput.excludedSourceIds,
+    folderScopeSourceIds: input.answerInput.folderScopeSourceIds,
   })
   logger.info("chat-agent: searchSources start", {
     namespace: input.namespace,
@@ -958,6 +959,7 @@ function buildRetrievalQueryParams(input: {
   readonly useAgentic: boolean
   readonly sources: AnswerQuestionInput["sources"]
   readonly excludedSourceIds: readonly string[]
+  readonly folderScopeSourceIds?: readonly string[]
 }): RetrievalQueryParams {
   const query = normalizeRetrievalQuery(
     input.input.query,
@@ -977,7 +979,12 @@ function buildRetrievalQueryParams(input: {
     ...(typeof input.input.threshold === "number"
       ? { threshold: input.input.threshold }
       : {}),
-    ...getRetrievalDocumentScope(input.sources, input.excludedSourceIds, input.input),
+    ...getRetrievalDocumentScope(
+      input.sources,
+      input.excludedSourceIds,
+      input.input,
+      input.folderScopeSourceIds,
+    ),
   }
 }
 

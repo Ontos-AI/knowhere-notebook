@@ -34,6 +34,7 @@ type SourceUpdate = Partial<
     | "originalBlobPathname"
     | "originalBlobUrl"
     | "chunkCount"
+    | "folderId"
   >
 >
 
@@ -88,6 +89,11 @@ type SourceRowRepository = {
     workspaceId: string,
     sourceId: string,
     chunkCount: number,
+  ) => Effect.Effect<Source | null, never, DbClient>
+  readonly assignFolderEffect: (
+    workspaceId: string,
+    sourceId: string,
+    folderId: string | null,
   ) => Effect.Effect<Source | null, never, DbClient>
   readonly markFailedEffect: (
     workspaceId: string,
@@ -247,6 +253,15 @@ const recordChunkCountEffect: SourceRowRepository["recordChunkCountEffect"] = (
   updateInWorkspaceEffect(workspaceId, sourceId, {
     chunkCount,
   }, "ready")
+
+const assignFolderEffect: SourceRowRepository["assignFolderEffect"] = (
+  workspaceId: string,
+  sourceId: string,
+  folderId: string | null,
+) =>
+  updateInWorkspaceEffect(workspaceId, sourceId, {
+    folderId,
+  })
 
 const markFailedEffect: SourceRowRepository["markFailedEffect"] = (
   workspaceId: string,
@@ -473,6 +488,7 @@ export const sourceRowRepository: SourceRowRepository = {
   markReadyEffect,
   updateRevisionKeyEffect,
   recordChunkCountEffect,
+  assignFolderEffect,
   markFailedEffect,
   clearStagedBlobEffect,
   softDeleteEffect,

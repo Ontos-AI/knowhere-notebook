@@ -21,6 +21,7 @@ function makeSource(overrides: Partial<Source> = {}): Source {
     originalBlobUrl: null,
     demoKey: null,
     chunkCount: null,
+    folderId: null,
     createdAt: new Date("2026-05-06T00:00:00Z"),
     updatedAt: new Date("2026-05-06T00:00:00Z"),
     deletedAt: null,
@@ -37,6 +38,7 @@ describe("toSourceView", () => {
           originalBlobUrl:
             "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
           chunkCount: 7,
+          folderId: "folder_1",
         }),
       ),
     ).toEqual({
@@ -47,6 +49,7 @@ describe("toSourceView", () => {
       status: "ready",
       documentId: "doc_1",
       chunkCount: 7,
+      folderId: "folder_1",
       originalFile: {
         url: "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
         mimeType: "application/pdf",

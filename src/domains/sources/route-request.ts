@@ -2,6 +2,7 @@ import { Schema } from "effect"
 
 import type {
   ArchiveSourceInput,
+  AssignSourceFolderInput,
   JsonRouteResult,
   RetrySourceInput,
 } from "./route-types"
@@ -35,6 +36,10 @@ type SourceMutationReadResult =
             readonly kind: "retry"
             readonly input: RetrySourceInput
           }
+        | {
+            readonly kind: "assignFolder"
+            readonly input: AssignSourceFolderInput
+          }
     }
   | {
       readonly ok: false
@@ -56,6 +61,10 @@ const ArchiveRequest = Schema.Struct({
 
 const RetryRequest = Schema.Struct({
   retry: Schema.Literal(true),
+})
+
+const AssignFolderRequest = Schema.Struct({
+  folderId: Schema.NullOr(Schema.String),
 })
 
 async function readArchiveSource({
@@ -119,10 +128,36 @@ async function readSourceMutation({
     }
   }
 
+  const assignFolder = Schema.decodeUnknownEither(AssignFolderRequest)(
+    body.value,
+  )
+  if (assignFolder._tag === "Right") {
+    const folderId = assignFolder.right.folderId
+    if (folderId !== null && folderId.trim().length === 0) {
+      return {
+        ok: false,
+        result: routeResult.badRequest(
+          "Request body must include `archived: true`, `retry: true`, or `folderId`.",
+        ),
+      }
+    }
+    return {
+      ok: true,
+      mutation: {
+        kind: "assignFolder",
+        input: {
+          cookieHeader,
+          sourceId,
+          folderId,
+        },
+      },
+    }
+  }
+
   return {
     ok: false,
     result: routeResult.badRequest(
-      "Request body must include `archived: true` or `retry: true`.",
+      "Request body must include `archived: true`, `retry: true`, or `folderId`.",
     ),
   }
 }

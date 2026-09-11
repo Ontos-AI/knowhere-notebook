@@ -2,10 +2,18 @@
 
 import type { ReactElement } from "react";
 import Link from "next/link";
-import { FileText, ListTree, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { FileText, FolderInput, ListTree, Plus, RotateCcw, Trash2 } from "lucide-react";
 
+import { FolderDestinationMenu } from "@/components/folder-destination-menu";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Spinner } from "@/components/ui/spinner";
+import { canAssignSourceToFolder } from "@/domains/folders/tree";
+import type { FolderView } from "@/domains/folders/types";
 import type { SourceView } from "@/domains/sources/types";
 
 export type SourceRowProps = {
@@ -20,6 +28,9 @@ export type SourceRowProps = {
   readonly onRetryClick?: (sourceId: string) => void;
   readonly onSelect: () => void;
   readonly onToggleIncluded?: (sourceId: string, included: boolean) => void;
+  readonly folders?: readonly FolderView[];
+  readonly isMoving?: boolean;
+  readonly onMoveToFolder?: (sourceId: string, folderId: string | null) => void;
   readonly source: SourceView;
 };
 
@@ -36,8 +47,12 @@ export function SourceRow({
   chunkTreeHref,
   isArchiving,
   isRetrying = false,
+  folders = [],
+  isMoving = false,
+  onMoveToFolder,
 }: SourceRowProps): ReactElement {
   const isReady = source.status === "ready";
+  const canMove = canAssignSourceToFolder(source) && onMoveToFolder !== undefined;
   const isBusy = source.status === "uploading" || source.status === "parsing";
   const isFailed = source.status === "failed";
   const canRetry = isFailed && source.originalFile !== undefined;
@@ -146,6 +161,31 @@ export function SourceRow({
             {isNarrow ? null : "Add"}
           </button>
         )}
+        {canMove ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                disabled={isMoving || isArchiving}
+                className="shrink-0 rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-wait disabled:opacity-70"
+                aria-label={`Move ${source.title} to folder`}
+                title="Move to folder"
+              >
+                {isMoving ? (
+                  <Spinner className="size-3.5" />
+                ) : (
+                  <FolderInput className="size-3.5" />
+                )}
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <FolderDestinationMenu
+                folders={folders}
+                onSelect={(folderId) => onMoveToFolder?.(source.id, folderId)}
+              />
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
         {canRetry && onRetryClick ? (
           <button
             type="button"

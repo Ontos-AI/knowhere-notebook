@@ -139,6 +139,20 @@ type RetrySourceInput = {
   readonly sourceId: string
 }
 
+type AssignSourceFolderInput = {
+  readonly cookieHeader: string
+  readonly sourceId: string
+  readonly folderId: string | null
+}
+
+type AssignSourceFolderBody =
+  | {
+      readonly source: SourceView
+    }
+  | {
+      readonly message: string
+    }
+
 type LoadSourceChunksInput = {
   readonly cookieHeader: string
   readonly sourceId: string
@@ -159,6 +173,9 @@ type SourceRouteService = {
   readonly retrySource: (
     input: RetrySourceInput,
   ) => Promise<JsonRouteResult<RetrySourceBody>>
+  readonly assignSourceFolder: (
+    input: AssignSourceFolderInput,
+  ) => Promise<JsonRouteResult<AssignSourceFolderBody>>
   readonly loadSourceChunks: (
     input: LoadSourceChunksInput,
   ) => Promise<JsonRouteResult<SourceChunksBody>>
@@ -260,6 +277,8 @@ type SourceRouteServiceOverrides = Partial<
 export type {
   ArchiveSourceBody,
   ArchiveSourceInput,
+  AssignSourceFolderBody,
+  AssignSourceFolderInput,
   JsonRouteResult,
   ListSourcesBody,
   ListSourcesInput,

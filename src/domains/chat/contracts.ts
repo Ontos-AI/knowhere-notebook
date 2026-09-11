@@ -67,6 +67,7 @@ export type AnswerQuestionInput = {
   namespaces?: readonly string[]
   sources: readonly Source[]
   excludedSourceIds: readonly string[]
+  folderScopeSourceIds?: readonly string[]
   useAgentic?: boolean
   retrieval: RetrievalClient
   knowledge?: Knowledge

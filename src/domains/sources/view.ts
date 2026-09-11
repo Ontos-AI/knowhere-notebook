@@ -38,6 +38,7 @@ export function toSourceView(
     ...(failureMessage ? { failureMessage } : {}),
     ...(originalFile ? { originalFile } : {}),
     ...(chunkCount !== undefined ? { chunkCount } : {}),
+    ...(source.folderId ? { folderId: source.folderId } : {}),
     ...(options.documentPresentation !== undefined
       ? { documentPresentation: options.documentPresentation }
       : {}),

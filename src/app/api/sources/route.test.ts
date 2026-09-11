@@ -76,6 +76,7 @@ const source: Source = {
   originalBlobUrl: null,
   demoKey: null,
   chunkCount: null,
+    folderId: null,
   createdAt: new Date("2026-05-10T00:00:00Z"),
   updatedAt: new Date("2026-05-10T00:00:00Z"),
   deletedAt: null,

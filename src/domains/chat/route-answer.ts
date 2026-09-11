@@ -17,6 +17,7 @@ import {
   type ChatTurnValue,
 } from "@/domains/chat/service"
 import { chatTurnPersistence } from "@/domains/chat/chat-turn-persistence"
+import { folderWorkflowRuntime } from "@/domains/folders/workflow-runtime"
 import { startBackgroundReconciliation } from "@/domains/sources/background-reconcile"
 import { BlobParsedDocumentStorage } from "@/domains/sources/parsed-document-blob-storage"
 import { sourceWorkflowRuntime } from "@/domains/sources/workflow-runtime"
@@ -143,6 +144,9 @@ const answerChatEffect = (input: AnswerChatInput) =>
           threadId: body.value.threadId,
           useAgentic: body.value.useAgentic,
           excludedSourceIds: body.value.excludedSourceIds,
+          folderId: body.value.folderId,
+          resolveFolderScopeSourceIds:
+            folderWorkflowRuntime.resolveDescendantSourceIds,
           retrieval: client.retrieval,
           knowledge: knowhereResources.knowledge,
           hardenChatAssetUrl,
