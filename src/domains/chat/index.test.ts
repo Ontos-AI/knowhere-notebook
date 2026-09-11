@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { createServer } from "node:http"
+import { once } from "node:events"
+import Knowhere from "@ontos-ai/knowhere-sdk"
 import type {
   Knowledge,
-  KnowledgeGrepResponse,
-  KnowledgeOutline,
-  KnowledgeReadResponse,
   RetrievalQueryParams,
   RetrievalQueryResponse,
   RetrievalResult,
@@ -106,6 +106,94 @@ describe("answerQuestionWithRetrieval", () => {
     });
   });
 
+  it.each([true, false])("sends document scope through the installed SDK (agentic=%s)", async (useAgentic) => {
+    const received: Record<string, unknown>[] = []
+    const result = makeRetrievalResult({
+      content: "Evidence from the allowed document.",
+      source: { documentId: "doc_included", sourceFileName: "notes.txt", sectionPath: "Overview" },
+    })
+    const server = createServer((request, response) => {
+      let body = ""
+      request.setEncoding("utf8")
+      request.on("data", (chunk: string) => { body += chunk })
+      request.on("end", () => {
+        received.push(JSON.parse(body))
+        response.writeHead(200, { "Content-Type": "application/json" })
+        response.end(JSON.stringify({
+          namespace: "default", query: "document question", router_used: "test_fixture",
+          results: [{ content: result.content, chunk_type: "text", score: 1,
+            source: { document_id: "doc_included", source_file_name: "notes.txt", section_path: "Overview" } }],
+          referenced_chunks: [], evidence_text: result.content, answer_text: "",
+        }))
+      })
+    })
+    try {
+      server.listen(0, "127.0.0.1")
+      await once(server, "listening")
+      const address = server.address()
+      if (!address || typeof address === "string") throw new Error("Expected TCP address")
+      const client = new Knowhere({ apiKey: "scope-test", baseURL: `http://127.0.0.1:${address.port}`, maxRetries: 0 })
+      const scopes = [
+        {},
+        { includeDocumentIds: ["doc_included", "doc_other"] },
+        { excludeDocumentIds: ["doc_other"] },
+        { includeDocumentIds: ["doc_included", "doc_other"], excludeDocumentIds: ["doc_other"] },
+        { includeDocumentIds: [] },
+      ]
+      const answer = await Effect.runPromise(answerQuestionWithRetrieval({
+        question: "document question", namespace: "default", useAgentic,
+        sources: [makeSource(), makeSource({ id: "source_other", knowhereDocumentId: "doc_other" })],
+        excludedSourceIds: ["knowhere-doc:default:doc_user_excluded"],
+        retrieval: client.retrieval,
+        generateAnswer: async ({ knowhereTools }) => {
+          if (!knowhereTools) throw new Error("Missing Knowhere tools")
+          for (const scope of scopes) await knowhereTools.search({ query: "document question", ...scope })
+          return makeCitedHarnessRunResult("Evidence [[cite:1]].", result)
+        },
+        messages: [],
+      }))
+      expect(received).toEqual(scopes.map((scope) => ({
+        namespace: "default", query: "document question", top_k: 8, use_agentic: useAgentic, data_type: 1,
+        ...(scope.includeDocumentIds !== undefined ? { include_document_ids: scope.includeDocumentIds } : {}),
+        exclude_document_ids: ["doc_user_excluded", ...(scope.excludeDocumentIds ?? [])],
+      })))
+      expect(answer.answer).toBe("Evidence [[cite:1]].")
+      expect(answer.citations).toHaveLength(1)
+      expect(answer.citations[0]?.source.documentId).toBe("doc_included")
+    } finally {
+      if (server.listening) {
+        await new Promise<void>((resolve, reject) => {
+          server.close((error) => error ? reject(error) : resolve())
+          server.closeAllConnections()
+        })
+      }
+    }
+  })
+
+  it("rejects invented document IDs but accepts IDs discovered by a prior search", async () => {
+    const result = makeRetrievalResult({ source: {
+      documentId: "doc_discovered", sourceFileName: "named-document.pdf", sectionPath: "Overview",
+    } })
+    const retrieval = { query: vi.fn().mockResolvedValue({
+      namespace: "default", query: "named document", routerUsed: "agent_explore",
+      results: [result], referencedChunks: [], evidenceText: result.content, answerText: "",
+    }) }
+    await Effect.runPromise(answerQuestionWithRetrieval({
+      question: "Only search the named document", namespace: "default",
+      sources: [makeSource()], excludedSourceIds: [], retrieval, messages: [],
+      generateAnswer: async ({ knowhereTools }) => {
+        if (!knowhereTools) throw new Error("Missing Knowhere tools")
+        await expect(knowhereTools.search({ query: "question", includeDocumentIds: ["named-document.pdf"] })).rejects.toThrow("unverified ID")
+        await expect(knowhereTools.search({ query: "question", excludeDocumentIds: ["doc_invented"] })).rejects.toThrow("unverified ID")
+        expect(retrieval.query).not.toHaveBeenCalled()
+        await knowhereTools.search({ query: "Only search named-document.pdf" })
+        await knowhereTools.search({ query: "question", includeDocumentIds: ["doc_discovered"] })
+        expect(retrieval.query).toHaveBeenLastCalledWith(expect.objectContaining({ includeDocumentIds: ["doc_discovered"] }))
+        return makeCitedHarnessRunResult("Evidence [[cite:1]].", result)
+      },
+    }))
+  })
+
   it("does not create source chips from retrieval results when the manifest has no citations", async () => {
     const unrelatedResult = makeRetrievalResult({
       content: "Information hiding is unrelated to the requested source.",
@@ -150,7 +238,7 @@ describe("answerQuestionWithRetrieval", () => {
     });
   });
 
-  it("exposes search, list, outline, read, and grep through the Knowhere tool runtime", async () => {
+  it("exposes search through the Knowhere tool runtime", async () => {
     const result = makeRetrievalResult({
       chunkType: "image",
       source: {
@@ -170,36 +258,6 @@ describe("answerQuestionWithRetrieval", () => {
         answerText: null,
       }),
     };
-    const getDocumentOutline = vi.fn().mockResolvedValue(makeKnowledgeOutline());
-    const readChunks = vi.fn().mockResolvedValue(
-      makeKnowledgeReadResponse("Full diagram chunk body."),
-    );
-    const grepChunks = vi.fn().mockResolvedValue(makeKnowledgeGrepResponse());
-    const knowledge = {
-      getDocumentOutline,
-      readChunks,
-      grepChunks,
-    } as unknown as Knowledge;
-    const listDocuments = vi.fn().mockResolvedValue({
-      documents: [
-        {
-          documentId: "doc_remote",
-          namespace: "default",
-          status: "ready",
-          currentJobResultId: "job_remote",
-          sourceFileName: "remote.pdf",
-          documentMetadata: {
-            createdByClient: "cli",
-          },
-        },
-        {
-          documentId: "doc_untagged",
-          namespace: "default",
-          status: "ready",
-          sourceFileName: "dummy.pdf",
-        },
-      ],
-    });
     const generateAnswer = vi.fn(
       async ({ knowhereTools }: Parameters<GenerateAnswer>[0]) => {
         if (!knowhereTools) throw new Error("Knowhere tools were not provided.");
@@ -209,28 +267,8 @@ describe("answerQuestionWithRetrieval", () => {
           targetContent: "image",
           topK: 2,
         });
-        const documents = await knowhereTools.listDocuments();
-        await knowhereTools.getDocumentOutline({
-          documentId: "doc_included",
-          revisionKey: "job_123",
-        });
-        await knowhereTools.readChunks({
-          documentId: "doc_included",
-          revisionKey: "job_123",
-          page: 1,
-          pageSize: 2,
-        });
-        await knowhereTools.grepChunks({
-          documentId: "doc_included",
-          revisionKey: "job_123",
-          pattern: "diagram",
-          maxResults: 3,
-        });
 
         expect(searchResponse.results).toEqual([result]);
-        expect(
-          documents.documents.map((document) => document.documentId),
-        ).toEqual(["doc_included", "doc_remote"]);
         return makeHarnessRunResult("Runtime answer.");
       },
     );
@@ -246,8 +284,6 @@ describe("answerQuestionWithRetrieval", () => {
         sources,
         excludedSourceIds: ["source_excluded"],
         retrieval,
-        knowledge,
-        remoteDocumentClient: { documents: { list: listDocuments } },
         generateAnswer,
         messages: [],
       }),
@@ -260,27 +296,6 @@ describe("answerQuestionWithRetrieval", () => {
       useAgentic: true,
       dataType: 3,
       excludeDocumentIds: ["doc_excluded"],
-    });
-    expect(listDocuments).toHaveBeenCalledWith({
-      namespace: "default",
-      page: 1,
-      pageSize: 200,
-    });
-    expect(getDocumentOutline).toHaveBeenCalledWith({
-      documentId: "doc_included",
-      revisionKey: "job_123",
-    });
-    expect(readChunks).toHaveBeenCalledWith({
-      documentId: "doc_included",
-      revisionKey: "job_123",
-      page: 1,
-      pageSize: 2,
-    });
-    expect(grepChunks).toHaveBeenCalledWith({
-      documentId: "doc_included",
-      revisionKey: "job_123",
-      pattern: "diagram",
-      maxResults: 3,
     });
     expect(answer.answer).toBe("Runtime answer.");
   });
@@ -1040,6 +1055,7 @@ describe("answerQuestionWithRetrieval", () => {
         manifest: {
           text: `Use this image. ${rawAssetUrl}`,
           citations: [],
+          memoryCitations: [],
           artifacts: [
             {
               type: "image",
@@ -1430,10 +1446,10 @@ describe("answerQuestionWithRetrieval", () => {
     expect(answer.citations[0]?.pageCitationAssetUrl).toBe(hardenedPageAssetUrl);
   });
 
-  it("hydrates page numbers for grep citations from the matching parsed chunk", async () => {
+  it("hydrates page numbers for citations missing page metadata from the matching parsed chunk", async () => {
     const grepChunk = {
-      ref: "grep1:match:1",
-      kind: "grep_match" as const,
+      ref: "r1:result:1",
+      kind: "result" as const,
       chunkId: "chunk_financial_summary",
       content: "ept percentages and per share data)\nTotal automotive revenues\n17,693",
       contentPreview: "ept percentages and per share data)",
@@ -1478,7 +1494,7 @@ describe("answerQuestionWithRetrieval", () => {
       makeHarnessRunResultWithLedger(
         "Automotive revenue was $17,693 million [[cite:1]].",
         {
-          citations: [{ ref: "grep1:match:1" }],
+          citations: [{ ref: "r1:result:1" }],
           chunks: [grepChunk],
         },
       ),
@@ -1773,6 +1789,7 @@ describe("answerQuestionWithRetrieval", () => {
         manifest: {
           text: "已找到相关身份证图片，见下方图片。",
           citations: [],
+          memoryCitations: [],
           artifacts: [
             {
               type: "image",
@@ -2052,17 +2069,8 @@ describe("answerQuestionWithRetrieval", () => {
 
         await tools.finalize?.execute({
           text: "Information hiding is a module design principle.",
-          citations: [
-            {
-              ref: "r1:result:1",
-              label: "claimed-source.pdf / Claimed",
-              source: {
-                documentId: "doc_claimed",
-                sourceFileName: "claimed-source.pdf",
-                sectionPath: "Claimed",
-              },
-            },
-          ],
+          citations: [{ pick: 1 }],
+          memoryCitations: [],
           artifacts: [],
           unresolved: [],
         });
@@ -2081,7 +2089,11 @@ describe("answerQuestionWithRetrieval", () => {
         sources: [makeSource()],
         excludedSourceIds: [],
         retrieval,
-        generateAnswer: generateAgenticOutputManifest,
+        generateAnswer: (input) =>
+          generateAgenticOutputManifest({
+            ...input,
+            workspaceId: "workspace_1",
+          }),
         messages: [],
       }),
     );
@@ -2128,6 +2140,7 @@ describe("answerQuestionWithRetrieval", () => {
         manifest: {
           text: "",
           citations: [],
+          memoryCitations: [],
           artifacts: [
             {
               type: "image",
@@ -2243,6 +2256,7 @@ describe("answerQuestionWithRetrieval", () => {
         manifest: {
           text: "I organized the comparison into a table.",
           citations: [],
+          memoryCitations: [],
           artifacts: [
             {
               type: "derived_table",
@@ -2639,6 +2653,7 @@ describe("answerQuestionWithRetrieval", () => {
         content: "",
         chunkType: "image",
         score: null,
+        chunkId: "chunk_1",
         assetUrl: "https://blob.example/images/launch.jpg",
         source: {
           documentId: "doc_spacex",
@@ -2688,17 +2703,8 @@ describe("generateAgenticOutputManifest", () => {
         });
         await tools.finalize?.execute({
           text: "已找到相关身份证图片，见下方图片。",
-          citations: [
-            {
-              ref: "r1:result:1",
-              label: "商务标文件.pdf / 身份证正面",
-              source: {
-                documentId: "doc_identity",
-                sourceFileName: "document-generated.pdf",
-                sectionPath: "身份证正面",
-              },
-            },
-          ],
+          citations: [{ pick: 1 }],
+          memoryCitations: [],
           artifacts: [
             {
               type: "image",
@@ -2739,6 +2745,7 @@ describe("generateAgenticOutputManifest", () => {
     });
 
     const result = await generateAgenticOutputManifest({
+      workspaceId: "workspace_1",
       question: "请只返回冯荣洲的 2 张身份证图片",
       messages: [
         {
@@ -2825,17 +2832,8 @@ describe("generateAgenticOutputManifest", () => {
         });
         await tools.finalize?.execute({
           text: "The inspected image appears to show the requested ID card.",
-          citations: [
-            {
-              ref: "asset:r1:result:1",
-              label: "identity.pdf / images/id-front.png",
-              source: {
-                documentId: "doc_identity",
-                sourceFileName: "generated.pdf",
-                sectionPath: "images/id-front.png",
-              },
-            },
-          ],
+          citations: [{ pick: 1 }],
+          memoryCitations: [],
           artifacts: [
             {
               type: "image",
@@ -2885,6 +2883,7 @@ describe("generateAgenticOutputManifest", () => {
     });
 
     const result = await generateAgenticOutputManifest({
+      workspaceId: "workspace_1",
       question: "Inspect and show the ID card image.",
       messages: [],
       sources: [
@@ -2912,7 +2911,7 @@ describe("generateAgenticOutputManifest", () => {
       ],
     });
     expect(result.manifest.citations.map((citation) => citation.ref)).toEqual([
-      "asset:r1:result:1",
+      "r1:result:1",
     ]);
     expect(result.manifest.artifacts).toEqual([
       {
@@ -2965,17 +2964,8 @@ describe("generateAgenticOutputManifest", () => {
         });
         await tools.finalize?.execute({
           text: "承包人自行修改发包人审批的进度计划，应按每次 5000 元赔偿违约金。",
-          citations: [
-            {
-              ref: "asset:r1:referenced:1",
-              label: "投标书 / （6）现场工期进度管理方面的违约责任",
-              source: {
-                documentId: "doc_contract",
-                sourceFileName: null,
-                sectionPath: "Root / （6）现场工期进度管理方面的违约责任",
-              },
-            },
-          ],
+          citations: [{ pick: 1 }],
+          memoryCitations: [],
           artifacts: [],
           unresolved: [],
         });
@@ -3029,6 +3019,7 @@ describe("generateAgenticOutputManifest", () => {
     });
 
     const result = await generateAgenticOutputManifest({
+      workspaceId: "workspace_1",
       question: "承包人自行修改发包人审批的进度时需要赔偿多少违约金？",
       messages: [],
       sources: [
@@ -3072,7 +3063,7 @@ describe("generateAgenticOutputManifest", () => {
     });
     expect(result.manifest.text).toContain("5000 元");
     expect(result.manifest.citations.map((citation) => citation.ref)).toEqual([
-      "asset:r1:referenced:1",
+      "r1:referenced:1",
     ]);
     expect(result.trace.toolCalls.map((call) => call.tool)).toContain(
       "inspectImage",
@@ -3115,17 +3106,8 @@ describe("generateAgenticOutputManifest", () => {
           });
           await tools.finalize?.execute({
             text: "见下方图片。",
-            citations: [
-              {
-                ref: "r1:result:1",
-                label: "ids.pdf / 身份证 1",
-                source: {
-                  documentId: "doc_identity",
-                  sourceFileName: "ids.pdf",
-                  sectionPath: "身份证 1",
-                },
-              },
-            ],
+            citations: [{ pick: 1 }],
+            memoryCitations: [],
             artifacts: [1, 2, 3].map((index) => ({
               type: "image",
               ref: `asset:r1:result:${index}`,
@@ -3137,17 +3119,8 @@ describe("generateAgenticOutputManifest", () => {
         } else {
           await tools.finalize?.execute({
             text: "见下方图片。",
-            citations: [
-              {
-                ref: "r1:result:1",
-                label: "ids.pdf / 身份证 1",
-                source: {
-                  documentId: "doc_identity",
-                  sourceFileName: "ids.pdf",
-                  sectionPath: "身份证 1",
-                },
-              },
-            ],
+            citations: [{ pick: 1 }],
+            memoryCitations: [],
             artifacts: [1, 2].map((index) => ({
               type: "image",
               ref: `asset:r1:result:${index}`,
@@ -3188,6 +3161,7 @@ describe("generateAgenticOutputManifest", () => {
     });
 
     const result = await generateAgenticOutputManifest({
+      workspaceId: "workspace_1",
       question: "只要 2 张身份证图片",
       messages: [],
       sources: [
@@ -3322,6 +3296,7 @@ function makeHarnessRunResult(text: string): HarnessRunResult {
     manifest: {
       text,
       citations: [],
+      memoryCitations: [],
       artifacts: [],
       unresolved: [],
     },
@@ -3371,6 +3346,7 @@ function makeHarnessRunResultWithLedger(
     manifest: {
       text,
       citations: input.citations ?? [],
+      memoryCitations: [],
       artifacts: input.artifacts ?? [],
       unresolved: [],
     },
@@ -3428,87 +3404,6 @@ function makeEvidenceChunkFromRetrievalResult(
       sectionPath: result.source.sectionPath,
     },
     ...(result.assetUrl ? { assetUrl: result.assetUrl } : {}),
-  };
-}
-
-function makeKnowledgeOutline(): KnowledgeOutline {
-  return {
-    document: makeLocalKnowledgeDocument(),
-    totalChunks: 1,
-    typeCounts: { text: 1, image: 0, table: 0, page: 0 },
-    sections: [
-      {
-        sectionPath: "Root / Diagram",
-        sectionTitle: "Diagram",
-        sectionLevel: 2,
-        summary: "Diagram section.",
-        startChunk: 1,
-        endChunk: 1,
-        chunkCount: 1,
-        typeCounts: { text: 1, image: 0, table: 0, page: 0 },
-        children: [],
-      },
-    ],
-    sectionTree: [],
-  };
-}
-
-function makeKnowledgeReadResponse(content: string): KnowledgeReadResponse {
-  return {
-    document: makeLocalKnowledgeDocument(),
-    chunks: [
-      {
-        position: 1,
-        chunkId: "chunk_1",
-        chunkType: "text",
-        content,
-        readableContent: content,
-        sectionPath: "Root / Diagram",
-        sourceChunkPath: "chunks/chunk-1.md",
-        filePath: "notes.txt",
-        metadata: {},
-      },
-    ],
-    page: 1,
-    pageSize: 1,
-    totalChunks: 1,
-    totalPages: 1,
-  };
-}
-
-function makeKnowledgeGrepResponse(): KnowledgeGrepResponse {
-  return {
-    document: makeLocalKnowledgeDocument(),
-    matches: [
-      {
-        position: 1,
-        chunkId: "chunk_1",
-        chunkType: "text",
-        sectionPath: "Root / Diagram",
-        sourceChunkPath: "chunks/chunk-1.md",
-        filePath: "notes.txt",
-        startOffset: 0,
-        endOffset: 7,
-        snippet: "diagram",
-      },
-    ],
-    scannedChunks: 1,
-    truncated: false,
-  };
-}
-
-function makeLocalKnowledgeDocument() {
-  return {
-    localDocumentId: "doc_included",
-    documentId: "doc_included",
-    jobId: "job_123",
-    namespace: "notebook-workspace",
-    sourceFileName: "notes.txt",
-    chunkCount: 1,
-    typeCounts: { text: 1, image: 0, table: 0, page: 0 },
-    resultDirectoryPath: "parsed-storage:doc_included/job_123",
-    createdAt: new Date("2026-01-01T00:00:00Z"),
-    updatedAt: new Date("2026-01-01T00:00:00Z"),
   };
 }
 

@@ -9,7 +9,7 @@ import {
 } from "."
 import { toChatMessageView } from "./view"
 import type { ChatMessage, ChatThread, Source, Workspace } from "@/infrastructure/db/schema"
-import { getCompatibleNamespaces } from "@/domains/sources/namespace"
+import { sharedLibraryNamespace } from "@/domains/sources/namespace"
 import type {
   ChatArtifactView,
   ChatCitationView,
@@ -68,7 +68,6 @@ type ChatTurnInput = {
   excludedSourceIds: readonly string[]
   retrieval: RetrievalClient
   knowledge?: AnswerQuestionInput["knowledge"]
-  remoteDocumentClient?: AnswerQuestionInput["remoteDocumentClient"]
   generateAnswer: GenerateAnswer
   hardenChatAssetUrl?: AnswerQuestionInput["hardenChatAssetUrl"]
   hardenMediaAssetUrls?: AnswerQuestionInput["hardenMediaAssetUrls"]
@@ -125,13 +124,12 @@ export const handleChatTurnEffect = (input: ChatTurnInput) =>
     const answer = yield* answerQuestionWithRetrieval({
       question: input.question,
       namespace: input.workspace.namespace,
-      namespaces: getCompatibleNamespaces(input.workspace),
+      namespaces: [sharedLibraryNamespace],
       sources: readySources,
       useAgentic: input.useAgentic ?? true,
       excludedSourceIds: input.excludedSourceIds,
       retrieval: input.retrieval,
       knowledge: input.knowledge,
-      remoteDocumentClient: input.remoteDocumentClient,
       generateAnswer: input.generateAnswer,
       hardenChatAssetUrl: input.hardenChatAssetUrl,
       hardenMediaAssetUrls: input.hardenMediaAssetUrls,

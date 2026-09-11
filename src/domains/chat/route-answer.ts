@@ -1,9 +1,6 @@
 import { Cause, Effect, Either, Option } from "effect"
 
-import {
-  generateAgenticOutputManifest,
-  parseChatRequestBody,
-} from "@/domains/chat"
+import { parseChatRequestBody } from "@/domains/chat"
 import type {
   ImageInspectionAsset,
   ImageInspectionRequest,
@@ -11,16 +8,15 @@ import type {
   ImageInspectionSkippedAsset,
   InspectImages,
 } from "@/agent-harness"
+import { commitAgenticChatTurn } from "@/domains/chat/commit-turn"
 import { normalizeImageInspectionHighlights } from "@/agent-harness/image-highlights"
 import { generateImageInspectionModelResult } from "@/domains/chat/image-inspection-model"
 import { hardenChatMediaAssetUrls } from "@/domains/chat/media-asset-hardening"
 import {
-  handleChatTurn,
   type ChatTurnError,
   type ChatTurnValue,
 } from "@/domains/chat/service"
 import { chatTurnPersistence } from "@/domains/chat/chat-turn-persistence"
-import { triggerMemoryExtraction } from "@/domains/memory/extract-trigger"
 import { startBackgroundReconciliation } from "@/domains/sources/background-reconcile"
 import { BlobParsedDocumentStorage } from "@/domains/sources/parsed-document-blob-storage"
 import { sourceWorkflowRuntime } from "@/domains/sources/workflow-runtime"
@@ -140,7 +136,7 @@ const answerChatEffect = (input: AnswerChatInput) =>
 
     const result: Either.Either<ChatTurnValue, ChatAnswerFailure> =
       yield* Effect.tryPromise(() =>
-        handleChatTurn({
+        commitAgenticChatTurn({
           workspace,
           sources,
           question: body.value.question,
@@ -149,8 +145,6 @@ const answerChatEffect = (input: AnswerChatInput) =>
           excludedSourceIds: body.value.excludedSourceIds,
           retrieval: client.retrieval,
           knowledge: knowhereResources.knowledge,
-          remoteDocumentClient: client,
-          generateAnswer: generateAgenticOutputManifest,
           hardenChatAssetUrl,
           hardenMediaAssetUrls: ({ results, artifacts }) =>
             hardenChatMediaAssetUrls({
@@ -197,17 +191,8 @@ const answerChatEffect = (input: AnswerChatInput) =>
     return Either.match(result, {
       onLeft: (error): RouteResponse<MessageBody> =>
         routeResult.error(error.status, error.message),
-      onRight: (value): RouteResponse<ChatTurnValue> => {
-        // Fire-and-forget: extract fluid memory from this turn without
-        // blocking the chat response.
-        void triggerMemoryExtraction({
-          workspaceId: workspace.id,
-          threadId: value.threadId,
-          userMessageId: value.messages[0].id,
-          assistantMessageId: value.messages[1].id,
-        })
-        return routeResult.ok(value)
-      },
+      onRight: (value): RouteResponse<ChatTurnValue> =>
+        routeResult.ok(value),
     })
   })
 

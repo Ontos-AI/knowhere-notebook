@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest"
-import type {
-  KnowledgeGrepResponse,
-  KnowledgeReadResponse,
-  RetrievalQueryResponse,
-} from "@ontos-ai/knowhere-sdk"
+import type { RetrievalQueryResponse } from "@ontos-ai/knowhere-sdk"
 
 import { createEvidenceLedger } from "./ledger"
 
@@ -117,118 +113,80 @@ describe("createEvidenceLedger", () => {
     )
   })
 
-  it("adds read chunk refs and page image assets", () => {
+  it("does not throw when a result is missing chunkType", () => {
+    // Knowhere's chunkType is declared as a required string in the SDK
+    // type, but real retrieval results can omit it at runtime, same as the
+    // referencedChunks case above. Unlike referencedChunks (which carry no
+    // real content), results carry real content, so the chunk must still be
+    // kept in the ledger -- only asset-type detection should be guarded.
     const ledger = createEvidenceLedger()
 
-    const snapshot = ledger.addReadChunksResponse(makeReadResponse())
+    const snapshot = ledger.addRetrievalResponse({
+      namespace: "default",
+      query: "hypertension target",
+      routerUsed: "agent_explore",
+      answerText: "",
+      evidenceText: "[E1] some evidence",
+      stopReason: "finished",
+      failureReason: null,
+      results: [
+        {
+          content: "Target BP is <130/80 mmHg.",
+          chunkType: undefined as unknown as string,
+          score: 0.9,
+          assetUrl: "https://assets.example/images/chart.png",
+          source: {
+            documentId: "doc_1",
+            sourceFileName: "guideline.pdf",
+            sectionPath: "BP targets",
+          },
+        },
+      ],
+      referencedChunks: [],
+    })
 
-    expect(snapshot.chunks).toEqual([
-      expect.objectContaining({
-        ref: "read1:chunk:1",
-        kind: "read_chunk",
-        content: "Full page content.",
-        contentPreview: "Full page content.",
-        assetRef: "asset:read1:chunk:1",
-      }),
-    ])
+    expect(snapshot.chunks.map((chunk) => chunk.ref)).toEqual(["r1:result:1"])
+    expect(snapshot.chunks[0]?.content).toBe("Target BP is <130/80 mmHg.")
+    // chunkType is unknown, but the assetUrl itself has an image extension,
+    // so asset detection still recognizes it as an image via the URL check.
     expect(snapshot.assets).toEqual([
-      expect.objectContaining({
-        ref: "asset:read1:chunk:1",
-        chunkRef: "read1:chunk:1",
-        type: "image",
-        sourcePath: "page_citation_assets/page-1.png",
-      }),
+      expect.objectContaining({ ref: "asset:r1:result:1", type: "image" }),
     ])
   })
 
-  it("adds grep match refs", () => {
+  it("skips agent_explore referencedChunks that lack chunkType instead of throwing", () => {
     const ledger = createEvidenceLedger()
 
-    const snapshot = ledger.addGrepChunksResponse(makeGrepResponse())
-
-    expect(snapshot.chunks).toEqual([
-      expect.objectContaining({
-        ref: "grep1:match:1",
-        kind: "grep_match",
-        chunkId: "chunk_3",
-        content: "matched penalty snippet",
-        source: expect.objectContaining({
-          documentId: "doc_contract",
-          sourceFileName: "contract.pdf",
-          sectionPath: "Root / Penalties",
-        }),
-      }),
-    ])
-  })
-
-  it("copies page metadata onto grep matches from the same chunk id", () => {
-    const ledger = createEvidenceLedger()
-    ledger.addReadChunksResponse(makeReadResponse())
-
-    const snapshot = ledger.addGrepChunksResponse({
-      ...makeGrepResponse(),
-      matches: [
+    const snapshot = ledger.addRetrievalResponse({
+      namespace: "default",
+      query: "hypertension CAD blood pressure target",
+      routerUsed: "agent_explore",
+      answerText: "",
+      evidenceText: "[E1] some evidence",
+      stopReason: "finished",
+      failureReason: null,
+      results: [
         {
-          position: 1,
-          chunkId: "chunk_page_1",
-          chunkType: "page",
-          sectionPath: "Root / Page 1",
-          sourceChunkPath: "pages/page-1.md",
-          startOffset: 0,
-          endOffset: 12,
-          snippet: "Full page snip",
+          content: "Target BP is <130/80 mmHg.",
+          chunkType: "text",
+          score: 0.9,
+          source: {
+            documentId: "doc_1",
+            sourceFileName: "guideline.pdf",
+            sectionPath: "BP targets",
+          },
         },
       ],
+      // Real agent_explore responses can return referencedChunks entries
+      // that only carry a summary id, with no chunkType/chunkId/documentId
+      // even though the SDK type declares those as required strings.
+      referencedChunks: [
+        { summary: "8da0776b-c52b-5602-8579-25c421706f5f" },
+      ] as unknown as RetrievalQueryResponse["referencedChunks"],
     })
 
-    expect(snapshot.chunks[1]).toEqual(
-      expect.objectContaining({
-        ref: "grep1:match:1",
-        kind: "grep_match",
-        chunkId: "chunk_page_1",
-        metadata: expect.objectContaining({
-          pageNums: [1],
-          position: 1,
-          startOffset: 0,
-          endOffset: 12,
-        }),
-      }),
-    )
-  })
-
-  it("copies pageNumbers from the grep match when the SDK provides them", () => {
-    const ledger = createEvidenceLedger()
-
-    const snapshot = ledger.addGrepChunksResponse({
-      ...makeGrepResponse(),
-      matches: [
-        {
-          position: 1,
-          chunkId: "chunk_page_4",
-          chunkType: "page",
-          sectionPath: "FINANCIAL SUMMARY",
-          sourceChunkPath: "pages/page-4.md",
-          startOffset: 0,
-          endOffset: 12,
-          snippet: "automotive revenues",
-          pageNumbers: [4],
-        },
-      ],
-    })
-
-    expect(snapshot.chunks[0]).toEqual(
-      expect.objectContaining({
-        ref: "grep1:match:1",
-        kind: "grep_match",
-        chunkId: "chunk_page_4",
-        metadata: expect.objectContaining({
-          pageNums: [4],
-          position: 1,
-          startOffset: 0,
-          endOffset: 12,
-        }),
-      }),
-    )
+    expect(snapshot.chunks.map((chunk) => chunk.ref)).toEqual(["r1:result:1"])
+    expect(snapshot.chunks[0]?.content).toBe("Target BP is <130/80 mmHg.")
   })
 })
 
@@ -300,79 +258,5 @@ function makePageAssetUrlRetrievalResponse(): RetrievalQueryResponse {
           "https://knowhere-storage.example/results/job_1/page_citation_assets/page-8.png?AWSAccessKeyId=test",
       },
     ],
-  }
-}
-
-function makeReadResponse(): KnowledgeReadResponse {
-  return {
-    document: {
-      localDocumentId: "doc_contract",
-      documentId: "doc_contract",
-      jobId: "job_contract",
-      namespace: "notebook",
-      sourceFileName: "contract.pdf",
-      chunkCount: 1,
-      typeCounts: { text: 0, image: 0, table: 0, page: 1 },
-      resultDirectoryPath: "parsed-storage:doc_contract/job_contract",
-      createdAt: new Date("2026-01-01T00:00:00Z"),
-      updatedAt: new Date("2026-01-01T00:00:00Z"),
-    },
-    chunks: [
-      {
-        position: 1,
-        chunkId: "chunk_page_1",
-        chunkType: "page",
-        content: "Full page content.",
-        readableContent: "Full page content.",
-        sectionPath: "Root / Page 1",
-        sourceChunkPath: "pages/page-1.md",
-        filePath: "pages/page-1.png",
-        assetUrl: "https://assets.example/page-1.png",
-        pageNumbers: [1],
-        metadata: {
-          pageNums: [1],
-          pageAssets: [
-            {
-              pageNum: 1,
-              artifactRef: "page_citation_assets/page-1.png",
-              assetUrl: "https://assets.example/page-1.png",
-              contentType: "image/png",
-            },
-          ],
-        },
-      },
-    ],
-  }
-}
-
-function makeGrepResponse(): KnowledgeGrepResponse {
-  return {
-    document: {
-      localDocumentId: "doc_contract",
-      documentId: "doc_contract",
-      jobId: "job_contract",
-      namespace: "notebook",
-      sourceFileName: "contract.pdf",
-      chunkCount: 4,
-      typeCounts: { text: 4, image: 0, table: 0, page: 0 },
-      resultDirectoryPath: "parsed-storage:doc_contract/job_contract",
-      createdAt: new Date("2026-01-01T00:00:00Z"),
-      updatedAt: new Date("2026-01-01T00:00:00Z"),
-    },
-    matches: [
-      {
-        position: 3,
-        chunkId: "chunk_3",
-        chunkType: "text",
-        sectionPath: "Root / Penalties",
-        sourceChunkPath: "chunks/chunk-3.md",
-        filePath: "contract.pdf",
-        startOffset: 10,
-        endOffset: 17,
-        snippet: "matched penalty snippet",
-      },
-    ],
-    scannedChunks: 4,
-    truncated: false,
   }
 }

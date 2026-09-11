@@ -10,6 +10,7 @@ const nextConfig: NextConfig = {
     "@ontos-ai/knowhere-sdk",
     "@napi-rs/canvas",
     "piscina",
+    "@modelcontextprotocol/sdk",
   ],
   allowedDevOrigins: [
     "127.0.0.1",

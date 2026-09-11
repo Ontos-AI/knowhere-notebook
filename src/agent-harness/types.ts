@@ -1,10 +1,4 @@
 import type {
-  KnowledgeDocumentReference,
-  KnowledgeGrepParams,
-  KnowledgeGrepResponse,
-  KnowledgeOutline,
-  KnowledgeReadParams,
-  KnowledgeReadResponse,
   RetrievalQueryParams,
   RetrievalQueryResponse,
 } from "@ontos-ai/knowhere-sdk"
@@ -95,45 +89,59 @@ export type KnowhereSearchRequest = Pick<
   RetrievalQueryParams,
   "query" | "topK" | "signalPaths" | "filterMode" | "threshold"
 > & {
+  /** Omitted means all documents; [] means none. Exclusions take precedence. */
+  readonly includeDocumentIds?: string[]
+  readonly excludeDocumentIds?: string[]
   readonly targetContent?: KnowhereSearchTargetContent
   readonly purpose?: string
-}
-
-export type KnowhereDocumentSummary = {
-  readonly documentId?: string
-  readonly localDocumentId?: string
-  readonly revisionKey?: string
-  readonly namespace?: string
-  readonly sourceFileName: string
-  readonly title?: string
-  readonly status?: string
-  readonly chunkCount?: number
-  readonly typeCounts?: Readonly<Record<string, number>>
-}
-
-export type KnowhereListDocumentsResponse = {
-  readonly documents: readonly KnowhereDocumentSummary[]
 }
 
 export type KnowhereToolRuntime = {
   readonly search: (
     input: KnowhereSearchRequest,
   ) => Promise<RetrievalQueryResponse>
-  readonly listDocuments: () => Promise<KnowhereListDocumentsResponse>
-  readonly getDocumentOutline: (
-    input: KnowledgeDocumentReference,
-  ) => Promise<KnowledgeOutline>
-  readonly readChunks: (
-    input: KnowledgeReadParams,
-  ) => Promise<KnowledgeReadResponse>
-  readonly grepChunks: (
-    input: KnowledgeGrepParams,
-  ) => Promise<KnowledgeGrepResponse>
+}
+
+export const memorySearchKinds = [
+  "indicator_pref",
+  "stance",
+  "decision_rule",
+  "entity_of_interest",
+] as const
+
+export type MemorySearchKind = (typeof memorySearchKinds)[number]
+
+export type MemorySearchRequest = {
+  readonly query: string
+  readonly kinds?: readonly MemorySearchKind[]
+}
+
+export type MemorySearchItem = {
+  readonly ref: string
+  readonly itemId: string
+  readonly kind: MemorySearchKind
+  readonly abstractL0: string
+  readonly overviewL1: string
+}
+
+export type MemorySearchResponse = {
+  readonly query: string
+  readonly items: readonly MemorySearchItem[]
+}
+
+export type MemoryToolRuntime = {
+  readonly search: (input: MemorySearchRequest) => Promise<MemorySearchResponse>
+}
+
+export type MemoryCitation = {
+  readonly ref: string
+  readonly itemId: string
+  readonly kind: MemorySearchKind
 }
 
 export type EvidenceChunk = {
   readonly ref: string
-  readonly kind: "result" | "referenced_chunk" | "read_chunk" | "grep_match"
+  readonly kind: "result" | "referenced_chunk"
   readonly chunkId?: string
   readonly content: string
   readonly contentPreview: string
@@ -254,6 +262,7 @@ export type OutputArtifactView = OutputArtifact | DerivedTableArtifact
 export type OutputManifest = {
   readonly text: string
   readonly citations: readonly OutputCitation[]
+  readonly memoryCitations: readonly MemoryCitation[]
   readonly artifacts: readonly OutputArtifactView[]
   readonly unresolved: readonly string[]
 }

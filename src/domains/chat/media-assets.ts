@@ -1,6 +1,14 @@
 import type { RetrievalResult } from "@ontos-ai/knowhere-sdk"
 
+import { logger } from "@/lib/logger"
 import type { Source } from "@/infrastructure/db/schema"
+
+// Knowhere's chunkType is declared as a required string in the SDK type,
+// but real retrieval results can omit it. Normalize defensively instead of
+// calling .toLowerCase() on a value that may be undefined at runtime.
+function normalizeChunkType(chunkType: string): string {
+  return typeof chunkType === "string" ? chunkType.toLowerCase() : ""
+}
 
 const retrievedMediaAssetLimit = 6
 const imageExtensions = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg"] as const
@@ -27,7 +35,6 @@ export type RetrievalResultAssetInput = {
   readonly results: readonly RetrievalResult[]
   readonly sources: readonly Source[]
   readonly hardenChatAssetUrl?: HardenChatAssetUrl
-  readonly evidenceText?: string
 }
 
 export async function enrichRetrievalResultsWithAssetUrls({
@@ -80,7 +87,7 @@ export function dedupeMediaCitationResults(
 
     const existingResult = dedupedResults[existingIndex]
     const existingAssetUrl = getTrimmedString(existingResult?.assetUrl)
-    if (
+    const keepCurrent =
       existingResult &&
       existingAssetUrl &&
       compareMediaCitationResult(
@@ -89,7 +96,16 @@ export function dedupeMediaCitationResults(
         assetUrl,
         existingAssetUrl,
       ) > 0
-    ) {
+    logger.info("chat-agent: merged duplicate media citation", {
+      assetKey,
+      keptChunkId: keepCurrent
+        ? (result.chunkId ?? null)
+        : (existingResult?.chunkId ?? null),
+      droppedChunkId: keepCurrent
+        ? (existingResult?.chunkId ?? null)
+        : (result.chunkId ?? null),
+    })
+    if (keepCurrent) {
       dedupedResults[existingIndex] = result
     }
   }
@@ -162,7 +178,7 @@ function getMediaCitationResultScore(
   result: RetrievalResult,
   assetUrl: string,
 ): number {
-  const chunkType = result.chunkType.toLowerCase()
+  const chunkType = normalizeChunkType(result.chunkType)
   const isImageAsset = isImageAssetUrl(assetUrl)
   const isTableAsset = chunkType === "table"
   const source = result.source
@@ -235,7 +251,7 @@ async function addAssetCitationResults(
   source: Source,
   hardenChatAssetUrl: HardenChatAssetUrl,
 ): Promise<readonly RetrievalResult[]> {
-  if (result.chunkType.toLowerCase() === "page") return [result]
+  if (normalizeChunkType(result.chunkType) === "page") return [result]
 
   const existingAssetUrl = getTrimmedString(result.assetUrl)
   if (existingAssetUrl && isNotebookOwnedAssetUrl(existingAssetUrl)) return [result]
@@ -434,7 +450,7 @@ function isRenderableMediaAsset(
   result: RetrievalResult,
   assetUrl: string,
 ): boolean {
-  const chunkType = result.chunkType.toLowerCase()
+  const chunkType = normalizeChunkType(result.chunkType)
   return chunkType === "image" || chunkType === "table" || isImageAssetUrl(assetUrl)
 }
 

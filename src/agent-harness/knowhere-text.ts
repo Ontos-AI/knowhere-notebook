@@ -1,15 +1,6 @@
-import type {
-  KnowledgeGrepResponse,
-  KnowledgeOutline,
-  KnowledgeReadResponse,
-  RetrievalQueryResponse,
-} from "@ontos-ai/knowhere-sdk"
+import type { RetrievalQueryResponse } from "@ontos-ai/knowhere-sdk"
 
-import type {
-  EvidenceAsset,
-  EvidenceChunk,
-  KnowhereListDocumentsResponse,
-} from "./types"
+import type { EvidenceAsset, EvidenceChunk } from "./types"
 
 type EvidenceDelta = {
   readonly chunks: readonly EvidenceChunk[]
@@ -19,14 +10,7 @@ type EvidenceDelta = {
 type SearchTextInput = EvidenceDelta & {
   readonly response: RetrievalQueryResponse
   readonly retrievalCount: number
-}
-
-type ReadChunksTextInput = EvidenceDelta & {
-  readonly response: KnowledgeReadResponse
-}
-
-type GrepChunksTextInput = EvidenceDelta & {
-  readonly response: KnowledgeGrepResponse
+  readonly chunkPickStart: number
 }
 
 type ErrorTextInput = {
@@ -34,12 +18,7 @@ type ErrorTextInput = {
   readonly message: string
 }
 
-type KnowhereOperation =
-  | "search"
-  | "list_documents"
-  | "get_document_outline"
-  | "read_chunks"
-  | "grep_chunks"
+type KnowhereOperation = "search"
 
 const assetInstruction =
   "Notebook returned image/page asset refs. Call inspectImage with the asset refs you will cite before finalize so OCR/visual context and provenance boxes exist. Do not expose raw asset URLs."
@@ -56,97 +35,11 @@ export const knowhereToolText = {
         stopReason: input.response.stopReason ?? undefined,
         failureReason: input.response.failureReason ?? undefined,
       }),
-      formatOptionalTextTag("evidence", input.response.evidenceText),
-      formatEvidenceChunks(input.chunks),
+      // Model grounding comes from <chunks> (results). Do not also inject
+      // evidenceText — same bodies, no citeable refs, doubles context.
+      formatEvidenceChunks(input.chunks, input.chunkPickStart),
       formatEvidenceAssets(input.assets),
       formatAssetInstruction(input.assets),
-    ])
-  },
-
-  formatListDocuments(response: KnowhereListDocumentsResponse): string {
-    return wrapKnowhereBlock("list_documents", [
-      formatTag("summary", { documentCount: String(response.documents.length) }),
-      ...response.documents.map((document, index) =>
-        formatSelfClosingTag("document", {
-          index: String(index + 1),
-          documentId: document.documentId,
-          localDocumentId: document.localDocumentId,
-          revisionKey: document.revisionKey,
-          namespace: document.namespace,
-          sourceFileName: document.sourceFileName,
-          title: document.title,
-          status: document.status,
-          chunkCount:
-            typeof document.chunkCount === "number"
-              ? String(document.chunkCount)
-              : undefined,
-        }),
-      ),
-    ])
-  },
-
-  formatOutline(response: KnowledgeOutline): string {
-    return wrapKnowhereBlock("get_document_outline", [
-      formatTag("document", {
-        documentId: response.document.documentId,
-        localDocumentId: response.document.localDocumentId,
-        revisionKey: response.document.jobId,
-        sourceFileName: response.document.sourceFileName,
-        totalChunks: String(response.totalChunks),
-        truncated: response.truncated === true ? "true" : undefined,
-        continuationCursor: response.continuationCursor,
-      }),
-      ...response.sections.map((section) => formatSection(section, 0)),
-    ])
-  },
-
-  formatReadChunks(input: ReadChunksTextInput): string {
-    return wrapKnowhereBlock("read_chunks", [
-      formatTag("document", {
-        documentId: input.response.document.documentId,
-        localDocumentId: input.response.document.localDocumentId,
-        revisionKey: input.response.document.jobId,
-        sourceFileName: input.response.document.sourceFileName,
-        page:
-          typeof input.response.page === "number"
-            ? String(input.response.page)
-            : undefined,
-        pageSize:
-          typeof input.response.pageSize === "number"
-            ? String(input.response.pageSize)
-            : undefined,
-        totalChunks:
-          typeof input.response.totalChunks === "number"
-            ? String(input.response.totalChunks)
-            : undefined,
-        totalPages:
-          typeof input.response.totalPages === "number"
-            ? String(input.response.totalPages)
-            : undefined,
-        nextChunk:
-          typeof input.response.nextChunk === "number"
-            ? String(input.response.nextChunk)
-            : undefined,
-      }),
-      formatEvidenceChunks(input.chunks),
-      formatEvidenceAssets(input.assets),
-      formatAssetInstruction(input.assets),
-    ])
-  },
-
-  formatGrepChunks(input: GrepChunksTextInput): string {
-    return wrapKnowhereBlock("grep_chunks", [
-      formatTag("document", {
-        documentId: input.response.document.documentId,
-        localDocumentId: input.response.document.localDocumentId,
-        revisionKey: input.response.document.jobId,
-        sourceFileName: input.response.document.sourceFileName,
-        matchCount: String(input.response.matches.length),
-        scannedChunks: String(input.response.scannedChunks),
-        truncated: input.response.truncated ? "true" : "false",
-        continuationCursor: input.response.continuationCursor,
-      }),
-      formatEvidenceChunks(input.chunks),
     ])
   },
 
@@ -173,14 +66,18 @@ function wrapKnowhereBlock(
   ].join("\n")
 }
 
-function formatEvidenceChunks(chunks: readonly EvidenceChunk[]): string {
+function formatEvidenceChunks(
+  chunks: readonly EvidenceChunk[],
+  chunkPickStart: number,
+): string {
   if (chunks.length === 0) return ""
 
   return [
     "<chunks>",
-    ...chunks.map((chunk) =>
+    ...chunks.map((chunk, index) =>
       [
         formatOpenTag("chunk", {
+          pick: String(chunkPickStart + index + 1),
           ref: chunk.ref,
           kind: chunk.kind,
           chunkId: chunk.chunkId,
@@ -225,42 +122,6 @@ function formatEvidenceAssets(assets: readonly EvidenceAsset[]): string {
 function formatAssetInstruction(assets: readonly EvidenceAsset[]): string {
   if (!assets.some((asset) => asset.type === "image")) return ""
   return formatTextTag("asset_instruction", assetInstruction)
-}
-
-function formatSection(
-  section: KnowledgeOutline["sections"][number],
-  depth: number,
-): string {
-  return [
-    formatOpenTag("section", {
-      depth: String(depth),
-      sectionPath: section.sectionPath,
-      sectionTitle: section.sectionTitle,
-      sectionLevel: String(section.sectionLevel),
-      startChunk:
-        typeof section.startChunk === "number"
-          ? String(section.startChunk)
-          : undefined,
-      endChunk:
-        typeof section.endChunk === "number"
-          ? String(section.endChunk)
-          : undefined,
-      chunkCount: String(section.chunkCount),
-    }),
-    formatOptionalTextTag("summary", section.summary),
-    ...section.children.map((child) => formatSection(child, depth + 1)),
-    "</section>",
-  ]
-    .filter((part) => part.trim().length > 0)
-    .join("\n")
-}
-
-function formatOptionalTextTag(
-  tagName: string,
-  value: string | null | undefined,
-): string {
-  const trimmedValue = value?.trim()
-  return trimmedValue ? formatTextTag(tagName, trimmedValue) : ""
 }
 
 function formatTextTag(tagName: string, value: string): string {

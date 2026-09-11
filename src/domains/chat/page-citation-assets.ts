@@ -122,7 +122,12 @@ async function getStoredPageCitationAssetUrl(input: {
 }
 
 function isPageResult(result: RetrievalResult): boolean {
-  return result.chunkType.toLowerCase() === "page"
+  // Knowhere's chunkType is declared as a required string in the SDK type,
+  // but real retrieval results can omit it. Normalize defensively instead
+  // of calling .toLowerCase() on a value that may be undefined at runtime.
+  return typeof result.chunkType === "string"
+    ? result.chunkType.toLowerCase() === "page"
+    : false
 }
 
 function getDirectPageCitationAsset(

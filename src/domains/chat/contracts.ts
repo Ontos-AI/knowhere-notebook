@@ -9,6 +9,7 @@ import type {
   HarnessRunResult,
   InspectImages,
   KnowhereToolRuntime,
+  KnowhereSearchRequest,
 } from "@/agent-harness"
 import type {
   ChatArtifactView,
@@ -16,7 +17,6 @@ import type {
 } from "@/domains/chat/types"
 import type { HardenMediaAssetUrls } from "./media-asset-hardening"
 import type { HardenChatAssetUrl } from "./media-assets"
-import type { NotebookKnowhereRemoteDocumentClient } from "./knowhere-tools"
 
 export type RetrievalClient = {
   query(params: RetrievalQueryParams): Promise<RetrievalQueryResponse>
@@ -41,13 +41,7 @@ export type AgenticRetrievalPlan = {
   purpose: string | null
 }
 
-export type AgenticRetrievalQuery = Pick<
-  RetrievalQueryParams,
-  "query" | "topK" | "signalPaths" | "filterMode" | "threshold"
-> & {
-  readonly targetContent?: AgenticRetrievalTargetContent
-  readonly purpose?: string
-}
+export type AgenticRetrievalQuery = KnowhereSearchRequest
 
 export type AgenticRetrievalResponse = RetrievalQueryResponse & {
   retrievalPlan?: AgenticRetrievalPlan
@@ -76,7 +70,6 @@ export type AnswerQuestionInput = {
   useAgentic?: boolean
   retrieval: RetrievalClient
   knowledge?: Knowledge
-  remoteDocumentClient?: NotebookKnowhereRemoteDocumentClient
   generateAnswer: GenerateAnswer
   hardenChatAssetUrl?: HardenChatAssetUrl
   hardenMediaAssetUrls?: HardenMediaAssetUrls

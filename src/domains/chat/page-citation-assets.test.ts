@@ -203,6 +203,31 @@ describe("enrichRetrievalResultsWithPageCitationAssetUrls", () => {
     expect(result?.pageCitationAssetUrl).toBeUndefined()
     expect(result?.pageCitationPageNumber).toBe(4)
   })
+
+  it("does not throw when a result is missing chunkType", async () => {
+    // Knowhere's chunkType is declared as a required string in the SDK
+    // type, but real retrieval results can omit it at runtime.
+    const resultWithoutChunkType = makeRetrievalResult({
+      chunkType: undefined as unknown as string,
+      metadata: {
+        pageNums: [4],
+        pageAssets: [
+          {
+            pageNum: 4,
+            artifactRef: "page_citation_assets/page-4.png",
+            assetUrl: "https://assets.example/pages/page-4.png",
+          },
+        ],
+      },
+    })
+
+    const [result] = await enrichRetrievalResultsWithPageCitationAssetUrls({
+      results: [resultWithoutChunkType],
+      sources: [makeSource()],
+    })
+
+    expect(result?.pageCitationAssetUrl).toBeUndefined()
+  })
 })
 
 function makeRetrievalResult(
