@@ -2,12 +2,21 @@ import { describe, expect, it, vi } from "vitest"
 import type { RetrievalResult } from "@ontos-ai/knowhere-sdk"
 
 import {
+  dedupeMediaCitationResults,
   enrichRetrievalResultsWithAssetUrls,
   formatRetrievedMediaAssetContext,
   isImageAssetUrl,
   removeRetrievedMediaAssetUrls,
 } from "./media-assets"
 import type { Source } from "@/infrastructure/db/schema"
+
+vi.mock("@/lib/logger", () => ({
+  logger: {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  },
+}))
 
 describe("chat media assets", () => {
   it("enriches retrieved image chunks from Notebook parsed asset URLs", async () => {
@@ -258,6 +267,22 @@ describe("chat media assets", () => {
     )
 
     expect(answer).toBe("{\"name\":\"冯荣洲\",\"status\":\"matched\"}")
+  })
+
+  it("dedupes results with a missing chunkType instead of throwing", () => {
+    // Knowhere's chunkType is declared as a required string in the SDK
+    // type, but real retrieval results can omit it at runtime.
+    const resultWithoutChunkType = makeRetrievalResult({
+      chunkType: undefined as unknown as string,
+      assetUrl: "https://blob.example/images/launch.jpg",
+    })
+
+    expect(() =>
+      dedupeMediaCitationResults([resultWithoutChunkType]),
+    ).not.toThrow()
+
+    const deduped = dedupeMediaCitationResults([resultWithoutChunkType])
+    expect(deduped).toEqual([resultWithoutChunkType])
   })
 })
 

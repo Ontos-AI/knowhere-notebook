@@ -68,7 +68,6 @@ type ChatTurnInput = {
   excludedSourceIds: readonly string[]
   retrieval: RetrievalClient
   knowledge?: AnswerQuestionInput["knowledge"]
-  remoteDocumentClient?: AnswerQuestionInput["remoteDocumentClient"]
   generateAnswer: GenerateAnswer
   hardenChatAssetUrl?: AnswerQuestionInput["hardenChatAssetUrl"]
   hardenMediaAssetUrls?: AnswerQuestionInput["hardenMediaAssetUrls"]
@@ -131,7 +130,6 @@ export const handleChatTurnEffect = (input: ChatTurnInput) =>
       excludedSourceIds: input.excludedSourceIds,
       retrieval: input.retrieval,
       knowledge: input.knowledge,
-      remoteDocumentClient: input.remoteDocumentClient,
       generateAnswer: input.generateAnswer,
       hardenChatAssetUrl: input.hardenChatAssetUrl,
       hardenMediaAssetUrls: input.hardenMediaAssetUrls,

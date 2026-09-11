@@ -32,7 +32,7 @@ import type {
   AnswerQuestionResult,
 } from "./contracts"
 import {
-  excludeDocuments,
+  getRetrievalDocumentScope,
   normalizeRetrievalQuery,
 } from "./retrieval"
 import {
@@ -247,12 +247,8 @@ export const answerQuestionWithRetrieval = (
         excludedSourceIds: input.excludedSourceIds,
         searchSources,
         knowhereTools: notebookKnowhereTools.createRuntime({
-          namespace: input.namespace,
-          sources: input.sources,
-          excludedSourceIds: input.excludedSourceIds,
           searchSources,
-          knowledge: input.knowledge,
-          remoteDocumentClient: input.remoteDocumentClient,
+          sources: input.sources,
         }),
         ...(input.inspectImages ? { inspectImages: input.inspectImages } : {}),
       }),
@@ -981,7 +977,7 @@ function buildRetrievalQueryParams(input: {
     ...(typeof input.input.threshold === "number"
       ? { threshold: input.input.threshold }
       : {}),
-    ...excludeDocuments(input.sources, input.excludedSourceIds),
+    ...getRetrievalDocumentScope(input.sources, input.excludedSourceIds, input.input),
   }
 }
 
@@ -1056,12 +1052,16 @@ function mapManifestCitationsToResults(
   )
 
   const results: RetrievalResult[] = []
+  const droppedRefs: string[] = []
 
   for (const citation of result.manifest.citations) {
     const chunk =
       chunksByRef.get(citation.ref) ??
       resolveChunkForAssetRef(citation.ref, assetsByRef, chunksByRef)
-    if (!chunk) continue
+    if (!chunk) {
+      droppedRefs.push(citation.ref)
+      continue
+    }
 
     const retrievalResult = toRetrievalResultFromEvidenceChunk(
       mergeChunkPageMetadata(chunk, result.trace.ledger.chunks),
@@ -1078,6 +1078,14 @@ function mapManifestCitationsToResults(
         : retrievalResult
     results.push(resultWithHighlights as RetrievalResult)
     if (results.length >= MAX_CITATION_RESULTS) break
+  }
+
+  if (droppedRefs.length > 0) {
+    logger.warn("chat-agent: dropped unresolved citation refs", {
+      droppedRefs,
+      ledgerChunkRefs: result.trace.ledger.chunks.map((chunk) => chunk.ref),
+      ledgerAssetRefs: result.trace.ledger.assets.map((asset) => asset.ref),
+    })
   }
 
   return results
