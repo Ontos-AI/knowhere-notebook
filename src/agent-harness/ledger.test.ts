@@ -178,11 +178,14 @@ describe("createEvidenceLedger", () => {
           },
         },
       ],
-      // Real agent_explore responses can return referencedChunks entries
-      // that only carry a summary id, with no chunkType/chunkId/documentId
-      // even though the SDK type declares those as required strings.
+      // Real agent_explore responses carry provenance IDs without evidence
+      // fields even though the SDK type declares chunkType as required.
       referencedChunks: [
-        { summary: "8da0776b-c52b-5602-8579-25c421706f5f" },
+        {
+          documentId: "doc_1",
+          chunkId: "8da0776b-c52b-5602-8579-25c421706f5f",
+          pageNums: [],
+        },
       ] as unknown as RetrievalQueryResponse["referencedChunks"],
     })
 

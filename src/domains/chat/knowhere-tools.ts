@@ -1,4 +1,5 @@
 import type { KnowhereToolRuntime } from "@/agent-harness"
+import { hasReferencedChunkEvidence } from "@/agent-harness/referenced-chunks"
 import type { SearchSources } from "./contracts"
 import type { Source } from "@/infrastructure/db/schema"
 
@@ -30,7 +31,9 @@ export const notebookKnowhereTools = {
           if (result.source.documentId) knownDocumentIds.add(result.source.documentId)
         }
         for (const ref of response.referencedChunks) {
-          if (ref.documentId) knownDocumentIds.add(ref.documentId)
+          if (hasReferencedChunkEvidence(ref) && ref.documentId) {
+            knownDocumentIds.add(ref.documentId)
+          }
         }
         return response
       },

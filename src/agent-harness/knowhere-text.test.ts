@@ -27,6 +27,8 @@ describe("knowhereToolText", () => {
     expect(text).not.toContain("asset_instruction")
     expect(text).not.toContain("<evidence>")
     expect(text).not.toContain("Page one evidence.")
+    expect(text).not.toContain("referencedChunkCount")
+    expect(text).not.toContain("provenance-only-id")
     expect(text).not.toContain("https://assets.example/page-1.png")
   })
 
@@ -81,6 +83,12 @@ function makeSearchResponse(): RetrievalQueryResponse {
         },
       },
     ],
-    referencedChunks: [],
+    referencedChunks: [
+      {
+        documentId: "doc_1",
+        chunkId: "provenance-only-id",
+        pageNums: [],
+      },
+    ] as unknown as RetrievalQueryResponse["referencedChunks"],
   }
 }

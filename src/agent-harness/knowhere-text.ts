@@ -28,7 +28,6 @@ export const knowhereToolText = {
         namespace: input.response.namespace,
         query: input.response.query,
         resultCount: String(input.response.results.length),
-        referencedChunkCount: String(input.response.referencedChunks.length),
         stopReason: input.response.stopReason ?? undefined,
         failureReason: input.response.failureReason ?? undefined,
       }),

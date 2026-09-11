@@ -584,13 +584,21 @@ describe("answerQuestionWithRetrieval", () => {
       chunkType: "text" as const,
       sectionPath: `Reference ${index + 1}`,
     }));
+    const referencedChunksWithProvenance = [
+      {
+        documentId: "doc_provenance",
+        chunkId: "provenance-only-id",
+        pageNums: [],
+      } as unknown as (typeof referencedChunks)[number],
+      ...referencedChunks,
+    ];
     const retrieval = {
       query: vi
         .fn()
         .mockResolvedValueOnce({
           results: defaultResults,
           evidenceText: "Default evidence",
-          referencedChunks,
+          referencedChunks: referencedChunksWithProvenance,
           namespace: "default",
           query: "large response",
           routerUsed: "workflow_single_step",
@@ -601,7 +609,7 @@ describe("answerQuestionWithRetrieval", () => {
         .mockResolvedValueOnce({
           results: workspaceResults,
           evidenceText: "Workspace evidence",
-          referencedChunks,
+          referencedChunks: referencedChunksWithProvenance,
           namespace: "notebook-workspace",
           query: "large response",
           routerUsed: "workflow_single_step",
@@ -618,6 +626,7 @@ describe("answerQuestionWithRetrieval", () => {
         });
         expect(response.results).toHaveLength(6);
         expect(response.referencedChunks).toHaveLength(6);
+        expect(response.referencedChunks[0]?.chunkId).toBe("chunk_1");
         expect(response.results.map((result) => result.content)).toEqual(
           [
             ...defaultResults.slice(0, 3),

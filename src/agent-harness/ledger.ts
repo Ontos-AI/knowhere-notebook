@@ -10,6 +10,7 @@ import type {
   PendingRetentionRange,
   ResolveConnectedAssets,
 } from "./types"
+import { hasReferencedChunkEvidence } from "./referenced-chunks"
 
 const contentPreviewLimit = 1_200
 const imageExtensions = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg"] as const
@@ -92,15 +93,9 @@ export function createEvidenceLedger() {
       })
 
       response.referencedChunks.forEach((chunk, index) => {
-        // Knowhere's agent_explore router returns referencedChunks entries
-        // that may carry only a summary id with no chunkType/content
-        // (despite the SDK type declaring chunkType as required). Skip
-        // entries missing a usable chunkType: they have no real content
-        // (content is always "" here) and chunkType is required downstream
-        // (asset-type detection calls chunkType.toLowerCase()).
-        if (typeof chunk.chunkType !== "string" || chunk.chunkType.trim().length === 0) {
-          return
-        }
+        // ID-only references are provenance, not evidence. Structured page
+        // and media references remain available to the citation pipeline.
+        if (!hasReferencedChunkEvidence(chunk)) return
         const content = ""
         addChunk({
           ledger,

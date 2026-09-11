@@ -7,6 +7,7 @@ import type {
 
 import { logger } from "@/lib/logger"
 import { getCanonicalImageAssetKey } from "@/agent-harness/image-asset-identity"
+import { hasReferencedChunkEvidence } from "@/agent-harness/referenced-chunks"
 import type {
   ChatArtifactView,
   ChatCitationView,
@@ -832,10 +833,9 @@ function mergeRetrievalResponses(
     .slice(0, evidenceLimits.resultCount)
   const referencedChunks = responses
     .flatMap((response) =>
-      response.referencedChunks.slice(
-        0,
-        evidenceLimits.referencedChunkCountPerResponse,
-      ),
+      response.referencedChunks
+        .filter(hasReferencedChunkEvidence)
+        .slice(0, evidenceLimits.referencedChunkCountPerResponse),
     )
     .slice(0, evidenceLimits.referencedChunkCount)
   const evidenceTexts = responses
@@ -902,7 +902,7 @@ function getRetrievalStatusResponses(
 function hasRetrievalEvidence(response: RetrievalQueryResponse): boolean {
   return (
     response.results.length > 0 ||
-    response.referencedChunks.length > 0 ||
+    response.referencedChunks.some(hasReferencedChunkEvidence) ||
     Boolean(response.evidenceText?.trim()) ||
     Boolean(response.answerText?.trim())
   )
