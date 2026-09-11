@@ -65,17 +65,6 @@ export function listSourcesInFolder(
   return sources.filter((source) => (source.folderId ?? null) === folderId)
 }
 
-export function listFolderScopeSourceIds(
-  sources: readonly SourceView[],
-  folders: readonly FolderView[],
-  folderId: string,
-): readonly string[] {
-  const folderIds = new Set(getDescendantFolderIds(folders, folderId))
-  return sources
-    .filter((source) => source.folderId !== undefined && folderIds.has(source.folderId))
-    .map((source) => source.id)
-}
-
 export function canAssignSourceToFolder(source: SourceView): boolean {
   return (
     source.kind !== "remote" &&

@@ -188,6 +188,86 @@ describe("createEvidenceLedger", () => {
     expect(snapshot.chunks.map((chunk) => chunk.ref)).toEqual(["r1:result:1"])
     expect(snapshot.chunks[0]?.content).toBe("Target BP is <130/80 mmHg.")
   })
+
+  it("opens a pending retention range for new chunks and keeps only retained picks", () => {
+    const ledger = createEvidenceLedger()
+    const snapshot = ledger.addRetrievalResponse(makeRetrievalResponse())
+
+    expect(snapshot.pendingRetention).toEqual({ startPick: 1, endPick: 3 })
+    expect(snapshot.retainedPicks).toEqual([])
+    expect(ledger.hasPendingRetention()).toBe(true)
+
+    const retained = ledger.retainPicks([1, 3])
+    expect(retained).toEqual({ ok: true, retainedPicks: [1, 3] })
+    expect(ledger.hasPendingRetention()).toBe(false)
+    expect(ledger.isRetained(1)).toBe(true)
+    expect(ledger.isRetained(2)).toBe(false)
+    expect(ledger.isRetained(3)).toBe(true)
+    expect(ledger.snapshot().pendingRetention).toBeNull()
+    expect(ledger.snapshot().retainedPicks).toEqual([1, 3])
+  })
+
+  it("does not open pending retention when a search adds no chunks", () => {
+    const ledger = createEvidenceLedger()
+    const snapshot = ledger.addRetrievalResponse({
+      namespace: "notebook",
+      query: "empty",
+      routerUsed: "workflow_single_step",
+      answerText: null,
+      evidenceText: "No hits",
+      stopReason: "completed",
+      failureReason: null,
+      results: [],
+      referencedChunks: [],
+    })
+
+    expect(snapshot.chunks).toEqual([])
+    expect(snapshot.pendingRetention).toBeNull()
+    expect(ledger.hasPendingRetention()).toBe(false)
+    expect(ledger.retainPicks([])).toMatchObject({ ok: false })
+  })
+
+  it("rejects retain picks outside the latest search without changing state", () => {
+    const ledger = createEvidenceLedger()
+    ledger.addRetrievalResponse(makeRetrievalResponse())
+
+    expect(ledger.retainPicks([4])).toMatchObject({
+      ok: false,
+      invalidPicks: [4],
+    })
+    expect(ledger.hasPendingRetention()).toBe(true)
+    expect(ledger.snapshot().retainedPicks).toEqual([])
+  })
+
+  it("locks unretained first-search picks after a later search is retained", () => {
+    const ledger = createEvidenceLedger()
+    ledger.addRetrievalResponse(makeRetrievalResponse())
+    expect(ledger.retainPicks([])).toMatchObject({ ok: true, retainedPicks: [] })
+
+    ledger.addRetrievalResponse({
+      ...makeRetrievalResponse(),
+      results: [
+        {
+          content: "Second retrieval evidence.",
+          chunkType: "text",
+          score: 0.8,
+          source: {
+            documentId: "doc_2",
+            sourceFileName: "second.pdf",
+            sectionPath: "Second",
+          },
+        },
+      ],
+      referencedChunks: [],
+    })
+    expect(ledger.pendingRetentionRange()).toEqual({ startPick: 4, endPick: 4 })
+    expect(ledger.retainPicks([4])).toMatchObject({
+      ok: true,
+      retainedPicks: [4],
+    })
+    expect(ledger.isRetained(1)).toBe(false)
+    expect(ledger.isRetained(4)).toBe(true)
+  })
 })
 
 function makeRetrievalResponse(): RetrievalQueryResponse {

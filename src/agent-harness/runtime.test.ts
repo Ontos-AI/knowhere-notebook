@@ -13,25 +13,31 @@ import type {
   AgentTurnInput,
   ContextPolicy,
   HarnessToolCallTrace,
-  ImageInspectionRequest,
   IntentFrame,
   KnowhereToolRuntime,
+  MemorySearchItem,
   MemoryToolRuntime,
   OutputManifest,
 } from "./types"
 
 describe("agent harness runtime", () => {
-  it("tells the agent to search fluid memory first and not treat every question as document retrieval", () => {
+  it("tells the agent to search memory and documents in parallel when both apply", () => {
     const prompt = buildHarnessSystemPrompt(makeTurnInput())
 
-    expect(prompt).toContain("Call memory_search first")
+    expect(prompt).toContain("call them together in the same step")
     expect(prompt).toContain(
-      "Call knowhere_search only when memory is insufficient and groundingPolicy requires citing source documents",
+      "Call knowhere_search when groundingPolicy requires citing source documents",
     )
     expect(prompt).toContain(
       "call knowhere_search again with a refined query",
     )
     expect(prompt).toContain("Refine knowhere_search at most twice")
+    expect(prompt).toContain(
+      "After each search that returns new evidence, call retainEvidence",
+    )
+    expect(prompt).toContain(
+      "When calling knowhere_search after a previous search in this turn, set gapReason",
+    )
     expect(prompt).not.toContain("knowhere_list_documents")
     expect(prompt).not.toContain("knowhere_get_document_outline")
     expect(prompt).not.toContain("knowhere_read_chunks")
@@ -70,15 +76,16 @@ describe("agent harness runtime", () => {
     expect(prompt).toContain("Do not collapse same-page citations")
   })
 
-  it("requires inspectImage on cited page/image assets before finalize", () => {
+  it("tells the agent to read retained images in the assembled answer message", () => {
     const prompt = buildHarnessSystemPrompt(makeTurnInput())
 
     expect(prompt).toContain(
-      "call inspectImage on the page/image assets you will cite before finalize",
+      "memory_search and knowhere_search are parallel retrieval sources",
     )
     expect(prompt).toContain(
-      "Do not finalize cited page/image assets from chunk text alone",
+      "Images in retained evidence are embedded directly",
     )
+    expect(prompt).not.toContain("inspectImage")
   })
 
   it("passes only outer retrieval parameters to KNOWHERE without planning-tool gating", async () => {
@@ -187,7 +194,11 @@ describe("agent harness runtime", () => {
     })
 
     const firstResult = await executeTool(tools.knowhere_search, { query: "first" })
-    const secondResult = await executeTool(tools.knowhere_search, { query: "second" })
+    await retainLatestSearch(tools, ledger)
+    const secondResult = await executeTool(tools.knowhere_search, {
+      query: "second",
+      gapReason: "The first search lacked the second-source wording this query targets.",
+    })
 
     expect(firstResult).toContain('pick="1"')
     expect(firstResult).toContain('ref="r1:result:1"')
@@ -201,435 +212,6 @@ describe("agent harness runtime", () => {
       "r1:result:1",
       "r2:result:1",
     ])
-  })
-
-  it("rejects image inspection before retrieval has returned image assets", async () => {
-    const inspectImages = vi.fn()
-    const tools = createHarnessTools({
-      state: {},
-      ledger: createEvidenceLedger(),
-      memoryTools: makeMemoryTools(),
-      knowhereTools: makeKnowhereTools(),
-      inspectImages,
-      recentTurns: [],
-    })
-
-    const result = await executeTool(tools.inspectImage, {
-      refs: ["asset:r1:result:1"],
-      question: "What text is visible?",
-    })
-
-    expect(result).toEqual({
-      ok: false,
-      message:
-        "Knowhere evidence tools must return image assets before inspectImage.",
-      inspected: [],
-      skipped: [
-        {
-          ref: "asset:r1:result:1",
-          reason: "No Knowhere evidence is available yet.",
-        },
-      ],
-    })
-    expect(inspectImages).not.toHaveBeenCalled()
-  })
-
-  it("rejects image inspection refs that are unknown or not image assets", async () => {
-    const ledger = createEvidenceLedger()
-    ledger.addRetrievalResponse(makeTableRetrievalResponse())
-    const inspectImages = vi.fn()
-    const tools = createHarnessTools({
-      state: {},
-      ledger,
-      memoryTools: makeMemoryTools(),
-      knowhereTools: makeKnowhereTools(),
-      inspectImages,
-      recentTurns: [],
-    })
-
-    const result = await executeTool(tools.inspectImage, {
-      refs: ["asset:r1:result:1", "missing"],
-      question: "What is in these images?",
-    })
-
-    expect(result).toEqual({
-      ok: false,
-      message: "No inspectable image asset refs were provided.",
-      inspected: [],
-      skipped: [
-        {
-          ref: "asset:r1:result:1",
-          reason: "Ref is not an image asset.",
-        },
-        {
-          ref: "missing",
-          reason: "Ref was not returned by Knowhere as an asset.",
-        },
-      ],
-    })
-    expect(inspectImages).not.toHaveBeenCalled()
-  })
-
-  it("lets retrieval bound the number of images inspected in one call", async () => {
-    const ledger = createEvidenceLedger()
-    ledger.addRetrievalResponse(makeImageRetrievalResponse(7))
-    const inspectImages = vi.fn(async (request: {
-      readonly assets: readonly { readonly ref: string; readonly label: string }[]
-    }) => ({
-      analysis: "Compared all retrieved images.",
-      inspected: request.assets.map(({ ref, label }) => ({ ref, label })),
-      skipped: [],
-    }))
-    const tools = createHarnessTools({
-      state: {},
-      ledger,
-      memoryTools: makeMemoryTools(),
-      knowhereTools: makeKnowhereTools(),
-      inspectImages,
-      recentTurns: [],
-    })
-
-    const result = await executeTool(tools.inspectImage, {
-      refs: Array.from({ length: 7 }, (_, index) => `asset:r1:result:${index + 1}`),
-      question: "Compare these images.",
-    })
-
-    expect(result).toMatchObject({ ok: true })
-    expect(inspectImages.mock.calls[0]?.[0].assets).toHaveLength(7)
-  })
-
-  it("calls the visual inspection capability with retrieved image ledger assets", async () => {
-    const ledger = createEvidenceLedger()
-    ledger.addRetrievalResponse(makeRetrievalResponse())
-    const inspectImages = vi.fn().mockResolvedValue({
-      analysis: "The image shows a Q4 revenue chart with a rising line.",
-      inspected: [
-        {
-          ref: "asset:r1:result:1",
-          label: "report.pdf / images/chart.png / image",
-        },
-      ],
-      skipped: [],
-    })
-    const tools = createHarnessTools({
-      state: {},
-      ledger,
-      memoryTools: makeMemoryTools(),
-      knowhereTools: makeKnowhereTools(),
-      inspectImages,
-      recentTurns: [],
-    })
-
-    const result = await executeTool(tools.inspectImage, {
-      refs: ["asset:r1:result:1"],
-      question: "What does the chart show?",
-    })
-
-    expect(inspectImages).toHaveBeenCalledWith({
-      question: "What does the chart show?",
-      assets: [
-        {
-          ref: "asset:r1:result:1",
-          label: "report.pdf / images/chart.png / image",
-          assetUrl: "https://assets.example/chart.png",
-          sourcePath: "images/chart.png",
-          source: {
-            documentId: "doc_1",
-            sourceFileName: "report.pdf",
-            sectionPath: "images/chart.png",
-          },
-        },
-      ],
-    })
-    expect(result).toEqual({
-      ok: true,
-      analysis: "The image shows a Q4 revenue chart with a rising line.",
-      inspected: [
-        {
-          ref: "asset:r1:result:1",
-          label: "report.pdf / images/chart.png / image",
-        },
-      ],
-      skipped: [],
-    })
-  })
-
-  it("calls the visual inspection capability with retrieved page citation assets", async () => {
-    const ledger = createEvidenceLedger()
-    ledger.addRetrievalResponse(makePageCitationRetrievalResponse())
-    const inspectImages = vi.fn().mockResolvedValue({
-      analysis: "The clause says the contractor pays 5000 yuan per occurrence.",
-      inspected: [
-        {
-          ref: "asset:r1:referenced:1",
-          label:
-            "Root / （6）现场工期进度管理方面的违约责任 / page_citation_assets/page-8.png / page",
-        },
-      ],
-      skipped: [],
-    })
-    const tools = createHarnessTools({
-      state: {},
-      ledger,
-      memoryTools: makeMemoryTools(),
-      knowhereTools: makeKnowhereTools(),
-      inspectImages,
-      recentTurns: [],
-    })
-
-    const result = await executeTool(tools.inspectImage, {
-      refs: ["asset:r1:referenced:1"],
-      question: "What liquidated damages amount is visible in this clause?",
-    })
-
-    expect(inspectImages).toHaveBeenCalledWith({
-      question: "What liquidated damages amount is visible in this clause?",
-      assets: [
-        {
-          ref: "asset:r1:referenced:1",
-          label:
-            "Root / （6）现场工期进度管理方面的违约责任 / page_citation_assets/page-8.png / page",
-          assetUrl: "https://assets.example/page-8.png",
-          sourcePath: "page_citation_assets/page-8.png",
-          revisionKey: "job_contract",
-          source: {
-            documentId: "doc_contract",
-            sourceFileName: null,
-            sectionPath: "Root / （6）现场工期进度管理方面的违约责任",
-          },
-        },
-      ],
-    })
-    expect(result).toMatchObject({
-      ok: true,
-      analysis: "The clause says the contractor pays 5000 yuan per occurrence.",
-    })
-  })
-
-  it("inspects duplicate retrieved pages only once across namespaces", async () => {
-    const ledger = createEvidenceLedger()
-    const pageMetadata = {
-      pageNums: [4],
-      pageAssets: [
-        {
-          pageNum: 4,
-          artifactRef: "page_citation_assets/page-4.png",
-          assetUrl: "https://assets.example/page-4.png",
-          contentType: "image/png",
-        },
-      ],
-    }
-    ledger.addRetrievalResponse({
-      namespace: "default,notebook",
-      query: "revenue",
-      routerUsed: "mapnav",
-      answerText: null,
-      evidenceText: "Revenue evidence",
-      stopReason: "completed",
-      failureReason: null,
-      results: [
-        {
-          chunkId: "chunk_page_4",
-          content: "Revenue was $24.9B.",
-          chunkType: "page",
-          score: 0.9,
-          metadata: pageMetadata,
-          source: {
-            documentId: "doc_catalog",
-            sourceFileName: "original.pdf",
-            sectionPath: "FINANCIAL SUMMARY",
-          },
-        },
-        {
-          chunkId: "chunk_page_4",
-          content: "Revenue was $24.9B.",
-          chunkType: "page",
-          score: 0.9,
-          metadata: pageMetadata,
-          source: {
-            documentId: "doc_workspace",
-            sourceFileName: "TSLA-Q4-2025-Update.pdf",
-            sectionPath: "FINANCIAL SUMMARY",
-          },
-        },
-      ],
-      referencedChunks: [],
-    })
-    const inspectImages = vi.fn().mockResolvedValue({
-      analysis: "Revenue is visible in the financial summary.",
-      inspected: [
-        {
-          ref: "asset:r1:result:1",
-          label: "original.pdf / page_citation_assets/page-4.png / page",
-        },
-      ],
-      skipped: [],
-      highlights: [
-        {
-          ref: "asset:r1:result:1",
-          regions: [{ x: 0.1, y: 0.2, w: 0.8, h: 0.1 }],
-        },
-      ],
-    })
-    const state: {
-      inspectedImageRefs?: string[]
-    } = {}
-    const tools = createHarnessTools({
-      state,
-      ledger,
-      memoryTools: makeMemoryTools(),
-      knowhereTools: makeKnowhereTools(),
-      inspectImages,
-      recentTurns: [],
-    })
-
-    const inspection = await executeTool(tools.inspectImage, {
-      refs: ["asset:r1:result:1", "asset:r1:result:2"],
-      question: "Locate the cited revenue.",
-    })
-
-    expect(inspection).toMatchObject({ ok: true })
-    expect(inspectImages.mock.calls[0]?.[0].assets).toHaveLength(1)
-    expect(
-      await executeTool(tools.finalize, {
-        text: "Revenue was $24.9B [[cite:1]] [[cite:2]].",
-        citations: [{ pick: 1 }, { pick: 2 }],
-        memoryCitations: [],
-        artifacts: [],
-        unresolved: [],
-      }),
-    ).toMatchObject({ ok: true })
-  })
-
-  it("does not deduplicate unrelated documents with generic page paths", async () => {
-    const ledger = createEvidenceLedger()
-    ledger.addRetrievalResponse({
-      namespace: "notebook",
-      query: "revenue",
-      routerUsed: "mapnav",
-      answerText: null,
-      evidenceText: "Revenue evidence",
-      stopReason: "completed",
-      failureReason: null,
-      results: [
-        {
-          chunkId: "chunk_page_4",
-          content: "Revenue evidence from document A.",
-          chunkType: "page",
-          score: 0.9,
-          metadata: {
-            pageNums: [4],
-            pageAssets: [
-              {
-                pageNum: 4,
-                artifactRef: "page_citation_assets/page-4.png",
-                assetUrl: "https://assets.example/doc-a/page-4.png",
-                contentType: "image/png",
-              },
-            ],
-          },
-          source: {
-            documentId: "doc_a",
-            sourceFileName: "a.pdf",
-            sectionPath: "Page 4",
-          },
-        },
-        {
-          chunkId: "chunk_page_4",
-          content: "Revenue evidence from document B.",
-          chunkType: "page",
-          score: 0.8,
-          metadata: {
-            pageNums: [4],
-            pageAssets: [
-              {
-                pageNum: 4,
-                artifactRef: "page_citation_assets/page-4.png",
-                assetUrl: "https://assets.example/doc-b/page-4.png",
-                contentType: "image/png",
-              },
-            ],
-          },
-          source: {
-            documentId: "doc_b",
-            sourceFileName: "b.pdf",
-            sectionPath: "Page 4",
-          },
-        },
-      ],
-      referencedChunks: [],
-    })
-    const inspectImages = vi.fn(async (request: ImageInspectionRequest) => ({
-      analysis: "Inspected both pages.",
-      inspected: request.assets.map(({ ref, label }) => ({ ref, label })),
-      skipped: [],
-    }))
-    const tools = createHarnessTools({
-      state: {},
-      ledger,
-      memoryTools: makeMemoryTools(),
-      knowhereTools: makeKnowhereTools(),
-      inspectImages,
-      recentTurns: [],
-    })
-
-    expect(
-      await executeTool(tools.inspectImage, {
-        refs: ["asset:r1:result:1", "asset:r1:result:2"],
-        question: "Compare the cited revenue.",
-      }),
-    ).toMatchObject({ ok: true })
-    expect(inspectImages.mock.calls[0]?.[0].assets).toHaveLength(2)
-  })
-
-  it("does not treat skipped image assets as successfully inspected", async () => {
-    const ledger = createEvidenceLedger()
-    ledger.addRetrievalResponse(makePageCitationRetrievalResponse())
-    const state: {
-      inspectedImageRefs?: string[]
-      finalized?: boolean
-    } = {}
-    const tools = createHarnessTools({
-      state,
-      ledger,
-      memoryTools: makeMemoryTools(),
-      knowhereTools: makeKnowhereTools(),
-      inspectImages: vi.fn().mockResolvedValue({
-        analysis: "",
-        inspected: [],
-        skipped: [
-          {
-            ref: "asset:r1:referenced:1",
-            reason: "The image asset was unavailable in Notebook storage.",
-          },
-        ],
-      }),
-      recentTurns: [],
-    })
-
-    const inspection = await executeTool(tools.inspectImage, {
-      refs: ["asset:r1:referenced:1"],
-      question: "Locate the cited amount.",
-    })
-
-    expect(inspection).toMatchObject({
-      ok: false,
-      inspected: [],
-    })
-    expect(state.inspectedImageRefs).toEqual([])
-
-    const finalize = await executeTool(tools.finalize, {
-      text: "The amount is 5000 yuan [[cite:1]].",
-      citations: [{ pick: 1 }],
-      memoryCitations: [],
-      artifacts: [],
-      unresolved: [],
-    })
-    expect(finalize).toMatchObject({
-      ok: false,
-      inspectRefs: ["asset:r1:referenced:1"],
-    })
-    expect(state.finalized).not.toBe(true)
   })
 
   it("writes citation refs from ledger picks and rejects picks outside the ledger", async () => {
@@ -646,6 +228,7 @@ describe("agent harness runtime", () => {
       knowhereTools: makeKnowhereTools(),
       recentTurns: [],
     })
+    await retainLatestSearch(tools, ledger)
 
     const rejected = await executeTool(tools.finalize, {
       text: "Target is <130/80 mmHg [[cite:1]].",
@@ -682,6 +265,17 @@ describe("agent harness runtime", () => {
   it("maps finalize picks across successive searches", async () => {
     const ledger = createEvidenceLedger()
     ledger.addRetrievalResponse(makeRetrievalResponse())
+    const state: {
+      finalizedManifest?: OutputManifest
+    } = {}
+    const tools = createHarnessTools({
+      state,
+      ledger,
+      memoryTools: makeMemoryTools(),
+      knowhereTools: makeKnowhereTools(),
+      recentTurns: [],
+    })
+    await retainLatestSearch(tools, ledger)
     ledger.addRetrievalResponse({
       ...makeRetrievalResponse(),
       query: "second query",
@@ -698,16 +292,7 @@ describe("agent harness runtime", () => {
         },
       ],
     })
-    const state: {
-      finalizedManifest?: OutputManifest
-    } = {}
-    const tools = createHarnessTools({
-      state,
-      ledger,
-      memoryTools: makeMemoryTools(),
-      knowhereTools: makeKnowhereTools(),
-      recentTurns: [],
-    })
+    await retainLatestSearch(tools, ledger)
 
     const accepted = await executeTool(tools.finalize, {
       text: "Second source [[cite:1]].",
@@ -728,6 +313,7 @@ describe("agent harness runtime", () => {
     const state: {
       finalizedManifest?: OutputManifest
       finalized?: boolean
+      memoryItems?: MemorySearchItem[]
     } = {}
     const tools = createHarnessTools({
       state,
@@ -769,6 +355,7 @@ describe("agent harness runtime", () => {
     const state: {
       finalizedManifest?: OutputManifest
       finalized?: boolean
+      memoryItems?: MemorySearchItem[]
     } = {}
     const tools = createHarnessTools({
       state,
@@ -781,13 +368,23 @@ describe("agent harness runtime", () => {
     const searchText = await executeTool(tools.memory_search, {
       query: "毛利率",
     })
+    await executeTool(tools.memory_search, { query: "盈利能力" })
     expect(searchText).toContain('<memory operation="search" status="ok">')
     expect(searchText).toContain('ref="mem:1"')
     expect(searchText).toContain('itemId="item_1"')
-    expect(search).toHaveBeenCalledWith({
+    expect(search).toHaveBeenNthCalledWith(1, {
       query: "毛利率",
       kinds: undefined,
     })
+    expect(state.memoryItems).toEqual([
+      {
+        ref: "mem:1",
+        itemId: "item_1",
+        kind: "stance",
+        abstractL0: "关注毛利率下滑",
+        overviewL1: "用户把毛利率当作核心观察指标。",
+      },
+    ])
 
     const manifest = {
       text: "按已有记忆，毛利率是核心观察指标。",
@@ -803,108 +400,6 @@ describe("agent harness runtime", () => {
       memoryCitations: manifest.memoryCitations,
     })
     expect(state.finalizedManifest).toEqual(manifest)
-  })
-
-  it("rejects finalize of cited page images until inspectImage has run", async () => {
-    const ledger = createEvidenceLedger()
-    ledger.addRetrievalResponse(makePageCitationRetrievalResponse())
-    const state: {
-      finalizedManifest?: OutputManifest
-      finalized?: boolean
-      inspectedImageRefs?: string[]
-    } = {}
-    const tools = createHarnessTools({
-      state,
-      ledger,
-      memoryTools: makeMemoryTools(),
-      knowhereTools: makeKnowhereTools(),
-      inspectImages: vi.fn().mockResolvedValue({
-        analysis: "The clause shows 5000 yuan per occurrence.",
-        inspected: [{ ref: "asset:r1:referenced:1", label: "page 8" }],
-        skipped: [],
-        highlights: [
-          {
-            ref: "asset:r1:referenced:1",
-            regions: [{ x: 0.1, y: 0.2, w: 0.4, h: 0.15 }],
-          },
-        ],
-      }),
-      recentTurns: [],
-    })
-    const manifest = {
-      text: "The contractor pays 5000 yuan per occurrence [[cite:1]].",
-      citations: [{ pick: 1 }],
-      memoryCitations: [],
-      artifacts: [],
-      unresolved: [],
-    }
-
-    const blocked = await executeTool(tools.finalize, manifest)
-
-    expect(blocked).toMatchObject({
-      ok: false,
-      inspectRefs: ["asset:r1:referenced:1"],
-    })
-    expect(blocked).toEqual(
-      expect.objectContaining({
-        message: expect.stringContaining("inspectImage"),
-      }),
-    )
-    expect(state.finalized).not.toBe(true)
-
-    await executeTool(tools.inspectImage, {
-      refs: ["asset:r1:referenced:1"],
-      question: "Locate the cited liquidated-damages amount on this page.",
-    })
-
-    expect(await executeTool(tools.finalize, manifest)).toMatchObject({
-      ok: true,
-      text: manifest.text,
-    })
-    expect(state.finalized).toBe(true)
-  })
-
-  it("requires inspection when the cited result shares a page asset with a referenced chunk", async () => {
-    const response = makePageCitationRetrievalResponse()
-    const ledger = createEvidenceLedger()
-    ledger.addRetrievalResponse({
-      ...response,
-      results: [
-        {
-          chunkId: "chunk_page_8",
-          content: "The contractor pays 5000 yuan per occurrence.",
-          chunkType: "page",
-          score: 0.9,
-          metadata: { pageNums: [8] },
-          source: {
-            documentId: "doc_contract",
-            sourceFileName: "contract.pdf",
-            sectionPath: "Root / Liquidated damages",
-          },
-        },
-      ],
-    })
-    const tools = createHarnessTools({
-      state: {},
-      ledger,
-      memoryTools: makeMemoryTools(),
-      knowhereTools: makeKnowhereTools(),
-      inspectImages: vi.fn(),
-      recentTurns: [],
-    })
-
-    const result = await executeTool(tools.finalize, {
-      text: "The contractor pays 5000 yuan [[cite:1]].",
-      citations: [{ pick: 1 }],
-      memoryCitations: [],
-      artifacts: [],
-      unresolved: [],
-    })
-
-    expect(result).toMatchObject({
-      ok: false,
-      inspectRefs: ["asset:r1:referenced:1"],
-    })
   })
 
   it("exposes full prior-turn content through policy-approved readPriorTurn", async () => {
@@ -1094,7 +589,6 @@ describe("agent harness runtime", () => {
     expect(result.activeTools).toEqual([
       "declareIntent",
       "setContextPolicy",
-      "inspectImage",
       "readPriorTurn",
     ])
     expect(result.activeTools).not.toContain("finalize")
@@ -1117,7 +611,8 @@ describe("agent harness runtime", () => {
     })
 
     expect(result.activeTools).toContain("memory_search")
-    expect(result.activeTools).toContain("finalize")
+    expect(result.activeTools).toContain("prepareAnswer")
+    expect(result.activeTools).not.toContain("finalize")
     expect(result.activeTools).not.toContain("knowhere_search")
   })
 
@@ -1135,7 +630,8 @@ describe("agent harness runtime", () => {
       messages: [],
     })
 
-    expect(result.activeTools).toContain("finalize")
+    expect(result.activeTools).toContain("prepareAnswer")
+    expect(result.activeTools).not.toContain("finalize")
     expect(result.activeTools).not.toContain("memory_search")
     expect(result.activeTools).not.toContain("knowhere_search")
   })
@@ -1148,6 +644,16 @@ describe("agent harness runtime", () => {
 
     expect(result.toolChoice).toBe("required")
     expect(result.activeTools).not.toContain("finalize")
+  })
+
+  it("honors an explicit answer-preparation schedule", () => {
+    const result = prepareHarnessStep({
+      stepNumber: 13,
+      forceAnswerPreparation: false,
+      messages: [],
+    })
+
+    expect(result.activeTools).not.toContain("prepareAnswer")
   })
 
   it("blocks finalize on the first step so a document question cannot skip search", () => {
@@ -1189,7 +695,7 @@ describe("agent harness runtime", () => {
     expect(result.activeTools).not.toContain("knowhere_grep_chunks")
   })
 
-  it("reopens finalize after must_use_sources has called knowhere_search, including empty results", () => {
+  it("opens answer preparation after must_use_sources has called knowhere_search", () => {
     const result = prepareHarnessStep({
       stepNumber: 4,
       hasKnowhereSearch: true,
@@ -1204,137 +710,245 @@ describe("agent harness runtime", () => {
       messages: [],
     })
 
-    expect(result.activeTools).toContain("finalize")
+    expect(result.activeTools).toContain("prepareAnswer")
+    expect(result.activeTools).not.toContain("finalize")
     expect(result.activeTools).toContain("knowhere_search")
   })
 
-  it("forces image inspection before forced finalization when image assets are available", () => {
+  it("replaces retrieval history with the assembled context for finalization", () => {
+    const answerContextMessage = {
+      role: "user" as const,
+      content: [{ type: "text" as const, text: "## User's Question\nQuestion" }],
+    }
     const result = prepareHarnessStep({
-      stepNumber: 12,
-      hasUninspectedImageAssets: true,
-      messages: [
-        {
-          role: "tool",
-          content: [
-            {
-              type: "tool-result",
-              toolCallId: "call_1",
-              toolName: "knowhere_search",
-              output: {
-                type: "text",
-                value:
-                  '<knowhere operation="search" status="ok"><asset ref="asset:r1:referenced:1" type="image" /></knowhere>',
-              },
-            },
-          ],
-        },
-      ],
+      stepNumber: 5,
+      messages: [{ role: "user", content: "retrieval history" }],
+      answerContextMessage,
     })
 
-    expect(result.activeTools).toEqual(["inspectImage"])
+    expect(result.messages).toEqual([answerContextMessage])
+    expect(result.activeTools).toEqual(["finalize"])
+    expect(result.toolChoice).toEqual({ type: "tool", toolName: "finalize" })
+  })
+
+  it("forces retainEvidence after a search returns new evidence", () => {
+    const result = prepareHarnessStep({
+      stepNumber: 4,
+      hasPendingRetention: true,
+      pendingRetentionRange: { startPick: 1, endPick: 3 },
+      hasKnowhereSearch: true,
+      intent: {
+        task: "answer",
+        dependsOnPreviousTurn: false,
+        retrievalNeeded: "yes",
+        targetModalities: ["text"],
+        constraints: {},
+        groundingPolicy: "must_use_sources",
+      },
+      messages: [],
+    })
+
+    expect(result.activeTools).toEqual(["retainEvidence"])
     expect(result.toolChoice).toEqual({
       type: "tool",
-      toolName: "inspectImage",
+      toolName: "retainEvidence",
     })
     expect(result.messages).toEqual([
       {
-        role: "tool",
-        content: [
-          {
-            type: "tool-result",
-            toolCallId: "call_1",
-            toolName: "knowhere_search",
-            output: {
-              type: "text",
-              value:
-                '<knowhere operation="search" status="ok"><asset ref="asset:r1:referenced:1" type="image" /></knowhere>',
-            },
-          },
-        ],
-      },
-      {
         role: "user",
-        content: expect.stringContaining("Call inspectImage now"),
+        content: expect.stringContaining("1-3"),
       },
     ])
+    expect(result.activeTools).not.toContain("finalize")
+    expect(result.activeTools).not.toContain("knowhere_search")
   })
 
-  it("reserves the finalization step even when unused page assets remain", () => {
-    const result = prepareHarnessStep({
-      stepNumber: 13,
-      hasUninspectedImageAssets: true,
-      messages: [
+  it("prepares the answer only after the latest search has been retained", async () => {
+    const ledger = createEvidenceLedger()
+    ledger.addRetrievalResponse(makeRetrievalResponse())
+    const state: { answerContextRequested?: boolean } = {}
+    const tools = createHarnessTools({
+      state,
+      ledger,
+      memoryTools: makeMemoryTools(),
+      knowhereTools: makeKnowhereTools(),
+      recentTurns: [],
+    })
+
+    expect(await executeTool(tools.prepareAnswer, {})).toMatchObject({ ok: false })
+    expect(state.answerContextRequested).not.toBe(true)
+
+    await executeTool(tools.retainEvidence, { picks: [1] })
+    expect(await executeTool(tools.prepareAnswer, {})).toEqual({ ok: true })
+    expect(state.answerContextRequested).toBe(true)
+  })
+
+  it("rejects displayed artifacts whose evidence was not retained", async () => {
+    const ledger = createEvidenceLedger()
+    ledger.addRetrievalResponse(makeRetrievalResponse())
+    const tools = createHarnessTools({
+      state: {},
+      ledger,
+      memoryTools: makeMemoryTools(),
+      knowhereTools: makeKnowhereTools(),
+      recentTurns: [],
+    })
+    await executeTool(tools.retainEvidence, { picks: [] })
+
+    const result = await executeTool(tools.finalize, {
+      text: "See the chart.",
+      citations: [],
+      memoryCitations: [],
+      artifacts: [
         {
-          role: "user",
-          content: "What is the penalty amount?",
+          type: "image",
+          ref: "asset:r1:result:1",
+          display: true,
+          reason: "Show the chart.",
+        },
+      ],
+      unresolved: [],
+    })
+    expect(result).toMatchObject({
+      ok: false,
+      unretainedArtifactRefs: ["asset:r1:result:1"],
+    })
+  })
+
+  it("rejects retainEvidence picks outside the latest search", async () => {
+    const ledger = createEvidenceLedger()
+    ledger.addRetrievalResponse(makeRetrievalResponse())
+    const tools = createHarnessTools({
+      state: {},
+      ledger,
+      memoryTools: makeMemoryTools(),
+      knowhereTools: makeKnowhereTools(),
+      recentTurns: [],
+    })
+
+    const rejected = await executeTool(tools.retainEvidence, { picks: [2] })
+    expect(rejected).toMatchObject({
+      ok: false,
+      invalidPicks: [2],
+    })
+    expect(ledger.hasPendingRetention()).toBe(true)
+
+    const accepted = await executeTool(tools.retainEvidence, { picks: [] })
+    expect(accepted).toMatchObject({ ok: true, retainedPicks: [] })
+    expect(ledger.hasPendingRetention()).toBe(false)
+    expect(ledger.isRetained(1)).toBe(false)
+  })
+
+  it("rejects finalize of unretained first-search picks after a later search", async () => {
+    const ledger = createEvidenceLedger()
+    const tools = createHarnessTools({
+      state: {},
+      ledger,
+      memoryTools: makeMemoryTools(),
+      knowhereTools: makeKnowhereTools(),
+      recentTurns: [],
+    })
+    ledger.addRetrievalResponse(makeRetrievalResponse())
+    await executeTool(tools.retainEvidence, { picks: [] })
+    ledger.addRetrievalResponse({
+      ...makeRetrievalResponse(),
+      query: "second query",
+      results: [
+        {
+          content: "Second retrieval evidence.",
+          chunkType: "text",
+          score: 0.8,
+          source: {
+            documentId: "doc_2",
+            sourceFileName: "second.pdf",
+            sectionPath: "Second",
+          },
         },
       ],
     })
+    await executeTool(tools.retainEvidence, { picks: [2] })
 
-    expect(result.activeTools).toEqual(["finalize"])
-    expect(result.toolChoice).toEqual({
-      type: "tool",
-      toolName: "finalize",
+    const rejected = await executeTool(tools.finalize, {
+      text: "First source [[cite:1]].",
+      citations: [{ pick: 1 }],
+      memoryCitations: [],
+      artifacts: [],
+      unresolved: [],
+    })
+    expect(rejected).toMatchObject({
+      ok: false,
+      unretainedPicks: [1],
+    })
+    expect(String((rejected as { message: string }).message)).toContain(
+      "Unretained citation picks",
+    )
+    expect(String((rejected as { message: string }).message)).not.toContain(
+      "Unknown citation picks",
+    )
+
+    const accepted = await executeTool(tools.finalize, {
+      text: "Second source [[cite:1]].",
+      citations: [{ pick: 2 }],
+      memoryCitations: [],
+      artifacts: [],
+      unresolved: [],
+    })
+    expect(accepted).toMatchObject({
+      ok: true,
+      citations: [{ ref: "r2:result:1" }],
     })
   })
 
-  it("forces finalize at step 13 using existing tool results", () => {
-    const result = prepareHarnessStep({
-      stepNumber: 13,
-      messages: [
-        {
-          role: "tool",
-          content: [
-            {
-              type: "tool-result",
-              toolCallId: "call_1",
-              toolName: "knowhere_search",
-              output: {
-                type: "text",
-                value:
-                  '<knowhere operation="search" status="ok"><chunk ref="r1:result:1"></chunk></knowhere>',
-              },
-              providerOptions: {
-                google: {
-                  thoughtSignature: "signature-1",
-                },
-              },
-            },
-          ],
-        },
-      ],
+  it("allows the first knowhere_search without gapReason and rejects a follow-up without it", async () => {
+    const search = vi
+      .fn<KnowhereToolRuntime["search"]>()
+      .mockResolvedValue(makeRetrievalResponse())
+    const tools = createHarnessTools({
+      state: {},
+      ledger: createEvidenceLedger(),
+      memoryTools: makeMemoryTools(),
+      knowhereTools: makeKnowhereTools(search),
+      recentTurns: [],
     })
 
-    expect(result.activeTools).toEqual(["finalize"])
-    expect(result.toolChoice).toEqual({
-      type: "tool",
-      toolName: "finalize",
+    const first = await executeTool(tools.knowhere_search, { query: "first" })
+    expect(first).toContain('status="ok"')
+    expect(search).toHaveBeenCalledWith(
+      expect.objectContaining({ query: "first" }),
+    )
+    expect(search.mock.calls[0]?.[0]).not.toHaveProperty("gapReason")
+
+    const rejected = await executeTool(tools.knowhere_search, { query: "second" })
+    expect(rejected).toContain('status="error"')
+    expect(String(rejected)).toContain("gapReason")
+    expect(search).toHaveBeenCalledTimes(1)
+
+    const accepted = await executeTool(tools.knowhere_search, {
+      query: "second",
+      gapReason: "The first search lacked the wording this query will add.",
     })
-    expect(result.messages).toEqual([
-      {
-        role: "tool",
-        content: [
-          {
-            type: "tool-result",
-            toolCallId: "call_1",
-            toolName: "knowhere_search",
-            output: {
-              type: "text",
-              value:
-                '<knowhere operation="search" status="ok"><chunk ref="r1:result:1"></chunk></knowhere>',
-            },
-          },
-        ],
-      },
-      {
-        role: "user",
-        content: expect.stringContaining(
-          "Use only the evidence and tool results already available",
-        ),
-      },
-    ])
+    expect(accepted).toContain('status="ok"')
+    expect(search).toHaveBeenCalledWith(
+      expect.objectContaining({
+        query: "second",
+        gapReason: "The first search lacked the wording this query will add.",
+      }),
+    )
   })
 })
+
+function retainLatestSearch(
+  tools: { retainEvidence: unknown },
+  ledger: ReturnType<typeof createEvidenceLedger>,
+): Promise<unknown> {
+  const pending = ledger.pendingRetentionRange()
+  if (!pending) return Promise.resolve(undefined)
+  const picks: number[] = []
+  for (let pick = pending.startPick; pick <= pending.endPick; pick += 1) {
+    picks.push(pick)
+  }
+  return executeTool(tools.retainEvidence, { picks })
+}
 
 function executeTool(tool: unknown, input: unknown): Promise<unknown> {
   return (tool as { execute: (input: unknown) => Promise<unknown> }).execute(input)
@@ -1393,90 +1007,5 @@ function makeRetrievalResponse(): RetrievalQueryResponse {
       },
     ],
     referencedChunks: [],
-  }
-}
-
-function makeTableRetrievalResponse(): RetrievalQueryResponse {
-  return {
-    namespace: "notebook",
-    query: "q4 table",
-    routerUsed: "workflow_single_step",
-    answerText: null,
-    evidenceText: "Table evidence",
-    stopReason: "answer_done",
-    failureReason: null,
-    results: [
-      {
-        content: "",
-        chunkType: "table",
-        score: 0.8,
-        assetUrl: "https://assets.example/tables/revenue.html",
-        source: {
-          documentId: "doc_1",
-          sourceFileName: "report.pdf",
-          sectionPath: "tables/revenue.html",
-        },
-      },
-    ],
-    referencedChunks: [],
-  }
-}
-
-function makeImageRetrievalResponse(count: number): RetrievalQueryResponse {
-  return {
-    namespace: "notebook",
-    query: "q4 images",
-    routerUsed: "workflow_single_step",
-    answerText: null,
-    evidenceText: "Image evidence",
-    stopReason: "answer_done",
-    failureReason: null,
-    results: Array.from({ length: count }, (_, index) => ({
-      content: "",
-      chunkType: "image",
-      score: 0.8,
-      assetUrl: `https://assets.example/images/chart-${index + 1}.png`,
-      source: {
-        documentId: "doc_1",
-        sourceFileName: "report.pdf",
-        sectionPath: `images/chart-${index + 1}.png`,
-      },
-    })),
-    referencedChunks: [],
-  }
-}
-
-function makePageCitationRetrievalResponse(): RetrievalQueryResponse {
-  return {
-    namespace: "notebook",
-    query: "进度计划",
-    routerUsed: "workflow_single_step",
-    answerText: null,
-    evidenceText: "Root / （6）现场工期进度管理方面的违约责任",
-    stopReason: "answer_done",
-    failureReason: null,
-    results: [],
-    referencedChunks: [
-      {
-        chunkId: "chunk_page_8",
-        documentId: "doc_contract",
-        chunkType: "page",
-        sectionPath: "Root / （6）现场工期进度管理方面的违约责任",
-        filePath: null,
-        jobId: "job_contract",
-        assetUrl: "https://assets.example/page-8.png",
-        metadata: {
-          pageNums: [8],
-          pageAssets: [
-            {
-              pageNum: 8,
-              artifactRef: "page_citation_assets/page-8.png",
-              assetUrl: "https://assets.example/page-8.png",
-              contentType: "image/png",
-            },
-          ],
-        },
-      },
-    ],
   }
 }

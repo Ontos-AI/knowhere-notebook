@@ -6,7 +6,6 @@ import {
   getDescendantFolderIds,
   getFolderPath,
   listChildFolders,
-  listFolderScopeSourceIds,
   listSourcesInFolder,
 } from "./tree"
 import type { FolderView } from "./types"
@@ -41,7 +40,7 @@ describe("folder tree", () => {
     )
   })
 
-  it("lists sources sitting in one folder and the retrieval scope under it", () => {
+  it("lists sources sitting in one folder", () => {
     const sources: SourceView[] = [
       makeSource({ id: "source_root" }),
       makeSource({ id: "source_cardio", folderId: "folder_cardio" }),
@@ -52,8 +51,8 @@ describe("folder tree", () => {
       "source_root",
     ])
     expect(
-      listFolderScopeSourceIds(sources, folders, "folder_cardio"),
-    ).toEqual(["source_cardio", "source_2024"])
+      listSourcesInFolder(sources, "folder_cardio").map((source) => source.id),
+    ).toEqual(["source_cardio"])
   })
 
   it("keeps demo and remote sources out of folder assignment", () => {

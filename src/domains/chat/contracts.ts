@@ -7,9 +7,9 @@ import type {
 import type { Source } from "@/infrastructure/db/schema"
 import type {
   HarnessRunResult,
-  InspectImages,
   KnowhereToolRuntime,
   KnowhereSearchRequest,
+  ReadTableHtml,
 } from "@/agent-harness"
 import type {
   ChatArtifactView,
@@ -39,6 +39,7 @@ export type AgenticRetrievalTargetContent =
 export type AgenticRetrievalPlan = {
   targetContent: AgenticRetrievalTargetContent
   purpose: string | null
+  gapReason: string | null
 }
 
 export type AgenticRetrievalQuery = KnowhereSearchRequest
@@ -56,9 +57,10 @@ export type GenerateAnswer = (input: {
   messages: readonly ChatHistoryMessage[]
   sources: readonly Source[]
   excludedSourceIds: readonly string[]
+  folderScopeSourceIds?: readonly string[]
   searchSources: SearchSources
   knowhereTools?: KnowhereToolRuntime
-  inspectImages?: InspectImages
+  readTableHtml?: ReadTableHtml
 }) => Promise<HarnessRunResult>
 
 export type AnswerQuestionInput = {
@@ -74,7 +76,7 @@ export type AnswerQuestionInput = {
   generateAnswer: GenerateAnswer
   hardenChatAssetUrl?: HardenChatAssetUrl
   hardenMediaAssetUrls?: HardenMediaAssetUrls
-  inspectImages?: InspectImages
+  readTableHtml?: ReadTableHtml
   messages: readonly ChatHistoryMessage[]
 }
 

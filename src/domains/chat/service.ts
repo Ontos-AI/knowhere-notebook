@@ -76,7 +76,7 @@ type ChatTurnInput = {
   generateAnswer: GenerateAnswer
   hardenChatAssetUrl?: AnswerQuestionInput["hardenChatAssetUrl"]
   hardenMediaAssetUrls?: AnswerQuestionInput["hardenMediaAssetUrls"]
-  inspectImages?: AnswerQuestionInput["inspectImages"]
+  readTableHtml?: AnswerQuestionInput["readTableHtml"]
   repository: ChatRepository
 }
 
@@ -92,6 +92,8 @@ export const handleChatTurnEffect = (input: ChatTurnInput) =>
     if (readySources.length === 0) {
       return yield* Effect.fail(noReadySources)
     }
+
+    const folderScopeSourceIds = yield* resolveFolderScopeSourceIdsEffect(input)
 
     const thread = input.threadId
       ? yield* tryPromiseOrDie(() =>
@@ -126,16 +128,6 @@ export const handleChatTurnEffect = (input: ChatTurnInput) =>
       return yield* Effect.fail(threadNotFound)
     }
 
-    const folderScopeSourceIds =
-      input.folderId && input.resolveFolderScopeSourceIds
-        ? yield* tryPromiseOrDie(() =>
-            input.resolveFolderScopeSourceIds!(
-              input.workspace.id,
-              input.folderId!,
-            ),
-          )
-        : undefined
-
     const answer = yield* answerQuestionWithRetrieval({
       question: input.question,
       namespace: input.workspace.namespace,
@@ -149,7 +141,7 @@ export const handleChatTurnEffect = (input: ChatTurnInput) =>
       generateAnswer: input.generateAnswer,
       hardenChatAssetUrl: input.hardenChatAssetUrl,
       hardenMediaAssetUrls: input.hardenMediaAssetUrls,
-      inspectImages: input.inspectImages,
+      readTableHtml: input.readTableHtml,
       messages: chatHistoryMessages,
     }).pipe(Effect.catchAllCause(Effect.die))
 
@@ -184,6 +176,15 @@ export async function handleChatTurn(
 ): Promise<Either.Either<ChatTurnValue, ChatTurnError>> {
   return Effect.runPromise(Effect.either(handleChatTurnEffect(input)))
 }
+
+const resolveFolderScopeSourceIdsEffect = (input: ChatTurnInput) =>
+  Effect.gen(function* () {
+    if (!input.folderId) return undefined
+    if (!input.resolveFolderScopeSourceIds) return []
+    return yield* tryPromiseOrDie(() =>
+      input.resolveFolderScopeSourceIds!(input.workspace.id, input.folderId!),
+    )
+  })
 
 function toChatHistoryMessages(
   messages: readonly ChatMessage[],

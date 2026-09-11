@@ -21,6 +21,20 @@ export function normalizeRetrievalQuery(value: string, fallback: string): string
   return normalized.slice(0, RETRIEVAL_QUERY_CHAR_LIMIT)
 }
 
+export const emptyFolderSearchMessage =
+  "The current folder has no documents. Do not call knowhere_search."
+
+export function isEmptyFolderScope(
+  folderScopeSourceIds: readonly string[] | undefined,
+  sources: readonly Source[],
+): boolean {
+  if (folderScopeSourceIds === undefined) return false
+  const scoped = new Set(folderScopeSourceIds)
+  return !sources.some(
+    (source) => scoped.has(source.id) && Boolean(source.knowhereDocumentId),
+  )
+}
+
 export function getRetrievalDocumentScope(
   sources: readonly Source[],
   excludedSourceIds: readonly string[],

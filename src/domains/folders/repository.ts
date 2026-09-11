@@ -9,6 +9,7 @@ import type { FolderMutationError, FolderWriteResult } from "./types"
 
 const FOLDER_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu
+// MARK: magic number — max folder name length (kept on purpose)
 const FOLDER_NAME_MAX_LENGTH = 80
 
 type FolderRepository = {

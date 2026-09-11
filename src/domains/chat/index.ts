@@ -32,7 +32,9 @@ import type {
   AnswerQuestionResult,
 } from "./contracts"
 import {
+  emptyFolderSearchMessage,
   getRetrievalDocumentScope,
+  isEmptyFolderScope,
   normalizeRetrievalQuery,
 } from "./retrieval"
 import {
@@ -152,6 +154,9 @@ export const answerQuestionWithRetrieval = (
     const searchSources = async (
       queryInput: AgenticRetrievalQuery,
     ): Promise<AgenticRetrievalResponse> => {
+      if (isEmptyFolderScope(input.folderScopeSourceIds, input.sources)) {
+        throw new Error(emptyFolderSearchMessage)
+      }
       const startedAt = Date.now()
       const retrievalPlan = toAgenticRetrievalPlan(queryInput)
       const namespaces = getRetrievalNamespaces(input)
@@ -245,12 +250,15 @@ export const answerQuestionWithRetrieval = (
         messages: input.messages,
         sources: input.sources,
         excludedSourceIds: input.excludedSourceIds,
+        ...(input.folderScopeSourceIds !== undefined
+          ? { folderScopeSourceIds: input.folderScopeSourceIds }
+          : {}),
         searchSources,
         knowhereTools: notebookKnowhereTools.createRuntime({
           searchSources,
           sources: input.sources,
         }),
-        ...(input.inspectImages ? { inspectImages: input.inspectImages } : {}),
+        ...(input.readTableHtml ? { readTableHtml: input.readTableHtml } : {}),
       }),
     )
 
@@ -753,6 +761,7 @@ async function queryRetrievalNamespace(input: {
     threshold: retrievalQueryParams.threshold ?? null,
     targetContent: input.retrievalPlan.targetContent,
     purpose: input.retrievalPlan.purpose,
+    gapReason: input.retrievalPlan.gapReason,
     mode: input.mode,
   })
 
@@ -994,6 +1003,7 @@ function toAgenticRetrievalPlan(
   return {
     targetContent: normalizeRetrievalTargetContent(input.targetContent),
     purpose: normalizeRetrievalPurpose(input.purpose),
+    gapReason: normalizeRetrievalGapReason(input.gapReason),
   }
 }
 
@@ -1001,6 +1011,11 @@ function normalizeRetrievalPurpose(value: string | undefined): string | null {
   const normalized = value?.replace(/\s+/g, " ").trim()
   if (!normalized) return null
   return normalized.slice(0, 240)
+}
+
+function normalizeRetrievalGapReason(value: string | undefined): string | null {
+  const trimmed = value?.trim()
+  return trimmed ? trimmed : null
 }
 
 function normalizeRetrievalDataType(

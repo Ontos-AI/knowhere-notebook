@@ -94,6 +94,7 @@ export type KnowhereSearchRequest = Pick<
   readonly excludeDocumentIds?: string[]
   readonly targetContent?: KnowhereSearchTargetContent
   readonly purpose?: string
+  readonly gapReason?: string
 }
 
 export type KnowhereToolRuntime = {
@@ -223,6 +224,11 @@ export type InspectImages = (
   input: ImageInspectionRequest,
 ) => Promise<ImageInspectionResponse>
 
+export type PendingRetentionRange = {
+  readonly startPick: number
+  readonly endPick: number
+}
+
 export type EvidenceLedgerSnapshot = {
   readonly retrievalCount: number
   readonly chunks: readonly EvidenceChunk[]
@@ -231,6 +237,8 @@ export type EvidenceLedgerSnapshot = {
   readonly stopReasons: readonly string[]
   readonly failureReasons: readonly string[]
   readonly decisionTraces: readonly unknown[]
+  readonly retainedPicks: readonly number[]
+  readonly pendingRetention: PendingRetentionRange | null
 }
 
 export type OutputCitation = {

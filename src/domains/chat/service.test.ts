@@ -252,6 +252,87 @@ describe("handleChatTurn", () => {
       dataType: 1,
     });
   });
+
+  it("answers in an empty folder without searching", async () => {
+    const retrieval = { query: vi.fn() };
+    const repository = makeRepository();
+    const generateAnswer = vi.fn(async ({ searchSources, folderScopeSourceIds }) => {
+      expect(folderScopeSourceIds).toEqual([]);
+      await expect(searchSources({ query: "What is in this folder?" })).rejects.toThrow(
+        "The current folder has no documents. Do not call knowhere_search.",
+      );
+      return makeHarnessRunResult("This folder has no documents.");
+    });
+
+    const result = await handleChatTurn({
+      workspace: makeWorkspace(),
+      sources: [makeSource({ id: "source_elsewhere" })],
+      question: "hello",
+      excludedSourceIds: [],
+      folderId: "folder_empty",
+      resolveFolderScopeSourceIds: vi.fn().mockResolvedValue([]),
+      retrieval,
+      generateAnswer,
+      repository,
+    });
+
+    expect(Either.isRight(result)).toBe(true);
+    expect(retrieval.query).not.toHaveBeenCalled();
+    expect(repository.appendMessageToThread).toHaveBeenCalled();
+  });
+
+  it("scopes retrieval to the ready documents in the current folder", async () => {
+    const retrieval = {
+      query: vi.fn().mockResolvedValue({
+        results: [makeRetrievalResult()],
+        evidenceText: "Grounding content",
+        referencedChunks: [],
+        namespace: "notebook-namespace",
+        query: "What is in this folder?",
+        routerUsed: "workflow_single_step",
+        answerText: null,
+      }),
+    };
+    const repository = makeRepository();
+    const generateAnswer = vi.fn(async ({ searchSources }) => {
+      await searchSources({ query: "What is in this folder?" });
+      return makeHarnessRunResult("Grounded answer.");
+    });
+    const sources = [
+      makeSource({
+        id: "source_in_folder",
+        knowhereDocumentId: "doc_in_folder",
+      }),
+      makeSource({
+        id: "source_elsewhere",
+        knowhereDocumentId: "doc_elsewhere",
+      }),
+    ];
+
+    const result = await handleChatTurn({
+      workspace: makeWorkspace(),
+      sources,
+      question: "What is in this folder?",
+      excludedSourceIds: [],
+      folderId: "folder_1",
+      resolveFolderScopeSourceIds: vi
+        .fn()
+        .mockResolvedValue(["source_in_folder"]),
+      retrieval,
+      generateAnswer,
+      repository,
+    });
+
+    expect(Either.isRight(result)).toBe(true);
+    expect(retrieval.query).toHaveBeenCalledWith({
+      namespace: "default",
+      query: "What is in this folder?",
+      topK: 8,
+      useAgentic: true,
+      dataType: 1,
+      includeDocumentIds: ["doc_in_folder"],
+    });
+  });
 });
 
 function makeRepository(
@@ -374,6 +455,8 @@ function makeHarnessRunResult(text: string): HarnessRunResult {
         stopReasons: [],
         failureReasons: [],
         decisionTraces: [],
+        retainedPicks: [],
+        pendingRetention: null,
       },
       finalized: true,
       priorTurnReads: [],

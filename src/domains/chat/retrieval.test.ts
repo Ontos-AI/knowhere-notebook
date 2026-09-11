@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import type { Source } from "@/infrastructure/db/schema"
-import { getRetrievalDocumentScope } from "./retrieval"
+import { getRetrievalDocumentScope, isEmptyFolderScope } from "./retrieval"
 
 describe("getRetrievalDocumentScope", () => {
   it("does not add includeDocumentIds at the workspace root", () => {
@@ -44,6 +44,18 @@ describe("getRetrievalDocumentScope", () => {
     ).toEqual({
       includeDocumentIds: ["doc_1", "doc_2"],
       excludeDocumentIds: ["doc_2"],
+    })
+  })
+
+  it("treats a missing or empty folder as an empty search scope", () => {
+    expect(isEmptyFolderScope(undefined, [makeSource()])).toBe(false)
+    expect(isEmptyFolderScope([], [makeSource()])).toBe(true)
+    expect(isEmptyFolderScope(["source_missing"], [makeSource()])).toBe(true)
+    expect(isEmptyFolderScope(["source_1"], [makeSource()])).toBe(false)
+    expect(
+      getRetrievalDocumentScope([makeSource()], [], {}, []),
+    ).toEqual({
+      includeDocumentIds: [],
     })
   })
 })

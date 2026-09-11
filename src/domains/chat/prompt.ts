@@ -9,13 +9,17 @@ import {
   type AgentTurn,
   type AgentTurnInput,
   type HarnessRunResult,
-  type InspectImages,
   type KnowhereToolRuntime,
+  type ReadTableHtml,
 } from "@/agent-harness"
 import type {
   ChatHistoryMessage,
   SearchSources,
 } from "./contracts"
+import {
+  emptyFolderSearchMessage,
+  isEmptyFolderScope,
+} from "./retrieval"
 import { mementoMemoryTools } from "@/integrations/memento/memory-tools"
 import { notebookKnowhereTools } from "./knowhere-tools"
 
@@ -31,7 +35,8 @@ type GenerateAgenticOutputManifestInput = {
   excludedSourceIds: readonly string[]
   searchSources: SearchSources
   knowhereTools?: KnowhereToolRuntime
-  inspectImages?: InspectImages
+  readTableHtml?: ReadTableHtml
+  folderScopeSourceIds?: readonly string[]
 }
 
 export const generateAgenticOutputManifestEffect = (
@@ -69,7 +74,7 @@ export const generateAgenticOutputManifestEffect = (
         memoryTools: mementoMemoryTools.createRuntime({
           workspaceId: input.workspaceId,
         }),
-        ...(input.inspectImages ? { inspectImages: input.inspectImages } : {}),
+        ...(input.readTableHtml ? { readTableHtml: input.readTableHtml } : {}),
       }),
     )
 
@@ -100,7 +105,11 @@ function buildNotebookHarnessTurn(
     surface: "notebook_chat",
     userText: input.question,
     recentTurns: buildNotebookHarnessRecentTurns(input.messages),
-    sourceContext: formatSourceContext(input.sources, input.excludedSourceIds),
+    sourceContext: formatSourceContext(
+      input.sources,
+      input.excludedSourceIds,
+      input.folderScopeSourceIds,
+    ),
     outputCapabilities: {
       text: true,
       image: true,
@@ -133,7 +142,11 @@ function getCitationLabels(
 function formatSourceContext(
   sources: readonly Source[],
   excludedSourceIds: readonly string[],
+  folderScopeSourceIds?: readonly string[],
 ): string {
+  if (isEmptyFolderScope(folderScopeSourceIds, sources)) {
+    return emptyFolderSearchMessage
+  }
   const excludedSourceIdsSet = new Set(excludedSourceIds)
   const lines = sources
     .filter((source): boolean => !excludedSourceIdsSet.has(source.id))

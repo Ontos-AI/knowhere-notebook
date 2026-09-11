@@ -7,6 +7,7 @@ import type {
   EvidenceAsset,
   EvidenceChunk,
   EvidenceLedgerSnapshot,
+  PendingRetentionRange,
 } from "./types"
 
 const contentPreviewLimit = 1_200
@@ -20,6 +21,8 @@ type MutableLedger = {
   stopReasons: string[]
   failureReasons: string[]
   decisionTraces: unknown[]
+  retainedPicks: Set<number>
+  pendingRetention: PendingRetentionRange | null
 }
 
 type EvidenceAssetCandidate = {
@@ -47,10 +50,13 @@ export function createEvidenceLedger() {
     stopReasons: [],
     failureReasons: [],
     decisionTraces: [],
+    retainedPicks: new Set<number>(),
+    pendingRetention: null,
   }
 
   return {
     addRetrievalResponse(response: RetrievalQueryResponse): EvidenceLedgerSnapshot {
+      const chunkCountBefore = ledger.chunks.length
       ledger.retrievalCount += 1
       const retrievalIndex = ledger.retrievalCount
 
@@ -110,7 +116,79 @@ export function createEvidenceLedger() {
         })
       })
 
+      const chunkCountAfter = ledger.chunks.length
+      if (chunkCountAfter > chunkCountBefore) {
+        ledger.pendingRetention = {
+          startPick: chunkCountBefore + 1,
+          endPick: chunkCountAfter,
+        }
+      }
+
       return snapshot(ledger)
+    },
+
+    retainPicks(picks: readonly number[]):
+      | { readonly ok: true; readonly retainedPicks: readonly number[] }
+      | {
+          readonly ok: false
+          readonly message: string
+          readonly invalidPicks: readonly number[]
+        } {
+      const pending = ledger.pendingRetention
+      if (!pending) {
+        return {
+          ok: false,
+          message:
+            "retainEvidence can only be called after a search that returned new evidence.",
+          invalidPicks: [],
+        }
+      }
+
+      const kept: number[] = []
+      const invalidPicks: number[] = []
+      for (const pick of picks) {
+        if (
+          !Number.isInteger(pick) ||
+          pick < pending.startPick ||
+          pick > pending.endPick
+        ) {
+          if (!invalidPicks.includes(pick)) invalidPicks.push(pick)
+          continue
+        }
+        if (!kept.includes(pick)) kept.push(pick)
+      }
+      if (invalidPicks.length > 0) {
+        return {
+          ok: false,
+          message: [
+            "retainEvidence picks must come from the latest search.",
+            `Invalid picks: ${invalidPicks.join(" ")}.`,
+            `Latest search picks: ${pending.startPick}-${pending.endPick}.`,
+          ].join(" "),
+          invalidPicks,
+        }
+      }
+
+      for (const pick of kept) {
+        ledger.retainedPicks.add(pick)
+      }
+      ledger.pendingRetention = null
+      return {
+        ok: true,
+        retainedPicks: [...ledger.retainedPicks].sort((left, right) => left - right),
+      }
+    },
+
+    isRetained(pick: number): boolean {
+      return ledger.retainedPicks.has(pick)
+    },
+
+    hasPendingRetention(): boolean {
+      return ledger.pendingRetention !== null
+    },
+
+    pendingRetentionRange(): PendingRetentionRange | null {
+      return ledger.pendingRetention
     },
 
     read(ref: string, offset = 0, limit = 4_000) {
@@ -485,6 +563,8 @@ function snapshot(ledger: MutableLedger): EvidenceLedgerSnapshot {
     stopReasons: [...ledger.stopReasons],
     failureReasons: [...ledger.failureReasons],
     decisionTraces: [...ledger.decisionTraces],
+    retainedPicks: [...ledger.retainedPicks].sort((left, right) => left - right),
+    pendingRetention: ledger.pendingRetention,
   }
 }
 

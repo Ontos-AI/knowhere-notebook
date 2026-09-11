@@ -20,9 +20,6 @@ type ErrorTextInput = {
 
 type KnowhereOperation = "search"
 
-const assetInstruction =
-  "Notebook returned image/page asset refs. Call inspectImage with the asset refs you will cite before finalize so OCR/visual context and provenance boxes exist. Do not expose raw asset URLs."
-
 export const knowhereToolText = {
   formatSearch(input: SearchTextInput): string {
     return wrapKnowhereBlock("search", [
@@ -39,7 +36,6 @@ export const knowhereToolText = {
       // evidenceText — same bodies, no citeable refs, doubles context.
       formatEvidenceChunks(input.chunks, input.chunkPickStart),
       formatEvidenceAssets(input.assets),
-      formatAssetInstruction(input.assets),
     ])
   },
 
@@ -117,11 +113,6 @@ function formatEvidenceAssets(assets: readonly EvidenceAsset[]): string {
     ),
     "</assets>",
   ].join("\n")
-}
-
-function formatAssetInstruction(assets: readonly EvidenceAsset[]): string {
-  if (!assets.some((asset) => asset.type === "image")) return ""
-  return formatTextTag("asset_instruction", assetInstruction)
 }
 
 function formatTextTag(tagName: string, value: string): string {

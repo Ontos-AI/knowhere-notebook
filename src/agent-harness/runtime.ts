@@ -7,29 +7,23 @@ import {
 } from "ai"
 import { z } from "zod"
 
+import { composeAnswerContext, type ReadTableHtml } from "./answer-context"
 import { createEvidenceLedger } from "./ledger"
-import { getCanonicalImageAssetKey } from "./image-asset-identity"
 import { knowhereToolText } from "./knowhere-text"
 import { memoryToolText } from "./memory-text"
-import { mergeImageInspectionHighlights } from "./image-highlights"
 import type {
   AgentTurn,
   AgentTurnInput,
   ContextPolicy,
-  EvidenceAsset,
-  EvidenceChunk,
   EvidenceLedgerSnapshot,
   HarnessRunResult,
   HarnessToolCallTrace,
   HarnessTrace,
-  ImageInspectionAsset,
-  ImageInspectionHighlights,
-  ImageInspectionResponse,
-  InspectImages,
   IntentFrame,
   KnowhereSearchTargetContent,
   KnowhereToolRuntime,
   MemorySearchKind,
+  MemorySearchItem,
   MemoryToolRuntime,
   OutputArtifactView,
   OutputCitation,
@@ -37,9 +31,8 @@ import type {
 } from "./types"
 import { memorySearchKinds } from "./types"
 
-const defaultMaxSteps = 14
-const imageInspectionReminderStepNumber = 12
-const forcedFinalizationStepNumber = 13
+const answerCompletionStepAllowance = 3
+const defaultMaxSteps = 15
 
 type ToolLoopAgentSettings = ConstructorParameters<typeof ToolLoopAgent>[0]
 
@@ -50,7 +43,7 @@ export type RunAgentHarnessInput = {
   readonly turn: AgentTurnInput
   readonly knowhereTools: KnowhereToolRuntime
   readonly memoryTools: MemoryToolRuntime
-  readonly inspectImages?: InspectImages
+  readonly readTableHtml?: ReadTableHtml
   readonly maxSteps?: number
 }
 
@@ -59,9 +52,10 @@ type HarnessToolState = {
   contextPolicy?: ContextPolicy
   finalizedManifest?: OutputManifest
   finalized?: boolean
+  answerContextRequested?: boolean
+  answerContextMessage?: ModelMessage
+  memoryItems?: MemorySearchItem[]
   priorTurnReads?: string[]
-  inspectedImageRefs?: string[]
-  imageHighlights?: ImageInspectionHighlights[]
   toolCalls?: HarnessToolCallTrace[]
 }
 
@@ -98,6 +92,7 @@ const knowhereSearchSchema = z.object({
   ),
   targetContent: knowhereSearchTargetContentSchema.default("all"),
   purpose: z.string().optional(),
+  gapReason: z.string().optional(),
   topK: z.number().int().min(1).max(12).optional(),
   signalPaths: z.array(z.string().min(1)).max(8).optional(),
   filterMode: z.enum(["keep", "delete"]).optional(),
@@ -206,36 +201,56 @@ export async function runAgentHarness(
     ledger,
     knowhereTools: input.knowhereTools,
     memoryTools: input.memoryTools,
-    inspectImages: input.inspectImages,
     recentTurns: input.turn.recentTurns,
   })
   const agent = new ToolLoopAgent({
     model: input.model,
     instructions: buildHarnessSystemPrompt(input.turn),
     tools,
-    prepareStep: ({ messages: stepMessages, stepNumber }) =>
-      prepareHarnessStep({
+    prepareStep: async ({ messages: stepMessages, stepNumber }) => {
+      if (
+        state.answerContextRequested &&
+        !state.answerContextMessage &&
+        !ledger.hasPendingRetention()
+      ) {
+        state.answerContextMessage = await composeAnswerContext({
+          ledger: ledger.snapshot(),
+          memoryItems: state.memoryItems ?? [],
+          userText: input.turn.userText,
+          readTableHtml: input.readTableHtml,
+        })
+      }
+      return prepareHarnessStep({
         messages: stepMessages,
         stepNumber,
         intent: state.intent,
-        hasUninspectedImageAssets:
-          input.inspectImages !== undefined &&
-          hasUninspectedImageAssets({ state, ledger }),
         hasKnowhereSearch: (state.toolCalls ?? []).some(
           (call) => call.tool === "knowhere_search",
         ),
-      }),
+        hasPendingRetention: ledger.hasPendingRetention(),
+        pendingRetentionRange: ledger.pendingRetentionRange(),
+        answerContextMessage: state.answerContextMessage,
+        forceAnswerPreparation:
+          stepNumber >=
+          Math.max(
+            0,
+            (input.maxSteps ?? defaultMaxSteps) - answerCompletionStepAllowance,
+          ),
+      })
+    },
     stopWhen: [
       () => state.finalized === true,
       stepCountIs(input.maxSteps ?? defaultMaxSteps),
     ],
   })
 
-  const response = await agent.generate({
+  await agent.generate({
     messages: buildHarnessMessages(input.turn),
   })
-  const manifest =
-    state.finalizedManifest ?? buildFallbackManifest(response.text.trim())
+  if (!state.finalizedManifest) {
+    throw new Error("The agent did not finalize an output manifest.")
+  }
+  const manifest = state.finalizedManifest
   const ledgerSnapshot = ledger.snapshot()
   return {
     manifest,
@@ -246,7 +261,7 @@ export async function runAgentHarness(
       finalized: state.finalized === true,
       priorTurnReads: [...(state.priorTurnReads ?? [])],
       toolCalls: [...(state.toolCalls ?? [])],
-      imageHighlights: [...(state.imageHighlights ?? [])],
+      imageHighlights: [],
       validationErrors: [],
       revisionsUsed: 0,
     },
@@ -256,7 +271,6 @@ export async function runAgentHarness(
 const alwaysAvailableTools = [
   "declareIntent",
   "setContextPolicy",
-  "inspectImage",
   "readPriorTurn",
 ] as const
 
@@ -280,46 +294,59 @@ const cognitionRetrievalTools = [] as const
 export function prepareHarnessStep(input: {
   readonly stepNumber: number
   readonly messages: readonly ModelMessage[]
-  readonly hasUninspectedImageAssets?: boolean
   readonly hasKnowhereSearch?: boolean
+  readonly hasPendingRetention?: boolean
+  readonly pendingRetentionRange?: { startPick: number; endPick: number } | null
+  readonly answerContextMessage?: ModelMessage
+  readonly forceAnswerPreparation?: boolean
   readonly intent?: IntentFrame
 }): HarnessStepPreparation {
   const messages = sanitizeHarnessModelMessagesForStep(input.messages)
 
-  const shouldForceImageInspection =
-    input.hasUninspectedImageAssets === true &&
-    input.stepNumber === imageInspectionReminderStepNumber
-
-  if (shouldForceImageInspection) {
+  if (input.answerContextMessage) {
     return {
-      messages: [
-        ...messages,
-        {
-          role: "user",
-          content: buildImageInspectionReminderFeedback(),
-        },
-      ],
-      activeTools: ["inspectImage"],
-      toolChoice: {
-        type: "tool",
-        toolName: "inspectImage",
-      },
-    }
-  }
-
-  if (input.stepNumber >= forcedFinalizationStepNumber) {
-    return {
-      messages: [
-        ...messages,
-        {
-          role: "user",
-          content: buildForcedFinalizationFeedback(),
-        },
-      ],
+      messages: [input.answerContextMessage],
       activeTools: ["finalize"],
       toolChoice: {
         type: "tool",
         toolName: "finalize",
+      },
+    }
+  }
+
+  if (input.hasPendingRetention === true && input.pendingRetentionRange) {
+    return {
+      messages: [
+        ...messages,
+        {
+          role: "user",
+          content: buildRetainEvidenceFeedback(input.pendingRetentionRange),
+        },
+      ],
+      activeTools: ["retainEvidence"],
+      toolChoice: {
+        type: "tool",
+        toolName: "retainEvidence",
+      },
+    }
+  }
+
+  const shouldForceAnswerPreparation =
+    input.forceAnswerPreparation ??
+    (input.stepNumber >= defaultMaxSteps - answerCompletionStepAllowance)
+  if (shouldForceAnswerPreparation) {
+    return {
+      messages: [
+        ...messages,
+        {
+          role: "user",
+          content: buildForcedAnswerPreparationFeedback(),
+        },
+      ],
+      activeTools: ["prepareAnswer"],
+      toolChoice: {
+        type: "tool",
+        toolName: "prepareAnswer",
       },
     }
   }
@@ -330,9 +357,8 @@ export function prepareHarnessStep(input: {
       intent: input.intent,
       hasKnowhereSearch: input.hasKnowhereSearch === true,
     }),
-    // finalize is the only output contract (see its tool description). Force
-    // a tool call every step so the model cannot end the turn with a bare
-    // text response that skips finalize's citation/artifact validation.
+    // Tool calls are required so the retrieval phase cannot end with bare
+    // text and skip the composed answer context or finalize validation.
     toolChoice: "required",
   }
 }
@@ -344,8 +370,8 @@ function selectHarnessActiveTools(input: {
   const tools: Array<Extract<keyof HarnessTools, string>> = [
     ...alwaysAvailableTools,
   ]
-  if (allowsFinalize(input)) {
-    tools.push("finalize")
+  if (allowsAnswerPreparation(input)) {
+    tools.push("prepareAnswer")
   }
   if (!allowsRetrieval(input.intent)) {
     return tools
@@ -369,7 +395,7 @@ function allowsRetrieval(intent?: IntentFrame): boolean {
   )
 }
 
-function allowsFinalize(input: {
+function allowsAnswerPreparation(input: {
   readonly intent?: IntentFrame
   readonly hasKnowhereSearch: boolean
 }): boolean {
@@ -440,49 +466,26 @@ type ModelMessageForRole<TRole extends ModelMessage["role"]> = Extract<
   { readonly role: TRole }
 >
 
-function buildForcedFinalizationFeedback(): string {
+function buildForcedAnswerPreparationFeedback(): string {
   return [
     "The retrieval step budget has been reached.",
     "Do not search again.",
     "Use only the evidence and tool results already available in this turn.",
-    "Call finalize now with the best supported answer.",
-    "If the existing evidence is insufficient, explain the gap in unresolved",
-    "instead of making unsupported claims.",
+    "Call prepareAnswer now so the retained context can be assembled for the answer.",
   ].join("\n")
 }
 
-function buildImageInspectionReminderFeedback(): string {
+function buildRetainEvidenceFeedback(range: {
+  readonly startPick: number
+  readonly endPick: number
+}): string {
   return [
-    "Retrieved image/page assets are available and have not been inspected.",
-    "Call inspectImage now with the page/image asset refs you will cite.",
-    "Use a question that locates the cited evidence on those pages for OCR/visual context and provenance boxes.",
-    "Do not finalize until those cited image assets have been inspected.",
-    "Do not search again.",
+    "The latest search returned new evidence that has not been retained.",
+    `Call retainEvidence with the pick numbers you will keep from ${range.startPick}-${range.endPick}.`,
+    "An empty picks list means this search found nothing useful.",
+    "Picks not retained cannot be cited later.",
+    "Do not search or finalize until retainEvidence has been called.",
   ].join("\n")
-}
-
-function hasUninspectedImageAssets(input: {
-  readonly state: HarnessToolState
-  readonly ledger: ReturnType<typeof createEvidenceLedger>
-}): boolean {
-  const snapshot = input.ledger.snapshot()
-  const chunksByRef = new Map(
-    snapshot.chunks.map((chunk) => [chunk.ref, chunk] as const),
-  )
-  const assetsByRef = new Map(
-    snapshot.assets.map((asset) => [asset.ref, asset] as const),
-  )
-  const inspectedKeys = new Set(
-    (input.state.inspectedImageRefs ?? []).map((ref) => {
-      const asset = assetsByRef.get(ref)
-      return asset ? getCanonicalImageAssetKey(asset, chunksByRef) : ref
-    }),
-  )
-  return snapshot.assets.some(
-    (asset) =>
-      asset.type === "image" &&
-      !inspectedKeys.has(getCanonicalImageAssetKey(asset, chunksByRef)),
-  )
 }
 
 export function createHarnessTools(input: {
@@ -490,7 +493,6 @@ export function createHarnessTools(input: {
   readonly ledger: ReturnType<typeof createEvidenceLedger>
   readonly knowhereTools: KnowhereToolRuntime
   readonly memoryTools: MemoryToolRuntime
-  readonly inspectImages?: InspectImages
   readonly recentTurns: readonly AgentTurn[]
 }) {
   return {
@@ -528,7 +530,7 @@ export function createHarnessTools(input: {
 
     memory_search: tool({
       description:
-        "Search distilled fluid memory for this workspace. Returns tagged text with memory refs such as mem:1. Use this before Knowhere document search.",
+        "Search distilled fluid memory for this workspace. Returns tagged text with memory refs such as mem:1. It can run alongside Knowhere document search when both are useful.",
       inputSchema: memorySearchSchema,
       execute: async (request) =>
         traceToolCall(input.state, {
@@ -536,6 +538,7 @@ export function createHarnessTools(input: {
           inputSummary: summarizeMemorySearchRequest(request),
           execute: async () => {
             return await executeMemorySearch({
+              state: input.state,
               memoryTools: input.memoryTools,
               request,
             })
@@ -544,9 +547,27 @@ export function createHarnessTools(input: {
         }),
     }),
 
+    retainEvidence: tool({
+      description:
+        "Keep pick numbers from the latest Knowhere search that are useful. " +
+        "Call this after every search that returns new evidence. " +
+        "An empty picks list means that search found nothing useful. " +
+        "Picks not retained cannot be cited later.",
+      inputSchema: z.object({
+        picks: z.array(z.number().int().positive()),
+      }),
+      execute: async ({ picks }) =>
+        traceToolCall(input.state, {
+          toolName: "retainEvidence",
+          inputSummary: { picks },
+          execute: async () => input.ledger.retainPicks(picks),
+          summarizeOutput: (output) => output,
+        }),
+    }),
+
     knowhere_search: tool({
       description:
-        "Search Knowhere for relevant Notebook evidence. Returns tagged text with pick numbers for finalize citations, evidence refs such as r1:result:1, and asset refs such as asset:r1:result:1.",
+        "Search Knowhere for relevant Notebook evidence. Returns tagged text with pick numbers for finalize citations, evidence refs such as r1:result:1, and asset refs such as asset:r1:result:1. After a previous search in this turn, set gapReason to what that search lacked and how this query will fill the gap.",
       inputSchema: knowhereSearchSchema,
       execute: async (request) =>
         traceToolCall(input.state, {
@@ -559,29 +580,6 @@ export function createHarnessTools(input: {
               request,
             }),
           summarizeOutput: summarizeKnowhereTextOutput,
-        }),
-    }),
-
-    inspectImage: tool({
-      description:
-        "Inspect cited Knowhere page/image asset refs for OCR, visual details, and provenance boxes. Call this after retrieval and before finalize whenever the answer cites page or image assets.",
-      inputSchema: z.object({
-        refs: z.array(z.string().min(1)).min(1),
-        question: z.string().min(1),
-      }),
-      execute: async (request) =>
-        traceToolCall(input.state, {
-          toolName: "inspectImage",
-          inputSummary: summarizeInspectImageRequest(request),
-          execute: async () =>
-            inspectRetrievedImages({
-              state: input.state,
-              ledger: input.ledger,
-              inspectImages: input.inspectImages,
-              refs: request.refs,
-              question: request.question,
-            }),
-          summarizeOutput: summarizeInspectImageOutput,
         }),
     }),
 
@@ -644,6 +642,28 @@ export function createHarnessTools(input: {
         }),
     }),
 
+    prepareAnswer: tool({
+      description:
+        "Finish retrieval and assemble retained Knowledge Base evidence, all fluid memory results, and the user's original question into one multimodal message for the answer step.",
+      inputSchema: z.object({}),
+      execute: async () =>
+        traceToolCall(input.state, {
+          toolName: "prepareAnswer",
+          inputSummary: {},
+          execute: async () => {
+            if (input.ledger.hasPendingRetention()) {
+              return {
+                ok: false as const,
+                message: "Call retainEvidence for the latest search before prepareAnswer.",
+              }
+            }
+            input.state.answerContextRequested = true
+            return { ok: true as const }
+          },
+          summarizeOutput: (output) => output,
+        }),
+    }),
+
     finalize: tool({
       description:
         "Finalize the user-facing output manifest. This is the only final answer " +
@@ -651,8 +671,7 @@ export function createHarnessTools(input: {
         "images/tables shown to the user. citations is the list of evidence picks " +
         "you used; each pick is the pick number on a Knowhere search chunk. " +
         "Notebook writes citation refs from the evidence ledger. " +
-        "Use memoryCitations for fluid memory refs. " +
-        "Cited page/image assets must be inspected with inspectImage first.",
+        "Use memoryCitations for fluid memory refs.",
       inputSchema: finalizeManifestSchema,
       execute: async (manifest) =>
         traceToolCall(input.state, {
@@ -664,13 +683,37 @@ export function createHarnessTools(input: {
               ledger: input.ledger,
             })
             if (!resolvedCitations.ok) {
+              if ("unknownPicks" in resolvedCitations) {
+                return {
+                  ok: false as const,
+                  message: buildFinalizeRequiresPicksMessage({
+                    unknownPicks: resolvedCitations.unknownPicks,
+                    ledger: input.ledger.snapshot(),
+                  }),
+                  unknownPicks: resolvedCitations.unknownPicks,
+                }
+              }
               return {
                 ok: false as const,
-                message: buildFinalizeRequiresPicksMessage({
-                  unknownPicks: resolvedCitations.unknownPicks,
+                message: buildFinalizeRequiresRetainedPicksMessage({
+                  unretainedPicks: resolvedCitations.unretainedPicks,
                   ledger: input.ledger.snapshot(),
                 }),
-                unknownPicks: resolvedCitations.unknownPicks,
+                unretainedPicks: resolvedCitations.unretainedPicks,
+              }
+            }
+
+            const unretainedArtifactRefs = getUnretainedDisplayedArtifactRefs({
+              artifacts: manifest.artifacts,
+              ledger: input.ledger,
+            })
+            if (unretainedArtifactRefs.length > 0) {
+              return {
+                ok: false as const,
+                message: buildFinalizeRequiresRetainedArtifactsMessage(
+                  unretainedArtifactRefs,
+                ),
+                unretainedArtifactRefs,
               }
             }
 
@@ -680,20 +723,6 @@ export function createHarnessTools(input: {
               memoryCitations: manifest.memoryCitations,
               artifacts: manifest.artifacts,
               unresolved: manifest.unresolved,
-            }
-
-            const inspectRefs = getUninspectedCitedImageRefs({
-              manifest: outputManifest,
-              ledger: input.ledger,
-              inspectedImageRefs: input.state.inspectedImageRefs ?? [],
-              inspectImagesAvailable: input.inspectImages !== undefined,
-            })
-            if (inspectRefs.length > 0) {
-              return {
-                ok: false as const,
-                message: buildFinalizeRequiresInspectionMessage(inspectRefs),
-                inspectRefs,
-              }
             }
 
             input.state.finalizedManifest = outputManifest
@@ -706,175 +735,16 @@ export function createHarnessTools(input: {
   } as const
 }
 
-async function inspectRetrievedImages(input: {
-  readonly state: HarnessToolState
-  readonly ledger: ReturnType<typeof createEvidenceLedger>
-  readonly inspectImages?: InspectImages
-  readonly refs: readonly string[]
-  readonly question: string
-}): Promise<
-  | ({ readonly ok: true } & ImageInspectionResponse)
-  | {
-      readonly ok: false
-      readonly message: string
-      readonly inspected: readonly []
-      readonly skipped: readonly {
-        readonly ref: string
-        readonly reason: string
-      }[]
-    }
-> {
-  const refs = getUniqueTrimmedRefs(input.refs)
-  const question = input.question.trim()
-
-  if (refs.length === 0 || question.length === 0) {
-    return {
-      ok: false,
-      message: "At least one image asset ref and a question are required.",
-      inspected: [],
-      skipped: [],
-    }
-  }
-  const snapshot = input.ledger.snapshot()
-  if (snapshot.chunks.length === 0 && snapshot.assets.length === 0) {
-    return {
-      ok: false,
-      message:
-        "Knowhere evidence tools must return image assets before inspectImage.",
-      inspected: [],
-      skipped: refs.map((ref) => ({
-        ref,
-        reason: "No Knowhere evidence is available yet.",
-      })),
-    }
-  }
-  if (!input.inspectImages) {
-    return {
-      ok: false,
-      message: "Image inspection is not available for this turn.",
-      inspected: [],
-      skipped: refs.map((ref) => ({
-        ref,
-        reason: "No image inspection capability is configured.",
-      })),
-    }
-  }
-
-  const assetsByRef = new Map(
-    snapshot.assets.map((asset) => [asset.ref, asset] as const),
-  )
-  const chunksByRef = new Map(
-    snapshot.chunks.map((chunk) => [chunk.ref, chunk] as const),
-  )
-  const skipped: {
-    readonly ref: string
-    readonly reason: string
-  }[] = []
-  const selectedAssets: ImageInspectionAsset[] = []
-  const selectedKeys = new Set<string>()
-
-  for (const ref of refs) {
-    const asset = assetsByRef.get(ref)
-    if (!asset) {
-      skipped.push({
-        ref,
-        reason: "Ref was not returned by Knowhere as an asset.",
-      })
-      continue
-    }
-    if (asset.type !== "image") {
-      skipped.push({
-        ref,
-        reason: "Ref is not an image asset.",
-      })
-      continue
-    }
-
-    const assetKey = getCanonicalImageAssetKey(asset, chunksByRef)
-    if (selectedKeys.has(assetKey)) {
-      skipped.push({
-        ref,
-        reason: "Duplicate of another retrieved page selected for inspection.",
-      })
-      continue
-    }
-    selectedKeys.add(assetKey)
-    selectedAssets.push({
-      ref: asset.ref,
-      label: asset.label,
-      ...(asset.assetUrl ? { assetUrl: asset.assetUrl } : {}),
-      ...(asset.sourcePath ? { sourcePath: asset.sourcePath } : {}),
-      ...(asset.revisionKey ? { revisionKey: asset.revisionKey } : {}),
-      source: asset.source,
-    })
-  }
-
-  if (selectedAssets.length === 0) {
-    return {
-      ok: false,
-      message: "No inspectable image asset refs were provided.",
-      inspected: [],
-      skipped,
-    }
-  }
-
-  const inspectedImageRefs = input.state.inspectedImageRefs ?? []
-
-  try {
-    const response = await input.inspectImages({
-      question,
-      assets: selectedAssets,
-    })
-    const selectedRefs = new Set(selectedAssets.map((asset) => asset.ref))
-    const successfulRefs = response.inspected
-      .map((asset) => asset.ref)
-      .filter((ref) => selectedRefs.has(ref))
-    input.state.inspectedImageRefs = [
-      ...inspectedImageRefs,
-      ...successfulRefs.filter((ref) => !inspectedImageRefs.includes(ref)),
-    ]
-    input.state.imageHighlights = mergeImageInspectionHighlights(
-      input.state.imageHighlights,
-      response.highlights,
-    )
-    if (successfulRefs.length === 0) {
-      return {
-        ok: false as const,
-        message: "Image inspection skipped every requested asset.",
-        inspected: [],
-        skipped: [...skipped, ...response.skipped],
-      }
-    }
-    return {
-      ok: true as const,
-      analysis: response.analysis,
-      inspected: response.inspected,
-      skipped: [...skipped, ...response.skipped],
-    }
-  } catch (error) {
-    return {
-      ok: false,
-      message:
-        error instanceof Error
-          ? `Image inspection failed: ${error.message}`
-          : "Image inspection failed.",
-      inspected: [],
-      skipped: selectedAssets.map((asset) => ({
-        ref: asset.ref,
-        reason: "The image inspection request failed.",
-      })),
-    }
-  }
-}
-
 function resolveCitationPicks(input: {
   readonly citations: readonly { pick: number }[]
   readonly ledger: ReturnType<typeof createEvidenceLedger>
 }):
   | { ok: true; citations: OutputCitation[] }
-  | { ok: false; unknownPicks: number[] } {
+  | { ok: false; unknownPicks: number[] }
+  | { ok: false; unretainedPicks: number[] } {
   const chunks = input.ledger.snapshot().chunks
   const unknownPicks: number[] = []
+  const unretainedPicks: number[] = []
   const citations: OutputCitation[] = []
 
   for (const citation of input.citations) {
@@ -887,11 +757,20 @@ function resolveCitationPicks(input: {
       }
       continue
     }
+    if (!input.ledger.isRetained(citation.pick)) {
+      if (!unretainedPicks.includes(citation.pick)) {
+        unretainedPicks.push(citation.pick)
+      }
+      continue
+    }
     citations.push({ ref: chunk.ref })
   }
 
   if (unknownPicks.length > 0) {
     return { ok: false, unknownPicks }
+  }
+  if (unretainedPicks.length > 0) {
+    return { ok: false, unretainedPicks }
   }
   return { ok: true, citations }
 }
@@ -911,89 +790,66 @@ function buildFinalizeRequiresPicksMessage(input: {
   ].join(" ")
 }
 
-function getUninspectedCitedImageRefs(input: {
-  readonly manifest: OutputManifest
+function buildFinalizeRequiresRetainedPicksMessage(input: {
+  readonly unretainedPicks: readonly number[]
+  readonly ledger: EvidenceLedgerSnapshot
+}): string {
+  const retained =
+    input.ledger.retainedPicks.length > 0
+      ? `Retained picks: ${input.ledger.retainedPicks.join(" ")}.`
+      : "No evidence picks have been retained."
+  return [
+    "Citations can only use retained evidence picks.",
+    `Unretained citation picks: ${input.unretainedPicks.join(" ")}.`,
+    retained,
+    "Call retainEvidence after each search, then finalize using only retained picks.",
+  ].join(" ")
+}
+
+function getUnretainedDisplayedArtifactRefs(input: {
+  readonly artifacts: readonly OutputArtifactView[]
   readonly ledger: ReturnType<typeof createEvidenceLedger>
-  readonly inspectedImageRefs: readonly string[]
-  readonly inspectImagesAvailable: boolean
 }): string[] {
-  if (!input.inspectImagesAvailable) return []
-
-  const snapshot = input.ledger.snapshot()
-  const chunksByRef = new Map(
-    snapshot.chunks.map((chunk) => [chunk.ref, chunk] as const),
-  )
-  const assetsByRef = new Map(
-    snapshot.assets.map((asset) => [asset.ref, asset] as const),
-  )
-  const inspected = new Set(input.inspectedImageRefs)
-  const inspectedKeys = new Set(
-    input.inspectedImageRefs.map((ref) => {
-      const asset = assetsByRef.get(ref)
-      return asset ? getCanonicalImageAssetKey(asset, chunksByRef) : ref
-    }),
-  )
-
   const refs: string[] = []
-  const seenKeys = new Set<string>()
-  const addRef = (ref: string | null): void => {
-    if (!ref || inspected.has(ref)) return
-    const asset = assetsByRef.get(ref)
-    const key = asset ? getCanonicalImageAssetKey(asset, chunksByRef) : ref
-    if (seenKeys.has(key) || inspectedKeys.has(key)) return
-    seenKeys.add(key)
-    refs.push(ref)
+  for (const artifact of input.artifacts) {
+    if (artifact.display === false || artifact.type === "derived_table") continue
+    if (!isRefRetained(input.ledger, artifact.ref) && !refs.includes(artifact.ref)) {
+      refs.push(artifact.ref)
+    }
   }
-
-  for (const citation of input.manifest.citations) {
-    addRef(resolveImageAssetRef(citation.ref, chunksByRef, assetsByRef))
-  }
-
-  for (const artifact of input.manifest.artifacts) {
-    if (artifact.type !== "image" || artifact.display === false) continue
-    addRef(resolveImageAssetRef(artifact.ref, chunksByRef, assetsByRef))
-  }
-
   return refs
 }
 
-function resolveImageAssetRef(
-  ref: string,
-  chunksByRef: ReadonlyMap<string, EvidenceChunk>,
-  assetsByRef: ReadonlyMap<string, EvidenceAsset>,
-): string | null {
-  const directAsset = assetsByRef.get(ref)
-  if (directAsset?.type === "image") return directAsset.ref
-
-  const chunk = chunksByRef.get(ref)
-  if (!chunk) return null
-
-  if (chunk.assetRef) {
-    const chunkAsset = assetsByRef.get(chunk.assetRef)
-    if (chunkAsset?.type === "image") return chunkAsset.ref
-  }
-
-  if (!chunk.chunkId) return null
-  const sibling = Array.from(chunksByRef.values()).find(
-    (candidate) =>
-      candidate.ref !== chunk.ref &&
-      candidate.chunkId === chunk.chunkId &&
-      candidate.source.documentId === chunk.source.documentId &&
-      candidate.assetRef !== undefined &&
-      assetsByRef.get(candidate.assetRef)?.type === "image",
-  )
-  return sibling?.assetRef ?? null
-}
-
-function buildFinalizeRequiresInspectionMessage(
-  inspectRefs: readonly string[],
+function buildFinalizeRequiresRetainedArtifactsMessage(
+  refs: readonly string[],
 ): string {
   return [
-    "Cited page/image assets must be inspected before finalize.",
-    `Call inspectImage with refs: ${inspectRefs.join(" ")}.`,
-    "Use a question that locates the cited evidence on those pages.",
-    "Then call finalize again, using the inspection notes in the answer.",
+    "Displayed artifacts can only use retained evidence.",
+    `Unretained artifact refs: ${refs.join(" ")}.`,
+    "Call retainEvidence after each search, then finalize using only retained evidence.",
   ].join(" ")
+}
+
+function pickForRef(
+  snapshot: EvidenceLedgerSnapshot,
+  ref: string,
+): number | null {
+  const chunkIndex = snapshot.chunks.findIndex((chunk) => chunk.ref === ref)
+  if (chunkIndex >= 0) return chunkIndex + 1
+  const asset = snapshot.assets.find((candidate) => candidate.ref === ref)
+  if (!asset) return null
+  const parentIndex = snapshot.chunks.findIndex(
+    (chunk) => chunk.ref === asset.chunkRef,
+  )
+  return parentIndex >= 0 ? parentIndex + 1 : null
+}
+
+function isRefRetained(
+  ledger: ReturnType<typeof createEvidenceLedger>,
+  ref: string,
+): boolean {
+  const pick = pickForRef(ledger.snapshot(), ref)
+  return pick !== null && ledger.isRetained(pick)
 }
 
 type KnowhereToolOperation = "search"
@@ -1002,6 +858,7 @@ type MemorySearchToolRequest = z.infer<typeof memorySearchSchema>
 type KnowhereSearchToolRequest = z.infer<typeof knowhereSearchSchema>
 
 async function executeMemorySearch(input: {
+  readonly state: HarnessToolState
   readonly memoryTools: MemoryToolRuntime
   readonly request: MemorySearchToolRequest
 }): Promise<string> {
@@ -1010,6 +867,7 @@ async function executeMemorySearch(input: {
       query: input.request.query,
       kinds: input.request.kinds,
     })
+    accumulateMemoryItems(input.state, response.items)
     return memoryToolText.formatSearch(response)
   } catch (error) {
     return memoryToolText.formatError({
@@ -1017,6 +875,20 @@ async function executeMemorySearch(input: {
       message: formatUnknownError(error),
     })
   }
+}
+
+function accumulateMemoryItems(
+  state: HarnessToolState,
+  items: readonly MemorySearchItem[],
+): void {
+  const accumulated = state.memoryItems ?? []
+  const itemIds = new Set(accumulated.map((item) => item.itemId))
+  for (const item of items) {
+    if (itemIds.has(item.itemId)) continue
+    accumulated.push(item)
+    itemIds.add(item.itemId)
+  }
+  state.memoryItems = accumulated
 }
 
 async function executeKnowhereSearch(input: {
@@ -1028,6 +900,14 @@ async function executeKnowhereSearch(input: {
     operation: "search",
     execute: async () => {
       const beforeSnapshot = input.ledger.snapshot()
+      const gapReason = input.request.gapReason?.trim()
+      if (beforeSnapshot.retrievalCount > 0 && !gapReason) {
+        return knowhereToolText.formatError({
+          operation: "search",
+          message:
+            "This is a follow-up search. Set gapReason to what the previous search lacked and how this query will fill that gap.",
+        })
+      }
       const response = await input.knowhereTools.search({
         query: input.request.query,
         ...(input.request.includeDocumentIds !== undefined
@@ -1038,6 +918,7 @@ async function executeKnowhereSearch(input: {
           : {}),
         targetContent: input.request.targetContent,
         purpose: input.request.purpose,
+        ...(gapReason ? { gapReason } : {}),
         topK: input.request.topK,
         signalPaths: input.request.signalPaths,
         filterMode: input.request.filterMode,
@@ -1067,16 +948,6 @@ async function executeKnowhereTextTool(input: {
       message: formatUnknownError(error),
     })
   }
-}
-
-function getUniqueTrimmedRefs(refs: readonly string[]): string[] {
-  const normalizedRefs: string[] = []
-  for (const ref of refs) {
-    const normalizedRef = ref.trim()
-    if (!normalizedRef || normalizedRefs.includes(normalizedRef)) continue
-    normalizedRefs.push(normalizedRef)
-  }
-  return normalizedRefs
 }
 
 async function traceToolCall<T>(input: {
@@ -1173,6 +1044,7 @@ function summarizeKnowhereSearchRequest(request: {
   readonly query: string
   readonly targetContent?: KnowhereSearchTargetContent
   readonly purpose?: string
+  readonly gapReason?: string
   readonly topK?: number
   readonly signalPaths?: readonly string[]
   readonly filterMode?: string
@@ -1182,6 +1054,7 @@ function summarizeKnowhereSearchRequest(request: {
     query: request.query,
     targetContent: request.targetContent ?? "all",
     purpose: request.purpose,
+    gapReason: request.gapReason,
     topK: request.topK,
     signalPathCount: request.signalPaths?.length ?? 0,
     filterMode: request.filterMode,
@@ -1208,30 +1081,6 @@ function countOccurrences(value: string, pattern: string): number {
     if (index === -1) return count
     count += 1
     offset = index + pattern.length
-  }
-}
-
-function summarizeInspectImageRequest(request: {
-  readonly refs: readonly string[]
-  readonly question: string
-}): unknown {
-  return {
-    refs: getUniqueTrimmedRefs(request.refs),
-    questionLength: request.question.trim().length,
-  }
-}
-
-function summarizeInspectImageOutput(output: unknown): unknown {
-  if (!isRecord(output)) return output
-  return {
-    ok: output.ok,
-    analysisLength:
-      typeof output.analysis === "string" ? output.analysis.length : 0,
-    inspectedCount: Array.isArray(output.inspected)
-      ? output.inspected.length
-      : 0,
-    skippedCount: Array.isArray(output.skipped) ? output.skipped.length : 0,
-    message: output.message,
   }
 }
 
@@ -1305,14 +1154,16 @@ export function buildHarnessSystemPrompt(turn: AgentTurnInput): string {
     "1. Call declareIntent when it helps you plan the response. Capture constraints like a requested image/table count in constraints.desiredCount.",
     "2. Call setContextPolicy when prior turns may influence this turn.",
     "3. When the policy needs prior-turn detail (references or corrections), call readPriorTurn for the relevant ids.",
-    "4. Call memory_search first when known fluid memory may answer the request. Call knowhere_search when memory is insufficient and groundingPolicy requires citing source documents. If the returned evidence is not enough to answer, or the query needs to focus differently, call knowhere_search again with a refined query (different keywords / topK / targetContent) instead of trying to browse documents directly. Knowhere's own retrieval agent already navigates the corpus internally.",
-    "5. After Knowhere returns image/page asset refs, call inspectImage on the page/image assets you will cite before finalize. This supplies OCR/visual context and provenance boxes.",
-    "6. Inspect each unique cited page once; retrieval already bounds the available evidence set.",
-    "7. Call finalize with text, citations, artifacts, and unresolved issues when you are ready to answer.",
+    "4. Call memory_search for relevant fluid memory and knowhere_search when groundingPolicy requires source documents. When both are useful, call them together in the same step. If the returned evidence is not enough to answer, or the query needs to focus differently, call knowhere_search again with a refined query (different keywords / topK / targetContent) instead of trying to browse documents directly. Knowhere's own retrieval agent already navigates the corpus internally.",
+    "5. After a search returns new evidence, call retainEvidence with the pick numbers from that search you will keep, then decide whether to search again or prepare the answer. An empty picks list means this search found nothing useful. Picks not retained cannot be cited later.",
+    "6. When retrieval is complete, call prepareAnswer. The retained evidence, all fluid memory results, and the user's original question will be assembled into one multimodal message.",
+    "7. Read that assembled message once and call finalize with the answer, citations, artifacts, and unresolved issues.",
     "",
     "Retrieval rules:",
-    "- First use memory_search to see whether known fluid memory can answer directly.",
-    "- Call knowhere_search only when memory is insufficient and groundingPolicy requires citing source documents.",
+    "- memory_search and knowhere_search are parallel retrieval sources. When both apply, call them together rather than making one wait for the other.",
+    "- Call knowhere_search when groundingPolicy requires citing source documents.",
+    "- After each search that returns new evidence, call retainEvidence before searching again or finalizing.",
+    "- When calling knowhere_search after a previous search in this turn, set gapReason to what the previous search lacked and how the new query will fill that gap.",
     "- Refine knowhere_search at most twice. If two refined searches still do not add new relevant evidence, call finalize and list the gap in unresolved.",
     "- Do not treat every question as a document-retrieval task.",
     "- For document-scoped searches, use includeDocumentIds/excludeDocumentIds only with verified IDs from source context or prior search results. If IDs are unknown, preserve the document requirement in query so Knowhere can locate it. Never invent IDs or substitute filenames. Exclusions win; an empty includeDocumentIds means no documents.",
@@ -1326,15 +1177,13 @@ export function buildHarnessSystemPrompt(turn: AgentTurnInput): string {
     "- Final output is the OutputManifest passed to finalize, not freeform tool JSON or trailing text.",
     "- artifacts with display=true are the exact images/tables shown. Never display every candidate; honor constraints.desiredCount / maxCount.",
     "- Use type=derived_table only for tables you create from evidence; every derived_table.sourceRefs entry must reference evidence in the ledger.",
-    "- citations is a list of { pick }. pick is the 1-based number on the search chunk you are using. Notebook writes the citation list from those picks. Do not pass documentId or evidence refs as citations.",
+    "- citations is a list of { pick }. pick is the 1-based number on the search chunk you are using, and it must have been retained. Notebook writes the citation list from those picks. Do not pass documentId or evidence refs as citations.",
     "- Place [[cite:n]] immediately after the supported claim. n is the 1-based index into the citations array passed to finalize.",
     "- Write one marker per index: [[cite:1]] [[cite:3]] [[cite:5]]. Never group indices as [[cite:1, 3, 5]].",
     "- Do not write title/pN, [1], Markdown footnotes, or [Source N: ...] in the answer text. Notebook renders chips from [[cite:n]] and citation metadata.",
     "- Repeat [[cite:n]] when another claim uses the same page. Do not collapse same-page citations to one row.",
     "- If you have no supporting evidence pick, omit citations and list the gap in unresolved.",
-    "- inspectImage observations are inspection notes, not new source refs. Final citations and displayed image artifacts must use the original retrieved image asset refs.",
-    "- Do not finalize cited page/image assets from chunk text alone when inspectImage is available. Inspect those asset refs first, then write the answer using the inspection notes.",
-    "- If text evidence identifies a relevant page/image but does not include the exact fact, inspect the returned image asset for OCR/detail before saying the answer is unavailable.",
+    "- Images in retained evidence are embedded directly in the assembled user message. Read them there; do not call a separate image-inspection step.",
     "- If evidence is insufficient, list it in unresolved instead of fabricating facts.",
     `Surface: ${turn.surface}`,
     `Output capabilities: ${JSON.stringify(turn.outputCapabilities)}`,
@@ -1370,15 +1219,4 @@ function formatRecentTurnIndex(turn: AgentTurnInput): string {
   })
   return ["Recent turn index:", ...lines].join("\n")
 }
-
-function buildFallbackManifest(text: string): OutputManifest {
-  return {
-    text,
-    citations: [],
-    memoryCitations: [],
-    artifacts: [],
-    unresolved: text ? [] : ["The agent did not finalize an output manifest."],
-  }
-}
-
 export type { HarnessTrace }
