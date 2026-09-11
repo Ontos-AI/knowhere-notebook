@@ -124,6 +124,19 @@ describe("agent harness runtime", () => {
     ])
   })
 
+  it.each([
+    { includeDocumentIds: ["doc_1"], excludeDocumentIds: ["doc_2"] },
+    { includeDocumentIds: [], excludeDocumentIds: [] },
+  ])("preserves document scopes in the actual search tool: %j", async (scope) => {
+    const search = vi.fn<KnowhereToolRuntime["search"]>().mockResolvedValue(makeRetrievalResponse())
+    const tools = createHarnessTools({
+      state: {}, ledger: createEvidenceLedger(), recentTurns: [],
+      memoryTools: makeMemoryTools(), knowhereTools: makeKnowhereTools(search),
+    })
+    await executeTool(tools.knowhere_search, { query: "question", ...scope })
+    expect(search).toHaveBeenCalledWith(expect.objectContaining(scope))
+  })
+
   it("returns only newly searched evidence in each knowhere_search tool result", async () => {
     const query = vi
       .fn<KnowhereToolRuntime["search"]>()
@@ -1083,8 +1096,8 @@ describe("agent harness runtime", () => {
       "setContextPolicy",
       "inspectImage",
       "readPriorTurn",
-      "finalize",
     ])
+    expect(result.activeTools).not.toContain("finalize")
     expect(result.activeTools).not.toContain("memory_search")
     expect(result.activeTools).not.toContain("knowhere_search")
   })
@@ -1104,6 +1117,7 @@ describe("agent harness runtime", () => {
     })
 
     expect(result.activeTools).toContain("memory_search")
+    expect(result.activeTools).toContain("finalize")
     expect(result.activeTools).not.toContain("knowhere_search")
   })
 
@@ -1121,6 +1135,7 @@ describe("agent harness runtime", () => {
       messages: [],
     })
 
+    expect(result.activeTools).toContain("finalize")
     expect(result.activeTools).not.toContain("memory_search")
     expect(result.activeTools).not.toContain("knowhere_search")
   })
@@ -1131,6 +1146,22 @@ describe("agent harness runtime", () => {
       messages: [],
     })
 
+    expect(result.toolChoice).toBe("required")
+    expect(result.activeTools).not.toContain("finalize")
+  })
+
+  it("blocks finalize on the first step so a document question cannot skip search", () => {
+    const result = prepareHarnessStep({
+      stepNumber: 1,
+      messages: [
+        {
+          role: "user",
+          content: "高血压合并冠心病，血压目标一般怎么定？",
+        },
+      ],
+    })
+
+    expect(result.activeTools).not.toContain("finalize")
     expect(result.toolChoice).toBe("required")
   })
 
@@ -1151,10 +1182,30 @@ describe("agent harness runtime", () => {
     expect(result.activeTools).toEqual(
       expect.arrayContaining(["memory_search", "knowhere_search"]),
     )
+    expect(result.activeTools).not.toContain("finalize")
     expect(result.activeTools).not.toContain("knowhere_list_documents")
     expect(result.activeTools).not.toContain("knowhere_get_document_outline")
     expect(result.activeTools).not.toContain("knowhere_read_chunks")
     expect(result.activeTools).not.toContain("knowhere_grep_chunks")
+  })
+
+  it("reopens finalize after must_use_sources has called knowhere_search, including empty results", () => {
+    const result = prepareHarnessStep({
+      stepNumber: 4,
+      hasKnowhereSearch: true,
+      intent: {
+        task: "answer",
+        dependsOnPreviousTurn: false,
+        retrievalNeeded: "yes",
+        targetModalities: ["text"],
+        constraints: {},
+        groundingPolicy: "must_use_sources",
+      },
+      messages: [],
+    })
+
+    expect(result.activeTools).toContain("finalize")
+    expect(result.activeTools).toContain("knowhere_search")
   })
 
   it("forces image inspection before forced finalization when image assets are available", () => {

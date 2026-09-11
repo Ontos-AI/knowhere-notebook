@@ -32,7 +32,7 @@ import type {
   AnswerQuestionResult,
 } from "./contracts"
 import {
-  excludeDocuments,
+  getRetrievalDocumentScope,
   normalizeRetrievalQuery,
 } from "./retrieval"
 import {
@@ -248,6 +248,7 @@ export const answerQuestionWithRetrieval = (
         searchSources,
         knowhereTools: notebookKnowhereTools.createRuntime({
           searchSources,
+          sources: input.sources,
         }),
         ...(input.inspectImages ? { inspectImages: input.inspectImages } : {}),
       }),
@@ -976,7 +977,7 @@ function buildRetrievalQueryParams(input: {
     ...(typeof input.input.threshold === "number"
       ? { threshold: input.input.threshold }
       : {}),
-    ...excludeDocuments(input.sources, input.excludedSourceIds),
+    ...getRetrievalDocumentScope(input.sources, input.excludedSourceIds, input.input),
   }
 }
 

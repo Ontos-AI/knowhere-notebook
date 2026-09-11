@@ -9,6 +9,7 @@ import type {
   HarnessRunResult,
   InspectImages,
   KnowhereToolRuntime,
+  KnowhereSearchRequest,
 } from "@/agent-harness"
 import type {
   ChatArtifactView,
@@ -40,13 +41,7 @@ export type AgenticRetrievalPlan = {
   purpose: string | null
 }
 
-export type AgenticRetrievalQuery = Pick<
-  RetrievalQueryParams,
-  "query" | "topK" | "signalPaths" | "filterMode" | "threshold"
-> & {
-  readonly targetContent?: AgenticRetrievalTargetContent
-  readonly purpose?: string
-}
+export type AgenticRetrievalQuery = KnowhereSearchRequest
 
 export type AgenticRetrievalResponse = RetrievalQueryResponse & {
   retrievalPlan?: AgenticRetrievalPlan

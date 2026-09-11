@@ -89,6 +89,9 @@ export type KnowhereSearchRequest = Pick<
   RetrievalQueryParams,
   "query" | "topK" | "signalPaths" | "filterMode" | "threshold"
 > & {
+  /** Omitted means all documents; [] means none. Exclusions take precedence. */
+  readonly includeDocumentIds?: string[]
+  readonly excludeDocumentIds?: string[]
   readonly targetContent?: KnowhereSearchTargetContent
   readonly purpose?: string
 }

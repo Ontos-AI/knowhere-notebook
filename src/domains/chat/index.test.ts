@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { createServer } from "node:http"
+import { once } from "node:events"
+import Knowhere from "@ontos-ai/knowhere-sdk"
 import type {
   Knowledge,
   RetrievalQueryParams,
@@ -102,6 +105,94 @@ describe("answerQuestionWithRetrieval", () => {
       artifacts: [],
     });
   });
+
+  it.each([true, false])("sends document scope through the installed SDK (agentic=%s)", async (useAgentic) => {
+    const received: Record<string, unknown>[] = []
+    const result = makeRetrievalResult({
+      content: "Evidence from the allowed document.",
+      source: { documentId: "doc_included", sourceFileName: "notes.txt", sectionPath: "Overview" },
+    })
+    const server = createServer((request, response) => {
+      let body = ""
+      request.setEncoding("utf8")
+      request.on("data", (chunk: string) => { body += chunk })
+      request.on("end", () => {
+        received.push(JSON.parse(body))
+        response.writeHead(200, { "Content-Type": "application/json" })
+        response.end(JSON.stringify({
+          namespace: "default", query: "document question", router_used: "test_fixture",
+          results: [{ content: result.content, chunk_type: "text", score: 1,
+            source: { document_id: "doc_included", source_file_name: "notes.txt", section_path: "Overview" } }],
+          referenced_chunks: [], evidence_text: result.content, answer_text: "",
+        }))
+      })
+    })
+    try {
+      server.listen(0, "127.0.0.1")
+      await once(server, "listening")
+      const address = server.address()
+      if (!address || typeof address === "string") throw new Error("Expected TCP address")
+      const client = new Knowhere({ apiKey: "scope-test", baseURL: `http://127.0.0.1:${address.port}`, maxRetries: 0 })
+      const scopes = [
+        {},
+        { includeDocumentIds: ["doc_included", "doc_other"] },
+        { excludeDocumentIds: ["doc_other"] },
+        { includeDocumentIds: ["doc_included", "doc_other"], excludeDocumentIds: ["doc_other"] },
+        { includeDocumentIds: [] },
+      ]
+      const answer = await Effect.runPromise(answerQuestionWithRetrieval({
+        question: "document question", namespace: "default", useAgentic,
+        sources: [makeSource(), makeSource({ id: "source_other", knowhereDocumentId: "doc_other" })],
+        excludedSourceIds: ["knowhere-doc:default:doc_user_excluded"],
+        retrieval: client.retrieval,
+        generateAnswer: async ({ knowhereTools }) => {
+          if (!knowhereTools) throw new Error("Missing Knowhere tools")
+          for (const scope of scopes) await knowhereTools.search({ query: "document question", ...scope })
+          return makeCitedHarnessRunResult("Evidence [[cite:1]].", result)
+        },
+        messages: [],
+      }))
+      expect(received).toEqual(scopes.map((scope) => ({
+        namespace: "default", query: "document question", top_k: 8, use_agentic: useAgentic, data_type: 1,
+        ...(scope.includeDocumentIds !== undefined ? { include_document_ids: scope.includeDocumentIds } : {}),
+        exclude_document_ids: ["doc_user_excluded", ...(scope.excludeDocumentIds ?? [])],
+      })))
+      expect(answer.answer).toBe("Evidence [[cite:1]].")
+      expect(answer.citations).toHaveLength(1)
+      expect(answer.citations[0]?.source.documentId).toBe("doc_included")
+    } finally {
+      if (server.listening) {
+        await new Promise<void>((resolve, reject) => {
+          server.close((error) => error ? reject(error) : resolve())
+          server.closeAllConnections()
+        })
+      }
+    }
+  })
+
+  it("rejects invented document IDs but accepts IDs discovered by a prior search", async () => {
+    const result = makeRetrievalResult({ source: {
+      documentId: "doc_discovered", sourceFileName: "named-document.pdf", sectionPath: "Overview",
+    } })
+    const retrieval = { query: vi.fn().mockResolvedValue({
+      namespace: "default", query: "named document", routerUsed: "agent_explore",
+      results: [result], referencedChunks: [], evidenceText: result.content, answerText: "",
+    }) }
+    await Effect.runPromise(answerQuestionWithRetrieval({
+      question: "Only search the named document", namespace: "default",
+      sources: [makeSource()], excludedSourceIds: [], retrieval, messages: [],
+      generateAnswer: async ({ knowhereTools }) => {
+        if (!knowhereTools) throw new Error("Missing Knowhere tools")
+        await expect(knowhereTools.search({ query: "question", includeDocumentIds: ["named-document.pdf"] })).rejects.toThrow("unverified ID")
+        await expect(knowhereTools.search({ query: "question", excludeDocumentIds: ["doc_invented"] })).rejects.toThrow("unverified ID")
+        expect(retrieval.query).not.toHaveBeenCalled()
+        await knowhereTools.search({ query: "Only search named-document.pdf" })
+        await knowhereTools.search({ query: "question", includeDocumentIds: ["doc_discovered"] })
+        expect(retrieval.query).toHaveBeenLastCalledWith(expect.objectContaining({ includeDocumentIds: ["doc_discovered"] }))
+        return makeCitedHarnessRunResult("Evidence [[cite:1]].", result)
+      },
+    }))
+  })
 
   it("does not create source chips from retrieval results when the manifest has no citations", async () => {
     const unrelatedResult = makeRetrievalResult({

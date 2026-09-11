@@ -90,6 +90,12 @@ const knowhereSearchTargetContentSchema = z.enum([
 
 const knowhereSearchSchema = z.object({
   query: z.string().min(1),
+  includeDocumentIds: z.array(z.string().trim().min(1)).optional().describe(
+    "Only search these verified document IDs. Omit for unrestricted search; [] searches no documents. Use IDs from source context or previous search results, never filenames or guessed IDs.",
+  ),
+  excludeDocumentIds: z.array(z.string().trim().min(1)).optional().describe(
+    "Exclude these verified document IDs. Exclusions take precedence over includeDocumentIds. If the ID is unknown, describe the document constraint in query instead.",
+  ),
   targetContent: knowhereSearchTargetContentSchema.default("all"),
   purpose: z.string().optional(),
   topK: z.number().int().min(1).max(12).optional(),
@@ -215,6 +221,9 @@ export async function runAgentHarness(
         hasUninspectedImageAssets:
           input.inspectImages !== undefined &&
           hasUninspectedImageAssets({ state, ledger }),
+        hasKnowhereSearch: (state.toolCalls ?? []).some(
+          (call) => call.tool === "knowhere_search",
+        ),
       }),
     stopWhen: [
       () => state.finalized === true,
@@ -249,7 +258,6 @@ const alwaysAvailableTools = [
   "setContextPolicy",
   "inspectImage",
   "readPriorTurn",
-  "finalize",
 ] as const
 
 const fluidRetrievalTools = ["memory_search"] as const
@@ -273,6 +281,7 @@ export function prepareHarnessStep(input: {
   readonly stepNumber: number
   readonly messages: readonly ModelMessage[]
   readonly hasUninspectedImageAssets?: boolean
+  readonly hasKnowhereSearch?: boolean
   readonly intent?: IntentFrame
 }): HarnessStepPreparation {
   const messages = sanitizeHarnessModelMessagesForStep(input.messages)
@@ -319,6 +328,7 @@ export function prepareHarnessStep(input: {
     messages,
     activeTools: selectHarnessActiveTools({
       intent: input.intent,
+      hasKnowhereSearch: input.hasKnowhereSearch === true,
     }),
     // finalize is the only output contract (see its tool description). Force
     // a tool call every step so the model cannot end the turn with a bare
@@ -329,10 +339,14 @@ export function prepareHarnessStep(input: {
 
 function selectHarnessActiveTools(input: {
   readonly intent?: IntentFrame
+  readonly hasKnowhereSearch: boolean
 }): Array<Extract<keyof HarnessTools, string>> {
   const tools: Array<Extract<keyof HarnessTools, string>> = [
     ...alwaysAvailableTools,
   ]
+  if (allowsFinalize(input)) {
+    tools.push("finalize")
+  }
   if (!allowsRetrieval(input.intent)) {
     return tools
   }
@@ -353,6 +367,21 @@ function allowsRetrieval(intent?: IntentFrame): boolean {
   return (
     intent.groundingPolicy !== "no_retrieval" && intent.retrievalNeeded !== "no"
   )
+}
+
+function allowsFinalize(input: {
+  readonly intent?: IntentFrame
+  readonly hasKnowhereSearch: boolean
+}): boolean {
+  if (!input.intent) return false
+  if (
+    input.intent.groundingPolicy === "must_use_sources" &&
+    allowsRetrieval(input.intent) &&
+    !input.hasKnowhereSearch
+  ) {
+    return false
+  }
+  return true
 }
 
 export function sanitizeHarnessModelMessagesForStep(
@@ -1001,6 +1030,12 @@ async function executeKnowhereSearch(input: {
       const beforeSnapshot = input.ledger.snapshot()
       const response = await input.knowhereTools.search({
         query: input.request.query,
+        ...(input.request.includeDocumentIds !== undefined
+          ? { includeDocumentIds: input.request.includeDocumentIds }
+          : {}),
+        ...(input.request.excludeDocumentIds !== undefined
+          ? { excludeDocumentIds: input.request.excludeDocumentIds }
+          : {}),
         targetContent: input.request.targetContent,
         purpose: input.request.purpose,
         topK: input.request.topK,
@@ -1280,6 +1315,7 @@ export function buildHarnessSystemPrompt(turn: AgentTurnInput): string {
     "- Call knowhere_search only when memory is insufficient and groundingPolicy requires citing source documents.",
     "- Refine knowhere_search at most twice. If two refined searches still do not add new relevant evidence, call finalize and list the gap in unresolved.",
     "- Do not treat every question as a document-retrieval task.",
+    "- For document-scoped searches, use includeDocumentIds/excludeDocumentIds only with verified IDs from source context or prior search results. If IDs are unknown, preserve the document requirement in query so Knowhere can locate it. Never invent IDs or substitute filenames. Exclusions win; an empty includeDocumentIds means no documents.",
     "",
     "Context rules:",
     "- If the current user request is unrelated to prior turns, set carryHistory to none and do not reuse prior topics.",

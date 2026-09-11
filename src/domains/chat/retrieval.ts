@@ -1,4 +1,4 @@
-import type { RetrievalQueryParams } from "@ontos-ai/knowhere-sdk"
+import type { KnowhereSearchRequest } from "@/agent-harness/types"
 
 import type { Source } from "@/infrastructure/db/schema"
 import { decodeRemoteSourceId } from "@/domains/sources/remote-library"
@@ -21,10 +21,11 @@ export function normalizeRetrievalQuery(value: string, fallback: string): string
   return normalized.slice(0, RETRIEVAL_QUERY_CHAR_LIMIT)
 }
 
-export function excludeDocuments(
+export function getRetrievalDocumentScope(
   sources: readonly Source[],
   excludedSourceIds: readonly string[],
-): Pick<RetrievalQueryParams, "excludeDocumentIds"> {
+  request: Pick<KnowhereSearchRequest, "includeDocumentIds" | "excludeDocumentIds">,
+): Pick<KnowhereSearchRequest, "includeDocumentIds" | "excludeDocumentIds"> {
   const excluded = new Set(excludedSourceIds)
   const localDocumentIds = sources
     .filter((source) => excluded.has(source.id))
@@ -34,10 +35,19 @@ export function excludeDocuments(
     .map((sourceId) => decodeRemoteSourceId(sourceId)?.documentId)
     .filter((documentId): documentId is string => Boolean(documentId))
   const documentIds = Array.from(
-    new Set([...localDocumentIds, ...remoteDocumentIds]),
+    new Set([
+      ...localDocumentIds,
+      ...remoteDocumentIds,
+      ...(request.excludeDocumentIds ?? []),
+    ]),
   )
 
-  return documentIds.length > 0 ? { excludeDocumentIds: documentIds } : {}
+  return {
+    ...(request.includeDocumentIds !== undefined
+      ? { includeDocumentIds: [...new Set(request.includeDocumentIds)] }
+      : {}),
+    ...(documentIds.length > 0 ? { excludeDocumentIds: documentIds } : {}),
+  }
 }
 
 function stripWrappingQuotes(value: string): string {
