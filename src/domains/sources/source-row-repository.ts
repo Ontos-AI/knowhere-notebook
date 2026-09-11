@@ -33,6 +33,7 @@ type SourceUpdate = Partial<
     | "stagedBlobUrl"
     | "originalBlobPathname"
     | "originalBlobUrl"
+    | "chunkCount"
   >
 >
 
@@ -82,6 +83,11 @@ type SourceRowRepository = {
     workspaceId: string,
     sourceId: string,
     revisionKey: string,
+  ) => Effect.Effect<Source | null, never, DbClient>
+  readonly recordChunkCountEffect: (
+    workspaceId: string,
+    sourceId: string,
+    chunkCount: number,
   ) => Effect.Effect<Source | null, never, DbClient>
   readonly markFailedEffect: (
     workspaceId: string,
@@ -209,6 +215,7 @@ const markParsingEffect: SourceRowRepository["markParsingEffect"] = (
     knowhereDocumentId: documentId,
     failureReason: null,
     failureStage: null,
+    chunkCount: null,
   }, requiredStatus)
 
 const markReadyEffect: SourceRowRepository["markReadyEffect"] = (
@@ -230,6 +237,15 @@ const updateRevisionKeyEffect: SourceRowRepository["updateRevisionKeyEffect"] = 
 ) =>
   updateInWorkspaceEffect(workspaceId, sourceId, {
     knowhereJobId: revisionKey,
+  }, "ready")
+
+const recordChunkCountEffect: SourceRowRepository["recordChunkCountEffect"] = (
+  workspaceId: string,
+  sourceId: string,
+  chunkCount: number,
+) =>
+  updateInWorkspaceEffect(workspaceId, sourceId, {
+    chunkCount,
   }, "ready")
 
 const markFailedEffect: SourceRowRepository["markFailedEffect"] = (
@@ -456,6 +472,7 @@ export const sourceRowRepository: SourceRowRepository = {
   markParsingEffect,
   markReadyEffect,
   updateRevisionKeyEffect,
+  recordChunkCountEffect,
   markFailedEffect,
   clearStagedBlobEffect,
   softDeleteEffect,

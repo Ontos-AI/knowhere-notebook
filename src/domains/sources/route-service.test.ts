@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from "vitest";
-import { Effect } from "effect";
 import type { Job } from "@ontos-ai/knowhere-sdk";
 
 import type { Source, Workspace } from "@/infrastructure/db/schema";
@@ -30,6 +29,7 @@ const source: Source = {
   originalBlobPathname: null,
   originalBlobUrl: null,
   demoKey: null,
+  chunkCount: null,
   createdAt: new Date("2026-05-10T00:00:00Z"),
   updatedAt: new Date("2026-05-10T00:00:00Z"),
   deletedAt: null,
@@ -59,9 +59,6 @@ describe("source route service", () => {
       },
     };
     const ensureApiKeyForWorkspace = vi.fn(async () => "jwt_123");
-    const getSourceViewOptionsBySourceId = vi.fn(() =>
-      Effect.succeed(new Map([[source.id, { chunkCount: 8 }]])),
-    );
     const listSourcesForWorkspace = vi.fn(async () => [source]);
     const reconcileSourcesForWorkspace = vi.fn(async () => [source]);
     const startBackgroundReconciliation = vi.fn(async () => undefined);
@@ -77,7 +74,6 @@ describe("source route service", () => {
         email: null,
         name: null,
       })),
-      getSourceViewOptionsBySourceId,
       makeKnowhereClient: vi.fn(() => knowhereClient),
       listSourcesForWorkspace,
       reconcileSourcesForWorkspace,
@@ -101,7 +97,6 @@ describe("source route service", () => {
             status: "parsing",
             mimeType: "application/pdf",
             documentId: undefined,
-            chunkCount: 8,
           },
         ],
       },
@@ -286,7 +281,6 @@ describe("source route service", () => {
         email: null,
         name: null,
       })),
-      getSourceViewOptionsBySourceId: vi.fn(() => Effect.succeed(new Map())),
       makeKnowhereClient: vi.fn(() => knowhereClient),
       listSourcesForWorkspace: vi.fn(async () => [localReadySource]),
       reconcileSourcesForWorkspace: vi.fn(async () => [localReadySource]),
@@ -408,7 +402,6 @@ describe("source route service", () => {
         email: null,
         name: null,
       })),
-      getSourceViewOptionsBySourceId: vi.fn(() => Effect.succeed(new Map())),
       makeKnowhereClient: vi.fn(() => knowhereClient),
       listSourcesForWorkspace: vi.fn(async () => [parsingSource]),
       reconcileSourcesForWorkspace,
@@ -466,9 +459,6 @@ describe("source route service", () => {
         upload: vi.fn(),
       },
     };
-    const getSourceViewOptionsBySourceId = vi.fn(() =>
-      Effect.succeed(new Map([[source.id, { chunkCount: 8 }]])),
-    );
     const listing = createRouteListing({
       demoApi: {
         fetchCatalog: vi.fn(async () => {
@@ -482,7 +472,6 @@ describe("source route service", () => {
         email: null,
         name: null,
       })),
-      getSourceViewOptionsBySourceId,
       makeKnowhereClient: vi.fn(() => knowhereClient),
       listSourcesForWorkspace: vi.fn(async () => [legacyFakeSource, source]),
       reconcileSourcesForWorkspace: vi.fn(async () => [
@@ -497,13 +486,6 @@ describe("source route service", () => {
 
     const result = await listing.listSources({ cookieHeader: "session=abc" });
 
-    expect(getSourceViewOptionsBySourceId).toHaveBeenCalledWith(
-      [source],
-      knowhereClient,
-      expect.objectContaining({
-        documentPresentationDetection: "disabled",
-      }),
-    );
     expect(result).toEqual({
       status: 200,
       body: {
@@ -515,7 +497,6 @@ describe("source route service", () => {
             status: "parsing",
             mimeType: "application/pdf",
             documentId: undefined,
-            chunkCount: 8,
           },
         ],
       },
@@ -550,7 +531,6 @@ describe("source route service", () => {
         upload: vi.fn(),
       },
     };
-    const getSourceViewOptionsBySourceId = vi.fn(() => Effect.succeed(new Map()));
     const listing = createRouteListing({
       demoApi: {
         fetchCatalog: vi.fn(async () => demoCatalog),
@@ -562,7 +542,6 @@ describe("source route service", () => {
         email: null,
         name: null,
       })),
-      getSourceViewOptionsBySourceId,
       makeKnowhereClient: vi.fn(() => knowhereClient),
       listSourcesForWorkspace: vi.fn(async () => [legacyFakeSource]),
       reconcileSourcesForWorkspace: vi.fn(async () => [legacyFakeSource]),
@@ -574,13 +553,6 @@ describe("source route service", () => {
 
     const result = await listing.listSources({ cookieHeader: "session=abc" });
 
-    expect(getSourceViewOptionsBySourceId).toHaveBeenCalledWith(
-      [],
-      knowhereClient,
-      expect.objectContaining({
-        documentPresentationDetection: "disabled",
-      }),
-    );
     expect(result).toEqual({
       status: 200,
       body: {
@@ -635,7 +607,6 @@ describe("source route service", () => {
         upload: vi.fn(),
       },
     };
-    const getSourceViewOptionsBySourceId = vi.fn(() => Effect.succeed(new Map()));
     const listing = createRouteListing({
       demoApi: {
         fetchCatalog: vi.fn(async () => demoCatalog),
@@ -647,7 +618,6 @@ describe("source route service", () => {
         email: null,
         name: null,
       })),
-      getSourceViewOptionsBySourceId,
       makeKnowhereClient: vi.fn(() => knowhereClient),
       listSourcesForWorkspace: vi.fn(async () => [nonReadyLegacySource]),
       reconcileSourcesForWorkspace: vi.fn(async () => [nonReadyLegacySource]),
@@ -659,13 +629,6 @@ describe("source route service", () => {
 
     const result = await listing.listSources({ cookieHeader: "session=abc" });
 
-    expect(getSourceViewOptionsBySourceId).toHaveBeenCalledWith(
-      [],
-      knowhereClient,
-      expect.objectContaining({
-        documentPresentationDetection: "disabled",
-      }),
-    );
     expect(result).toEqual({
       status: 200,
       body: {
@@ -680,7 +643,7 @@ describe("source route service", () => {
     });
   });
 
-  it("uses demo catalog counts for materialized demo sources", async () => {
+  it("uses stored chunk counts for materialized demo sources", async () => {
     const materializedSource: Source = {
       ...source,
       id: "source_demo",
@@ -690,6 +653,7 @@ describe("source route service", () => {
       knowhereJobId: null,
       knowhereDocumentId: "doc_user_copy",
       originalBlobUrl: "/api/demo-sources/demo-tsla-q4-2025/original",
+      chunkCount: 70,
     };
     const knowhereClient = {
       documents: {
@@ -710,7 +674,6 @@ describe("source route service", () => {
         upload: vi.fn(),
       },
     };
-    const getSourceViewOptionsBySourceId = vi.fn(() => Effect.succeed(new Map()));
     const listing = createRouteListing({
       demoApi: {
         fetchCatalog: vi.fn(async () => demoCatalog),
@@ -722,7 +685,6 @@ describe("source route service", () => {
         email: null,
         name: null,
       })),
-      getSourceViewOptionsBySourceId,
       makeKnowhereClient: vi.fn(() => knowhereClient),
       listSourcesForWorkspace: vi.fn(async () => [materializedSource]),
       reconcileSourcesForWorkspace: vi.fn(async () => [materializedSource]),
@@ -734,13 +696,6 @@ describe("source route service", () => {
 
     const result = await listing.listSources({ cookieHeader: "session=abc" });
 
-    expect(getSourceViewOptionsBySourceId).toHaveBeenCalledWith(
-      [],
-      knowhereClient,
-      expect.objectContaining({
-        documentPresentationDetection: "disabled",
-      }),
-    );
     expect(knowhereClient.documents.listChunks).not.toHaveBeenCalled();
     expect(result).toEqual({
       status: 200,

@@ -11,7 +11,6 @@ import {
 import { knowhereDemoApi } from "@/integrations/knowhere-demo"
 import { getCurrentUser, requireUser } from "@/infrastructure/auth"
 import { workspaceService } from "@/domains/workspace/service"
-import { sourceViewOptionsBySourceId as getDefaultSourceViewOptionsBySourceId } from "./counts"
 import { createParsedDocumentSyncScheduler } from "./parsed-document-sync-scheduler"
 import { reconcileSourcesForWorkspace as reconcileDefaultSourcesForWorkspace } from "./reconcile"
 import { sourceWorkflowRuntime } from "./workflow-runtime"
@@ -28,12 +27,6 @@ const defaultDependencies: SourceRouteServiceDependencies = {
   ensureApiKeyForWorkspace,
   ensureWorkspace: workspaceService.ensureWorkspace,
   getCurrentUser,
-  getSourceViewOptionsBySourceId: (sources, client, options) =>
-    getDefaultSourceViewOptionsBySourceId(
-      sources,
-      client as ReturnType<typeof makeDefaultKnowhereClient>,
-      options,
-    ),
   makeKnowhereClient: (apiKey: string) =>
     makeDefaultKnowhereClient(apiKey) as SourceRouteKnowhereClient,
   listSourcesForWorkspace: sourceWorkflowRuntime.listForWorkspace,

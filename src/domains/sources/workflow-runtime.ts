@@ -95,6 +95,11 @@ type SourceWorkflowRuntime = UploadRepositoryRuntime & {
     sourceId: string,
     revisionKey: string,
   ) => Promise<Source | null>
+  readonly recordChunkCount: (
+    workspaceId: string,
+    sourceId: string,
+    chunkCount: number,
+  ) => Promise<Source | null>
   readonly saveParseResult: (
     workspaceId: string,
     sourceId: string,
@@ -203,6 +208,19 @@ const updateRevisionKey: SourceWorkflowRuntime["updateRevisionKey"] = (
       workspaceId,
       sourceId,
       revisionKey,
+    ),
+  )
+
+const recordChunkCount: SourceWorkflowRuntime["recordChunkCount"] = (
+  workspaceId: string,
+  sourceId: string,
+  chunkCount: number,
+) =>
+  databaseRuntime.runPromise(
+    sourceRepository.recordChunkCountEffect(
+      workspaceId,
+      sourceId,
+      chunkCount,
     ),
   )
 
@@ -341,6 +359,7 @@ export const sourceWorkflowRuntime: SourceWorkflowRuntime = {
   markParsing,
   markReady,
   updateRevisionKey,
+  recordChunkCount,
   mergeParseAssetUrls,
   saveParseResult,
   softDelete,

@@ -20,6 +20,7 @@ export function toSourceView(
   } = {},
 ): SourceView {
   const originalFile = getSourceOriginalFile(source)
+  const chunkCount = getStoredChunkCount(options.chunkCount ?? source.chunkCount)
   const status = toSourceStatus(source.status)
   const failureMessage =
     status === "failed"
@@ -36,13 +37,15 @@ export function toSourceView(
     documentId: source.knowhereDocumentId ?? undefined,
     ...(failureMessage ? { failureMessage } : {}),
     ...(originalFile ? { originalFile } : {}),
-    ...(options.chunkCount !== undefined
-      ? { chunkCount: options.chunkCount }
-      : {}),
+    ...(chunkCount !== undefined ? { chunkCount } : {}),
     ...(options.documentPresentation !== undefined
       ? { documentPresentation: options.documentPresentation }
       : {}),
   };
+}
+
+function getStoredChunkCount(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined
 }
 
 function toSourceStatus(status: string): SourceView["status"] {

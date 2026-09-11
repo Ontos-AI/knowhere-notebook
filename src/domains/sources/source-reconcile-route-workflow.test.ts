@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   releaseSyncCapacity: vi.fn(),
   updateSyncStatus: vi.fn(),
   updateRevisionKey: vi.fn(),
+  recordChunkCount: vi.fn(),
   markFailed: vi.fn(),
   loggerError: vi.fn(),
   loggerInfo: vi.fn(),
@@ -31,6 +32,7 @@ vi.mock("@/domains/sources/workflow-runtime", () => ({
     markFailed: mocks.markFailed,
     updateSyncStatus: mocks.updateSyncStatus,
     updateRevisionKey: mocks.updateRevisionKey,
+    recordChunkCount: mocks.recordChunkCount,
   },
 }))
 
@@ -78,6 +80,7 @@ function createClient(overrides: {
   const listChunks = vi.fn(async () => ({
     jobResultId: overrides.jobResultId ?? "rev_1",
     jobId: overrides.jobId ?? "job_1",
+    pagination: { total: 12 },
   }))
   return {
     client: { jobs: {}, documents: { listChunks } },
@@ -107,6 +110,7 @@ describe("sourceReconcileRouteWorkflow", () => {
       status: "ready",
     })
     mocks.updateRevisionKey.mockResolvedValue({ id: "source_1" })
+    mocks.recordChunkCount.mockResolvedValue({ id: "source_1", chunkCount: 12 })
     mocks.withFreshKnowhereApiKey.mockImplementation(
       async (apiKey: string, run: (apiKey: string) => Promise<unknown>) => ({
         result: await run(apiKey),
@@ -180,6 +184,11 @@ describe("sourceReconcileRouteWorkflow", () => {
       "source_1",
       "rev_1",
     )
+    expect(mocks.recordChunkCount).toHaveBeenCalledWith(
+      "workspace_1",
+      "source_1",
+      12,
+    )
     expect(mocks.updateSyncStatus).toHaveBeenCalledWith(
       "workspace_1",
       "source_1",
@@ -195,6 +204,39 @@ describe("sourceReconcileRouteWorkflow", () => {
     expect(mocks.acquireSyncCapacity).not.toHaveBeenCalled()
     expect(mocks.releaseSyncCapacity).not.toHaveBeenCalled()
     expect(continuations).toEqual([])
+  })
+
+  it("does not record a chunk count when parse listChunks omits total", async () => {
+    const context = createWorkflowContext()
+    const listChunks = vi.fn(async () => ({
+      jobResultId: "rev_1",
+      jobId: "job_1",
+    }))
+    mocks.makeKnowhereClientWithParsedStorage.mockReturnValue({
+      client: { jobs: {}, documents: { listChunks } },
+      knowledge: { syncParsedDocument: vi.fn() },
+    })
+    mocks.pollSourceReconciliation.mockResolvedValue({
+      kind: "ready-to-prepare",
+      jobId: "job_1",
+      documentId: "doc_1",
+    })
+
+    await sourceReconcileRouteWorkflow.runPollAndMirrorWorkflow({
+      context,
+      payload: sourceReconcileRouteWorkflow.normalizeReconcilePayload({
+        workspaceId: "workspace_1",
+        sourceId: "source_1",
+        apiKey: "jwt_1",
+      }),
+    })
+
+    expect(mocks.updateRevisionKey).toHaveBeenCalledWith(
+      "workspace_1",
+      "source_1",
+      "rev_1",
+    )
+    expect(mocks.recordChunkCount).not.toHaveBeenCalled()
   })
 
   it("keeps the source ready when parsed-sync enqueue fails", async () => {
