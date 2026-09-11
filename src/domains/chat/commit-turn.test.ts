@@ -75,6 +75,8 @@ describe("commitChatTurn", () => {
           stopReasons: [],
           failureReasons: [],
           decisionTraces: [],
+          retainedPicks: [],
+          pendingRetention: null,
         },
         finalized: true,
         priorTurnReads: [],

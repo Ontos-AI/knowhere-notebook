@@ -20,9 +20,6 @@ type ErrorTextInput = {
 
 type KnowhereOperation = "search"
 
-const assetInstruction =
-  "Notebook returned image/page asset refs. Call inspectImage with the asset refs you will cite before finalize so OCR/visual context and provenance boxes exist. Do not expose raw asset URLs."
-
 export const knowhereToolText = {
   formatSearch(input: SearchTextInput): string {
     return wrapKnowhereBlock("search", [
@@ -31,7 +28,6 @@ export const knowhereToolText = {
         namespace: input.response.namespace,
         query: input.response.query,
         resultCount: String(input.response.results.length),
-        referencedChunkCount: String(input.response.referencedChunks.length),
         stopReason: input.response.stopReason ?? undefined,
         failureReason: input.response.failureReason ?? undefined,
       }),
@@ -39,7 +35,6 @@ export const knowhereToolText = {
       // evidenceText — same bodies, no citeable refs, doubles context.
       formatEvidenceChunks(input.chunks, input.chunkPickStart),
       formatEvidenceAssets(input.assets),
-      formatAssetInstruction(input.assets),
     ])
   },
 
@@ -88,7 +83,6 @@ function formatEvidenceChunks(
           sectionPath: chunk.source.sectionPath ?? undefined,
           sourceChunkPath: chunk.sourceChunkPath ?? undefined,
           filePath: chunk.filePath ?? undefined,
-          assetRef: chunk.assetRef,
         }),
         formatTextTag("content", chunk.content),
         "</chunk>",
@@ -117,11 +111,6 @@ function formatEvidenceAssets(assets: readonly EvidenceAsset[]): string {
     ),
     "</assets>",
   ].join("\n")
-}
-
-function formatAssetInstruction(assets: readonly EvidenceAsset[]): string {
-  if (!assets.some((asset) => asset.type === "image")) return ""
-  return formatTextTag("asset_instruction", assetInstruction)
 }
 
 function formatTextTag(tagName: string, value: string): string {

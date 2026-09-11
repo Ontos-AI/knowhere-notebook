@@ -68,7 +68,6 @@ export type AgentTurnInput = {
   readonly userText: string
   readonly recentTurns: readonly AgentTurn[]
   readonly localContext?: string
-  readonly sourceContext?: string
   readonly outputCapabilities: {
     readonly text: boolean
     readonly image: boolean
@@ -94,6 +93,7 @@ export type KnowhereSearchRequest = Pick<
   readonly excludeDocumentIds?: string[]
   readonly targetContent?: KnowhereSearchTargetContent
   readonly purpose?: string
+  readonly gapReason?: string
 }
 
 export type KnowhereToolRuntime = {
@@ -101,6 +101,20 @@ export type KnowhereToolRuntime = {
     input: KnowhereSearchRequest,
   ) => Promise<RetrievalQueryResponse>
 }
+
+export type ConnectedAssetLookup = {
+  readonly documentId: string
+  readonly chunkId: string
+  readonly type: "image" | "table"
+}
+
+export type ResolvedConnectedAsset = ConnectedAssetLookup & {
+  readonly assetUrl: string
+}
+
+export type ResolveConnectedAssets = (
+  lookups: readonly ConnectedAssetLookup[],
+) => Promise<readonly ResolvedConnectedAsset[]>
 
 export const memorySearchKinds = [
   "indicator_pref",
@@ -156,7 +170,6 @@ export type EvidenceChunk = {
     readonly sectionPath?: string | null
   }
   readonly revisionKey?: string | null
-  readonly assetRef?: string
   readonly assetUrl?: string
 }
 
@@ -223,6 +236,11 @@ export type InspectImages = (
   input: ImageInspectionRequest,
 ) => Promise<ImageInspectionResponse>
 
+export type PendingRetentionRange = {
+  readonly startPick: number
+  readonly endPick: number
+}
+
 export type EvidenceLedgerSnapshot = {
   readonly retrievalCount: number
   readonly chunks: readonly EvidenceChunk[]
@@ -231,6 +249,8 @@ export type EvidenceLedgerSnapshot = {
   readonly stopReasons: readonly string[]
   readonly failureReasons: readonly string[]
   readonly decisionTraces: readonly unknown[]
+  readonly retainedPicks: readonly number[]
+  readonly pendingRetention: PendingRetentionRange | null
 }
 
 export type OutputCitation = {

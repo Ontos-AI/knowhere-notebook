@@ -28,6 +28,7 @@ type WorkspaceSourceWorkflow = {
     materializedSources: readonly SourceView[],
   ) => void
   readonly handleSourceUploaded: (source: SourceView) => void
+  readonly handleSourceMoved: (source: SourceView) => void
   readonly handleToggleIncluded: (sourceId: string, included: boolean) => void
   readonly readySourceCount: number
   readonly retryingSourceIds: string[]
@@ -108,6 +109,14 @@ export function useWorkspaceSourceWorkflow({
     materializeDemoSourceSWRKey,
     materializeDemoSourcesMutation,
   )
+
+  function handleSourceMoved(source: SourceView): void {
+    void mutateSources(
+      (current) =>
+        workspaceSourceState.upsertSource(current ?? sourceRows, source),
+      { revalidate: false },
+    )
+  }
 
   function handleSourceUploaded(source: SourceView): void {
     void mutateSources(
@@ -245,6 +254,7 @@ export function useWorkspaceSourceWorkflow({
     handleSourcesRefresh,
     handleSourcesMaterialized,
     handleSourceUploaded,
+    handleSourceMoved,
     handleToggleIncluded,
     readySourceCount,
     retryingSourceIds,

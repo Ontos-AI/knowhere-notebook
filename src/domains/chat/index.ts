@@ -7,6 +7,7 @@ import type {
 
 import { logger } from "@/lib/logger"
 import { getCanonicalImageAssetKey } from "@/agent-harness/image-asset-identity"
+import { hasReferencedChunkEvidence } from "@/agent-harness/referenced-chunks"
 import type {
   ChatArtifactView,
   ChatCitationView,
@@ -32,7 +33,9 @@ import type {
   AnswerQuestionResult,
 } from "./contracts"
 import {
+  emptyFolderSearchMessage,
   getRetrievalDocumentScope,
+  isEmptyFolderScope,
   normalizeRetrievalQuery,
 } from "./retrieval"
 import {
@@ -56,7 +59,6 @@ const MAX_CITATION_RESULTS = 20
 const KNOWHERE_RESPONSE_TEXT_LOG_LIMIT = 200
 const KNOWHERE_CHUNK_LOG_LIMIT = 100
 const KNOWHERE_RESPONSE_LOG_ITEM_LIMIT = 20
-const NO_RESULTS_ANSWER = "I couldn't find that in your sources."
 const RAW_URL_PATTERN = /https?:\/\/[^\s)\]}>"']+/g
 const REDACTED_MEDIA_URL = "[media asset URL hidden]"
 const RETRIEVAL_TARGET_CONTENT_DATA_TYPES: Readonly<
@@ -152,6 +154,9 @@ export const answerQuestionWithRetrieval = (
     const searchSources = async (
       queryInput: AgenticRetrievalQuery,
     ): Promise<AgenticRetrievalResponse> => {
+      if (isEmptyFolderScope(input.folderScopeSourceIds, input.sources)) {
+        throw new Error(emptyFolderSearchMessage)
+      }
       const startedAt = Date.now()
       const retrievalPlan = toAgenticRetrievalPlan(queryInput)
       const namespaces = getRetrievalNamespaces(input)
@@ -245,12 +250,18 @@ export const answerQuestionWithRetrieval = (
         messages: input.messages,
         sources: input.sources,
         excludedSourceIds: input.excludedSourceIds,
+        ...(input.folderScopeSourceIds !== undefined
+          ? { folderScopeSourceIds: input.folderScopeSourceIds }
+          : {}),
         searchSources,
         knowhereTools: notebookKnowhereTools.createRuntime({
           searchSources,
           sources: input.sources,
         }),
-        ...(input.inspectImages ? { inspectImages: input.inspectImages } : {}),
+        ...(input.resolveConnectedAssets
+          ? { resolveConnectedAssets: input.resolveConnectedAssets }
+          : {}),
+        ...(input.readTableHtml ? { readTableHtml: input.readTableHtml } : {}),
       }),
     )
 
@@ -261,6 +272,20 @@ export const answerQuestionWithRetrieval = (
       finalized: generatedAnswer.trace.finalized,
     })
 
+    if (
+      generatedAnswer.manifest.text.trim().length === 0 &&
+      !hasDisplayedManifestArtifacts(generatedAnswer)
+    ) {
+      return yield* Effect.die(
+        new Error(
+          "Agent harness finalized with empty answer text and no displayed " +
+            "artifact. The composed answer context always tells the model " +
+            "when a search found nothing, so this indicates a bug, not a " +
+            "legitimate no-answer case.",
+        ),
+      )
+    }
+
     const rawResults = yield* Effect.tryPromise(() =>
       hydrateMissingCitationPageMetadata({
         results: selectCitationRawResults({
@@ -270,17 +295,6 @@ export const answerQuestionWithRetrieval = (
         knowledge: input.knowledge,
       }),
     )
-    if (
-      rawResults.length === 0 &&
-      generatedAnswer.manifest.text.trim().length === 0 &&
-      !hasDisplayedManifestArtifacts(generatedAnswer)
-    ) {
-      return {
-        answer: NO_RESULTS_ANSWER,
-        citations: [] as ChatCitationView[],
-        artifacts: [] as ChatArtifactView[],
-      }
-    }
 
     const enrichedResults = yield* Effect.tryPromise(() =>
       enrichRetrievalResultsWithAssetUrls({
@@ -338,21 +352,13 @@ function toChatArtifactViewsFromHarness(
       asset,
     ]),
   )
-  const chunksByRef = new Map(
-    result.trace.ledger.chunks.map((chunk): readonly [string, EvidenceChunk] => [
-      chunk.ref,
-      chunk,
-    ]),
-  )
   const highlightsByRef = new Map(
     (result.trace.imageHighlights ?? []).map(
       (page) => [page.ref, page.regions] as const,
     ),
   )
 
-  const displayLimit = getHarnessArtifactDisplayLimit(result)
   const artifacts: ChatArtifactView[] = []
-  let displayedArtifactCount = 0
 
   for (const artifact of result.manifest.artifacts) {
     const artifactView =
@@ -361,23 +367,11 @@ function toChatArtifactViewsFromHarness(
         : resolveHarnessArtifactView({
             artifact,
             assetsByRef,
-            chunksByRef,
             highlightsByRef,
             sources,
           })
     if (!artifactView) continue
-
-    const isDisplayed = artifactView.display !== false
-    if (
-      isDisplayed &&
-      typeof displayLimit === "number" &&
-      displayedArtifactCount >= displayLimit
-    ) {
-      continue
-    }
-
     artifacts.push(artifactView)
-    if (isDisplayed) displayedArtifactCount += 1
   }
 
   return artifacts.length > 0 ? artifacts : undefined
@@ -398,45 +392,20 @@ function toDerivedTableArtifactView(
   }
 }
 
-function getHarnessArtifactDisplayLimit(result: HarnessRunResult): number | null {
-  const constraints = result.trace.intent?.constraints
-  const limits = [constraints?.desiredCount, constraints?.maxCount].filter(
-    (value): value is number =>
-      typeof value === "number" && Number.isSafeInteger(value) && value > 0,
-  )
-  return limits.length > 0 ? Math.min(...limits) : null
-}
-
 function resolveHarnessArtifactView(input: {
   readonly artifact: OutputArtifact
   readonly assetsByRef: ReadonlyMap<string, EvidenceAsset>
-  readonly chunksByRef: ReadonlyMap<string, EvidenceChunk>
   readonly highlightsByRef: ReadonlyMap<string, readonly ChatImageHighlightBox[]>
   readonly sources: readonly AnswerQuestionInput["sources"][number][]
 }): ChatArtifactView | null {
   const asset = input.assetsByRef.get(input.artifact.ref)
-  if (asset) {
-    return toChatArtifactView({
-      artifact: input.artifact,
-      asset,
-      highlightRegions: input.highlightsByRef.get(asset.ref),
-      sources: input.sources,
-    })
-  }
-
-  const chunk = input.chunksByRef.get(input.artifact.ref)
-  const chunkAssetRef = chunk?.assetRef
-  const chunkAsset = chunkAssetRef ? input.assetsByRef.get(chunkAssetRef) : null
-  return chunkAsset
-    ? toChatArtifactView({
-        artifact: input.artifact,
-        asset: chunkAsset,
-        highlightRegions:
-          input.highlightsByRef.get(chunkAsset.ref) ??
-          input.highlightsByRef.get(input.artifact.ref),
-        sources: input.sources,
-      })
-    : null
+  if (!asset) return null
+  return toChatArtifactView({
+    artifact: input.artifact,
+    asset,
+    highlightRegions: input.highlightsByRef.get(asset.ref),
+    sources: input.sources,
+  })
 }
 
 function toChatArtifactView(input: {
@@ -740,6 +709,7 @@ async function queryRetrievalNamespace(input: {
     useAgentic: input.answerInput.useAgentic ?? true,
     sources: input.answerInput.sources,
     excludedSourceIds: input.answerInput.excludedSourceIds,
+    folderScopeSourceIds: input.answerInput.folderScopeSourceIds,
   })
   logger.info("chat-agent: searchSources start", {
     namespace: input.namespace,
@@ -752,6 +722,7 @@ async function queryRetrievalNamespace(input: {
     threshold: retrievalQueryParams.threshold ?? null,
     targetContent: input.retrievalPlan.targetContent,
     purpose: input.retrievalPlan.purpose,
+    gapReason: input.retrievalPlan.gapReason,
     mode: input.mode,
   })
 
@@ -862,10 +833,9 @@ function mergeRetrievalResponses(
     .slice(0, evidenceLimits.resultCount)
   const referencedChunks = responses
     .flatMap((response) =>
-      response.referencedChunks.slice(
-        0,
-        evidenceLimits.referencedChunkCountPerResponse,
-      ),
+      response.referencedChunks
+        .filter(hasReferencedChunkEvidence)
+        .slice(0, evidenceLimits.referencedChunkCountPerResponse),
     )
     .slice(0, evidenceLimits.referencedChunkCount)
   const evidenceTexts = responses
@@ -932,7 +902,7 @@ function getRetrievalStatusResponses(
 function hasRetrievalEvidence(response: RetrievalQueryResponse): boolean {
   return (
     response.results.length > 0 ||
-    response.referencedChunks.length > 0 ||
+    response.referencedChunks.some(hasReferencedChunkEvidence) ||
     Boolean(response.evidenceText?.trim()) ||
     Boolean(response.answerText?.trim())
   )
@@ -958,6 +928,7 @@ function buildRetrievalQueryParams(input: {
   readonly useAgentic: boolean
   readonly sources: AnswerQuestionInput["sources"]
   readonly excludedSourceIds: readonly string[]
+  readonly folderScopeSourceIds?: readonly string[]
 }): RetrievalQueryParams {
   const query = normalizeRetrievalQuery(
     input.input.query,
@@ -977,7 +948,12 @@ function buildRetrievalQueryParams(input: {
     ...(typeof input.input.threshold === "number"
       ? { threshold: input.input.threshold }
       : {}),
-    ...getRetrievalDocumentScope(input.sources, input.excludedSourceIds, input.input),
+    ...getRetrievalDocumentScope(
+      input.sources,
+      input.excludedSourceIds,
+      input.input,
+      input.folderScopeSourceIds,
+    ),
   }
 }
 
@@ -987,6 +963,7 @@ function toAgenticRetrievalPlan(
   return {
     targetContent: normalizeRetrievalTargetContent(input.targetContent),
     purpose: normalizeRetrievalPurpose(input.purpose),
+    gapReason: normalizeRetrievalGapReason(input.gapReason),
   }
 }
 
@@ -994,6 +971,11 @@ function normalizeRetrievalPurpose(value: string | undefined): string | null {
   const normalized = value?.replace(/\s+/g, " ").trim()
   if (!normalized) return null
   return normalized.slice(0, 240)
+}
+
+function normalizeRetrievalGapReason(value: string | undefined): string | null {
+  const trimmed = value?.trim()
+  return trimmed ? trimmed : null
 }
 
 function normalizeRetrievalDataType(
@@ -1110,22 +1092,24 @@ function getHighlightRegionsForChunk(
   if (!imageHighlights || imageHighlights.length === 0) return undefined
 
   const candidateRefs = new Set([chunk.ref])
-  const assetRef = resolveCitationImageAssetRef(
+  const assetRefs = resolveCitationImageAssetRefs(
     chunk,
     chunksByRef,
     assetsByRef,
   )
-  if (assetRef) candidateRefs.add(assetRef)
-  const canonicalAssetKey = assetRef
-    ? getCanonicalCitationAssetKey(assetRef, chunksByRef, assetsByRef)
-    : null
+  for (const assetRef of assetRefs) candidateRefs.add(assetRef)
+  const canonicalAssetKeys = new Set(
+    assetRefs.map((assetRef) =>
+      getCanonicalCitationAssetKey(assetRef, chunksByRef, assetsByRef),
+    ),
+  )
 
   for (const page of imageHighlights) {
     const isDirectMatch = candidateRefs.has(page.ref)
     const isCanonicalMatch =
-      canonicalAssetKey !== null &&
-      getCanonicalCitationAssetKey(page.ref, chunksByRef, assetsByRef) ===
-        canonicalAssetKey
+      canonicalAssetKeys.has(
+        getCanonicalCitationAssetKey(page.ref, chunksByRef, assetsByRef),
+      )
     if ((!isDirectMatch && !isCanonicalMatch) || page.regions.length === 0) {
       continue
     }
@@ -1135,25 +1119,32 @@ function getHighlightRegionsForChunk(
   return undefined
 }
 
-function resolveCitationImageAssetRef(
+function resolveCitationImageAssetRefs(
   chunk: EvidenceChunk,
   chunksByRef: ReadonlyMap<string, EvidenceChunk>,
   assetsByRef: ReadonlyMap<string, EvidenceAsset>,
-): string | null {
-  if (chunk.assetRef && assetsByRef.get(chunk.assetRef)?.type === "image") {
-    return chunk.assetRef
-  }
-  if (!chunk.chunkId) return null
+): string[] {
+  const directRefs = Array.from(assetsByRef.values())
+    .filter((asset) => asset.chunkRef === chunk.ref && asset.type === "image")
+    .map((asset) => asset.ref)
+  if (directRefs.length > 0) return directRefs
+  if (!chunk.chunkId) return []
 
-  const sibling = Array.from(chunksByRef.values()).find(
-    (candidate) =>
-      candidate.ref !== chunk.ref &&
-      candidate.chunkId === chunk.chunkId &&
-      candidate.source.documentId === chunk.source.documentId &&
-      candidate.assetRef !== undefined &&
-      assetsByRef.get(candidate.assetRef)?.type === "image",
+  const siblingChunkRefs = new Set(
+    Array.from(chunksByRef.values())
+      .filter(
+        (candidate) =>
+          candidate.ref !== chunk.ref &&
+          candidate.chunkId === chunk.chunkId &&
+          candidate.source.documentId === chunk.source.documentId,
+      )
+      .map((candidate) => candidate.ref),
   )
-  return sibling?.assetRef ?? null
+  return Array.from(assetsByRef.values())
+    .filter(
+      (asset) => siblingChunkRefs.has(asset.chunkRef) && asset.type === "image",
+    )
+    .map((asset) => asset.ref)
 }
 
 function getCanonicalCitationAssetKey(
@@ -1184,13 +1175,9 @@ function mapDisplayedManifestArtifactsToResults(
 
   const results: RetrievalResult[] = []
   const seenKeys = new Set<string>()
-  const displayLimit = getHarnessArtifactDisplayLimit(result)
 
   for (const artifact of result.manifest.artifacts) {
     if (!artifact.display) continue
-    if (typeof displayLimit === "number" && results.length >= displayLimit) {
-      break
-    }
 
     if (artifact.type === "derived_table") {
       for (const sourceRef of artifact.sourceRefs) {

@@ -25,6 +25,7 @@ import type {
   ChatThreadView,
 } from "@/domains/chat/types"
 import type { ParsedChunkView } from "@/domains/chunks/types"
+import type { FolderView } from "@/domains/folders/types"
 import type {
   OfficialLibrarySourceView,
   SourceOriginalFileView,
@@ -98,6 +99,11 @@ export type WorkspaceShellLayoutProps = {
   readonly selectedSourceView?: SourceView
   readonly sourceTitlesByDocumentId: Readonly<Record<string, string>>
   readonly sources: readonly SourceView[]
+  readonly folders?: readonly FolderView[]
+  readonly currentFolderId?: string | null
+  readonly creatingFolder?: boolean
+  readonly deletingFolderIds?: readonly string[]
+  readonly movingSourceIds?: readonly string[]
   readonly officialLibrarySources: readonly OfficialLibrarySourceView[]
   readonly user: WorkspaceShellUser | undefined
   readonly analyticsContext?: AnalyticsContext
@@ -143,6 +149,18 @@ export type WorkspaceShellLayoutProps = {
   readonly onSourceSelected: (sourceId: string | null) => void
   readonly onSourceUploaded: (source: SourceView) => void
   readonly onToggleIncluded: (sourceId: string, included: boolean) => void
+  readonly onOpenFolder?: (folderId: string | null) => void
+  readonly onCreateFolder?: (name: string) => void | Promise<void>
+  readonly onRenameFolder?: (folderId: string, name: string) => void | Promise<void>
+  readonly onMoveFolder?: (
+    folderId: string,
+    parentId: string | null,
+  ) => void | Promise<void>
+  readonly onDeleteFolder?: (folderId: string) => void | Promise<void>
+  readonly onMoveSourceToFolder?: (
+    sourceId: string,
+    folderId: string | null,
+  ) => void
 }
 
 export function WorkspaceShellLayout(
@@ -253,6 +271,19 @@ export function WorkspaceShellLayout(
                 archivingSourceIds={[...props.archivingSourceIds]}
                 retryingSourceIds={[...retryingSourceIds]}
                 addingLibrarySourceIds={[...addingLibrarySourceIds]}
+                folders={props.folders}
+                currentFolderId={props.currentFolderId}
+                creatingFolder={props.creatingFolder}
+                deletingFolderIds={props.deletingFolderIds}
+                movingSourceIds={props.movingSourceIds}
+                onOpenFolder={props.isGuest ? undefined : props.onOpenFolder}
+                onCreateFolder={props.isGuest ? undefined : props.onCreateFolder}
+                onRenameFolder={props.isGuest ? undefined : props.onRenameFolder}
+                onMoveFolder={props.isGuest ? undefined : props.onMoveFolder}
+                onDeleteFolder={props.isGuest ? undefined : props.onDeleteFolder}
+                onMoveSourceToFolder={
+                  props.isGuest ? undefined : props.onMoveSourceToFolder
+                }
                 onLoginClick={props.isGuest ? props.onLoginClick : undefined}
               />
             )}
@@ -414,6 +445,19 @@ export function WorkspaceShellLayout(
           archivingSourceIds={[...props.archivingSourceIds]}
           retryingSourceIds={[...retryingSourceIds]}
           addingLibrarySourceIds={[...addingLibrarySourceIds]}
+          folders={props.folders}
+          currentFolderId={props.currentFolderId}
+          creatingFolder={props.creatingFolder}
+          deletingFolderIds={props.deletingFolderIds}
+          movingSourceIds={props.movingSourceIds}
+          onOpenFolder={props.isGuest ? undefined : props.onOpenFolder}
+          onCreateFolder={props.isGuest ? undefined : props.onCreateFolder}
+          onRenameFolder={props.isGuest ? undefined : props.onRenameFolder}
+          onMoveFolder={props.isGuest ? undefined : props.onMoveFolder}
+          onDeleteFolder={props.isGuest ? undefined : props.onDeleteFolder}
+          onMoveSourceToFolder={
+            props.isGuest ? undefined : props.onMoveSourceToFolder
+          }
           onLoginClick={props.isGuest ? props.onLoginClick : undefined}
         />
       </div>

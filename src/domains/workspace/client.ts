@@ -4,6 +4,7 @@ import type {
   ChatThreadView,
 } from "@/domains/chat/types"
 import type { ParsedChunkView } from "@/domains/chunks/types"
+import type { FolderView } from "@/domains/folders/types"
 import type {
   SourceView,
 } from "@/domains/sources/types"
@@ -15,8 +16,10 @@ const workspaceClientKeys = {
   chatDiagram: "/api/chat/diagram",
   chat: "/api/chat",
   materializeDemoSources: "/api/demo-sources/materialize",
+  folders: "/api/folders",
   archiveSource: "archive-source",
   retrySource: "retry-source",
+  assignSourceFolder: "assign-source-folder",
   archiveChatThread: "archive-chat-thread",
 } as const
 
@@ -57,6 +60,7 @@ type ChatMessageRequest = {
   threadId?: string
   useAgentic: boolean
   excludedSourceIds: string[]
+  folderId?: string
 }
 
 type MaterializeDemoSourcesRequest = {
@@ -65,6 +69,25 @@ type MaterializeDemoSourcesRequest = {
 
 type SourcesResponse = {
   sources?: SourceView[]
+}
+
+type FoldersResponse = {
+  folders?: FolderView[]
+}
+
+type FolderResponse = {
+  folder?: FolderView
+  message?: string
+}
+
+type CreateFolderRequest = {
+  name: string
+  parentId: string | null
+}
+
+type UpdateFolderRequest = {
+  name?: string
+  parentId?: string | null
 }
 
 type ChatThreadsResponse = {
@@ -101,6 +124,11 @@ export const workspaceClient = {
   fetchChunks,
   fetchChunkPage,
   fetchSources,
+  fetchFolders,
+  createFolder,
+  updateFolder,
+  deleteFolder,
+  assignSourceFolder,
   fetchChatThreads,
   fetchChatThread,
   createChatThread,
@@ -302,4 +330,62 @@ function archiveChatThread(threadId: string): Promise<ArchiveResponse> {
       archived: true,
     },
   )
+}
+
+async function fetchFolders(): Promise<FolderView[]> {
+  const body = await workspaceRouteClient.getJson<FoldersResponse>(
+    workspaceClientKeys.folders,
+  )
+  return Array.isArray(body.folders) ? body.folders : []
+}
+
+async function createFolder(
+  input: CreateFolderRequest,
+): Promise<FolderView> {
+  const response = await workspaceRouteClient.postJsonWithStatus<FolderResponse>(
+    workspaceClientKeys.folders,
+    input,
+  )
+  if (response.status < 200 || response.status >= 300 || !response.body.folder) {
+    throw new Error(response.body.message ?? "Folder could not be created.")
+  }
+  return response.body.folder
+}
+
+async function updateFolder(
+  folderId: string,
+  input: UpdateFolderRequest,
+): Promise<FolderView> {
+  const response = await workspaceRouteClient.patchJsonWithStatus<FolderResponse>(
+    `/api/folders/${encodeURIComponent(folderId)}`,
+    input,
+  )
+  if (response.status < 200 || response.status >= 300 || !response.body.folder) {
+    throw new Error(response.body.message ?? "Folder could not be updated.")
+  }
+  return response.body.folder
+}
+
+async function deleteFolder(folderId: string): Promise<void> {
+  const body = await workspaceRouteClient.deleteJson<{
+    readonly archived?: boolean
+    readonly message?: string
+  }>(`/api/folders/${encodeURIComponent(folderId)}`, {})
+  if (body.archived !== true) {
+    throw new Error(body.message ?? "Folder could not be deleted.")
+  }
+}
+
+async function assignSourceFolder(
+  sourceId: string,
+  folderId: string | null,
+): Promise<SourceView> {
+  const response = await workspaceRouteClient.patchJsonWithStatus<RetrySourceResponse>(
+    `/api/sources/${encodeURIComponent(sourceId)}`,
+    { folderId },
+  )
+  if (response.status < 200 || response.status >= 300 || !response.body.source) {
+    throw new Error(response.body.message ?? "Source could not be moved.")
+  }
+  return response.body.source
 }

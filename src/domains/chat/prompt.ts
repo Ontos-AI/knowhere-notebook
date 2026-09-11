@@ -9,19 +9,23 @@ import {
   type AgentTurn,
   type AgentTurnInput,
   type HarnessRunResult,
-  type InspectImages,
   type KnowhereToolRuntime,
+  type ReadTableHtml,
+  type ResolveConnectedAssets,
 } from "@/agent-harness"
 import type {
   ChatHistoryMessage,
   SearchSources,
 } from "./contracts"
+import {
+  emptyFolderSearchMessage,
+  isEmptyFolderScope,
+} from "./retrieval"
 import { mementoMemoryTools } from "@/integrations/memento/memory-tools"
 import { notebookKnowhereTools } from "./knowhere-tools"
 
 const RECENT_CONTEXT_MESSAGE_LIMIT = 8
 const CONTEXT_CONTENT_CHAR_LIMIT = 900
-const SOURCE_CONTEXT_LIMIT = 12
 
 type GenerateAgenticOutputManifestInput = {
   workspaceId: string
@@ -31,7 +35,9 @@ type GenerateAgenticOutputManifestInput = {
   excludedSourceIds: readonly string[]
   searchSources: SearchSources
   knowhereTools?: KnowhereToolRuntime
-  inspectImages?: InspectImages
+  resolveConnectedAssets?: ResolveConnectedAssets
+  readTableHtml?: ReadTableHtml
+  folderScopeSourceIds?: readonly string[]
 }
 
 export const generateAgenticOutputManifestEffect = (
@@ -69,7 +75,10 @@ export const generateAgenticOutputManifestEffect = (
         memoryTools: mementoMemoryTools.createRuntime({
           workspaceId: input.workspaceId,
         }),
-        ...(input.inspectImages ? { inspectImages: input.inspectImages } : {}),
+        ...(input.resolveConnectedAssets
+          ? { resolveConnectedAssets: input.resolveConnectedAssets }
+          : {}),
+        ...(input.readTableHtml ? { readTableHtml: input.readTableHtml } : {}),
       }),
     )
 
@@ -100,7 +109,9 @@ function buildNotebookHarnessTurn(
     surface: "notebook_chat",
     userText: input.question,
     recentTurns: buildNotebookHarnessRecentTurns(input.messages),
-    sourceContext: formatSourceContext(input.sources, input.excludedSourceIds),
+    ...(isEmptyFolderScope(input.folderScopeSourceIds, input.sources)
+      ? { localContext: emptyFolderSearchMessage }
+      : {}),
     outputCapabilities: {
       text: true,
       image: true,
@@ -128,24 +139,6 @@ function getCitationLabels(
     .split(";")
     .map((label) => label.trim())
     .filter((label) => label.length > 0)
-}
-
-function formatSourceContext(
-  sources: readonly Source[],
-  excludedSourceIds: readonly string[],
-): string {
-  const excludedSourceIdsSet = new Set(excludedSourceIds)
-  const lines = sources
-    .filter((source): boolean => !excludedSourceIdsSet.has(source.id))
-    .slice(0, SOURCE_CONTEXT_LIMIT)
-    .map((source): string => {
-      const documentId = source.knowhereDocumentId
-        ? `documentId=${source.knowhereDocumentId}`
-        : "documentId=unknown"
-      return `- ${source.title} (${documentId})`
-    })
-
-  return lines.length > 0 ? lines.join("\n") : "- No searchable sources."
 }
 
 function formatCitationContext(

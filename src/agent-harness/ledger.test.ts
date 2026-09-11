@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import type { RetrievalQueryResponse } from "@ontos-ai/knowhere-sdk"
 
 import { createEvidenceLedger } from "./ledger"
+import type { ResolveConnectedAssets } from "./types"
 
 describe("createEvidenceLedger", () => {
   it("normalizes retrieval chunks and media assets without treating candidates as final output", () => {
@@ -177,16 +178,177 @@ describe("createEvidenceLedger", () => {
           },
         },
       ],
-      // Real agent_explore responses can return referencedChunks entries
-      // that only carry a summary id, with no chunkType/chunkId/documentId
-      // even though the SDK type declares those as required strings.
+      // Real agent_explore responses carry provenance IDs without evidence
+      // fields even though the SDK type declares chunkType as required.
       referencedChunks: [
-        { summary: "8da0776b-c52b-5602-8579-25c421706f5f" },
+        {
+          documentId: "doc_1",
+          chunkId: "8da0776b-c52b-5602-8579-25c421706f5f",
+          pageNums: [],
+        },
       ] as unknown as RetrievalQueryResponse["referencedChunks"],
     })
 
     expect(snapshot.chunks.map((chunk) => chunk.ref)).toEqual(["r1:result:1"])
     expect(snapshot.chunks[0]?.content).toBe("Target BP is <130/80 mmHg.")
+  })
+
+  it("opens a pending retention range for new chunks and keeps only retained picks", () => {
+    const ledger = createEvidenceLedger()
+    const snapshot = ledger.addRetrievalResponse(makeRetrievalResponse())
+
+    expect(snapshot.pendingRetention).toEqual({ startPick: 1, endPick: 3 })
+    expect(snapshot.retainedPicks).toEqual([])
+    expect(ledger.hasPendingRetention()).toBe(true)
+
+    const retained = ledger.retainPicks([1, 3])
+    expect(retained).toEqual({ ok: true, retainedPicks: [1, 3] })
+    expect(ledger.hasPendingRetention()).toBe(false)
+    expect(ledger.isRetained(1)).toBe(true)
+    expect(ledger.isRetained(2)).toBe(false)
+    expect(ledger.isRetained(3)).toBe(true)
+    expect(ledger.snapshot().pendingRetention).toBeNull()
+    expect(ledger.snapshot().retainedPicks).toEqual([1, 3])
+  })
+
+  it("does not open pending retention when a search adds no chunks", () => {
+    const ledger = createEvidenceLedger()
+    const snapshot = ledger.addRetrievalResponse({
+      namespace: "notebook",
+      query: "empty",
+      routerUsed: "workflow_single_step",
+      answerText: null,
+      evidenceText: "No hits",
+      stopReason: "completed",
+      failureReason: null,
+      results: [],
+      referencedChunks: [],
+    })
+
+    expect(snapshot.chunks).toEqual([])
+    expect(snapshot.pendingRetention).toBeNull()
+    expect(ledger.hasPendingRetention()).toBe(false)
+    expect(ledger.retainPicks([])).toMatchObject({ ok: false })
+  })
+
+  it("rejects retain picks outside the latest search without changing state", () => {
+    const ledger = createEvidenceLedger()
+    ledger.addRetrievalResponse(makeRetrievalResponse())
+
+    expect(ledger.retainPicks([4])).toMatchObject({
+      ok: false,
+      invalidPicks: [4],
+    })
+    expect(ledger.hasPendingRetention()).toBe(true)
+    expect(ledger.snapshot().retainedPicks).toEqual([])
+  })
+
+  it("locks unretained first-search picks after a later search is retained", () => {
+    const ledger = createEvidenceLedger()
+    ledger.addRetrievalResponse(makeRetrievalResponse())
+    expect(ledger.retainPicks([])).toMatchObject({ ok: true, retainedPicks: [] })
+
+    ledger.addRetrievalResponse({
+      ...makeRetrievalResponse(),
+      results: [
+        {
+          content: "Second retrieval evidence.",
+          chunkType: "text",
+          score: 0.8,
+          source: {
+            documentId: "doc_2",
+            sourceFileName: "second.pdf",
+            sectionPath: "Second",
+          },
+        },
+      ],
+      referencedChunks: [],
+    })
+    expect(ledger.pendingRetentionRange()).toEqual({ startPick: 4, endPick: 4 })
+    expect(ledger.retainPicks([4])).toMatchObject({
+      ok: true,
+      retainedPicks: [4],
+    })
+    expect(ledger.isRetained(1)).toBe(false)
+    expect(ledger.isRetained(4)).toBe(true)
+  })
+
+  it("resolves every embedded table and image connected to retained text", async () => {
+    const ledger = createEvidenceLedger()
+    ledger.addRetrievalResponse({
+      ...makeRetrievalResponse(),
+      results: [
+        {
+          chunkId: "text_chunk",
+          content: "Comparison [tables/comparison.html]",
+          chunkType: "text",
+          score: 0.9,
+          metadata: {
+            connectTo: [
+              {
+                target: "table_chunk",
+                relation: "embeds",
+                ref: "[tables/comparison.html]",
+              },
+              {
+                target: "image_chunk_1",
+                relation: "embeds",
+                ref: "[images/comparison-a.jpg]",
+              },
+              {
+                target: "image_chunk_2",
+                relation: "embeds",
+                ref: "[images/comparison-b.jpg]",
+              },
+            ],
+          },
+          source: {
+            documentId: "doc_1",
+            sourceFileName: "cardiology.pdf",
+            sectionPath: "Differential diagnosis",
+          },
+        },
+      ],
+      referencedChunks: [],
+    })
+    ledger.retainPicks([1])
+    const resolveConnectedAssets = vi.fn<ResolveConnectedAssets>(
+      async (lookups) =>
+        lookups.map((lookup) => ({
+          ...lookup,
+          assetUrl: `https://assets.example/${lookup.chunkId}`,
+        })),
+    )
+
+    const snapshot = await ledger.resolveRetainedConnectedAssets(
+      resolveConnectedAssets,
+    )
+
+    expect(resolveConnectedAssets).toHaveBeenCalledWith([
+      { documentId: "doc_1", chunkId: "table_chunk", type: "table" },
+      { documentId: "doc_1", chunkId: "image_chunk_1", type: "image" },
+      { documentId: "doc_1", chunkId: "image_chunk_2", type: "image" },
+    ])
+    expect(snapshot.assets).toEqual([
+      expect.objectContaining({
+        ref: "asset:r1:result:1:table_chunk",
+        chunkRef: "r1:result:1",
+        type: "table",
+        sourcePath: "tables/comparison.html",
+      }),
+      expect.objectContaining({
+        ref: "asset:r1:result:1:image_chunk_1",
+        chunkRef: "r1:result:1",
+        type: "image",
+        sourcePath: "images/comparison-a.jpg",
+      }),
+      expect.objectContaining({
+        ref: "asset:r1:result:1:image_chunk_2",
+        chunkRef: "r1:result:1",
+        type: "image",
+        sourcePath: "images/comparison-b.jpg",
+      }),
+    ])
   })
 })
 

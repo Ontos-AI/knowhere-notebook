@@ -21,10 +21,25 @@ export function normalizeRetrievalQuery(value: string, fallback: string): string
   return normalized.slice(0, RETRIEVAL_QUERY_CHAR_LIMIT)
 }
 
+export const emptyFolderSearchMessage =
+  "The current folder has no documents. Do not call knowhere_search."
+
+export function isEmptyFolderScope(
+  folderScopeSourceIds: readonly string[] | undefined,
+  sources: readonly Source[],
+): boolean {
+  if (folderScopeSourceIds === undefined) return false
+  const scoped = new Set(folderScopeSourceIds)
+  return !sources.some(
+    (source) => scoped.has(source.id) && Boolean(source.knowhereDocumentId),
+  )
+}
+
 export function getRetrievalDocumentScope(
   sources: readonly Source[],
   excludedSourceIds: readonly string[],
   request: Pick<KnowhereSearchRequest, "includeDocumentIds" | "excludeDocumentIds">,
+  folderScopeSourceIds?: readonly string[],
 ): Pick<KnowhereSearchRequest, "includeDocumentIds" | "excludeDocumentIds"> {
   const excluded = new Set(excludedSourceIds)
   const localDocumentIds = sources
@@ -41,13 +56,36 @@ export function getRetrievalDocumentScope(
       ...(request.excludeDocumentIds ?? []),
     ]),
   )
+  const includeDocumentIds = getFolderScopeDocumentIds(
+    sources,
+    folderScopeSourceIds,
+  )
 
   return {
-    ...(request.includeDocumentIds !== undefined
-      ? { includeDocumentIds: [...new Set(request.includeDocumentIds)] }
-      : {}),
+    ...(includeDocumentIds !== undefined
+      ? { includeDocumentIds }
+      : request.includeDocumentIds !== undefined
+        ? { includeDocumentIds: [...new Set(request.includeDocumentIds)] }
+        : {}),
     ...(documentIds.length > 0 ? { excludeDocumentIds: documentIds } : {}),
   }
+}
+
+function getFolderScopeDocumentIds(
+  sources: readonly Source[],
+  folderScopeSourceIds: readonly string[] | undefined,
+): string[] | undefined {
+  if (folderScopeSourceIds === undefined) return undefined
+
+  const scoped = new Set(folderScopeSourceIds)
+  return [
+    ...new Set(
+      sources
+        .filter((source) => scoped.has(source.id))
+        .map((source) => source.knowhereDocumentId)
+        .filter((documentId): documentId is string => Boolean(documentId)),
+    ),
+  ]
 }
 
 function stripWrappingQuotes(value: string): string {

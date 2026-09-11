@@ -7,7 +7,10 @@ import type {
   EvidenceAsset,
   EvidenceChunk,
   EvidenceLedgerSnapshot,
+  PendingRetentionRange,
+  ResolveConnectedAssets,
 } from "./types"
+import { hasReferencedChunkEvidence } from "./referenced-chunks"
 
 const contentPreviewLimit = 1_200
 const imageExtensions = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg"] as const
@@ -20,6 +23,8 @@ type MutableLedger = {
   stopReasons: string[]
   failureReasons: string[]
   decisionTraces: unknown[]
+  retainedPicks: Set<number>
+  pendingRetention: PendingRetentionRange | null
 }
 
 type EvidenceAssetCandidate = {
@@ -27,6 +32,15 @@ type EvidenceAssetCandidate = {
   readonly assetUrl?: string
   readonly sourcePath?: string
   readonly label: string
+}
+
+type ConnectedAssetCandidate = {
+  readonly chunkRef: string
+  readonly targetChunkId: string
+  readonly documentId: string
+  readonly type: EvidenceAsset["type"]
+  readonly sourcePath: string
+  readonly source: EvidenceChunk["source"]
 }
 
 type PageCitationAssetCandidate = {
@@ -47,10 +61,13 @@ export function createEvidenceLedger() {
     stopReasons: [],
     failureReasons: [],
     decisionTraces: [],
+    retainedPicks: new Set<number>(),
+    pendingRetention: null,
   }
 
   return {
     addRetrievalResponse(response: RetrievalQueryResponse): EvidenceLedgerSnapshot {
+      const chunkCountBefore = ledger.chunks.length
       ledger.retrievalCount += 1
       const retrievalIndex = ledger.retrievalCount
 
@@ -76,15 +93,9 @@ export function createEvidenceLedger() {
       })
 
       response.referencedChunks.forEach((chunk, index) => {
-        // Knowhere's agent_explore router returns referencedChunks entries
-        // that may carry only a summary id with no chunkType/content
-        // (despite the SDK type declaring chunkType as required). Skip
-        // entries missing a usable chunkType: they have no real content
-        // (content is always "" here) and chunkType is required downstream
-        // (asset-type detection calls chunkType.toLowerCase()).
-        if (typeof chunk.chunkType !== "string" || chunk.chunkType.trim().length === 0) {
-          return
-        }
+        // ID-only references are provenance, not evidence. Structured page
+        // and media references remain available to the citation pipeline.
+        if (!hasReferencedChunkEvidence(chunk)) return
         const content = ""
         addChunk({
           ledger,
@@ -109,6 +120,121 @@ export function createEvidenceLedger() {
           },
         })
       })
+
+      const chunkCountAfter = ledger.chunks.length
+      if (chunkCountAfter > chunkCountBefore) {
+        ledger.pendingRetention = {
+          startPick: chunkCountBefore + 1,
+          endPick: chunkCountAfter,
+        }
+      }
+
+      return snapshot(ledger)
+    },
+
+    retainPicks(picks: readonly number[]):
+      | { readonly ok: true; readonly retainedPicks: readonly number[] }
+      | {
+          readonly ok: false
+          readonly message: string
+          readonly invalidPicks: readonly number[]
+        } {
+      const pending = ledger.pendingRetention
+      if (!pending) {
+        return {
+          ok: false,
+          message:
+            "retainEvidence can only be called after a search that returned new evidence.",
+          invalidPicks: [],
+        }
+      }
+
+      const kept: number[] = []
+      const invalidPicks: number[] = []
+      for (const pick of picks) {
+        if (
+          !Number.isInteger(pick) ||
+          pick < pending.startPick ||
+          pick > pending.endPick
+        ) {
+          if (!invalidPicks.includes(pick)) invalidPicks.push(pick)
+          continue
+        }
+        if (!kept.includes(pick)) kept.push(pick)
+      }
+      if (invalidPicks.length > 0) {
+        return {
+          ok: false,
+          message: [
+            "retainEvidence picks must come from the latest search.",
+            `Invalid picks: ${invalidPicks.join(" ")}.`,
+            `Latest search picks: ${pending.startPick}-${pending.endPick}.`,
+          ].join(" "),
+          invalidPicks,
+        }
+      }
+
+      for (const pick of kept) {
+        ledger.retainedPicks.add(pick)
+      }
+      ledger.pendingRetention = null
+      return {
+        ok: true,
+        retainedPicks: [...ledger.retainedPicks].sort((left, right) => left - right),
+      }
+    },
+
+    isRetained(pick: number): boolean {
+      return ledger.retainedPicks.has(pick)
+    },
+
+    hasPendingRetention(): boolean {
+      return ledger.pendingRetention !== null
+    },
+
+    pendingRetentionRange(): PendingRetentionRange | null {
+      return ledger.pendingRetention
+    },
+
+    async resolveRetainedConnectedAssets(
+      resolveConnectedAssets?: ResolveConnectedAssets,
+    ): Promise<EvidenceLedgerSnapshot> {
+      const candidates = getRetainedConnectedAssetCandidates(ledger)
+      if (candidates.length === 0) return snapshot(ledger)
+      if (!resolveConnectedAssets) {
+        throw new Error(
+          "No connected asset resolver was provided for retained evidence.",
+        )
+      }
+
+      const lookups = uniqueConnectedAssetLookups(candidates)
+      const resolved = await resolveConnectedAssets(lookups)
+      const assetUrlByLookup = new Map(
+        resolved.map((asset) => [connectedAssetLookupKey(asset), asset.assetUrl]),
+      )
+
+      for (const candidate of candidates) {
+        const lookupKey = connectedAssetLookupKey({
+          documentId: candidate.documentId,
+          chunkId: candidate.targetChunkId,
+          type: candidate.type,
+        })
+        const assetUrl = assetUrlByLookup.get(lookupKey)
+        if (!assetUrl) {
+          throw new Error(
+            `Connected ${candidate.type} chunk ${candidate.targetChunkId} was not resolved.`,
+          )
+        }
+        ledger.assets.push({
+          ref: `asset:${candidate.chunkRef}:${candidate.targetChunkId}`,
+          chunkRef: candidate.chunkRef,
+          type: candidate.type,
+          assetUrl,
+          sourcePath: candidate.sourcePath,
+          source: candidate.source,
+          label: formatConnectedAssetLabel(candidate),
+        })
+      }
 
       return snapshot(ledger)
     },
@@ -183,7 +309,7 @@ function addChunkFromResult(input: {
 
 function addChunk(input: {
   readonly ledger: MutableLedger
-  readonly chunk: Omit<EvidenceChunk, "assetRef">
+  readonly chunk: EvidenceChunk
 }): void {
   const asset = getEvidenceAssetCandidate(input.chunk)
   if (!asset) {
@@ -192,21 +318,94 @@ function addChunk(input: {
   }
 
   const assetRef = `asset:${input.chunk.ref}`
-  const chunk: EvidenceChunk = {
-    ...input.chunk,
-    assetRef,
-  }
-  input.ledger.chunks.push(chunk)
+  input.ledger.chunks.push(input.chunk)
   input.ledger.assets.push({
     ref: assetRef,
-    chunkRef: chunk.ref,
+    chunkRef: input.chunk.ref,
     type: asset.type,
     ...(asset.assetUrl ? { assetUrl: asset.assetUrl } : {}),
     ...(asset.sourcePath ? { sourcePath: asset.sourcePath } : {}),
-    ...(chunk.revisionKey ? { revisionKey: chunk.revisionKey } : {}),
-    source: chunk.source,
+    ...(input.chunk.revisionKey ? { revisionKey: input.chunk.revisionKey } : {}),
+    source: input.chunk.source,
     label: asset.label,
   })
+}
+
+function getRetainedConnectedAssetCandidates(
+  ledger: MutableLedger,
+): ConnectedAssetCandidate[] {
+  return ledger.chunks.flatMap((chunk, index) => {
+    if (!ledger.retainedPicks.has(index + 1)) return []
+
+    const documentId = getTrimmedString(chunk.source.documentId)
+    const connections = chunk.metadata?.connectTo ?? chunk.metadata?.connect_to
+    if (!Array.isArray(connections)) return []
+
+    return connections.flatMap((connection): ConnectedAssetCandidate[] => {
+      if (!isRecord(connection) || connection.relation !== "embeds") return []
+      const targetChunkId = getTrimmedString(connection.target)
+      const sourcePath = getConnectedAssetPath(connection.ref)
+      if (!targetChunkId || !sourcePath) return []
+      if (!documentId) {
+        throw new Error(
+          `Retained evidence ${chunk.ref} has connected assets but no document ID.`,
+        )
+      }
+
+      return [{
+        chunkRef: chunk.ref,
+        targetChunkId,
+        documentId,
+        type: sourcePath.startsWith("images/") ? "image" : "table",
+        sourcePath,
+        source: chunk.source,
+      }]
+    })
+  })
+}
+
+function getConnectedAssetPath(value: unknown): string | null {
+  const ref = getTrimmedString(value)
+  if (!ref || !ref.startsWith("[") || !ref.endsWith("]")) return null
+  const path = ref.slice(1, -1).trim()
+  return path.startsWith("images/") || path.startsWith("tables/") ? path : null
+}
+
+function uniqueConnectedAssetLookups(
+  candidates: readonly ConnectedAssetCandidate[],
+) {
+  const lookups = new Map<
+    string,
+    { documentId: string; chunkId: string; type: EvidenceAsset["type"] }
+  >()
+  for (const candidate of candidates) {
+    const lookup = {
+      documentId: candidate.documentId,
+      chunkId: candidate.targetChunkId,
+      type: candidate.type,
+    }
+    lookups.set(connectedAssetLookupKey(lookup), lookup)
+  }
+  return [...lookups.values()]
+}
+
+function connectedAssetLookupKey(input: {
+  readonly documentId: string
+  readonly chunkId: string
+  readonly type: EvidenceAsset["type"]
+}): string {
+  return `${input.documentId}\u0000${input.type}\u0000${input.chunkId}`
+}
+
+function formatConnectedAssetLabel(candidate: ConnectedAssetCandidate): string {
+  return [
+    candidate.source.sourceFileName,
+    candidate.source.sectionPath,
+    candidate.sourcePath,
+    candidate.type,
+  ]
+    .filter((part): part is string => Boolean(part))
+    .join(" / ")
 }
 
 function buildContentPreview(content: string): string {
@@ -233,7 +432,7 @@ function isRenderableAsset(chunkType: string, assetUrl: string): boolean {
 }
 
 function getEvidenceAssetCandidate(
-  chunk: Omit<EvidenceChunk, "assetRef">,
+  chunk: EvidenceChunk,
 ): EvidenceAssetCandidate | null {
   const pageAsset = getPageCitationAssetCandidate(chunk)
   if (pageAsset) {
@@ -253,7 +452,7 @@ function getEvidenceAssetCandidate(
 }
 
 function getPageCitationAssetCandidate(
-  chunk: Omit<EvidenceChunk, "assetRef">,
+  chunk: EvidenceChunk,
 ): EvidenceAssetCandidate | null {
   if (normalizeChunkType(chunk.chunkType) !== "page") return null
 
@@ -296,7 +495,7 @@ function isImageAssetUrl(assetUrl: string): boolean {
 }
 
 function getAssetSourcePath(
-  chunk: Omit<EvidenceChunk, "assetRef">,
+  chunk: EvidenceChunk,
   assetUrl: string,
 ): string | null {
   const candidates = [
@@ -485,6 +684,8 @@ function snapshot(ledger: MutableLedger): EvidenceLedgerSnapshot {
     stopReasons: [...ledger.stopReasons],
     failureReasons: [...ledger.failureReasons],
     decisionTraces: [...ledger.decisionTraces],
+    retainedPicks: [...ledger.retainedPicks].sort((left, right) => left - right),
+    pendingRetention: ledger.pendingRetention,
   }
 }
 

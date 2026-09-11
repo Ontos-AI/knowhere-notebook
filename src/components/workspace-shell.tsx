@@ -12,6 +12,7 @@ import {
 import { useWorkspaceDesktopPanels } from "@/components/workspace-desktop-panels"
 import { useWorkspaceCitationFocus } from "@/components/workspace-citation-focus"
 import { useWorkspaceChatWorkflow } from "@/components/workspace-chat-workflow"
+import { useWorkspaceFolderWorkflow } from "@/components/workspace-folder-workflow"
 import { useWorkspaceSourceWorkflow } from "@/components/workspace-source-workflow"
 import { workspaceShellState } from "@/components/workspace-shell-state"
 import {
@@ -27,6 +28,7 @@ import type {
   ChatThreadView,
 } from "@/domains/chat/types"
 import type { ParsedChunkView } from "@/domains/chunks/types"
+import type { FolderView } from "@/domains/folders/types"
 import type {
   OfficialLibrarySourceView,
   SourceView,
@@ -50,6 +52,7 @@ export type WorkspaceShellProps = {
     namespace: string
   }
   sources?: SourceView[]
+  folders?: FolderView[]
   officialLibrarySources?: OfficialLibrarySourceView[]
   chatThreads?: ChatThreadView[]
   activeChatThreadId?: string | null
@@ -80,6 +83,7 @@ export function WorkspaceShell(props: WorkspaceShellProps): ReactElement {
 function WorkspaceShellContent({
   user,
   sources: initialSources,
+  folders: initialFolders,
   officialLibrarySources,
   chatThreads: initialChatThreads,
   activeChatThreadId,
@@ -100,6 +104,11 @@ function WorkspaceShellContent({
     initialSelectedDocumentId: chunkViewDocumentId ?? null,
     initialSources: initialSources ?? [],
     isGuest,
+  })
+  const folderWorkflow = useWorkspaceFolderWorkflow({
+    initialFolders: initialFolders ?? [],
+    isGuest,
+    onSourceMoved: sourceWorkflow.handleSourceMoved,
   })
   const analyticsContext = useMemo<AnalyticsContext>(
     () => ({
@@ -126,6 +135,7 @@ function WorkspaceShellContent({
     isGuest,
     onSourcesMaterialized: sourceWorkflow.handleSourcesMaterialized,
     sources: sourceWorkflow.sources,
+    currentFolderId: folderWorkflow.currentFolderId,
   })
   const {
     desktopPanelWidths,
@@ -244,6 +254,11 @@ function WorkspaceShellContent({
       selectedSourceView={citationFocus.selectedSource}
       sourceTitlesByDocumentId={sourceWorkflow.sourceTitlesByDocumentId}
       sources={sourceWorkflow.sources}
+      folders={folderWorkflow.folders}
+      currentFolderId={folderWorkflow.currentFolderId}
+      creatingFolder={folderWorkflow.creatingFolder}
+      deletingFolderIds={folderWorkflow.deletingFolderIds}
+      movingSourceIds={folderWorkflow.movingSourceIds}
       officialLibrarySources={officialLibrarySources ?? []}
       user={user}
       analyticsContext={analyticsContext}
@@ -270,6 +285,12 @@ function WorkspaceShellContent({
       onOfficialLibrarySourceAdd={handleOfficialLibrarySourceAdd}
       onSourceUploaded={handleSourceUploaded}
       onToggleIncluded={sourceWorkflow.handleToggleIncluded}
+      onOpenFolder={folderWorkflow.handleOpenFolder}
+      onCreateFolder={folderWorkflow.handleCreateFolder}
+      onRenameFolder={folderWorkflow.handleRenameFolder}
+      onMoveFolder={folderWorkflow.handleMoveFolder}
+      onDeleteFolder={folderWorkflow.handleDeleteFolder}
+      onMoveSourceToFolder={folderWorkflow.handleMoveSource}
     />
   )
 }

@@ -17,6 +17,7 @@ type SourceRepository = {
   readonly markReadyEffect: typeof sourceRowRepository.markReadyEffect
   readonly updateRevisionKeyEffect: typeof sourceRowRepository.updateRevisionKeyEffect
   readonly recordChunkCountEffect: typeof sourceRowRepository.recordChunkCountEffect
+  readonly assignFolderEffect: typeof sourceRowRepository.assignFolderEffect
   readonly markFailedEffect: typeof sourceRowRepository.markFailedEffect
   readonly clearStagedBlobEffect: typeof sourceRowRepository.clearStagedBlobEffect
   readonly softDeleteEffect: typeof sourceRowRepository.softDeleteEffect
@@ -44,6 +45,7 @@ export const sourceRepository: SourceRepository = {
   markReadyEffect: sourceRowRepository.markReadyEffect,
   updateRevisionKeyEffect: sourceRowRepository.updateRevisionKeyEffect,
   recordChunkCountEffect: sourceRowRepository.recordChunkCountEffect,
+  assignFolderEffect: sourceRowRepository.assignFolderEffect,
   markFailedEffect: sourceRowRepository.markFailedEffect,
   clearStagedBlobEffect: sourceRowRepository.clearStagedBlobEffect,
   softDeleteEffect: sourceRowRepository.softDeleteEffect,

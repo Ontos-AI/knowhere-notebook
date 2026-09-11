@@ -16,6 +16,9 @@ import {
 } from "@/domains/sources/background-reconcile"
 import { sourceWorkflowRuntime } from "@/domains/sources/workflow-runtime"
 
+import { toFolderView } from "@/domains/folders/tree"
+import type { FolderView } from "@/domains/folders/types"
+import { folderWorkflowRuntime } from "@/domains/folders/workflow-runtime"
 import type {
   OfficialLibrarySourceView,
   SourceView,
@@ -25,6 +28,7 @@ import type { AuthUser } from "@/infrastructure/auth"
 import type {
   ChatMessage,
   ChatThread,
+  Folder,
   Source,
   Workspace,
 } from "@/infrastructure/db/schema"
@@ -46,6 +50,7 @@ type WorkspaceShellInitialState = {
   readonly isGuest?: boolean
   readonly loginUrl?: string
   readonly officialLibrarySources?: OfficialLibrarySourceView[]
+  readonly folders?: FolderView[]
   readonly sources?: SourceView[]
   readonly user?: {
     readonly id: string
@@ -132,6 +137,9 @@ type WorkspaceShellInitialStateDependencies = {
     workspaceId: string,
     threadId: string,
   ) => Promise<readonly ChatMessage[] | null>
+  readonly listFoldersForWorkspace: (
+    workspaceId: string,
+  ) => Promise<readonly Folder[]>
   readonly listSourcesForWorkspace: (
     workspaceId: string,
   ) => Promise<readonly Source[]>
@@ -151,6 +159,7 @@ const defaultDependencies: WorkspaceShellInitialStateDependencies = {
   listChatThreads: chatThreadService.listForWorkspace,
   listHiddenDemoSourceIds: sourceService.listHiddenDemoSourceIds,
   listMessages: chatThreadService.listMessages,
+  listFoldersForWorkspace: folderWorkflowRuntime.listForWorkspace,
   listSourcesForWorkspace: sourceWorkflowRuntime.listForWorkspace,
   reconcileSourcesForWorkspace: reconcileDefaultSourcesForWorkspace,
   startBackgroundReconciliation: defaultStartBackgroundReconciliation,
@@ -214,6 +223,7 @@ export const loadWorkspaceShellInitialStateEffect = (
       return {
         isGuest: true,
         officialLibrarySources: toOfficialLibrarySourceViews(demoCatalog),
+        folders: [],
         sources: demoCatalog.sources.map(demoView.toSourceView),
         chatMessages: demoView.toChatMessages(demoCatalog),
         dashboardUrl: resolveDashboardUrl(),
@@ -229,6 +239,13 @@ export const loadWorkspaceShellInitialStateEffect = (
         operation: "fetchOptionalCatalog",
       },
       () => knowhereDemoApi.fetchOptionalCatalog(deps.fetchDemoCatalog),
+    )
+    const listedFolders = yield* effectOperation.tryPromise(
+      {
+        context: workspaceInitialStateContext,
+        operation: "listFoldersForWorkspace",
+      },
+      () => deps.listFoldersForWorkspace(workspace.id),
     )
     const listedSources = yield* effectOperation.tryPromise(
       {
@@ -348,6 +365,7 @@ export const loadWorkspaceShellInitialStateEffect = (
         ...remoteSourceViews,
       ],
       officialLibrarySources: toOfficialLibrarySourceViews(demoCatalog),
+      folders: listedFolders.map(toFolderView),
       chatThreads: chatThreads.map(toChatThreadView),
       activeChatThreadId: activeChatThread?.id ?? null,
       chatMessages,
