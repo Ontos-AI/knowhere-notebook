@@ -68,7 +68,6 @@ export type AgentTurnInput = {
   readonly userText: string
   readonly recentTurns: readonly AgentTurn[]
   readonly localContext?: string
-  readonly sourceContext?: string
   readonly outputCapabilities: {
     readonly text: boolean
     readonly image: boolean

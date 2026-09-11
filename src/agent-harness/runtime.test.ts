@@ -156,10 +156,19 @@ describe("agent harness runtime", () => {
     )
     expect(prompt).toContain("Refine knowhere_search at most twice")
     expect(prompt).toContain(
+      "After the second refined search, call prepareAnswer regardless of its result",
+    )
+    expect(prompt).toContain(
       "After each search that returns new evidence, call retainEvidence",
     )
     expect(prompt).toContain(
       "When calling knowhere_search after a previous search in this turn, set gapReason",
+    )
+    expect(prompt).toContain(
+      "asset paths in retrieved chunks represent connected assets",
+    )
+    expect(prompt).toContain(
+      "Do not refine the search solely because those assets have not been expanded yet",
     )
     expect(prompt).not.toContain("knowhere_list_documents")
     expect(prompt).not.toContain("knowhere_get_document_outline")
@@ -432,7 +441,7 @@ describe("agent harness runtime", () => {
     expect(state.finalizedManifest?.citations).toEqual([{ ref: "r2:result:1" }])
   })
 
-  it("rejects placeholder text without citations, displayed artifacts, or unresolved gaps", async () => {
+  it("accepts free-form text with no citations, displayed artifacts, or unresolved gaps", async () => {
     const state: {
       finalizedManifest?: OutputManifest
       finalized?: boolean
@@ -446,16 +455,16 @@ describe("agent harness runtime", () => {
     })
 
     const result = await executeTool(tools.finalize, {
-      text: "placeholder",
+      text: "Hi there! How can I help?",
       citations: [],
       memoryCitations: [],
       artifacts: [],
       unresolved: [],
     })
 
-    expect(result).toMatchObject({ ok: false })
-    expect(state.finalizedManifest).toBeUndefined()
-    expect(state.finalized).not.toBe(true)
+    expect(result).toMatchObject({ ok: true })
+    expect(state.finalizedManifest?.text).toBe("Hi there! How can I help?")
+    expect(state.finalized).toBe(true)
   })
 
   it("accepts explicitly unresolved output without planning-tool gating", async () => {
@@ -546,8 +555,20 @@ describe("agent harness runtime", () => {
         { ref: "mem:1", itemId: "item_1", kind: "stance" as const },
       ],
       artifacts: [],
-      unresolved: ["No Knowledge Base citation is used."],
+      unresolved: [],
     }
+    const invalidManifest = {
+      ...manifest,
+      memoryCitations: [
+        { ref: "mem:1", itemId: "invented_item", kind: "stance" as const },
+      ],
+    }
+    expect(await executeTool(tools.finalize, invalidManifest)).toMatchObject({
+      ok: false,
+      invalidMemoryCitations: invalidManifest.memoryCitations,
+    })
+    expect(state.finalizedManifest).toBeUndefined()
+
     expect(await executeTool(tools.finalize, manifest)).toMatchObject({
       ok: true,
       memoryCitations: manifest.memoryCitations,
@@ -876,6 +897,29 @@ describe("agent harness runtime", () => {
     expect(result.activeTools).toContain("knowhere_search")
   })
 
+  it("forces answer preparation after the second Knowhere refinement", () => {
+    const result = prepareHarnessStep({
+      stepNumber: 8,
+      hasKnowhereSearch: true,
+      hasReachedKnowhereSearchLimit: true,
+      intent: {
+        task: "answer",
+        dependsOnPreviousTurn: false,
+        retrievalNeeded: "yes",
+        targetModalities: ["text"],
+        constraints: {},
+        groundingPolicy: "must_use_sources",
+      },
+      messages: [],
+    })
+
+    expect(result.activeTools).toEqual(["prepareAnswer"])
+    expect(result.toolChoice).toEqual({
+      type: "tool",
+      toolName: "prepareAnswer",
+    })
+  })
+
   it("replaces retrieval history with the assembled context for finalization", () => {
     const answerContextMessage = {
       role: "user" as const,
@@ -1095,6 +1139,20 @@ describe("agent harness runtime", () => {
         gapReason: "The first search lacked the wording this query will add.",
       }),
     )
+
+    const third = await executeTool(tools.knowhere_search, {
+      query: "third",
+      gapReason: "The second search still lacked the requested comparison.",
+    })
+    expect(third).toContain('status="ok"')
+
+    const fourth = await executeTool(tools.knowhere_search, {
+      query: "fourth",
+      gapReason: "Try one more query.",
+    })
+    expect(fourth).toContain('status="error"')
+    expect(fourth).toContain("initial search and two refinements")
+    expect(search).toHaveBeenCalledTimes(3)
   })
 
 })

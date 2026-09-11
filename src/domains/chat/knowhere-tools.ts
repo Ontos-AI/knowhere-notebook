@@ -22,7 +22,7 @@ export const notebookKnowhereTools = {
         ]
         if (requestedIds.some((id) => !knownDocumentIds.has(id))) {
           throw new Error(
-            "Document scope contains an unverified ID. Use document IDs from source context or prior search results; otherwise keep the document requirement in query so Knowhere can locate it.",
+            "Document scope contains an unverified ID. Use document IDs from prior search results; otherwise keep the document requirement in query so Knowhere can locate it.",
           )
         }
         const response = await input.searchSources(request)

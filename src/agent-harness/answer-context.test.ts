@@ -59,7 +59,7 @@ describe("composeAnswerContext", () => {
           text: [
             "## Fluid Memory",
             "",
-            "[mem:1] stance",
+            '[memory ref="mem:1" itemId="memory_1" kind="stance"]',
             "关注毛利率",
             "用户把毛利率当作核心指标。",
             "",
@@ -71,7 +71,20 @@ describe("composeAnswerContext", () => {
     })
   })
 
-  it("omits empty knowledge and memory sections", async () => {
+  it("omits knowledge and memory sections when neither search ran", async () => {
+    const message = await composeAnswerContext({
+      ledger: { ...makeLedger(), retrievalCount: 0, retainedPicks: [] },
+      memoryItems: [],
+      userText: "直接回答。",
+    })
+
+    expect(message).toEqual({
+      role: "user",
+      content: [{ type: "text", text: "## User's Question\n直接回答。" }],
+    })
+  })
+
+  it("notes when knowledge base search ran but found nothing to retain", async () => {
     const message = await composeAnswerContext({
       ledger: { ...makeLedger(), retainedPicks: [] },
       memoryItems: [],
@@ -80,7 +93,43 @@ describe("composeAnswerContext", () => {
 
     expect(message).toEqual({
       role: "user",
-      content: [{ type: "text", text: "## User's Question\n直接回答。" }],
+      content: [
+        {
+          type: "text",
+          text: [
+            "## Evidence from Knowledge Base",
+            "No knowledge base results were found for this search. Answer using your own knowledge only, and say so if relevant.",
+            "",
+            "## User's Question",
+            "直接回答。",
+          ].join("\n"),
+        },
+      ],
+    })
+  })
+
+  it("notes when memory search ran but found nothing", async () => {
+    const message = await composeAnswerContext({
+      ledger: { ...makeLedger(), retrievalCount: 0, retainedPicks: [] },
+      memoryItems: [],
+      memorySearchAttempted: true,
+      userText: "直接回答。",
+    })
+
+    expect(message).toEqual({
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: [
+            "## Fluid Memory",
+            "No fluid memory results were found for this search.",
+            "",
+            "## User's Question",
+            "直接回答。",
+          ].join("\n"),
+        },
+      ],
     })
   })
 })

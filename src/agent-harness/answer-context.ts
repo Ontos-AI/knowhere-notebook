@@ -16,6 +16,7 @@ type UserContentParts = Exclude<
 export async function composeAnswerContext(input: {
   readonly ledger: EvidenceLedgerSnapshot
   readonly memoryItems: readonly MemorySearchItem[]
+  readonly memorySearchAttempted?: boolean
   readonly userText: string
   readonly readTableHtml?: ReadTableHtml
 }): Promise<ModelMessage> {
@@ -27,6 +28,13 @@ export async function composeAnswerContext(input: {
     const pick = index + 1
     return retainedPicks.has(pick) ? [{ chunk, pick }] : []
   })
+
+  if (retainedChunks.length === 0 && input.ledger.retrievalCount > 0) {
+    appendText(
+      content,
+      "## Evidence from Knowledge Base\nNo knowledge base results were found for this search. Answer using your own knowledge only, and say so if relevant.",
+    )
+  }
 
   if (retainedChunks.length > 0) {
     appendText(content, "## Evidence from Knowledge Base")
@@ -70,6 +78,11 @@ export async function composeAnswerContext(input: {
       "## Fluid Memory",
       ...input.memoryItems.map(formatMemoryItem),
     ].join("\n\n"))
+  } else if (input.memorySearchAttempted) {
+    appendText(
+      content,
+      "## Fluid Memory\nNo fluid memory results were found for this search.",
+    )
   }
 
   const userText = input.userText.trim()
@@ -123,7 +136,7 @@ function formatChunkLabel(pick: number, chunk: EvidenceChunk): string {
 
 function formatMemoryItem(item: MemorySearchItem): string {
   return [
-    `[${item.ref}] ${item.kind}`,
+    `[memory ref="${item.ref}" itemId="${item.itemId}" kind="${item.kind}"]`,
     item.abstractL0.trim(),
     item.overviewL1.trim(),
   ]

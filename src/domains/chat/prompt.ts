@@ -26,7 +26,6 @@ import { notebookKnowhereTools } from "./knowhere-tools"
 
 const RECENT_CONTEXT_MESSAGE_LIMIT = 8
 const CONTEXT_CONTENT_CHAR_LIMIT = 900
-const SOURCE_CONTEXT_LIMIT = 12
 
 type GenerateAgenticOutputManifestInput = {
   workspaceId: string
@@ -110,11 +109,9 @@ function buildNotebookHarnessTurn(
     surface: "notebook_chat",
     userText: input.question,
     recentTurns: buildNotebookHarnessRecentTurns(input.messages),
-    sourceContext: formatSourceContext(
-      input.sources,
-      input.excludedSourceIds,
-      input.folderScopeSourceIds,
-    ),
+    ...(isEmptyFolderScope(input.folderScopeSourceIds, input.sources)
+      ? { localContext: emptyFolderSearchMessage }
+      : {}),
     outputCapabilities: {
       text: true,
       image: true,
@@ -142,28 +139,6 @@ function getCitationLabels(
     .split(";")
     .map((label) => label.trim())
     .filter((label) => label.length > 0)
-}
-
-function formatSourceContext(
-  sources: readonly Source[],
-  excludedSourceIds: readonly string[],
-  folderScopeSourceIds?: readonly string[],
-): string {
-  if (isEmptyFolderScope(folderScopeSourceIds, sources)) {
-    return emptyFolderSearchMessage
-  }
-  const excludedSourceIdsSet = new Set(excludedSourceIds)
-  const lines = sources
-    .filter((source): boolean => !excludedSourceIdsSet.has(source.id))
-    .slice(0, SOURCE_CONTEXT_LIMIT)
-    .map((source): string => {
-      const documentId = source.knowhereDocumentId
-        ? `documentId=${source.knowhereDocumentId}`
-        : "documentId=unknown"
-      return `- ${source.title} (${documentId})`
-    })
-
-  return lines.length > 0 ? lines.join("\n") : "- No searchable sources."
 }
 
 function formatCitationContext(

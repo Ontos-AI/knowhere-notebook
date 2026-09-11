@@ -1763,7 +1763,7 @@ describe("answerQuestionWithRetrieval", () => {
     ]);
   });
 
-  it("returns only harness-selected artifacts when retrieval has extra media candidates", async () => {
+  it("returns the exact displayed artifact set from the harness manifest", async () => {
     const frontAssetUrl = "https://blob.example/images/id-front.jpg";
     const backAssetUrl = "https://blob.example/images/id-back.jpg";
     const extraAssetUrl = "https://blob.example/images/extra.jpg";
@@ -1974,6 +1974,7 @@ describe("answerQuestionWithRetrieval", () => {
     expect(answer.artifacts?.map((artifact) => artifact.assetUrl)).toEqual([
       frontAssetUrl,
       backAssetUrl,
+      extraAssetUrl,
     ]);
     expect(answer.artifacts?.map((artifact) => artifact.citation?.source)).toEqual(
       [
@@ -1987,11 +1988,17 @@ describe("answerQuestionWithRetrieval", () => {
           sourceFileName: "商务标文件.pdf",
           sectionPath: "身份证反面",
         },
+        {
+          documentId: "doc_identity",
+          sourceFileName: "商务标文件.pdf",
+          sectionPath: "营业执照",
+        },
       ],
     );
     expect(answer.citations.map((citation) => citation.assetUrl)).toEqual([
       frontAssetUrl,
       backAssetUrl,
+      extraAssetUrl,
     ]);
   });
 
@@ -2457,7 +2464,7 @@ describe("answerQuestionWithRetrieval", () => {
     expect(hardenChatAssetUrl).not.toHaveBeenCalled();
   });
 
-  it("returns the no-results answer when finalize reports an unresolved gap with empty text", async () => {
+  it("throws when the harness finalizes with empty answer text", async () => {
     const retrieval = {
       query: vi.fn().mockResolvedValue({
         results: [],
@@ -2481,23 +2488,19 @@ describe("answerQuestionWithRetrieval", () => {
       };
     });
 
-    const answer = await Effect.runPromise(
-      answerQuestionWithRetrieval({
-        question: "Missing fact?",
-        namespace: "notebook-workspace",
-        sources: [makeSource()],
-        excludedSourceIds: [],
-        retrieval,
-        generateAnswer,
-        messages: [],
-      }),
-    );
-
-    expect(answer).toEqual({
-      answer: "I couldn't find that in your sources.",
-      citations: [],
-      artifacts: [],
-    });
+    await expect(
+      Effect.runPromise(
+        answerQuestionWithRetrieval({
+          question: "Missing fact?",
+          namespace: "notebook-workspace",
+          sources: [makeSource()],
+          excludedSourceIds: [],
+          retrieval,
+          generateAnswer,
+          messages: [],
+        }),
+      ),
+    ).rejects.toThrow();
   });
 
   it("lets the agent issue contextual retrieval queries while answering the original question", async () => {

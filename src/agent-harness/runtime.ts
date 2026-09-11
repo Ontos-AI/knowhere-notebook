@@ -22,6 +22,7 @@ import type {
   IntentFrame,
   KnowhereSearchTargetContent,
   KnowhereToolRuntime,
+  MemoryCitation,
   MemorySearchKind,
   MemorySearchItem,
   MemoryToolRuntime,
@@ -33,6 +34,8 @@ import type {
 import { memorySearchKinds } from "./types"
 
 const defaultMaxSteps = 15
+const maxKnowhereRefinements = 2
+const maxKnowhereSearchAttempts = 1 + maxKnowhereRefinements
 
 type ToolLoopAgentSettings = ConstructorParameters<typeof ToolLoopAgent>[0]
 
@@ -57,6 +60,7 @@ type HarnessToolState = {
   answerContextMessage?: ModelMessage
   memoryItems?: MemorySearchItem[]
   memorySearchAttempted?: boolean
+  knowhereSearchAttemptCount?: number
   priorTurnReads?: string[]
   toolCalls?: HarnessToolCallTrace[]
 }
@@ -87,7 +91,7 @@ const knowhereSearchTargetContentSchema = z.enum([
 const knowhereSearchSchema = z.object({
   query: z.string().min(1),
   includeDocumentIds: z.array(z.string().trim().min(1)).optional().describe(
-    "Only search these verified document IDs. Omit for unrestricted search; [] searches no documents. Use IDs from source context or previous search results, never filenames or guessed IDs.",
+    "Only search these verified document IDs. Omit for unrestricted search; [] searches no documents. Use IDs from previous search results, never filenames or guessed IDs.",
   ),
   excludeDocumentIds: z.array(z.string().trim().min(1)).optional().describe(
     "Exclude these verified document IDs. Exclusions take precedence over includeDocumentIds. If the ID is unknown, describe the document constraint in query instead.",
@@ -219,6 +223,7 @@ export async function runAgentHarness(
         state.answerContextMessage = await composeAnswerContext({
           ledger: ledger.snapshot(),
           memoryItems: state.memoryItems ?? [],
+          memorySearchAttempted: state.memorySearchAttempted === true,
           userText: input.turn.userText,
           readTableHtml: input.readTableHtml,
         })
@@ -227,9 +232,9 @@ export async function runAgentHarness(
         messages: stepMessages,
         stepNumber,
         intent: state.intent,
-        hasKnowhereSearch: (state.toolCalls ?? []).some(
-          (call) => call.tool === "knowhere_search",
-        ),
+        hasKnowhereSearch: (state.knowhereSearchAttemptCount ?? 0) > 0,
+        hasReachedKnowhereSearchLimit:
+          (state.knowhereSearchAttemptCount ?? 0) >= maxKnowhereSearchAttempts,
         hasMemorySearch: state.memorySearchAttempted === true,
         hasPendingRetention: ledger.hasPendingRetention(),
         pendingRetentionRange: ledger.pendingRetentionRange(),
@@ -293,6 +298,7 @@ export function prepareHarnessStep(input: {
   readonly stepNumber: number
   readonly messages: readonly ModelMessage[]
   readonly hasKnowhereSearch?: boolean
+  readonly hasReachedKnowhereSearchLimit?: boolean
   readonly hasMemorySearch?: boolean
   readonly hasPendingRetention?: boolean
   readonly pendingRetentionRange?: { startPick: number; endPick: number } | null
@@ -325,6 +331,17 @@ export function prepareHarnessStep(input: {
       toolChoice: {
         type: "tool",
         toolName: "retainEvidence",
+      },
+    }
+  }
+
+  if (input.hasReachedKnowhereSearchLimit === true) {
+    return {
+      messages,
+      activeTools: ["prepareAnswer"],
+      toolChoice: {
+        type: "tool",
+        toolName: "prepareAnswer",
       },
     }
   }
@@ -538,7 +555,7 @@ export function createHarnessTools(input: {
 
     knowhere_search: tool({
       description:
-        "Search Knowhere for relevant Notebook evidence. Returns tagged text with pick numbers for finalize citations, evidence refs such as r1:result:1, and asset refs such as asset:r1:result:1. After a previous search in this turn, set gapReason to what that search lacked and how this query will fill the gap.",
+        "Search Knowhere for relevant Notebook evidence. Returns tagged text with pick numbers for finalize citations, evidence refs such as r1:result:1, and connected image/table asset paths when present. After a previous search in this turn, set gapReason to what the previous search lacked and how this query will fill that gap.",
       inputSchema: knowhereSearchSchema,
       execute: async (request) =>
         traceToolCall(input.state, {
@@ -546,6 +563,7 @@ export function createHarnessTools(input: {
           inputSummary: summarizeKnowhereSearchRequest(request),
           execute: async () =>
             executeKnowhereSearch({
+              state: input.state,
               ledger: input.ledger,
               knowhereTools: input.knowhereTools,
               request,
@@ -642,24 +660,14 @@ export function createHarnessTools(input: {
         "images/tables shown to the user. citations is the list of evidence picks " +
         "you used; each pick is the pick number on a Knowhere search chunk. " +
         "Notebook writes citation refs from the evidence ledger. " +
-        "Use memoryCitations for fluid memory refs.",
+        "Use memoryCitations for fluid memory and copy ref, itemId, and kind " +
+        "exactly from the assembled Fluid Memory entries.",
       inputSchema: finalizeManifestSchema,
       execute: async (manifest) =>
         traceToolCall(input.state, {
           toolName: "finalize",
           inputSummary: summarizeManifest(manifest),
           execute: async () => {
-            if (!hasGroundedManifestOutput(manifest)) {
-              return {
-                ok: false as const,
-                message: [
-                  "The answer must be grounded before it can be finalized.",
-                  "Call finalize again with retained citation picks or a displayed artifact.",
-                  "If the available evidence cannot support an answer, leave text empty and describe the gap in unresolved.",
-                ].join(" "),
-              }
-            }
-
             const resolvedCitations = resolveCitationPicks({
               citations: manifest.citations,
               ledger: input.ledger,
@@ -682,6 +690,19 @@ export function createHarnessTools(input: {
                   ledger: input.ledger.snapshot(),
                 }),
                 unretainedPicks: resolvedCitations.unretainedPicks,
+              }
+            }
+
+            const invalidMemoryCitations = getInvalidMemoryCitations({
+              citations: manifest.memoryCitations,
+              memoryItems: input.state.memoryItems ?? [],
+            })
+            if (invalidMemoryCitations.length > 0) {
+              return {
+                ok: false as const,
+                message:
+                  "memoryCitations must exactly match ref, itemId, and kind from this turn's Fluid Memory results.",
+                invalidMemoryCitations,
               }
             }
 
@@ -757,13 +778,18 @@ function resolveCitationPicks(input: {
   return { ok: true, citations }
 }
 
-function hasGroundedManifestOutput(
-  manifest: z.infer<typeof finalizeManifestSchema>,
-): boolean {
-  return (
-    manifest.citations.length > 0 ||
-    manifest.artifacts.some((artifact) => artifact.display) ||
-    manifest.unresolved.length > 0
+function getInvalidMemoryCitations(input: {
+  readonly citations: readonly MemoryCitation[]
+  readonly memoryItems: readonly MemorySearchItem[]
+}): MemoryCitation[] {
+  return input.citations.filter(
+    (citation) =>
+      !input.memoryItems.some(
+        (item) =>
+          item.ref === citation.ref &&
+          item.itemId === citation.itemId &&
+          item.kind === citation.kind,
+      ),
   )
 }
 
@@ -892,6 +918,7 @@ function accumulateMemoryItems(
 }
 
 async function executeKnowhereSearch(input: {
+  readonly state: HarnessToolState
   readonly ledger: ReturnType<typeof createEvidenceLedger>
   readonly knowhereTools: KnowhereToolRuntime
   readonly request: KnowhereSearchToolRequest
@@ -899,15 +926,24 @@ async function executeKnowhereSearch(input: {
   return executeKnowhereTextTool({
     operation: "search",
     execute: async () => {
-      const beforeSnapshot = input.ledger.snapshot()
+      const attemptCount = input.state.knowhereSearchAttemptCount ?? 0
       const gapReason = input.request.gapReason?.trim()
-      if (beforeSnapshot.retrievalCount > 0 && !gapReason) {
+      if (attemptCount > 0 && !gapReason) {
         return knowhereToolText.formatError({
           operation: "search",
           message:
             "This is a follow-up search. Set gapReason to what the previous search lacked and how this query will fill that gap.",
         })
       }
+      if (attemptCount >= maxKnowhereSearchAttempts) {
+        return knowhereToolText.formatError({
+          operation: "search",
+          message:
+            "Knowhere search already completed its initial search and two refinements. Call prepareAnswer now.",
+        })
+      }
+      input.state.knowhereSearchAttemptCount = attemptCount + 1
+      const beforeSnapshot = input.ledger.snapshot()
       const response = await input.knowhereTools.search({
         query: input.request.query,
         ...(input.request.includeDocumentIds !== undefined
@@ -1163,11 +1199,12 @@ export function buildHarnessSystemPrompt(turn: AgentTurnInput): string {
     "- memory_search and knowhere_search are parallel retrieval sources. When both apply, call them together rather than making one wait for the other.",
     "- Call memory_search once per turn. An empty result remains empty; do not retry it.",
     "- Call knowhere_search when groundingPolicy requires citing source documents.",
+    "- Image/table asset paths in retrieved chunks represent connected assets that prepareAnswer will resolve into table HTML and image inputs. Do not refine the search solely because those assets have not been expanded yet; refine only when the source content needed to answer is missing.",
     "- After each search that returns new evidence, call retainEvidence before searching again or finalizing.",
     "- When calling knowhere_search after a previous search in this turn, set gapReason to what the previous search lacked and how the new query will fill that gap.",
-    "- Refine knowhere_search at most twice. If two refined searches still do not add new relevant evidence, call prepareAnswer and list the gap in unresolved when finalizing.",
+    "- Refine knowhere_search at most twice. After the second refined search, call prepareAnswer regardless of its result.",
     "- Do not treat every question as a document-retrieval task.",
-    "- For document-scoped searches, use includeDocumentIds/excludeDocumentIds only with verified IDs from source context or prior search results. If IDs are unknown, preserve the document requirement in query so Knowhere can locate it. Never invent IDs or substitute filenames. Exclusions win; an empty includeDocumentIds means no documents.",
+    "- For document-scoped searches, use includeDocumentIds/excludeDocumentIds only with verified IDs from prior search results. If IDs are unknown, preserve the document requirement in query so Knowhere can locate it. Never invent IDs or substitute filenames. Exclusions win; an empty includeDocumentIds means no documents.",
     "",
     "Context rules:",
     "- If the current user request is unrelated to prior turns, set carryHistory to none and do not reuse prior topics.",
@@ -1188,7 +1225,6 @@ export function buildHarnessSystemPrompt(turn: AgentTurnInput): string {
     "- If evidence is insufficient, list it in unresolved instead of fabricating facts.",
     `Surface: ${turn.surface}`,
     `Output capabilities: ${JSON.stringify(turn.outputCapabilities)}`,
-    turn.sourceContext ? `Searchable source context:\n${turn.sourceContext}` : "",
   ]
     .filter((line): line is string => line.length > 0)
     .join("\n")

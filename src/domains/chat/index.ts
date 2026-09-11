@@ -58,7 +58,6 @@ const MAX_CITATION_RESULTS = 20
 const KNOWHERE_RESPONSE_TEXT_LOG_LIMIT = 200
 const KNOWHERE_CHUNK_LOG_LIMIT = 100
 const KNOWHERE_RESPONSE_LOG_ITEM_LIMIT = 20
-const NO_RESULTS_ANSWER = "I couldn't find that in your sources."
 const RAW_URL_PATTERN = /https?:\/\/[^\s)\]}>"']+/g
 const REDACTED_MEDIA_URL = "[media asset URL hidden]"
 const RETRIEVAL_TARGET_CONTENT_DATA_TYPES: Readonly<
@@ -272,6 +271,20 @@ export const answerQuestionWithRetrieval = (
       finalized: generatedAnswer.trace.finalized,
     })
 
+    if (
+      generatedAnswer.manifest.text.trim().length === 0 &&
+      !hasDisplayedManifestArtifacts(generatedAnswer)
+    ) {
+      return yield* Effect.die(
+        new Error(
+          "Agent harness finalized with empty answer text and no displayed " +
+            "artifact. The composed answer context always tells the model " +
+            "when a search found nothing, so this indicates a bug, not a " +
+            "legitimate no-answer case.",
+        ),
+      )
+    }
+
     const rawResults = yield* Effect.tryPromise(() =>
       hydrateMissingCitationPageMetadata({
         results: selectCitationRawResults({
@@ -281,17 +294,6 @@ export const answerQuestionWithRetrieval = (
         knowledge: input.knowledge,
       }),
     )
-    if (
-      rawResults.length === 0 &&
-      generatedAnswer.manifest.text.trim().length === 0 &&
-      !hasDisplayedManifestArtifacts(generatedAnswer)
-    ) {
-      return {
-        answer: NO_RESULTS_ANSWER,
-        citations: [] as ChatCitationView[],
-        artifacts: [] as ChatArtifactView[],
-      }
-    }
 
     const enrichedResults = yield* Effect.tryPromise(() =>
       enrichRetrievalResultsWithAssetUrls({
@@ -355,9 +357,7 @@ function toChatArtifactViewsFromHarness(
     ),
   )
 
-  const displayLimit = getHarnessArtifactDisplayLimit(result)
   const artifacts: ChatArtifactView[] = []
-  let displayedArtifactCount = 0
 
   for (const artifact of result.manifest.artifacts) {
     const artifactView =
@@ -370,18 +370,7 @@ function toChatArtifactViewsFromHarness(
             sources,
           })
     if (!artifactView) continue
-
-    const isDisplayed = artifactView.display !== false
-    if (
-      isDisplayed &&
-      typeof displayLimit === "number" &&
-      displayedArtifactCount >= displayLimit
-    ) {
-      continue
-    }
-
     artifacts.push(artifactView)
-    if (isDisplayed) displayedArtifactCount += 1
   }
 
   return artifacts.length > 0 ? artifacts : undefined
@@ -400,15 +389,6 @@ function toDerivedTableArtifactView(
     display: artifact.display,
     reason: artifact.reason,
   }
-}
-
-function getHarnessArtifactDisplayLimit(result: HarnessRunResult): number | null {
-  const constraints = result.trace.intent?.constraints
-  const limits = [constraints?.desiredCount, constraints?.maxCount].filter(
-    (value): value is number =>
-      typeof value === "number" && Number.isSafeInteger(value) && value > 0,
-  )
-  return limits.length > 0 ? Math.min(...limits) : null
 }
 
 function resolveHarnessArtifactView(input: {
@@ -1195,13 +1175,9 @@ function mapDisplayedManifestArtifactsToResults(
 
   const results: RetrievalResult[] = []
   const seenKeys = new Set<string>()
-  const displayLimit = getHarnessArtifactDisplayLimit(result)
 
   for (const artifact of result.manifest.artifacts) {
     if (!artifact.display) continue
-    if (typeof displayLimit === "number" && results.length >= displayLimit) {
-      break
-    }
 
     if (artifact.type === "derived_table") {
       for (const sourceRef of artifact.sourceRefs) {
