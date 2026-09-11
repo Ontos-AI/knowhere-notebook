@@ -53,6 +53,7 @@ type RevisionKeyClient = {
     ) => Promise<{
       readonly jobResultId?: string | null
       readonly jobId?: string | null
+      readonly pagination?: { readonly total?: number }
     }>
   }
 }
@@ -166,11 +167,21 @@ async function runPollAndMirrorWorkflow(input: {
     }),
   )
   apiKey = revision.apiKey
-  const revisionKey = revision.result
+  const revisionKey = revision.result.revisionKey
+  const chunkCount = revision.result.chunkCount
 
   await context.run("record-source-revision-key", async () =>
     sourceWorkflowRuntime.updateRevisionKey(workspaceId, sourceId, revisionKey),
   )
+  if (typeof chunkCount === "number") {
+    await context.run("record-source-chunk-count", async () =>
+      sourceWorkflowRuntime.recordChunkCount(
+        workspaceId,
+        sourceId,
+        chunkCount,
+      ),
+    )
+  }
   await context.run("record-sync-pending", async () =>
     sourceWorkflowRuntime.updateSyncStatus(workspaceId, sourceId, {
       revisionKey,
@@ -202,14 +213,22 @@ async function resolveParsedRevisionKey(input: {
   readonly sourceId: string
   readonly documentId: string
   readonly fallbackRevisionKey: string
-}): Promise<string> {
+}): Promise<{
+  readonly revisionKey: string
+  readonly chunkCount?: number
+}> {
   try {
     const firstPage = await input.client.documents.listChunks(input.documentId, {
       page: 1,
       pageSize: 1,
       includeAssetUrls: false,
     })
-    return firstPage.jobResultId ?? firstPage.jobId ?? input.fallbackRevisionKey
+    const chunkCount = getRecordedChunkCount(firstPage.pagination?.total)
+    return {
+      revisionKey:
+        firstPage.jobResultId ?? firstPage.jobId ?? input.fallbackRevisionKey,
+      ...(chunkCount !== undefined ? { chunkCount } : {}),
+    }
   } catch (error) {
     logger.warn("workflow: failed to resolve parsed revision key", {
       sourceId: input.sourceId,
@@ -217,8 +236,17 @@ async function resolveParsedRevisionKey(input: {
       fallbackRevisionKey: input.fallbackRevisionKey,
       error: getErrorMessage(error),
     })
-    return input.fallbackRevisionKey
+    return { revisionKey: input.fallbackRevisionKey }
   }
+}
+
+function getRecordedChunkCount(value: unknown): number | undefined {
+  return typeof value === "number" &&
+    Number.isFinite(value) &&
+    Number.isInteger(value) &&
+    value >= 0
+    ? value
+    : undefined
 }
 
 async function enqueueParsedSyncBestEffort(input: {

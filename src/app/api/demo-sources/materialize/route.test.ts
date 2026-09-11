@@ -60,7 +60,7 @@ describe("POST /api/demo-sources/materialize", () => {
       },
     ])
     mocks.upsertMaterializedDemoSource.mockResolvedValue(
-      makeSource(workspace.id),
+      makeSource(workspace.id, { chunkCount: 70 }),
     )
 
     const response = await POST(
@@ -109,6 +109,7 @@ describe("POST /api/demo-sources/materialize", () => {
         sizeBytes: 5648867,
         knowhereDocumentId: "doc_user_copy",
         originalBlobUrl: "https://example.com/tsla-q4-2025.pdf",
+        chunkCount: 70,
       },
     )
   })
@@ -240,6 +241,7 @@ function makeSource(
     originalBlobPathname: null,
     originalBlobUrl: "https://example.com/tsla-q4-2025.pdf",
     demoKey: "demo-tsla-q4-2025",
+    chunkCount: null,
     createdAt: new Date("2026-05-10T00:00:00.000Z"),
     updatedAt: new Date("2026-05-10T00:00:00.000Z"),
     deletedAt: null,

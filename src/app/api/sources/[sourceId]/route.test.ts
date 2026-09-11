@@ -343,6 +343,7 @@ describe("PATCH /api/sources/[sourceId]", () => {
       originalBlobUrl:
         "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
       demoKey: null,
+      chunkCount: null,
       createdAt: new Date("2026-05-10T00:00:00Z"),
       updatedAt: new Date("2026-05-10T00:00:00Z"),
       deletedAt: null,
@@ -375,6 +376,7 @@ describe("PATCH /api/sources/[sourceId]", () => {
       originalBlobUrl:
         "https://store.public.blob.vercel-storage.com/source-uploads/upload_1/document.pdf",
       demoKey: null,
+      chunkCount: null,
       createdAt: new Date("2026-05-10T00:00:00Z"),
       updatedAt: new Date("2026-05-10T00:00:00Z"),
       deletedAt: null,

@@ -5,14 +5,9 @@ import { Effect } from "effect"
 import type { ChatMessageView } from "@/domains/chat/types"
 import type { ParsedChunkView } from "@/domains/chunks/types"
 import { demoView } from "@/domains/demo/view"
-import {
-  getMaterializedDemoSourceViewOptionsBySourceId,
-  getWorkspaceSourcesNeedingChunkCount,
-  resolveWorkspaceDemoSources,
-} from "@/domains/demo/workspace-source-resolution"
+import { resolveWorkspaceDemoSources } from "@/domains/demo/workspace-source-resolution"
 import { chatThreadService } from "@/domains/chat/thread-service"
 import { toChatMessageView, toChatThreadView } from "@/domains/chat/view"
-import { sourceViewOptionsBySourceId as getSourceViewOptionsBySourceId } from "@/domains/sources/counts"
 import { listRemoteLibrarySourceViews } from "@/domains/sources/remote-library"
 import { reconcileSourcesForWorkspace as reconcileDefaultSourcesForWorkspace } from "@/domains/sources/reconcile"
 import { sourceService } from "@/domains/sources/service"
@@ -93,7 +88,6 @@ async function getDemoChunksForSource(
 }
 
 type WorkspaceShellInitialStateClient =
-  Parameters<typeof getSourceViewOptionsBySourceId>[1] &
   Parameters<typeof reconcileDefaultSourcesForWorkspace>[1] & {
     readonly documents: {
       readonly list: (params?: {
@@ -146,11 +140,6 @@ type WorkspaceShellInitialStateDependencies = {
     client: WorkspaceShellInitialStateClient,
   ) => Promise<readonly Source[]>
   readonly startBackgroundReconciliation?: typeof defaultStartBackgroundReconciliation
-  readonly sourceViewOptionsBySourceId: (
-    sources: readonly Source[],
-    client: WorkspaceShellInitialStateClient,
-    options?: Parameters<typeof getSourceViewOptionsBySourceId>[2],
-  ) => ReturnType<typeof getSourceViewOptionsBySourceId>
 }
 
 const defaultDependencies: WorkspaceShellInitialStateDependencies = {
@@ -165,7 +154,6 @@ const defaultDependencies: WorkspaceShellInitialStateDependencies = {
   listSourcesForWorkspace: sourceWorkflowRuntime.listForWorkspace,
   reconcileSourcesForWorkspace: reconcileDefaultSourcesForWorkspace,
   startBackgroundReconciliation: defaultStartBackgroundReconciliation,
-  sourceViewOptionsBySourceId: getSourceViewOptionsBySourceId,
 }
 
 // ---------------------------------------------------------------------------
@@ -332,13 +320,6 @@ export const loadWorkspaceShellInitialStateEffect = (
         localSources: demoSourceResolution.workspaceSources,
       }),
     )
-    const sourcesNeedingChunkCount =
-      getWorkspaceSourcesNeedingChunkCount(workspaceSources)
-    const materializedDemoSourceOptions =
-      getMaterializedDemoSourceViewOptionsBySourceId(
-        workspaceSources,
-        demoCatalog,
-      )
     yield* Effect.sync(() =>
       triggerBackgroundReconciliationForParsingSources({
         workspaceId: workspace.id,
@@ -348,19 +329,6 @@ export const loadWorkspaceShellInitialStateEffect = (
           deps.startBackgroundReconciliation ??
           defaultStartBackgroundReconciliation,
       }),
-    )
-    const sourceOptions = yield* effectOperation.addContext(
-      {
-        context: workspaceInitialStateContext,
-        operation: "sourceViewOptionsBySourceId",
-      },
-      deps.sourceViewOptionsBySourceId(
-        sourcesNeedingChunkCount,
-        client,
-        {
-          documentPresentationDetection: "disabled",
-        },
-      ),
     )
 
     return {
@@ -376,13 +344,7 @@ export const loadWorkspaceShellInitialStateEffect = (
       dashboardUrl: resolveDashboardUrl(),
       sources: [
         ...demoSources,
-        ...workspaceSources.map((source) =>
-          toSourceView(
-            source,
-            materializedDemoSourceOptions.get(source.id) ??
-              sourceOptions.get(source.id),
-          ),
-        ),
+        ...workspaceSources.map((source) => toSourceView(source)),
         ...remoteSourceViews,
       ],
       officialLibrarySources: toOfficialLibrarySourceViews(demoCatalog),
