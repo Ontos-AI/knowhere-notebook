@@ -1,11 +1,13 @@
 import { describe, expect, it, vi } from "vitest"
 import type { RetrievalQueryResponse } from "@ontos-ai/knowhere-sdk"
+import { MockLanguageModelV3 } from "ai/test"
 
 import {
   buildHarnessMessages,
   buildHarnessSystemPrompt,
   createHarnessTools,
   prepareHarnessStep,
+  runAgentHarness,
   sanitizeHarnessModelMessagesForStep,
 } from "./runtime"
 import { createEvidenceLedger } from "./ledger"
@@ -18,9 +20,130 @@ import type {
   MemorySearchItem,
   MemoryToolRuntime,
   OutputManifest,
+  ResolveConnectedAssets,
 } from "./types"
 
 describe("agent harness runtime", () => {
+  it("runs retention, resolves connected assets, assembles once, and finalizes", async () => {
+    const modelResults = [
+      toolCallResult([
+        {
+          toolCallId: "intent",
+          toolName: "declareIntent",
+          input: {
+            task: "compare",
+            dependsOnPreviousTurn: false,
+            retrievalNeeded: "yes",
+            targetModalities: ["text", "image", "table"],
+            constraints: {},
+            groundingPolicy: "must_use_sources",
+          },
+        },
+        {
+          toolCallId: "context",
+          toolName: "setContextPolicy",
+          input: {
+            carryHistory: "none",
+            reason: "Self-contained request.",
+            activePriorTurnIds: [],
+          },
+        },
+      ]),
+      toolCallResult([
+        {
+          toolCallId: "search",
+          toolName: "knowhere_search",
+          input: { query: "comparison", targetContent: "all" },
+        },
+      ]),
+      toolCallResult([
+        {
+          toolCallId: "retain",
+          toolName: "retainEvidence",
+          input: { picks: [1] },
+        },
+      ]),
+      toolCallResult([
+        {
+          toolCallId: "prepare",
+          toolName: "prepareAnswer",
+          input: {},
+        },
+      ]),
+      toolCallResult([
+        {
+          toolCallId: "finalize",
+          toolName: "finalize",
+          input: {
+            text: "Comparison [[cite:1]].",
+            citations: [{ pick: 1 }],
+            memoryCitations: [],
+            artifacts: [
+              {
+                type: "table",
+                ref: "asset:r1:result:1:table_chunk",
+                display: true,
+                reason: "Comparison table",
+              },
+              {
+                type: "image",
+                ref: "asset:r1:result:1:image_chunk",
+                display: true,
+                reason: "Comparison image",
+              },
+            ],
+            unresolved: [],
+          },
+        },
+      ]),
+    ]
+    let modelResultIndex = 0
+    const model = new MockLanguageModelV3({
+      supportedUrls: { "image/*": [/^https:\/\//] },
+      doGenerate: async () => {
+        const result = modelResults[modelResultIndex]
+        modelResultIndex += 1
+        if (!result) throw new Error("No mock model result remains.")
+        return result
+      },
+    })
+    const resolveConnectedAssets = vi.fn<ResolveConnectedAssets>(
+      async (lookups) =>
+        lookups.map((lookup) => ({
+          ...lookup,
+          assetUrl: `https://assets.example/${lookup.chunkId}`,
+        })),
+    )
+    const readTableHtml = vi
+      .fn()
+      .mockResolvedValue("<table><tr><td>comparison</td></tr></table>")
+
+    const result = await runAgentHarness({
+      model,
+      turn: makeTurnInput(),
+      knowhereTools: makeKnowhereTools(
+        vi.fn().mockResolvedValue(makeConnectedRetrievalResponse()),
+      ),
+      memoryTools: makeMemoryTools(),
+      resolveConnectedAssets,
+      readTableHtml,
+    })
+
+    expect(model.doGenerateCalls).toHaveLength(5)
+    expect(resolveConnectedAssets).toHaveBeenCalledWith([
+      { documentId: "doc_1", chunkId: "table_chunk", type: "table" },
+      { documentId: "doc_1", chunkId: "image_chunk", type: "image" },
+    ])
+    expect(readTableHtml).toHaveBeenCalledWith(
+      "https://assets.example/table_chunk",
+    )
+    expect(JSON.stringify(model.doGenerateCalls[4]?.prompt)).toContain(
+      "<table><tr><td>comparison</td></tr></table>",
+    )
+    expect(result.manifest.citations).toEqual([{ ref: "r1:result:1" }])
+    expect(result.trace.ledger.assets).toHaveLength(2)
+  })
+
   it("tells the agent to search memory and documents in parallel when both apply", () => {
     const prompt = buildHarnessSystemPrompt(makeTurnInput())
 
@@ -309,7 +432,33 @@ describe("agent harness runtime", () => {
     expect(state.finalizedManifest?.citations).toEqual([{ ref: "r2:result:1" }])
   })
 
-  it("accepts finalize output without planning-tool gating", async () => {
+  it("rejects placeholder text without citations, displayed artifacts, or unresolved gaps", async () => {
+    const state: {
+      finalizedManifest?: OutputManifest
+      finalized?: boolean
+    } = {}
+    const tools = createHarnessTools({
+      state,
+      ledger: createEvidenceLedger(),
+      memoryTools: makeMemoryTools(),
+      knowhereTools: makeKnowhereTools(),
+      recentTurns: [],
+    })
+
+    const result = await executeTool(tools.finalize, {
+      text: "placeholder",
+      citations: [],
+      memoryCitations: [],
+      artifacts: [],
+      unresolved: [],
+    })
+
+    expect(result).toMatchObject({ ok: false })
+    expect(state.finalizedManifest).toBeUndefined()
+    expect(state.finalized).not.toBe(true)
+  })
+
+  it("accepts explicitly unresolved output without planning-tool gating", async () => {
     const state: {
       finalizedManifest?: OutputManifest
       finalized?: boolean
@@ -328,7 +477,7 @@ describe("agent harness runtime", () => {
       citations: [],
       memoryCitations: [],
       artifacts: [],
-      unresolved: [],
+      unresolved: ["No source evidence is available."],
     }
 
     expect(await executeTool(tools.finalize, manifest)).toMatchObject({
@@ -368,10 +517,14 @@ describe("agent harness runtime", () => {
     const searchText = await executeTool(tools.memory_search, {
       query: "毛利率",
     })
-    await executeTool(tools.memory_search, { query: "盈利能力" })
+    const repeatedSearchText = await executeTool(tools.memory_search, {
+      query: "盈利能力",
+    })
     expect(searchText).toContain('<memory operation="search" status="ok">')
     expect(searchText).toContain('ref="mem:1"')
     expect(searchText).toContain('itemId="item_1"')
+    expect(repeatedSearchText).toContain('status="error"')
+    expect(search).toHaveBeenCalledTimes(1)
     expect(search).toHaveBeenNthCalledWith(1, {
       query: "毛利率",
       kinds: undefined,
@@ -393,7 +546,7 @@ describe("agent harness runtime", () => {
         { ref: "mem:1", itemId: "item_1", kind: "stance" as const },
       ],
       artifacts: [],
-      unresolved: [],
+      unresolved: ["No Knowledge Base citation is used."],
     }
     expect(await executeTool(tools.finalize, manifest)).toMatchObject({
       ok: true,
@@ -616,6 +769,24 @@ describe("agent harness runtime", () => {
     expect(result.activeTools).not.toContain("knowhere_search")
   })
 
+  it("does not expose memory_search again after its one call", () => {
+    const result = prepareHarnessStep({
+      stepNumber: 4,
+      hasMemorySearch: true,
+      intent: {
+        task: "answer",
+        dependsOnPreviousTurn: false,
+        retrievalNeeded: "maybe",
+        targetModalities: ["text"],
+        constraints: {},
+        groundingPolicy: "can_use_context",
+      },
+      messages: [],
+    })
+
+    expect(result.activeTools).not.toContain("memory_search")
+  })
+
   it("keeps Knowhere tools closed for no_retrieval", () => {
     const result = prepareHarnessStep({
       stepNumber: 4,
@@ -644,16 +815,6 @@ describe("agent harness runtime", () => {
 
     expect(result.toolChoice).toBe("required")
     expect(result.activeTools).not.toContain("finalize")
-  })
-
-  it("honors an explicit answer-preparation schedule", () => {
-    const result = prepareHarnessStep({
-      stepNumber: 13,
-      forceAnswerPreparation: false,
-      messages: [],
-    })
-
-    expect(result.activeTools).not.toContain("prepareAnswer")
   })
 
   it("blocks finalize on the first step so a document question cannot skip search", () => {
@@ -935,6 +1096,7 @@ describe("agent harness runtime", () => {
       }),
     )
   })
+
 })
 
 function retainLatestSearch(
@@ -1007,5 +1169,77 @@ function makeRetrievalResponse(): RetrievalQueryResponse {
       },
     ],
     referencedChunks: [],
+  }
+}
+
+function makeConnectedRetrievalResponse(): RetrievalQueryResponse {
+  return {
+    namespace: "notebook",
+    query: "comparison",
+    routerUsed: "agent_explore",
+    answerText: null,
+    evidenceText: "Comparison evidence",
+    stopReason: "answer_done",
+    failureReason: null,
+    results: [
+      {
+        chunkId: "text_chunk",
+        content: "Comparison [tables/comparison.html]",
+        chunkType: "text",
+        score: 0.9,
+        metadata: {
+          connectTo: [
+            {
+              target: "table_chunk",
+              relation: "embeds",
+              ref: "[tables/comparison.html]",
+            },
+            {
+              target: "image_chunk",
+              relation: "embeds",
+              ref: "[images/comparison.jpg]",
+            },
+          ],
+        },
+        source: {
+          documentId: "doc_1",
+          sourceFileName: "cardiology.pdf",
+          sectionPath: "Differential diagnosis",
+        },
+      },
+    ],
+    referencedChunks: [],
+  }
+}
+
+function toolCallResult(
+  calls: readonly {
+    toolCallId: string
+    toolName: string
+    input: unknown
+  }[],
+) {
+  return {
+    content: calls.map((call) => ({
+      type: "tool-call" as const,
+      toolCallId: call.toolCallId,
+      toolName: call.toolName,
+      input: JSON.stringify(call.input),
+    })),
+    finishReason: { unified: "tool-calls" as const, raw: undefined },
+    usage: {
+      inputTokens: {
+        total: undefined,
+        noCache: undefined,
+        cacheRead: undefined,
+        cacheWrite: undefined,
+      },
+      outputTokens: {
+        total: undefined,
+        text: undefined,
+        reasoning: undefined,
+      },
+    },
+    warnings: [],
   }
 }

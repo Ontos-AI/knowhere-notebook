@@ -28,10 +28,10 @@ import type {
   OutputArtifactView,
   OutputCitation,
   OutputManifest,
+  ResolveConnectedAssets,
 } from "./types"
 import { memorySearchKinds } from "./types"
 
-const answerCompletionStepAllowance = 3
 const defaultMaxSteps = 15
 
 type ToolLoopAgentSettings = ConstructorParameters<typeof ToolLoopAgent>[0]
@@ -43,6 +43,7 @@ export type RunAgentHarnessInput = {
   readonly turn: AgentTurnInput
   readonly knowhereTools: KnowhereToolRuntime
   readonly memoryTools: MemoryToolRuntime
+  readonly resolveConnectedAssets?: ResolveConnectedAssets
   readonly readTableHtml?: ReadTableHtml
   readonly maxSteps?: number
 }
@@ -55,6 +56,7 @@ type HarnessToolState = {
   answerContextRequested?: boolean
   answerContextMessage?: ModelMessage
   memoryItems?: MemorySearchItem[]
+  memorySearchAttempted?: boolean
   priorTurnReads?: string[]
   toolCalls?: HarnessToolCallTrace[]
 }
@@ -213,6 +215,7 @@ export async function runAgentHarness(
         !state.answerContextMessage &&
         !ledger.hasPendingRetention()
       ) {
+        await ledger.resolveRetainedConnectedAssets(input.resolveConnectedAssets)
         state.answerContextMessage = await composeAnswerContext({
           ledger: ledger.snapshot(),
           memoryItems: state.memoryItems ?? [],
@@ -227,15 +230,10 @@ export async function runAgentHarness(
         hasKnowhereSearch: (state.toolCalls ?? []).some(
           (call) => call.tool === "knowhere_search",
         ),
+        hasMemorySearch: state.memorySearchAttempted === true,
         hasPendingRetention: ledger.hasPendingRetention(),
         pendingRetentionRange: ledger.pendingRetentionRange(),
         answerContextMessage: state.answerContextMessage,
-        forceAnswerPreparation:
-          stepNumber >=
-          Math.max(
-            0,
-            (input.maxSteps ?? defaultMaxSteps) - answerCompletionStepAllowance,
-          ),
       })
     },
     stopWhen: [
@@ -295,10 +293,10 @@ export function prepareHarnessStep(input: {
   readonly stepNumber: number
   readonly messages: readonly ModelMessage[]
   readonly hasKnowhereSearch?: boolean
+  readonly hasMemorySearch?: boolean
   readonly hasPendingRetention?: boolean
   readonly pendingRetentionRange?: { startPick: number; endPick: number } | null
   readonly answerContextMessage?: ModelMessage
-  readonly forceAnswerPreparation?: boolean
   readonly intent?: IntentFrame
 }): HarnessStepPreparation {
   const messages = sanitizeHarnessModelMessagesForStep(input.messages)
@@ -331,31 +329,12 @@ export function prepareHarnessStep(input: {
     }
   }
 
-  const shouldForceAnswerPreparation =
-    input.forceAnswerPreparation ??
-    (input.stepNumber >= defaultMaxSteps - answerCompletionStepAllowance)
-  if (shouldForceAnswerPreparation) {
-    return {
-      messages: [
-        ...messages,
-        {
-          role: "user",
-          content: buildForcedAnswerPreparationFeedback(),
-        },
-      ],
-      activeTools: ["prepareAnswer"],
-      toolChoice: {
-        type: "tool",
-        toolName: "prepareAnswer",
-      },
-    }
-  }
-
   return {
     messages,
     activeTools: selectHarnessActiveTools({
       intent: input.intent,
       hasKnowhereSearch: input.hasKnowhereSearch === true,
+      hasMemorySearch: input.hasMemorySearch === true,
     }),
     // Tool calls are required so the retrieval phase cannot end with bare
     // text and skip the composed answer context or finalize validation.
@@ -366,6 +345,7 @@ export function prepareHarnessStep(input: {
 function selectHarnessActiveTools(input: {
   readonly intent?: IntentFrame
   readonly hasKnowhereSearch: boolean
+  readonly hasMemorySearch: boolean
 }): Array<Extract<keyof HarnessTools, string>> {
   const tools: Array<Extract<keyof HarnessTools, string>> = [
     ...alwaysAvailableTools,
@@ -380,7 +360,7 @@ function selectHarnessActiveTools(input: {
   // memory_search and knowhere_search are peers: both open together once
   // retrieval is allowed. The agent decides which to call and in what
   // order — neither tool gates the other.
-  tools.push(...fluidRetrievalTools)
+  if (!input.hasMemorySearch) tools.push(...fluidRetrievalTools)
   if (input.intent?.groundingPolicy === "must_use_sources") {
     tools.push(...crystalRetrievalTools)
   }
@@ -465,15 +445,6 @@ type ModelMessageForRole<TRole extends ModelMessage["role"]> = Extract<
   ModelMessage,
   { readonly role: TRole }
 >
-
-function buildForcedAnswerPreparationFeedback(): string {
-  return [
-    "The retrieval step budget has been reached.",
-    "Do not search again.",
-    "Use only the evidence and tool results already available in this turn.",
-    "Call prepareAnswer now so the retained context can be assembled for the answer.",
-  ].join("\n")
-}
 
 function buildRetainEvidenceFeedback(range: {
   readonly startPick: number
@@ -678,6 +649,17 @@ export function createHarnessTools(input: {
           toolName: "finalize",
           inputSummary: summarizeManifest(manifest),
           execute: async () => {
+            if (!hasGroundedManifestOutput(manifest)) {
+              return {
+                ok: false as const,
+                message: [
+                  "The answer must be grounded before it can be finalized.",
+                  "Call finalize again with retained citation picks or a displayed artifact.",
+                  "If the available evidence cannot support an answer, leave text empty and describe the gap in unresolved.",
+                ].join(" "),
+              }
+            }
+
             const resolvedCitations = resolveCitationPicks({
               citations: manifest.citations,
               ledger: input.ledger,
@@ -775,6 +757,16 @@ function resolveCitationPicks(input: {
   return { ok: true, citations }
 }
 
+function hasGroundedManifestOutput(
+  manifest: z.infer<typeof finalizeManifestSchema>,
+): boolean {
+  return (
+    manifest.citations.length > 0 ||
+    manifest.artifacts.some((artifact) => artifact.display) ||
+    manifest.unresolved.length > 0
+  )
+}
+
 function buildFinalizeRequiresPicksMessage(input: {
   readonly unknownPicks: readonly number[]
   readonly ledger: EvidenceLedgerSnapshot
@@ -862,6 +854,14 @@ async function executeMemorySearch(input: {
   readonly memoryTools: MemoryToolRuntime
   readonly request: MemorySearchToolRequest
 }): Promise<string> {
+  if (input.state.memorySearchAttempted) {
+    return memoryToolText.formatError({
+      operation: "search",
+      message: "Fluid memory search already ran for this turn.",
+    })
+  }
+  input.state.memorySearchAttempted = true
+
   try {
     const response = await input.memoryTools.search({
       query: input.request.query,
@@ -1161,10 +1161,11 @@ export function buildHarnessSystemPrompt(turn: AgentTurnInput): string {
     "",
     "Retrieval rules:",
     "- memory_search and knowhere_search are parallel retrieval sources. When both apply, call them together rather than making one wait for the other.",
+    "- Call memory_search once per turn. An empty result remains empty; do not retry it.",
     "- Call knowhere_search when groundingPolicy requires citing source documents.",
     "- After each search that returns new evidence, call retainEvidence before searching again or finalizing.",
     "- When calling knowhere_search after a previous search in this turn, set gapReason to what the previous search lacked and how the new query will fill that gap.",
-    "- Refine knowhere_search at most twice. If two refined searches still do not add new relevant evidence, call finalize and list the gap in unresolved.",
+    "- Refine knowhere_search at most twice. If two refined searches still do not add new relevant evidence, call prepareAnswer and list the gap in unresolved when finalizing.",
     "- Do not treat every question as a document-retrieval task.",
     "- For document-scoped searches, use includeDocumentIds/excludeDocumentIds only with verified IDs from source context or prior search results. If IDs are unknown, preserve the document requirement in query so Knowhere can locate it. Never invent IDs or substitute filenames. Exclusions win; an empty includeDocumentIds means no documents.",
     "",

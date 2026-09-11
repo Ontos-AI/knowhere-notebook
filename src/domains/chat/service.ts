@@ -76,6 +76,7 @@ type ChatTurnInput = {
   generateAnswer: GenerateAnswer
   hardenChatAssetUrl?: AnswerQuestionInput["hardenChatAssetUrl"]
   hardenMediaAssetUrls?: AnswerQuestionInput["hardenMediaAssetUrls"]
+  resolveConnectedAssets?: AnswerQuestionInput["resolveConnectedAssets"]
   readTableHtml?: AnswerQuestionInput["readTableHtml"]
   repository: ChatRepository
 }
@@ -141,6 +142,9 @@ export const handleChatTurnEffect = (input: ChatTurnInput) =>
       generateAnswer: input.generateAnswer,
       hardenChatAssetUrl: input.hardenChatAssetUrl,
       hardenMediaAssetUrls: input.hardenMediaAssetUrls,
+      ...(input.resolveConnectedAssets
+        ? { resolveConnectedAssets: input.resolveConnectedAssets }
+        : {}),
       readTableHtml: input.readTableHtml,
       messages: chatHistoryMessages,
     }).pipe(Effect.catchAllCause(Effect.die))

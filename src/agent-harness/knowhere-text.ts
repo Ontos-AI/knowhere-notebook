@@ -84,7 +84,6 @@ function formatEvidenceChunks(
           sectionPath: chunk.source.sectionPath ?? undefined,
           sourceChunkPath: chunk.sourceChunkPath ?? undefined,
           filePath: chunk.filePath ?? undefined,
-          assetRef: chunk.assetRef,
         }),
         formatTextTag("content", chunk.content),
         "</chunk>",

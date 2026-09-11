@@ -11,6 +11,7 @@ import {
   type HarnessRunResult,
   type KnowhereToolRuntime,
   type ReadTableHtml,
+  type ResolveConnectedAssets,
 } from "@/agent-harness"
 import type {
   ChatHistoryMessage,
@@ -35,6 +36,7 @@ type GenerateAgenticOutputManifestInput = {
   excludedSourceIds: readonly string[]
   searchSources: SearchSources
   knowhereTools?: KnowhereToolRuntime
+  resolveConnectedAssets?: ResolveConnectedAssets
   readTableHtml?: ReadTableHtml
   folderScopeSourceIds?: readonly string[]
 }
@@ -74,6 +76,9 @@ export const generateAgenticOutputManifestEffect = (
         memoryTools: mementoMemoryTools.createRuntime({
           workspaceId: input.workspaceId,
         }),
+        ...(input.resolveConnectedAssets
+          ? { resolveConnectedAssets: input.resolveConnectedAssets }
+          : {}),
         ...(input.readTableHtml ? { readTableHtml: input.readTableHtml } : {}),
       }),
     )

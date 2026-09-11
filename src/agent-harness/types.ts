@@ -103,6 +103,20 @@ export type KnowhereToolRuntime = {
   ) => Promise<RetrievalQueryResponse>
 }
 
+export type ConnectedAssetLookup = {
+  readonly documentId: string
+  readonly chunkId: string
+  readonly type: "image" | "table"
+}
+
+export type ResolvedConnectedAsset = ConnectedAssetLookup & {
+  readonly assetUrl: string
+}
+
+export type ResolveConnectedAssets = (
+  lookups: readonly ConnectedAssetLookup[],
+) => Promise<readonly ResolvedConnectedAsset[]>
+
 export const memorySearchKinds = [
   "indicator_pref",
   "stance",
@@ -157,7 +171,6 @@ export type EvidenceChunk = {
     readonly sectionPath?: string | null
   }
   readonly revisionKey?: string | null
-  readonly assetRef?: string
   readonly assetUrl?: string
 }
 

@@ -8,6 +8,7 @@ import {
   type ChatTurnValue,
 } from "@/domains/chat/service"
 import { chatTurnPersistence } from "@/domains/chat/chat-turn-persistence"
+import { createConnectedAssetResolver } from "@/domains/chat/connected-assets"
 import { folderWorkflowRuntime } from "@/domains/folders/workflow-runtime"
 import { startBackgroundReconciliation } from "@/domains/sources/background-reconcile"
 import { BlobParsedDocumentStorage } from "@/domains/sources/parsed-document-blob-storage"
@@ -91,6 +92,9 @@ const answerChatEffect = (input: AnswerChatInput) =>
       })
     const readTableHtml = (assetUrl: string): Promise<string> =>
       readSignedTableHtml(assetUrl)
+    const resolveConnectedAssets = createConnectedAssetResolver(
+      knowhereResources.client.documents,
+    )
 
     const result: Either.Either<ChatTurnValue, ChatAnswerFailure> =
       yield* Effect.tryPromise(() =>
@@ -115,6 +119,7 @@ const answerChatEffect = (input: AnswerChatInput) =>
               artifacts,
               hardenChatAssetUrl,
             }),
+          resolveConnectedAssets,
           readTableHtml,
           repository: chatTurnPersistence.createRepository(),
         }),

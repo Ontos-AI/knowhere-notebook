@@ -258,6 +258,9 @@ export const answerQuestionWithRetrieval = (
           searchSources,
           sources: input.sources,
         }),
+        ...(input.resolveConnectedAssets
+          ? { resolveConnectedAssets: input.resolveConnectedAssets }
+          : {}),
         ...(input.readTableHtml ? { readTableHtml: input.readTableHtml } : {}),
       }),
     )
@@ -346,12 +349,6 @@ function toChatArtifactViewsFromHarness(
       asset,
     ]),
   )
-  const chunksByRef = new Map(
-    result.trace.ledger.chunks.map((chunk): readonly [string, EvidenceChunk] => [
-      chunk.ref,
-      chunk,
-    ]),
-  )
   const highlightsByRef = new Map(
     (result.trace.imageHighlights ?? []).map(
       (page) => [page.ref, page.regions] as const,
@@ -369,7 +366,6 @@ function toChatArtifactViewsFromHarness(
         : resolveHarnessArtifactView({
             artifact,
             assetsByRef,
-            chunksByRef,
             highlightsByRef,
             sources,
           })
@@ -418,33 +414,17 @@ function getHarnessArtifactDisplayLimit(result: HarnessRunResult): number | null
 function resolveHarnessArtifactView(input: {
   readonly artifact: OutputArtifact
   readonly assetsByRef: ReadonlyMap<string, EvidenceAsset>
-  readonly chunksByRef: ReadonlyMap<string, EvidenceChunk>
   readonly highlightsByRef: ReadonlyMap<string, readonly ChatImageHighlightBox[]>
   readonly sources: readonly AnswerQuestionInput["sources"][number][]
 }): ChatArtifactView | null {
   const asset = input.assetsByRef.get(input.artifact.ref)
-  if (asset) {
-    return toChatArtifactView({
-      artifact: input.artifact,
-      asset,
-      highlightRegions: input.highlightsByRef.get(asset.ref),
-      sources: input.sources,
-    })
-  }
-
-  const chunk = input.chunksByRef.get(input.artifact.ref)
-  const chunkAssetRef = chunk?.assetRef
-  const chunkAsset = chunkAssetRef ? input.assetsByRef.get(chunkAssetRef) : null
-  return chunkAsset
-    ? toChatArtifactView({
-        artifact: input.artifact,
-        asset: chunkAsset,
-        highlightRegions:
-          input.highlightsByRef.get(chunkAsset.ref) ??
-          input.highlightsByRef.get(input.artifact.ref),
-        sources: input.sources,
-      })
-    : null
+  if (!asset) return null
+  return toChatArtifactView({
+    artifact: input.artifact,
+    asset,
+    highlightRegions: input.highlightsByRef.get(asset.ref),
+    sources: input.sources,
+  })
 }
 
 function toChatArtifactView(input: {
@@ -1132,22 +1112,24 @@ function getHighlightRegionsForChunk(
   if (!imageHighlights || imageHighlights.length === 0) return undefined
 
   const candidateRefs = new Set([chunk.ref])
-  const assetRef = resolveCitationImageAssetRef(
+  const assetRefs = resolveCitationImageAssetRefs(
     chunk,
     chunksByRef,
     assetsByRef,
   )
-  if (assetRef) candidateRefs.add(assetRef)
-  const canonicalAssetKey = assetRef
-    ? getCanonicalCitationAssetKey(assetRef, chunksByRef, assetsByRef)
-    : null
+  for (const assetRef of assetRefs) candidateRefs.add(assetRef)
+  const canonicalAssetKeys = new Set(
+    assetRefs.map((assetRef) =>
+      getCanonicalCitationAssetKey(assetRef, chunksByRef, assetsByRef),
+    ),
+  )
 
   for (const page of imageHighlights) {
     const isDirectMatch = candidateRefs.has(page.ref)
     const isCanonicalMatch =
-      canonicalAssetKey !== null &&
-      getCanonicalCitationAssetKey(page.ref, chunksByRef, assetsByRef) ===
-        canonicalAssetKey
+      canonicalAssetKeys.has(
+        getCanonicalCitationAssetKey(page.ref, chunksByRef, assetsByRef),
+      )
     if ((!isDirectMatch && !isCanonicalMatch) || page.regions.length === 0) {
       continue
     }
@@ -1157,25 +1139,32 @@ function getHighlightRegionsForChunk(
   return undefined
 }
 
-function resolveCitationImageAssetRef(
+function resolveCitationImageAssetRefs(
   chunk: EvidenceChunk,
   chunksByRef: ReadonlyMap<string, EvidenceChunk>,
   assetsByRef: ReadonlyMap<string, EvidenceAsset>,
-): string | null {
-  if (chunk.assetRef && assetsByRef.get(chunk.assetRef)?.type === "image") {
-    return chunk.assetRef
-  }
-  if (!chunk.chunkId) return null
+): string[] {
+  const directRefs = Array.from(assetsByRef.values())
+    .filter((asset) => asset.chunkRef === chunk.ref && asset.type === "image")
+    .map((asset) => asset.ref)
+  if (directRefs.length > 0) return directRefs
+  if (!chunk.chunkId) return []
 
-  const sibling = Array.from(chunksByRef.values()).find(
-    (candidate) =>
-      candidate.ref !== chunk.ref &&
-      candidate.chunkId === chunk.chunkId &&
-      candidate.source.documentId === chunk.source.documentId &&
-      candidate.assetRef !== undefined &&
-      assetsByRef.get(candidate.assetRef)?.type === "image",
+  const siblingChunkRefs = new Set(
+    Array.from(chunksByRef.values())
+      .filter(
+        (candidate) =>
+          candidate.ref !== chunk.ref &&
+          candidate.chunkId === chunk.chunkId &&
+          candidate.source.documentId === chunk.source.documentId,
+      )
+      .map((candidate) => candidate.ref),
   )
-  return sibling?.assetRef ?? null
+  return Array.from(assetsByRef.values())
+    .filter(
+      (asset) => siblingChunkRefs.has(asset.chunkRef) && asset.type === "image",
+    )
+    .map((asset) => asset.ref)
 }
 
 function getCanonicalCitationAssetKey(

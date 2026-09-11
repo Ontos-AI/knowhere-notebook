@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import type { RetrievalQueryResponse } from "@ontos-ai/knowhere-sdk"
 
 import { createEvidenceLedger } from "./ledger"
+import type { ResolveConnectedAssets } from "./types"
 
 describe("createEvidenceLedger", () => {
   it("normalizes retrieval chunks and media assets without treating candidates as final output", () => {
@@ -267,6 +268,84 @@ describe("createEvidenceLedger", () => {
     })
     expect(ledger.isRetained(1)).toBe(false)
     expect(ledger.isRetained(4)).toBe(true)
+  })
+
+  it("resolves every embedded table and image connected to retained text", async () => {
+    const ledger = createEvidenceLedger()
+    ledger.addRetrievalResponse({
+      ...makeRetrievalResponse(),
+      results: [
+        {
+          chunkId: "text_chunk",
+          content: "Comparison [tables/comparison.html]",
+          chunkType: "text",
+          score: 0.9,
+          metadata: {
+            connectTo: [
+              {
+                target: "table_chunk",
+                relation: "embeds",
+                ref: "[tables/comparison.html]",
+              },
+              {
+                target: "image_chunk_1",
+                relation: "embeds",
+                ref: "[images/comparison-a.jpg]",
+              },
+              {
+                target: "image_chunk_2",
+                relation: "embeds",
+                ref: "[images/comparison-b.jpg]",
+              },
+            ],
+          },
+          source: {
+            documentId: "doc_1",
+            sourceFileName: "cardiology.pdf",
+            sectionPath: "Differential diagnosis",
+          },
+        },
+      ],
+      referencedChunks: [],
+    })
+    ledger.retainPicks([1])
+    const resolveConnectedAssets = vi.fn<ResolveConnectedAssets>(
+      async (lookups) =>
+        lookups.map((lookup) => ({
+          ...lookup,
+          assetUrl: `https://assets.example/${lookup.chunkId}`,
+        })),
+    )
+
+    const snapshot = await ledger.resolveRetainedConnectedAssets(
+      resolveConnectedAssets,
+    )
+
+    expect(resolveConnectedAssets).toHaveBeenCalledWith([
+      { documentId: "doc_1", chunkId: "table_chunk", type: "table" },
+      { documentId: "doc_1", chunkId: "image_chunk_1", type: "image" },
+      { documentId: "doc_1", chunkId: "image_chunk_2", type: "image" },
+    ])
+    expect(snapshot.assets).toEqual([
+      expect.objectContaining({
+        ref: "asset:r1:result:1:table_chunk",
+        chunkRef: "r1:result:1",
+        type: "table",
+        sourcePath: "tables/comparison.html",
+      }),
+      expect.objectContaining({
+        ref: "asset:r1:result:1:image_chunk_1",
+        chunkRef: "r1:result:1",
+        type: "image",
+        sourcePath: "images/comparison-a.jpg",
+      }),
+      expect.objectContaining({
+        ref: "asset:r1:result:1:image_chunk_2",
+        chunkRef: "r1:result:1",
+        type: "image",
+        sourcePath: "images/comparison-b.jpg",
+      }),
+    ])
   })
 })
 

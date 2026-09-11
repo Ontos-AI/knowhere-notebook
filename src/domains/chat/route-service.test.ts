@@ -6,6 +6,7 @@ import type { ChatMessage, ChatThread, Source, Workspace } from "@/infrastructur
 const mocks = vi.hoisted(() => ({
   appendMessageToThread: vi.fn(),
   createChatThread: vi.fn(),
+  documentListChunks: vi.fn(),
   ensureDefaultChatThread: vi.fn(),
   findChatThreadInWorkspace: vi.fn(),
   generateAgenticOutputManifest: vi.fn(),
@@ -120,8 +121,14 @@ describe("chat route services", () => {
     mocks.parsedStorageGetAssetUrl.mockResolvedValue(null)
     mocks.parsedStorageWriteAsset.mockResolvedValue({ url: null })
     mocks.makeKnowhereClientWithParsedStorage.mockReturnValue({
-      client: {},
+      client: { documents: { listChunks: mocks.documentListChunks } },
       knowledge: {},
+    })
+    mocks.documentListChunks.mockResolvedValue({
+      documentId: "doc_1",
+      namespace: "default",
+      chunks: [],
+      pagination: { page: 1, pageSize: 200, total: 0, totalPages: 1 },
     })
     mocks.generateObject.mockResolvedValue({
       object: {
@@ -195,6 +202,7 @@ describe("chat route services", () => {
         retrieval: client.retrieval,
         generateAnswer: expect.any(Function),
         hardenChatAssetUrl: expect.any(Function),
+        resolveConnectedAssets: expect.any(Function),
         readTableHtml: expect.any(Function),
         repository: expect.objectContaining({
           appendMessageToThread: expect.any(Function),
@@ -240,6 +248,74 @@ describe("chat route services", () => {
 
     expect(result.status).toBe(200)
     expect(fetch).toHaveBeenCalledWith(signedUrl)
+  })
+
+  it("injects a resolver that matches connected assets by parser chunk id", async () => {
+    const workspace = makeWorkspace()
+    const client = { retrieval: { query: vi.fn() } }
+    mocks.documentListChunks.mockResolvedValue({
+      documentId: "doc_1",
+      namespace: "default",
+      chunks: [
+        {
+          id: "dchk_1",
+          chunkId: "parser_image_1",
+          chunkType: "image",
+          sortOrder: 1,
+          metadata: {},
+          assetUrl: "https://assets.example/image.jpg",
+        },
+      ],
+      pagination: { page: 1, pageSize: 200, total: 1, totalPages: 1 },
+    })
+    mocks.getAuthenticatedWithClient.mockResolvedValue({
+      user: { id: "user_1" },
+      workspace,
+      apiKey: "jwt_123",
+      client,
+    })
+    mocks.listSourcesForWorkspace.mockResolvedValue([makeSource()])
+    mocks.handleChatTurn.mockImplementation(
+      async (input: {
+        readonly resolveConnectedAssets?: (
+          lookups: readonly {
+            documentId: string
+            chunkId: string
+            type: "image" | "table"
+          }[],
+        ) => Promise<readonly unknown[]>
+      }) => {
+        expect(await input.resolveConnectedAssets?.([
+          { documentId: "doc_1", chunkId: "parser_image_1", type: "image" },
+        ])).toEqual([
+          {
+            documentId: "doc_1",
+            chunkId: "parser_image_1",
+            type: "image",
+            assetUrl: "https://assets.example/image.jpg",
+          },
+        ])
+        return Either.right({
+          threadId: "thread_1",
+          messages: [
+            { id: "message_user", role: "user", content: "Show the image" },
+            { id: "message_assistant", role: "assistant", content: "Answer" },
+          ],
+        })
+      },
+    )
+
+    const result = await chatAnswerRouteService.answerChat({
+      body: { message: "Show the image" },
+    })
+
+    expect(result.status).toBe(200)
+    expect(mocks.documentListChunks).toHaveBeenCalledWith("doc_1", {
+      page: 1,
+      pageSize: 200,
+      chunkType: "image",
+      includeAssetUrls: true,
+    })
   })
 
   it("hardens one chat asset through Notebook Blob for a ready source", async () => {

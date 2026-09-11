@@ -21,9 +21,7 @@ export async function composeAnswerContext(input: {
 }): Promise<ModelMessage> {
   const content: UserContentParts = []
   const retainedPicks = new Set(input.ledger.retainedPicks)
-  const assetsByChunkRef = new Map(
-    input.ledger.assets.map((asset) => [asset.chunkRef, asset] as const),
-  )
+  const assetsByChunkRef = groupAssetsByChunkRef(input.ledger.assets)
 
   const retainedChunks = input.ledger.chunks.flatMap((chunk, index) => {
     const pick = index + 1
@@ -33,29 +31,35 @@ export async function composeAnswerContext(input: {
   if (retainedChunks.length > 0) {
     appendText(content, "## Evidence from Knowledge Base")
     for (const { chunk, pick } of retainedChunks) {
-      const asset = assetsByChunkRef.get(chunk.ref)
-      const chunkText = asset?.type === "table"
-        ? await replaceTableWithHtml({
-            chunk,
-            asset,
-            readTableHtml: input.readTableHtml,
-          })
-        : chunk.content
+      const assets = assetsByChunkRef.get(chunk.ref) ?? []
+      let chunkText = chunk.content
+      for (const table of assets.filter((asset) => asset.type === "table")) {
+        chunkText = await replaceTableWithHtml({
+          chunk: { ...chunk, content: chunkText },
+          asset: table,
+          readTableHtml: input.readTableHtml,
+        })
+      }
 
       appendText(
         content,
-        [formatChunkLabel(pick, chunk), chunkText.trim()]
+        [
+          formatChunkLabel(pick, chunk),
+          formatTableArtifactRefs(assets),
+          chunkText.trim(),
+        ]
           .filter((part) => part.length > 0)
           .join("\n"),
       )
 
-      if (asset?.type === "image") {
-        if (!asset.assetUrl) {
-          throw new Error(`Retained image asset ${asset.ref} has no signed URL.`)
+      for (const image of assets.filter((asset) => asset.type === "image")) {
+        if (!image.assetUrl) {
+          throw new Error(`Retained image asset ${image.ref} has no signed URL.`)
         }
+        appendText(content, `[image ref="${image.ref}"]`)
         content.push({
           type: "image",
-          image: new URL(asset.assetUrl),
+          image: new URL(image.assetUrl),
         })
       }
     }
@@ -74,6 +78,25 @@ export async function composeAnswerContext(input: {
   }
 
   return { role: "user", content }
+}
+
+function groupAssetsByChunkRef(
+  assets: readonly EvidenceAsset[],
+): Map<string, EvidenceAsset[]> {
+  const grouped = new Map<string, EvidenceAsset[]>()
+  for (const asset of assets) {
+    const chunkAssets = grouped.get(asset.chunkRef) ?? []
+    chunkAssets.push(asset)
+    grouped.set(asset.chunkRef, chunkAssets)
+  }
+  return grouped
+}
+
+function formatTableArtifactRefs(assets: readonly EvidenceAsset[]): string {
+  return assets
+    .filter((asset) => asset.type === "table")
+    .map((asset) => `[artifact type="${asset.type}" ref="${asset.ref}"]`)
+    .join("\n")
 }
 
 function appendText(

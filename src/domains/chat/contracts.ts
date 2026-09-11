@@ -10,6 +10,7 @@ import type {
   KnowhereToolRuntime,
   KnowhereSearchRequest,
   ReadTableHtml,
+  ResolveConnectedAssets,
 } from "@/agent-harness"
 import type {
   ChatArtifactView,
@@ -60,6 +61,7 @@ export type GenerateAnswer = (input: {
   folderScopeSourceIds?: readonly string[]
   searchSources: SearchSources
   knowhereTools?: KnowhereToolRuntime
+  resolveConnectedAssets?: ResolveConnectedAssets
   readTableHtml?: ReadTableHtml
 }) => Promise<HarnessRunResult>
 
@@ -76,6 +78,7 @@ export type AnswerQuestionInput = {
   generateAnswer: GenerateAnswer
   hardenChatAssetUrl?: HardenChatAssetUrl
   hardenMediaAssetUrls?: HardenMediaAssetUrls
+  resolveConnectedAssets?: ResolveConnectedAssets
   readTableHtml?: ReadTableHtml
   messages: readonly ChatHistoryMessage[]
 }

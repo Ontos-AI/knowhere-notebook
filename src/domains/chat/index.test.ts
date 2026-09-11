@@ -1115,7 +1115,6 @@ describe("answerQuestionWithRetrieval", () => {
                 chunkType: "image",
                 score: 0.9,
                 assetUrl: rawAssetUrl,
-                assetRef: "asset:r1:result:1",
                 source: {
                   documentId: "doc_identity",
                   sourceFileName: "document-generated.pdf",
@@ -1574,7 +1573,6 @@ describe("answerQuestionWithRetrieval", () => {
         chunks: [
           {
             ...makeEvidenceChunkFromRetrievalResult("r1:result:1", pageResult),
-            assetRef: "asset:r1:result:1",
           },
         ],
         assets: [
@@ -1637,7 +1635,6 @@ describe("answerQuestionWithRetrieval", () => {
       ...resultChunk,
       ref: "r1:referenced:1",
       kind: "referenced_chunk" as const,
-      assetRef: "asset:r1:referenced:1",
     };
     const generateAnswer = vi.fn(async () =>
       makeHarnessRunResultWithLedger("Revenue was $24.9B [[cite:1]].", {
@@ -1705,11 +1702,9 @@ describe("answerQuestionWithRetrieval", () => {
     });
     const catalogChunk = {
       ...makeEvidenceChunkFromRetrievalResult("r1:result:1", catalogResult),
-      assetRef: "asset:r1:result:1",
     };
     const workspaceChunk = {
       ...makeEvidenceChunkFromRetrievalResult("r1:result:2", workspaceResult),
-      assetRef: "asset:r1:result:2",
     };
     const assets = [
       {
@@ -1861,7 +1856,6 @@ describe("answerQuestionWithRetrieval", () => {
                 chunkType: "image",
                 score: 0.9,
                 assetUrl: frontAssetUrl,
-                assetRef: "asset:r1:result:1",
                 source: {
                   documentId: "doc_identity",
                   sourceFileName: "document-generated.pdf",
@@ -1876,7 +1870,6 @@ describe("answerQuestionWithRetrieval", () => {
                 chunkType: "image",
                 score: 0.88,
                 assetUrl: backAssetUrl,
-                assetRef: "asset:r1:result:2",
                 source: {
                   documentId: "doc_identity",
                   sourceFileName: "document-generated.pdf",
@@ -1891,7 +1884,6 @@ describe("answerQuestionWithRetrieval", () => {
                 chunkType: "image",
                 score: 0.7,
                 assetUrl: extraAssetUrl,
-                assetRef: "asset:r1:result:3",
                 source: {
                   documentId: "doc_identity",
                   sourceFileName: "document-generated.pdf",
@@ -2207,7 +2199,6 @@ describe("answerQuestionWithRetrieval", () => {
                 chunkType: "image",
                 score: 0.9,
                 assetUrl,
-                assetRef: "asset:r1:result:1",
                 source: {
                   documentId: "doc_diagram",
                   sourceFileName: "generated.pdf",
@@ -2466,7 +2457,7 @@ describe("answerQuestionWithRetrieval", () => {
     expect(hardenChatAssetUrl).not.toHaveBeenCalled();
   });
 
-  it("returns the agent answer without citations when retrieval has no results", async () => {
+  it("returns the no-results answer when finalize reports an unresolved gap with empty text", async () => {
     const retrieval = {
       query: vi.fn().mockResolvedValue({
         results: [],
@@ -2480,7 +2471,14 @@ describe("answerQuestionWithRetrieval", () => {
     };
     const generateAnswer = vi.fn(async ({ searchSources }) => {
       await searchSources({ query: "Missing fact?" });
-      return makeHarnessRunResult("I couldn't find that in your sources.");
+      const run = makeHarnessRunResult("");
+      return {
+        ...run,
+        manifest: {
+          ...run.manifest,
+          unresolved: ["The requested fact is not present in the sources."],
+        },
+      };
     });
 
     const answer = await Effect.runPromise(
