@@ -38,12 +38,17 @@ export async function commitChatTurn(
     const [userMessage, assistantMessage] = result.right.messages
     void captureMemoryTurn({
       workspaceId: input.workspace.id,
-      sourceMessageId: assistantMessage.id,
-      userText: userMessage.content,
-      assistantText: assistantMessage.content,
-      referencedDocumentIds: collectCitationDocumentIds(
-        assistantMessage.citations,
-      ),
+      sessionId: result.right.threadId,
+      turns: [
+        {
+          userText: userMessage.content,
+          assistantText: assistantMessage.content,
+          sourceMessageId: assistantMessage.id,
+          referencedDocumentIds: collectCitationDocumentIds(
+            assistantMessage.citations,
+          ),
+        },
+      ],
     })
     void recordChunkActivations({
       workspaceId: input.workspace.id,

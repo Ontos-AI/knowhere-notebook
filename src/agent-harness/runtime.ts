@@ -153,8 +153,6 @@ const citationPickSchema = z.object({
 
 const memoryCitationSchema = z.object({
   ref: z.string().min(1),
-  itemId: z.string().min(1),
-  kind: z.enum(memorySearchKinds),
 })
 
 const memorySearchSchema = z.object({
@@ -660,8 +658,8 @@ export function createHarnessTools(input: {
         "images/tables shown to the user. citations is the list of evidence picks " +
         "you used; each pick is the pick number on a Knowhere search chunk. " +
         "Notebook writes citation refs from the evidence ledger. " +
-        "Use memoryCitations for fluid memory and copy ref, itemId, and kind " +
-        "exactly from the assembled Fluid Memory entries.",
+        "Use memoryCitations for fluid memory and copy only the mem:N ref " +
+        "from the assembled Fluid Memory entries.",
       inputSchema: finalizeManifestSchema,
       execute: async (manifest) =>
         traceToolCall(input.state, {
@@ -693,16 +691,16 @@ export function createHarnessTools(input: {
               }
             }
 
-            const invalidMemoryCitations = getInvalidMemoryCitations({
+            const resolvedMemoryCitations = resolveMemoryCitations({
               citations: manifest.memoryCitations,
               memoryItems: input.state.memoryItems ?? [],
             })
-            if (invalidMemoryCitations.length > 0) {
+            if (!resolvedMemoryCitations.ok) {
               return {
                 ok: false as const,
                 message:
-                  "memoryCitations must exactly match ref, itemId, and kind from this turn's Fluid Memory results.",
-                invalidMemoryCitations,
+                  "memoryCitations must use mem:N refs from this turn's Fluid Memory results.",
+                invalidMemoryCitations: resolvedMemoryCitations.invalid,
               }
             }
 
@@ -723,7 +721,7 @@ export function createHarnessTools(input: {
             const outputManifest: OutputManifest = {
               text: manifest.text,
               citations: resolvedCitations.citations,
-              memoryCitations: manifest.memoryCitations,
+              memoryCitations: resolvedMemoryCitations.citations,
               artifacts: manifest.artifacts,
               unresolved: manifest.unresolved,
             }
@@ -778,19 +776,29 @@ function resolveCitationPicks(input: {
   return { ok: true, citations }
 }
 
-function getInvalidMemoryCitations(input: {
-  readonly citations: readonly MemoryCitation[]
+function resolveMemoryCitations(input: {
+  readonly citations: readonly { ref: string }[]
   readonly memoryItems: readonly MemorySearchItem[]
-}): MemoryCitation[] {
-  return input.citations.filter(
-    (citation) =>
-      !input.memoryItems.some(
-        (item) =>
-          item.ref === citation.ref &&
-          item.itemId === citation.itemId &&
-          item.kind === citation.kind,
-      ),
-  )
+}):
+  | { ok: true; citations: MemoryCitation[] }
+  | { ok: false; invalid: readonly { ref: string }[] } {
+  const byRef = new Map(input.memoryItems.map((item) => [item.ref, item]))
+  const citations: MemoryCitation[] = []
+  const invalid: { ref: string }[] = []
+  for (const citation of input.citations) {
+    const item = byRef.get(citation.ref)
+    if (!item) {
+      invalid.push({ ref: citation.ref })
+      continue
+    }
+    citations.push({
+      ref: item.ref,
+      itemId: item.itemId,
+      kind: item.kind,
+    })
+  }
+  if (invalid.length > 0) return { ok: false, invalid }
+  return { ok: true, citations }
 }
 
 function buildFinalizeRequiresPicksMessage(input: {

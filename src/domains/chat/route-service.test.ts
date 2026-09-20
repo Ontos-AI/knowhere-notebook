@@ -415,10 +415,15 @@ describe("chat route services", () => {
     expect(result.status).toBe(200)
     expect(mocks.captureMemoryTurn).toHaveBeenCalledWith({
       workspaceId: workspace.id,
-      sourceMessageId: "message_assistant",
-      userText: "Summarize it",
-      assistantText: "Summary",
-      referencedDocumentIds: [],
+      sessionId: "thread_1",
+      turns: [
+        {
+          userText: "Summarize it",
+          assistantText: "Summary",
+          sourceMessageId: "message_assistant",
+          referencedDocumentIds: [],
+        },
+      ],
     })
     expect(mocks.startBackgroundReconciliation).toHaveBeenCalledWith(
       workspace.id,

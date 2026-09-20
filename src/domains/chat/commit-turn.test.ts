@@ -105,10 +105,15 @@ describe("commitChatTurn", () => {
     expect(Either.isRight(result)).toBe(true)
     expect(mocks.captureMemoryTurn).toHaveBeenCalledWith({
       workspaceId: "workspace_1",
-      sourceMessageId: "msg_assistant",
-      userText: "毛利率",
-      assistantText: "按已有记忆。",
-      referencedDocumentIds: ["doc_1"],
+      sessionId: "thread_1",
+      turns: [
+        {
+          userText: "毛利率",
+          assistantText: "按已有记忆。",
+          sourceMessageId: "msg_assistant",
+          referencedDocumentIds: ["doc_1"],
+        },
+      ],
     })
     expect(mocks.recordActivations).toHaveBeenCalledWith([
       {

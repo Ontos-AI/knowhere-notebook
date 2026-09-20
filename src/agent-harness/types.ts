@@ -121,6 +121,8 @@ export const memorySearchKinds = [
   "stance",
   "decision_rule",
   "entity_of_interest",
+  "event",
+  "profile",
 ] as const
 
 export type MemorySearchKind = (typeof memorySearchKinds)[number]
@@ -134,8 +136,7 @@ export type MemorySearchItem = {
   readonly ref: string
   readonly itemId: string
   readonly kind: MemorySearchKind
-  readonly abstractL0: string
-  readonly overviewL1: string
+  readonly text: string
 }
 
 export type MemorySearchResponse = {
