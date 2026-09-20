@@ -36,6 +36,7 @@ export async function captureMemoryTurn(
   try {
     await postJson("/turns/capture", input)
   } catch (error) {
+    // TODO: Memento 未部署时发送会失败，先只记警告；部署并对上地址后应能发到。
     logger.warn("chat: failed to capture memory turn", {
       workspaceId: input.workspaceId,
       error: summarizeUnknownError(error),
