@@ -9,7 +9,11 @@ import { z } from "zod"
 
 import { logger } from "@/lib/logger"
 
-import { composeAnswerContext, type ReadTableHtml } from "./answer-context"
+import {
+  composeAnswerContext,
+  type ReadImage,
+  type ReadTableHtml,
+} from "./answer-context"
 import { createEvidenceLedger } from "./ledger"
 import { knowhereToolText } from "./knowhere-text"
 import { memoryToolText } from "./memory-text"
@@ -49,6 +53,7 @@ export type RunAgentHarnessInput = {
   readonly memoryTools: MemoryToolRuntime
   readonly resolveConnectedAssets?: ResolveConnectedAssets
   readonly readTableHtml?: ReadTableHtml
+  readonly readImage?: ReadImage
   readonly maxSteps?: number
 }
 
@@ -224,6 +229,7 @@ export async function runAgentHarness(
           memorySearchAttempted: state.memorySearchAttempted === true,
           userText: input.turn.userText,
           readTableHtml: input.readTableHtml,
+          readImage: input.readImage,
         })
       }
       return prepareHarnessStep({

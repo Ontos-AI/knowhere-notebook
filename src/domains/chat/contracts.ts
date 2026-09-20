@@ -9,6 +9,7 @@ import type {
   HarnessRunResult,
   KnowhereToolRuntime,
   KnowhereSearchRequest,
+  ReadImage,
   ReadTableHtml,
   ResolveConnectedAssets,
 } from "@/agent-harness"
@@ -63,6 +64,7 @@ export type GenerateAnswer = (input: {
   knowhereTools?: KnowhereToolRuntime
   resolveConnectedAssets?: ResolveConnectedAssets
   readTableHtml?: ReadTableHtml
+  readImage?: ReadImage
 }) => Promise<HarnessRunResult>
 
 export type AnswerQuestionInput = {
@@ -80,6 +82,7 @@ export type AnswerQuestionInput = {
   hardenMediaAssetUrls?: HardenMediaAssetUrls
   resolveConnectedAssets?: ResolveConnectedAssets
   readTableHtml?: ReadTableHtml
+  readImage?: ReadImage
   messages: readonly ChatHistoryMessage[]
 }
 

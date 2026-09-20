@@ -92,6 +92,7 @@ const answerChatEffect = (input: AnswerChatInput) =>
       })
     const readTableHtml = (assetUrl: string): Promise<string> =>
       readSignedTableHtml(assetUrl)
+    const readImage = (assetUrl: string) => readSignedImage(assetUrl)
     const resolveConnectedAssets = createConnectedAssetResolver(
       knowhereResources.client.documents,
     )
@@ -121,6 +122,7 @@ const answerChatEffect = (input: AnswerChatInput) =>
             }),
           resolveConnectedAssets,
           readTableHtml,
+          readImage,
           repository: chatTurnPersistence.createRepository(),
         }),
       ).pipe(
@@ -184,6 +186,20 @@ async function readSignedTableHtml(assetUrl: string): Promise<string> {
     )
   }
   return response.text()
+}
+
+async function readSignedImage(assetUrl: string): Promise<{
+  readonly body: Uint8Array
+  readonly mediaType: string
+}> {
+  const fetched = await fetchChatAsset({
+    assetUrl,
+    fallbackContentType: inferContentTypeFromPath(assetUrl),
+  })
+  return {
+    body: fetched.body,
+    mediaType: fetched.contentType,
+  }
 }
 
 async function hardenSingleChatAsset(input: {
