@@ -652,6 +652,7 @@ function makeMessage(
     content: "Hello",
     citations: null,
     artifacts: null,
+    agentTrace: null,
     createdAt: new Date("2026-05-10T00:00:00.000Z"),
     ...overrides,
   }

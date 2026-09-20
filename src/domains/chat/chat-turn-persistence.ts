@@ -9,6 +9,7 @@ import type {
   CitationView,
   RetrievalResultView,
 } from "./types"
+import type { ChatAgentTrace } from "./agent-trace"
 
 type AppendMessageInput = {
   readonly threadId: string
@@ -18,6 +19,7 @@ type AppendMessageInput = {
     | readonly (ChatCitationView | CitationView | RetrievalResultView)[]
     | null
   readonly artifacts?: readonly ChatArtifactView[] | null
+  readonly agentTrace?: ChatAgentTrace | null
 }
 
 type ChatThreadPersistenceAdapter = {

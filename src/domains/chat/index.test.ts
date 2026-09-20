@@ -103,7 +103,82 @@ describe("answerQuestionWithRetrieval", () => {
       answer: "The answer is grounded.",
       citations: [],
       artifacts: [],
+      agentTrace: {
+        intentTask: "",
+        toolCalls: [],
+        referencedDocumentIds: [],
+      },
     });
+  });
+
+  it("returns a slim Notebook TRACE and does not pass the Knowhere TRACE through", async () => {
+    const generateAnswer = vi.fn(async () => {
+      const result = makeHarnessRunResult("Grounded answer.");
+      return {
+        ...result,
+        trace: {
+          ...result.trace,
+          intent: {
+            task: "answer" as const,
+            dependsOnPreviousTurn: false,
+            retrievalNeeded: "yes" as const,
+            targetModalities: ["text" as const],
+            constraints: {},
+            groundingPolicy: "must_use_sources" as const,
+          },
+          toolCalls: [
+            {
+              tool: "knowhere_search",
+              ok: true,
+              inputSummary: { query: "毛利率" },
+              outputSummary: { ok: true },
+              startedAt: "2026-09-20T00:00:00.000Z",
+              durationMs: 10,
+            },
+          ],
+          ledger: {
+            ...result.trace.ledger,
+            chunks: [
+              makeEvidenceChunkFromRetrievalResult(
+                "r1:result:1",
+                makeRetrievalResult({
+                  source: { documentId: "doc_1" },
+                }),
+              ),
+            ],
+            decisionTraces: [[{ agent: "agent_explore" }]],
+          },
+        },
+      };
+    });
+
+    const answer = await Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "毛利率怎么算",
+        namespace: "notebook-workspace",
+        sources: [makeSource()],
+        excludedSourceIds: [],
+        retrieval: { query: vi.fn() },
+        generateAnswer,
+        messages: [],
+      }),
+    );
+
+    expect(answer.agentTrace).toEqual({
+      intentTask: "answer",
+      toolCalls: [
+        {
+          tool: "knowhere_search",
+          ok: true,
+          summary: JSON.stringify({
+            input: { query: "毛利率" },
+            output: { ok: true },
+          }),
+        },
+      ],
+      referencedDocumentIds: ["doc_1"],
+    });
+    expect(JSON.stringify(answer.agentTrace)).not.toContain("agent_explore");
   });
 
   it("refuses knowhere search when the current folder has no documents", async () => {
@@ -264,6 +339,11 @@ describe("answerQuestionWithRetrieval", () => {
       answer: "The answer omits citations.",
       citations: [],
       artifacts: [],
+      agentTrace: {
+        intentTask: "",
+        toolCalls: [],
+        referencedDocumentIds: [],
+      },
     });
   });
 
@@ -405,6 +485,11 @@ describe("answerQuestionWithRetrieval", () => {
       answer: "The legacy answer is grounded.",
       citations: [],
       artifacts: [],
+      agentTrace: {
+        intentTask: "",
+        toolCalls: [],
+        referencedDocumentIds: [],
+      },
     });
   });
 
@@ -2053,6 +2138,11 @@ describe("answerQuestionWithRetrieval", () => {
       answer: "This invalid answer should not ship.",
       citations: [],
       artifacts: [],
+      agentTrace: {
+        intentTask: "",
+        toolCalls: [],
+        referencedDocumentIds: [],
+      },
     });
   });
 

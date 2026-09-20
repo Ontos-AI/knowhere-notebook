@@ -97,7 +97,60 @@ describe("commitChatTurn", () => {
       repository: {
         ensureDefaultChatThread: vi.fn(),
         findChatThreadInWorkspace: vi.fn(),
-        listMessagesForThread: vi.fn(),
+        listMessagesForThread: vi.fn().mockResolvedValue([
+          {
+            id: "msg_old_user",
+            threadId: "thread_1",
+            role: "user",
+            content: "上次问毛利率",
+            citations: null,
+            artifacts: null,
+            agentTrace: null,
+            createdAt: new Date("2026-09-20T00:00:00Z"),
+          },
+          {
+            id: "msg_old_assistant",
+            threadId: "thread_1",
+            role: "assistant",
+            content: "按文档算。",
+            citations: null,
+            artifacts: null,
+            agentTrace: {
+              intentTask: "answer",
+              toolCalls: [
+                { tool: "knowhere_search", ok: true, summary: '{"input":{"query":"毛利率"}}' },
+              ],
+              referencedDocumentIds: ["doc_1"],
+            },
+            createdAt: new Date("2026-09-20T00:00:01Z"),
+          },
+          {
+            id: "msg_user",
+            threadId: "thread_1",
+            role: "user",
+            content: "毛利率",
+            citations: null,
+            artifacts: null,
+            agentTrace: null,
+            createdAt: new Date("2026-09-20T00:01:00Z"),
+          },
+          {
+            id: "msg_assistant",
+            threadId: "thread_1",
+            role: "assistant",
+            content: "按已有记忆。",
+            citations: null,
+            artifacts: null,
+            agentTrace: {
+              intentTask: "answer",
+              toolCalls: [
+                { tool: "knowhere_search", ok: true, summary: '{"input":{"query":"当轮"}}' },
+              ],
+              referencedDocumentIds: ["doc_1"],
+            },
+            createdAt: new Date("2026-09-20T00:01:01Z"),
+          },
+        ]),
         appendMessageToThread: vi.fn(),
       },
     })
@@ -112,6 +165,30 @@ describe("commitChatTurn", () => {
           assistantText: "按已有记忆。",
           sourceMessageId: "msg_assistant",
           referencedDocumentIds: ["doc_1"],
+          agentTrace: {
+            intentTask: "answer",
+            toolCalls: [
+              { tool: "knowhere_search", ok: true, summary: '{"input":{"query":"当轮"}}' },
+            ],
+            referencedDocumentIds: ["doc_1"],
+          },
+          recentContext: [
+            {
+              userText: "上次问毛利率",
+              assistantText: "按文档算。",
+              agentTrace: {
+                intentTask: "answer",
+                toolCalls: [
+                  {
+                    tool: "knowhere_search",
+                    ok: true,
+                    summary: '{"input":{"query":"毛利率"}}',
+                  },
+                ],
+                referencedDocumentIds: ["doc_1"],
+              },
+            },
+          ],
         },
       ],
     })

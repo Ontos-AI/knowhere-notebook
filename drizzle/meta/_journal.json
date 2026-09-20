@@ -141,6 +141,13 @@
       "when": 1789124024330,
       "tag": "0019_large_invaders",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1789910000000,
+      "tag": "0020_chat_message_agent_trace",
+      "breakpoints": true
     }
   ]
 }

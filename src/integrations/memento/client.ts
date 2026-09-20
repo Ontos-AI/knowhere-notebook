@@ -10,12 +10,18 @@ import { Effect } from "effect"
 import { summarizeUnknownError } from "@/lib/format-log-value"
 import { logger } from "@/lib/logger"
 import { readMementoConfig } from "./config"
+import type {
+  ChatAgentTrace,
+  RecentCaptureContextTurn,
+} from "@/domains/chat/agent-trace"
 
 export type MementoCaptureTurn = {
   readonly userText: string
   readonly assistantText?: string
   readonly sourceMessageId?: string
   readonly referencedDocumentIds?: readonly string[]
+  readonly agentTrace?: ChatAgentTrace
+  readonly recentContext?: readonly RecentCaptureContextTurn[]
 }
 
 export type MementoCaptureInput = {

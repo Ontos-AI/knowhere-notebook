@@ -5,6 +5,7 @@ import {
   captureMemoryTurn,
   recordActivations,
 } from "@/integrations/memento/client"
+import { readChatAgentTrace, toRecentCaptureContext } from "./agent-trace"
 import { generateAgenticOutputManifest } from "./prompt"
 import type { ChatCitationView } from "./types"
 import {
@@ -36,6 +37,15 @@ export async function commitChatTurn(
 
   if (Either.isRight(result)) {
     const [userMessage, assistantMessage] = result.right.messages
+    const storedMessages =
+      (await input.repository.listMessagesForThread(
+        input.workspace.id,
+        result.right.threadId,
+      )) ?? []
+    const currentTrace = readChatAgentTrace(
+      storedMessages.find((message) => message.id === assistantMessage.id)
+        ?.agentTrace,
+    )
     void captureMemoryTurn({
       workspaceId: input.workspace.id,
       sessionId: result.right.threadId,
@@ -47,6 +57,11 @@ export async function commitChatTurn(
           referencedDocumentIds: collectCitationDocumentIds(
             assistantMessage.citations,
           ),
+          ...(currentTrace ? { agentTrace: currentTrace } : {}),
+          recentContext: toRecentCaptureContext(storedMessages, [
+            userMessage.id,
+            assistantMessage.id,
+          ]),
         },
       ],
     })

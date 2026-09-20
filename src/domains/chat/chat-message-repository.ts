@@ -14,6 +14,7 @@ import type {
   CitationView,
   RetrievalResultView,
 } from "@/domains/chat/types"
+import type { ChatAgentTrace } from "./agent-trace"
 
 type AppendChatMessageInput = {
   readonly threadId: string
@@ -23,6 +24,7 @@ type AppendChatMessageInput = {
     | readonly (ChatCitationView | CitationView | RetrievalResultView)[]
     | null
   readonly artifacts?: readonly ChatArtifactView[] | null
+  readonly agentTrace?: ChatAgentTrace | null
 }
 
 type ChatMessageRepository = {
@@ -83,6 +85,7 @@ const appendMessageToThreadEffect: ChatMessageRepository["appendMessageToThreadE
               artifacts: chatCitationPersistence.normalizeArtifacts(
                 input.artifacts,
               ),
+              agentTrace: input.agentTrace ?? null,
             })
             .returning()
 
