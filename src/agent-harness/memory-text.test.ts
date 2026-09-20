@@ -33,4 +33,15 @@ describe("memoryToolText", () => {
     expect(text).toContain('resultCount="0"')
     expect(text).not.toContain("<item ")
   })
+
+  it("formats a search failure as a warning", () => {
+    const text = memoryToolText.formatWarning({
+      operation: "search",
+      message: "MEMENTO_BASE_URL is required.",
+    })
+
+    expect(text).toContain('<memory operation="search" status="warning">')
+    expect(text).toContain("MEMENTO_BASE_URL is required.")
+    expect(text).not.toContain('status="error"')
+  })
 })

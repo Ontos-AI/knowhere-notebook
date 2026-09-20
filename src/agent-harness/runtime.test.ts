@@ -576,6 +576,26 @@ describe("agent harness runtime", () => {
     })
   })
 
+  it("returns a warning when memory_search cannot reach memory", async () => {
+    const search = vi
+      .fn<MemoryToolRuntime["search"]>()
+      .mockRejectedValue(new Error("MEMENTO_BASE_URL is required."))
+    const tools = createHarnessTools({
+      state: {},
+      ledger: createEvidenceLedger(),
+      memoryTools: makeMemoryTools(search),
+      knowhereTools: makeKnowhereTools(),
+      recentTurns: [],
+    })
+
+    const searchText = await executeTool(tools.memory_search, {
+      query: "毛利率",
+    })
+    expect(searchText).toContain('<memory operation="search" status="warning">')
+    expect(searchText).toContain("MEMENTO_BASE_URL is required.")
+    expect(searchText).not.toContain('status="error"')
+  })
+
   it("exposes full prior-turn content through policy-approved readPriorTurn", async () => {
     const state: {
       contextPolicy?: ContextPolicy

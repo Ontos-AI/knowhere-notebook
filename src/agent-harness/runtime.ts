@@ -7,6 +7,8 @@ import {
 } from "ai"
 import { z } from "zod"
 
+import { logger } from "@/lib/logger"
+
 import { composeAnswerContext, type ReadTableHtml } from "./answer-context"
 import { createEvidenceLedger } from "./ledger"
 import { knowhereToolText } from "./knowhere-text"
@@ -904,7 +906,12 @@ async function executeMemorySearch(input: {
     accumulateMemoryItems(input.state, response.items)
     return memoryToolText.formatSearch(response)
   } catch (error) {
-    return memoryToolText.formatError({
+    // TODO: Memento 未部署时搜索会失败，先只记警告；部署并对上地址后应能搜到。
+    logger.warn("chat: failed to search memory", {
+      query: input.request.query,
+      error: formatUnknownError(error),
+    })
+    return memoryToolText.formatWarning({
       operation: "search",
       message: formatUnknownError(error),
     })
