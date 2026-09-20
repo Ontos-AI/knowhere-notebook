@@ -104,14 +104,15 @@ describe("composeAnswerContext", () => {
       readImage: vi.fn().mockRejectedValue(new Error("Unable to read image: 403")),
     })
 
-    const text = message.content
-      .filter((part): part is { type: "text"; text: string } => part.type === "text")
+    const parts = userContentParts(message)
+    const text = parts
+      .filter((part) => part.type === "text")
       .map((part) => part.text)
       .join("")
     expect(text).toContain("Before  after  end.")
     expect(text).not.toContain("[images/revenue.png]")
     expect(text).not.toContain("[images/margin.png]")
-    expect(message.content.some((part) => part.type === "image")).toBe(false)
+    expect(parts.some((part) => part.type === "image")).toBe(false)
     expect(warn).toHaveBeenCalledWith(
       "chat: skipped unreachable evidence asset",
       expect.objectContaining({
@@ -134,8 +135,8 @@ describe("composeAnswerContext", () => {
       readTableHtml: vi.fn().mockRejectedValue(new Error("Unable to read table HTML: 404")),
     })
 
-    const text = message.content
-      .filter((part): part is { type: "text"; text: string } => part.type === "text")
+    const text = userContentParts(message)
+      .filter((part) => part.type === "text")
       .map((part) => part.text)
       .join("")
     expect(text).toContain("Revenue  rose.")
@@ -236,6 +237,16 @@ describe("composeAnswerContext", () => {
     })
   })
 })
+
+function userContentParts(message: { readonly content: unknown }): readonly {
+  readonly type: string
+  readonly text?: string
+}[] {
+  if (!Array.isArray(message.content)) {
+    throw new Error("expected composed message content to be an array")
+  }
+  return message.content
+}
 
 function makeLedger(
   overrides: {
