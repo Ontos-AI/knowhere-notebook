@@ -48,6 +48,7 @@ import {
 } from "./page-citation-assets"
 import type { HardenableRetrievalResult } from "./media-asset-hardening"
 import { notebookKnowhereTools } from "./knowhere-tools"
+import { toChatAgentTrace } from "./agent-trace"
 
 const DEFAULT_TOP_K = 8
 const MAX_AGENTIC_TOP_K = 12
@@ -339,6 +340,7 @@ export const answerQuestionWithRetrieval = (
       answer,
       citations: toChatCitationViews(hardenedMedia.results, answer),
       artifacts: displayArtifacts,
+      agentTrace: toChatAgentTrace(generatedAnswer.trace),
     }
   })
 
@@ -722,7 +724,6 @@ async function queryRetrievalNamespace(input: {
     threshold: retrievalQueryParams.threshold ?? null,
     targetContent: input.retrievalPlan.targetContent,
     purpose: input.retrievalPlan.purpose,
-    gapReason: input.retrievalPlan.gapReason,
     mode: input.mode,
   })
 
@@ -963,7 +964,6 @@ function toAgenticRetrievalPlan(
   return {
     targetContent: normalizeRetrievalTargetContent(input.targetContent),
     purpose: normalizeRetrievalPurpose(input.purpose),
-    gapReason: normalizeRetrievalGapReason(input.gapReason),
   }
 }
 
@@ -971,11 +971,6 @@ function normalizeRetrievalPurpose(value: string | undefined): string | null {
   const normalized = value?.replace(/\s+/g, " ").trim()
   if (!normalized) return null
   return normalized.slice(0, 240)
-}
-
-function normalizeRetrievalGapReason(value: string | undefined): string | null {
-  const trimmed = value?.trim()
-  return trimmed ? trimmed : null
 }
 
 function normalizeRetrievalDataType(

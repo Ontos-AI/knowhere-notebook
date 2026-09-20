@@ -149,26 +149,20 @@ describe("agent harness runtime", () => {
 
     expect(prompt).toContain("call them together in the same step")
     expect(prompt).toContain(
-      "Call knowhere_search when groundingPolicy requires citing source documents",
+      "Call knowhere_search once per turn when groundingPolicy requires citing source documents",
     )
+    expect(prompt).toContain("Call knowhere_search once; do not change the query and search again")
+    expect(prompt).not.toContain("call knowhere_search again with a refined query")
+    expect(prompt).not.toContain("Refine knowhere_search at most twice")
+    expect(prompt).not.toContain("gapReason")
     expect(prompt).toContain(
-      "call knowhere_search again with a refined query",
-    )
-    expect(prompt).toContain("Refine knowhere_search at most twice")
-    expect(prompt).toContain(
-      "After the second refined search, call prepareAnswer regardless of its result",
-    )
-    expect(prompt).toContain(
-      "After each search that returns new evidence, call retainEvidence",
-    )
-    expect(prompt).toContain(
-      "When calling knowhere_search after a previous search in this turn, set gapReason",
+      "After a search that returns new evidence, call retainEvidence",
     )
     expect(prompt).toContain(
       "asset paths in retrieved chunks represent connected assets",
     )
     expect(prompt).toContain(
-      "Do not refine the search solely because those assets have not been expanded yet",
+      "Do not search again because those assets have not been expanded yet",
     )
     expect(prompt).not.toContain("knowhere_list_documents")
     expect(prompt).not.toContain("knowhere_get_document_outline")
@@ -276,27 +270,10 @@ describe("agent harness runtime", () => {
     expect(search).toHaveBeenCalledWith(expect.objectContaining(scope))
   })
 
-  it("returns only newly searched evidence in each knowhere_search tool result", async () => {
+  it("returns newly searched evidence from the one knowhere_search and rejects a second call", async () => {
     const query = vi
       .fn<KnowhereToolRuntime["search"]>()
       .mockResolvedValueOnce(makeRetrievalResponse())
-      .mockResolvedValueOnce({
-        ...makeRetrievalResponse(),
-        query: "second query",
-        evidenceText: "Second evidence",
-        results: [
-          {
-            content: "Second retrieval evidence.",
-            chunkType: "text",
-            score: 0.8,
-            source: {
-              documentId: "doc_2",
-              sourceFileName: "second.pdf",
-              sectionPath: "Second",
-            },
-          },
-        ],
-      })
     const state: {
       intent?: IntentFrame
       contextPolicy?: ContextPolicy
@@ -329,20 +306,15 @@ describe("agent harness runtime", () => {
     await retainLatestSearch(tools, ledger)
     const secondResult = await executeTool(tools.knowhere_search, {
       query: "second",
-      gapReason: "The first search lacked the second-source wording this query targets.",
     })
 
     expect(firstResult).toContain('pick="1"')
     expect(firstResult).toContain('ref="r1:result:1"')
-    expect(secondResult).toContain('retrievalCount="2"')
-    expect(secondResult).toContain("Second retrieval evidence.")
-    expect(secondResult).not.toContain("<evidence>")
-    expect(secondResult).toContain('pick="2"')
-    expect(secondResult).toContain('ref="r2:result:1"')
-    expect(JSON.stringify(secondResult)).not.toContain("r1:result:1")
+    expect(secondResult).toContain('status="error"')
+    expect(String(secondResult)).toContain("already ran for this turn")
+    expect(query).toHaveBeenCalledTimes(1)
     expect(ledger.snapshot().chunks.map((chunk) => chunk.ref)).toEqual([
       "r1:result:1",
-      "r2:result:1",
     ])
   })
 
@@ -914,10 +886,10 @@ describe("agent harness runtime", () => {
 
     expect(result.activeTools).toContain("prepareAnswer")
     expect(result.activeTools).not.toContain("finalize")
-    expect(result.activeTools).toContain("knowhere_search")
+    expect(result.activeTools).not.toContain("knowhere_search")
   })
 
-  it("forces answer preparation after the second Knowhere refinement", () => {
+  it("forces answer preparation after the one Knowhere search", () => {
     const result = prepareHarnessStep({
       stepNumber: 8,
       hasKnowhereSearch: true,
@@ -1124,7 +1096,7 @@ describe("agent harness runtime", () => {
     })
   })
 
-  it("allows the first knowhere_search without gapReason and rejects a follow-up without it", async () => {
+  it("allows one knowhere_search and rejects a second call", async () => {
     const search = vi
       .fn<KnowhereToolRuntime["search"]>()
       .mockResolvedValue(makeRetrievalResponse())
@@ -1145,34 +1117,8 @@ describe("agent harness runtime", () => {
 
     const rejected = await executeTool(tools.knowhere_search, { query: "second" })
     expect(rejected).toContain('status="error"')
-    expect(String(rejected)).toContain("gapReason")
+    expect(String(rejected)).toContain("already ran for this turn")
     expect(search).toHaveBeenCalledTimes(1)
-
-    const accepted = await executeTool(tools.knowhere_search, {
-      query: "second",
-      gapReason: "The first search lacked the wording this query will add.",
-    })
-    expect(accepted).toContain('status="ok"')
-    expect(search).toHaveBeenCalledWith(
-      expect.objectContaining({
-        query: "second",
-        gapReason: "The first search lacked the wording this query will add.",
-      }),
-    )
-
-    const third = await executeTool(tools.knowhere_search, {
-      query: "third",
-      gapReason: "The second search still lacked the requested comparison.",
-    })
-    expect(third).toContain('status="ok"')
-
-    const fourth = await executeTool(tools.knowhere_search, {
-      query: "fourth",
-      gapReason: "Try one more query.",
-    })
-    expect(fourth).toContain('status="error"')
-    expect(fourth).toContain("initial search and two refinements")
-    expect(search).toHaveBeenCalledTimes(3)
   })
 
 })

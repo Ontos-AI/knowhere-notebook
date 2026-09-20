@@ -12,6 +12,7 @@ import type {
   ReadTableHtml,
   ResolveConnectedAssets,
 } from "@/agent-harness"
+import type { ChatAgentTrace } from "./agent-trace"
 import type {
   ChatArtifactView,
   ChatCitationView,
@@ -40,7 +41,6 @@ export type AgenticRetrievalTargetContent =
 export type AgenticRetrievalPlan = {
   targetContent: AgenticRetrievalTargetContent
   purpose: string | null
-  gapReason: string | null
 }
 
 export type AgenticRetrievalQuery = KnowhereSearchRequest
@@ -87,4 +87,5 @@ export type AnswerQuestionResult = {
   answer: string
   citations: ChatCitationView[]
   artifacts?: ChatArtifactView[]
+  agentTrace: ChatAgentTrace
 }

@@ -36,8 +36,7 @@ import type {
 import { memorySearchKinds } from "./types"
 
 const defaultMaxSteps = 15
-const maxKnowhereRefinements = 2
-const maxKnowhereSearchAttempts = 1 + maxKnowhereRefinements
+const maxKnowhereSearchAttempts = 1
 
 type ToolLoopAgentSettings = ConstructorParameters<typeof ToolLoopAgent>[0]
 
@@ -100,7 +99,6 @@ const knowhereSearchSchema = z.object({
   ),
   targetContent: knowhereSearchTargetContentSchema.default("all"),
   purpose: z.string().optional(),
-  gapReason: z.string().optional(),
   topK: z.number().int().min(1).max(12).optional(),
   signalPaths: z.array(z.string().min(1)).max(8).optional(),
   filterMode: z.enum(["keep", "delete"]).optional(),
@@ -375,10 +373,12 @@ function selectHarnessActiveTools(input: {
   }
 
   // memory_search and knowhere_search are peers: both open together once
-  // retrieval is allowed. The agent decides which to call and in what
-  // order — neither tool gates the other.
+  // retrieval is allowed. Each may run once per turn.
   if (!input.hasMemorySearch) tools.push(...fluidRetrievalTools)
-  if (input.intent?.groundingPolicy === "must_use_sources") {
+  if (
+    input.intent?.groundingPolicy === "must_use_sources" &&
+    !input.hasKnowhereSearch
+  ) {
     tools.push(...crystalRetrievalTools)
   }
   tools.push(...cognitionRetrievalTools)
@@ -555,7 +555,7 @@ export function createHarnessTools(input: {
 
     knowhere_search: tool({
       description:
-        "Search Knowhere for relevant Notebook evidence. Returns tagged text with pick numbers for finalize citations, evidence refs such as r1:result:1, and connected image/table asset paths when present. After a previous search in this turn, set gapReason to what the previous search lacked and how this query will fill that gap.",
+        "Search Knowhere for relevant Notebook evidence. Returns tagged text with pick numbers for finalize citations, evidence refs such as r1:result:1, and connected image/table asset paths when present. Call once per turn; do not change the query and search again.",
       inputSchema: knowhereSearchSchema,
       execute: async (request) =>
         traceToolCall(input.state, {
@@ -942,19 +942,11 @@ async function executeKnowhereSearch(input: {
     operation: "search",
     execute: async () => {
       const attemptCount = input.state.knowhereSearchAttemptCount ?? 0
-      const gapReason = input.request.gapReason?.trim()
-      if (attemptCount > 0 && !gapReason) {
-        return knowhereToolText.formatError({
-          operation: "search",
-          message:
-            "This is a follow-up search. Set gapReason to what the previous search lacked and how this query will fill that gap.",
-        })
-      }
       if (attemptCount >= maxKnowhereSearchAttempts) {
         return knowhereToolText.formatError({
           operation: "search",
           message:
-            "Knowhere search already completed its initial search and two refinements. Call prepareAnswer now.",
+            "Knowhere search already ran for this turn. Call prepareAnswer now.",
         })
       }
       input.state.knowhereSearchAttemptCount = attemptCount + 1
@@ -969,7 +961,6 @@ async function executeKnowhereSearch(input: {
           : {}),
         targetContent: input.request.targetContent,
         purpose: input.request.purpose,
-        ...(gapReason ? { gapReason } : {}),
         topK: input.request.topK,
         signalPaths: input.request.signalPaths,
         filterMode: input.request.filterMode,
@@ -1095,7 +1086,6 @@ function summarizeKnowhereSearchRequest(request: {
   readonly query: string
   readonly targetContent?: KnowhereSearchTargetContent
   readonly purpose?: string
-  readonly gapReason?: string
   readonly topK?: number
   readonly signalPaths?: readonly string[]
   readonly filterMode?: string
@@ -1105,7 +1095,6 @@ function summarizeKnowhereSearchRequest(request: {
     query: request.query,
     targetContent: request.targetContent ?? "all",
     purpose: request.purpose,
-    gapReason: request.gapReason,
     topK: request.topK,
     signalPathCount: request.signalPaths?.length ?? 0,
     filterMode: request.filterMode,
@@ -1205,19 +1194,17 @@ export function buildHarnessSystemPrompt(turn: AgentTurnInput): string {
     "1. Call declareIntent when it helps you plan the response. Capture constraints like a requested image/table count in constraints.desiredCount.",
     "2. Call setContextPolicy when prior turns may influence this turn.",
     "3. When the policy needs prior-turn detail (references or corrections), call readPriorTurn for the relevant ids.",
-    "4. Call memory_search for relevant fluid memory and knowhere_search when groundingPolicy requires source documents. When both are useful, call them together in the same step. If the returned evidence is not enough to answer, or the query needs to focus differently, call knowhere_search again with a refined query (different keywords / topK / targetContent) instead of trying to browse documents directly. Knowhere's own retrieval agent already navigates the corpus internally.",
-    "5. After a search returns new evidence, call retainEvidence with the pick numbers from that search you will keep, then decide whether to search again or prepare the answer. An empty picks list means this search found nothing useful. Picks not retained cannot be cited later.",
+    "4. Call memory_search for relevant fluid memory and knowhere_search when groundingPolicy requires source documents. When both are useful, call them together in the same step. Call knowhere_search once; do not change the query and search again. Knowhere's own retrieval agent already navigates the corpus internally.",
+    "5. After a search returns new evidence, call retainEvidence with the pick numbers from that search you will keep, then prepare the answer. An empty picks list means this search found nothing useful. Picks not retained cannot be cited later.",
     "6. When retrieval is complete, call prepareAnswer. The retained evidence, all fluid memory results, and the user's original question will be assembled into one multimodal message.",
     "7. Read that assembled message once and call finalize with the answer, citations, artifacts, and unresolved issues.",
     "",
     "Retrieval rules:",
     "- memory_search and knowhere_search are parallel retrieval sources. When both apply, call them together rather than making one wait for the other.",
     "- Call memory_search once per turn. An empty result remains empty; do not retry it.",
-    "- Call knowhere_search when groundingPolicy requires citing source documents.",
-    "- Image/table asset paths in retrieved chunks represent connected assets that prepareAnswer will resolve into table HTML and image inputs. Do not refine the search solely because those assets have not been expanded yet; refine only when the source content needed to answer is missing.",
-    "- After each search that returns new evidence, call retainEvidence before searching again or finalizing.",
-    "- When calling knowhere_search after a previous search in this turn, set gapReason to what the previous search lacked and how the new query will fill that gap.",
-    "- Refine knowhere_search at most twice. After the second refined search, call prepareAnswer regardless of its result.",
+    "- Call knowhere_search once per turn when groundingPolicy requires citing source documents. An empty result remains empty; do not change the query and search again.",
+    "- Image/table asset paths in retrieved chunks represent connected assets that prepareAnswer will resolve into table HTML and image inputs. Do not search again because those assets have not been expanded yet.",
+    "- After a search that returns new evidence, call retainEvidence before preparing the answer.",
     "- Do not treat every question as a document-retrieval task.",
     "- For document-scoped searches, use includeDocumentIds/excludeDocumentIds only with verified IDs from prior search results. If IDs are unknown, preserve the document requirement in query so Knowhere can locate it. Never invent IDs or substitute filenames. Exclusions win; an empty includeDocumentIds means no documents.",
     "",

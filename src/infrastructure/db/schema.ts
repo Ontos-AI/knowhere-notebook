@@ -384,6 +384,7 @@ export const chatMessages = pgTable(
     content: text("content").notNull(),
     citations: jsonb("citations"),
     artifacts: jsonb("artifacts"),
+    agentTrace: jsonb("agent_trace"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

@@ -422,6 +422,7 @@ describe("chat route services", () => {
           assistantText: "Summary",
           sourceMessageId: "message_assistant",
           referencedDocumentIds: [],
+          recentContext: [],
         },
       ],
     })
@@ -677,6 +678,7 @@ function makeMessage(overrides: Partial<ChatMessage> = {}): ChatMessage {
     content: "Message",
     citations: null,
     artifacts: null,
+    agentTrace: null,
     createdAt: new Date("2026-05-06T00:00:00Z"),
     ...overrides,
   }

@@ -80,6 +80,11 @@ describe("handleChatTurn", () => {
       content: "Grounded answer.",
       citations: [],
       artifacts: [],
+      agentTrace: {
+        intentTask: "",
+        toolCalls: [],
+        referencedDocumentIds: [],
+      },
     });
   });
 
@@ -416,6 +421,7 @@ function makeMessage(overrides: Partial<ChatMessage> = {}): ChatMessage {
     content: overrides.content ?? "message",
     citations: null,
     artifacts: null,
+    agentTrace: null,
     createdAt: new Date("2026-05-06T00:00:00Z"),
     ...overrides,
   };

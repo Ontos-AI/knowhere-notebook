@@ -15,6 +15,7 @@ import type {
   ChatCitationView,
   ChatMessageView,
 } from "@/domains/chat/types"
+import type { ChatAgentTrace } from "./agent-trace"
 
 export type ChatRepository = {
   ensureDefaultChatThread(workspaceId: string): Promise<ChatThread>
@@ -34,6 +35,7 @@ export type ChatRepository = {
       content: string
       citations?: readonly ChatCitationView[] | null
       artifacts?: readonly ChatArtifactView[] | null
+      agentTrace?: ChatAgentTrace | null
     },
   ): Promise<ChatMessage | null>
 }
@@ -156,6 +158,7 @@ export const handleChatTurnEffect = (input: ChatTurnInput) =>
         content: answer.answer,
         citations: answer.citations,
         artifacts: answer.artifacts,
+        agentTrace: answer.agentTrace,
       }),
     )
     if (!assistantMessage) {

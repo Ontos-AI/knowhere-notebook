@@ -93,7 +93,6 @@ export type KnowhereSearchRequest = Pick<
   readonly excludeDocumentIds?: string[]
   readonly targetContent?: KnowhereSearchTargetContent
   readonly purpose?: string
-  readonly gapReason?: string
 }
 
 export type KnowhereToolRuntime = {
