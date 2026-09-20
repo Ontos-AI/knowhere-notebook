@@ -82,8 +82,7 @@ function parseMemorySearchItem(value: unknown): MemorySearchItem {
   if (
     typeof item.ref !== "string" ||
     typeof item.itemId !== "string" ||
-    typeof item.abstractL0 !== "string" ||
-    typeof item.overviewL1 !== "string" ||
+    typeof item.text !== "string" ||
     !isMemorySearchKind(item.kind)
   ) {
     throw new Error("memento memory_search item is invalid")
@@ -92,8 +91,7 @@ function parseMemorySearchItem(value: unknown): MemorySearchItem {
     ref: item.ref,
     itemId: item.itemId,
     kind: item.kind,
-    abstractL0: item.abstractL0,
-    overviewL1: item.overviewL1,
+    text: item.text,
   }
 }
 

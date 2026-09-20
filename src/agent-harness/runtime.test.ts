@@ -505,8 +505,7 @@ describe("agent harness runtime", () => {
           ref: "mem:1",
           itemId: "item_1",
           kind: "stance",
-          abstractL0: "关注毛利率下滑",
-          overviewL1: "用户把毛利率当作核心观察指标。",
+          text: "关注毛利率下滑 用户把毛利率当作核心观察指标。",
         },
       ],
     })
@@ -531,7 +530,7 @@ describe("agent harness runtime", () => {
     })
     expect(searchText).toContain('<memory operation="search" status="ok">')
     expect(searchText).toContain('ref="mem:1"')
-    expect(searchText).toContain('itemId="item_1"')
+    expect(searchText).not.toContain("itemId")
     expect(repeatedSearchText).toContain('status="error"')
     expect(search).toHaveBeenCalledTimes(1)
     expect(search).toHaveBeenNthCalledWith(1, {
@@ -543,25 +542,23 @@ describe("agent harness runtime", () => {
         ref: "mem:1",
         itemId: "item_1",
         kind: "stance",
-        abstractL0: "关注毛利率下滑",
-        overviewL1: "用户把毛利率当作核心观察指标。",
+        text: "关注毛利率下滑 用户把毛利率当作核心观察指标。",
       },
     ])
 
     const manifest = {
       text: "按已有记忆，毛利率是核心观察指标。",
       citations: [],
-      memoryCitations: [
-        { ref: "mem:1", itemId: "item_1", kind: "stance" as const },
-      ],
+      memoryCitations: [{ ref: "mem:1" }],
       artifacts: [],
       unresolved: [],
     }
+    const resolvedMemoryCitations = [
+      { ref: "mem:1", itemId: "item_1", kind: "stance" as const },
+    ]
     const invalidManifest = {
       ...manifest,
-      memoryCitations: [
-        { ref: "mem:1", itemId: "invented_item", kind: "stance" as const },
-      ],
+      memoryCitations: [{ ref: "mem:missing" }],
     }
     expect(await executeTool(tools.finalize, invalidManifest)).toMatchObject({
       ok: false,
@@ -571,9 +568,12 @@ describe("agent harness runtime", () => {
 
     expect(await executeTool(tools.finalize, manifest)).toMatchObject({
       ok: true,
-      memoryCitations: manifest.memoryCitations,
+      memoryCitations: resolvedMemoryCitations,
     })
-    expect(state.finalizedManifest).toEqual(manifest)
+    expect(state.finalizedManifest).toEqual({
+      ...manifest,
+      memoryCitations: resolvedMemoryCitations,
+    })
   })
 
   it("exposes full prior-turn content through policy-approved readPriorTurn", async () => {

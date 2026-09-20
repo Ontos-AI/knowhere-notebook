@@ -136,9 +136,8 @@ function formatChunkLabel(pick: number, chunk: EvidenceChunk): string {
 
 function formatMemoryItem(item: MemorySearchItem): string {
   return [
-    `[memory ref="${item.ref}" itemId="${item.itemId}" kind="${item.kind}"]`,
-    item.abstractL0.trim(),
-    item.overviewL1.trim(),
+    `[memory ref="${item.ref}" kind="${item.kind}"]`,
+    item.text.trim(),
   ]
     .filter((part) => part.length > 0)
     .join("\n")

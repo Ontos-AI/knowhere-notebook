@@ -11,12 +11,17 @@ import { summarizeUnknownError } from "@/lib/format-log-value"
 import { logger } from "@/lib/logger"
 import { readMementoConfig } from "./config"
 
+export type MementoCaptureTurn = {
+  readonly userText: string
+  readonly assistantText?: string
+  readonly sourceMessageId?: string
+  readonly referencedDocumentIds?: readonly string[]
+}
+
 export type MementoCaptureInput = {
   readonly workspaceId: string
-  readonly sourceMessageId: string | null
-  readonly userText: string
-  readonly assistantText: string
-  readonly referencedDocumentIds: readonly string[]
+  readonly sessionId: string
+  readonly turns: readonly MementoCaptureTurn[]
 }
 
 export type MementoActivationInput = {
