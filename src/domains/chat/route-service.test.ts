@@ -204,6 +204,7 @@ describe("chat route services", () => {
         hardenChatAssetUrl: expect.any(Function),
         resolveConnectedAssets: expect.any(Function),
         readTableHtml: expect.any(Function),
+        readImage: expect.any(Function),
         repository: expect.objectContaining({
           appendMessageToThread: expect.any(Function),
           ensureDefaultChatThread: expect.any(Function),
@@ -244,6 +245,53 @@ describe("chat route services", () => {
 
     const result = await chatAnswerRouteService.answerChat({
       body: { message: "Read the table" },
+    })
+
+    expect(result.status).toBe(200)
+    expect(fetch).toHaveBeenCalledWith(signedUrl)
+  })
+
+  it("injects a reader that returns signed image bytes", async () => {
+    const workspace = makeWorkspace()
+    const client = { retrieval: { query: vi.fn() } }
+    const signedUrl = "https://knowhere-storage.example/images/chart.png?signature=valid"
+    const imageBytes = new Uint8Array([137, 80, 78, 71])
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(imageBytes, {
+        headers: { "content-type": "image/png" },
+      })),
+    )
+    mocks.getAuthenticatedWithClient.mockResolvedValue({
+      user: { id: "user_1" },
+      workspace,
+      apiKey: "jwt_123",
+      client,
+    })
+    mocks.listSourcesForWorkspace.mockResolvedValue([makeSource()])
+    mocks.handleChatTurn.mockImplementation(
+      async (input: {
+        readonly readImage?: (assetUrl: string) => Promise<{
+          readonly body: Uint8Array
+          readonly mediaType: string
+        }>
+      }) => {
+        expect(await input.readImage?.(signedUrl)).toEqual({
+          body: imageBytes,
+          mediaType: "image/png",
+        })
+        return Either.right({
+          threadId: "thread_1",
+          messages: [
+            { id: "message_user", role: "user", content: "Read the chart" },
+            { id: "message_assistant", role: "assistant", content: "Answer" },
+          ],
+        })
+      },
+    )
+
+    const result = await chatAnswerRouteService.answerChat({
+      body: { message: "Read the chart" },
     })
 
     expect(result.status).toBe(200)

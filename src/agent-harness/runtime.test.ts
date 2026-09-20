@@ -117,6 +117,11 @@ describe("agent harness runtime", () => {
     const readTableHtml = vi
       .fn()
       .mockResolvedValue("<table><tr><td>comparison</td></tr></table>")
+    const comparisonJpg = new Uint8Array([9, 8, 7])
+    const readImage = vi.fn().mockResolvedValue({
+      body: comparisonJpg,
+      mediaType: "image/jpeg",
+    })
 
     const result = await runAgentHarness({
       model,
@@ -127,6 +132,7 @@ describe("agent harness runtime", () => {
       memoryTools: makeMemoryTools(),
       resolveConnectedAssets,
       readTableHtml,
+      readImage,
     })
 
     expect(model.doGenerateCalls).toHaveLength(5)
@@ -137,6 +143,7 @@ describe("agent harness runtime", () => {
     expect(readTableHtml).toHaveBeenCalledWith(
       "https://assets.example/table_chunk",
     )
+    expect(readImage).toHaveBeenCalledWith("https://assets.example/image_chunk")
     expect(JSON.stringify(model.doGenerateCalls[4]?.prompt)).toContain(
       "<table><tr><td>comparison</td></tr></table>",
     )
@@ -1208,7 +1215,7 @@ function makeConnectedRetrievalResponse(): RetrievalQueryResponse {
     results: [
       {
         chunkId: "text_chunk",
-        content: "Comparison [tables/comparison.html]",
+        content: "Comparison [tables/comparison.html] [images/comparison.jpg]",
         chunkType: "text",
         score: 0.9,
         metadata: {
