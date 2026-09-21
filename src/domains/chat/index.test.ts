@@ -31,6 +31,7 @@ const loggerMock = vi.hoisted(() => ({
   warn: vi.fn(),
   error: vi.fn(),
 }));
+const listActivationsMock = vi.hoisted(() => vi.fn().mockResolvedValue([]));
 
 vi.mock("@/lib/logger", () => ({
   logger: {
@@ -40,11 +41,19 @@ vi.mock("@/lib/logger", () => ({
   },
 }));
 
+vi.mock("@/integrations/memento/client", () => ({
+  listActivations: listActivationsMock,
+  getWorkspaceProfile: vi.fn().mockResolvedValue(null),
+  searchRelevantAgentFeedback: vi.fn().mockResolvedValue([]),
+}));
+
 afterEach(() => {
   vi.restoreAllMocks();
   loggerMock.info.mockReset();
   loggerMock.warn.mockReset();
   loggerMock.error.mockReset();
+  listActivationsMock.mockReset();
+  listActivationsMock.mockResolvedValue([]);
   delete process.env.AI_GATEWAY_API_KEY;
 });
 
@@ -109,6 +118,63 @@ describe("answerQuestionWithRetrieval", () => {
         referencedDocumentIds: [],
       },
     });
+    expect(listActivationsMock).not.toHaveBeenCalled();
+  });
+
+  it("multiplies Knowhere scores by the Memento ranking factor when a ledger row exists", async () => {
+    listActivationsMock.mockResolvedValue([
+      { unitRef: "doc_included:chunk_1", rankingFactor: 1.25 },
+    ]);
+    const retrieval = {
+      query: vi.fn().mockResolvedValue({
+        results: [
+          makeRetrievalResult({
+            chunkId: "chunk_1",
+            score: 0.8,
+            source: { documentId: "doc_included" },
+          }),
+          makeRetrievalResult({
+            chunkId: "chunk_new",
+            score: 0.6,
+            source: { documentId: "doc_included" },
+          }),
+        ],
+        evidenceText: "Grounding content",
+        referencedChunks: [],
+        namespace: "notebook-workspace",
+        query: "What does the document say?",
+        routerUsed: "workflow_single_step",
+        answerText: null,
+      }),
+    };
+    let mixedScores: readonly (number | null)[] = [];
+    const generateAnswer = vi.fn<GenerateAnswer>(async ({ searchSources }) => {
+      const response = await searchSources({
+        query: "What does the document say?",
+      });
+      mixedScores = response.results.map((result) => result.score);
+      return makeHarnessRunResult("The answer is grounded.");
+    });
+
+    await Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "What does the document say?",
+        workspaceId: "workspace_1",
+        namespace: "notebook-workspace",
+        sources: [makeSource({ knowhereDocumentId: "doc_included" })],
+        excludedSourceIds: [],
+        retrieval,
+        generateAnswer,
+        messages: [],
+      }),
+    );
+
+    expect(listActivationsMock).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      unitType: "crystal_chunk",
+      unitRefs: ["doc_included:chunk_1", "doc_included:chunk_new"],
+    });
+    expect(mixedScores).toEqual([1, 0.6]);
   });
 
   it("returns a slim Notebook TRACE and does not pass the Knowhere TRACE through", async () => {
@@ -1189,6 +1255,7 @@ describe("answerQuestionWithRetrieval", () => {
           ],
           unresolved: [],
         },
+        memoryItems: [],
         trace: {
           ...makeHarnessRunResult("").trace,
           finalized: true,
@@ -1931,6 +1998,7 @@ describe("answerQuestionWithRetrieval", () => {
           ],
           unresolved: [],
         },
+        memoryItems: [],
         trace: {
           ledger: {
             retrievalCount: 1,
@@ -2280,6 +2348,7 @@ describe("answerQuestionWithRetrieval", () => {
           ],
           unresolved: [],
         },
+        memoryItems: [],
         trace: {
           ...makeHarnessRunResult("").trace,
           finalized: true,
@@ -2403,6 +2472,7 @@ describe("answerQuestionWithRetrieval", () => {
           ],
           unresolved: [],
         },
+        memoryItems: [],
         trace: {
           ...makeHarnessRunResult("").trace,
           finalized: true,
@@ -3162,6 +3232,7 @@ function makeHarnessRunResult(text: string): HarnessRunResult {
       artifacts: [],
       unresolved: [],
     },
+    memoryItems: [],
     trace: {
       ledger: {
         retrievalCount: 0,
@@ -3213,6 +3284,7 @@ function makeHarnessRunResultWithLedger(
       artifacts: input.artifacts ?? [],
       unresolved: [],
     },
+    memoryItems: [],
     trace: {
       ...makeHarnessRunResult("").trace,
       imageHighlights: input.imageHighlights ?? [],

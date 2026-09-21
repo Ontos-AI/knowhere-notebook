@@ -1,9 +1,15 @@
 import { Either } from "effect"
 
-import type { MemoryCitation } from "@/agent-harness"
+import type {
+  EvidenceAsset,
+  EvidenceChunk,
+  HarnessRunResult,
+  MemoryCitation,
+} from "@/agent-harness"
 import {
   captureMemoryTurn,
-  recordActivations,
+  reportRetrieval,
+  type MementoRetrievalUnit,
 } from "@/integrations/memento/client"
 import { readChatAgentTrace, toRecentCaptureContext } from "./agent-trace"
 import { generateAgenticOutputManifest } from "./prompt"
@@ -17,13 +23,18 @@ import {
 type CommitChatTurnInput = Parameters<typeof handleChatTurn>[0]
 
 /**
- * Production chat-turn commit used by the HTTP route: answer → persist →
- * capture fluid memory on Memento → record cited crystal/memory activations.
+ * Production chat-turn commit: answer → persist → capture fluid memory
+ * → report this turn's retrieved set and cited subset to Memento.
  */
 export async function commitChatTurn(
   input: CommitChatTurnInput,
 ): Promise<Either.Either<ChatTurnValue, ChatTurnError>> {
   let memoryCitations: readonly MemoryCitation[] = []
+  let citedChunkRefs: readonly { readonly ref: string }[] = []
+  let retrievedChunks: readonly EvidenceChunk[] = []
+  let retrievedAssets: readonly EvidenceAsset[] = []
+  let retrievedMemoryItems: readonly { readonly itemId: string }[] = []
+  let didRetrieve = false
   const result = await handleChatTurn({
     ...input,
     generateAnswer: async (generateInput) => {
@@ -31,6 +42,11 @@ export async function commitChatTurn(
         ...generateInput,
       })
       memoryCitations = generated.manifest.memoryCitations
+      citedChunkRefs = generated.manifest.citations
+      retrievedChunks = generated.trace.ledger.chunks
+      retrievedAssets = generated.trace.ledger.assets
+      retrievedMemoryItems = generated.memoryItems
+      didRetrieve = turnHadRetrieval(generated)
       return generated
     },
   })
@@ -65,14 +81,21 @@ export async function commitChatTurn(
         },
       ],
     })
-    void recordChunkActivations({
-      workspaceId: input.workspace.id,
-      citations: assistantMessage.citations,
-    })
-    void recordMemoryActivations({
-      workspaceId: input.workspace.id,
-      memoryCitations,
-    })
+    if (didRetrieve) {
+      void reportRetrieval({
+        workspaceId: input.workspace.id,
+        retrieved: [
+          ...toChunkUnits(retrievedChunks),
+          ...toMemoryUnits(retrievedMemoryItems),
+        ],
+        cited: [
+          ...toChunkUnits(
+            resolveCitedChunks(citedChunkRefs, retrievedChunks, retrievedAssets),
+          ),
+          ...toMemoryUnits(memoryCitations),
+        ],
+      })
+    }
   }
 
   return result
@@ -91,52 +114,54 @@ export async function commitAgenticChatTurn(
   })
 }
 
-/**
- * Fire-and-forget activation ledger write for crystal chunks actually cited
- * in this turn's answer. Only citations with both a documentId and a
- * chunkId count — a citation missing either can't be identified down to a
- * chunk (see ChatCitationView / RetrievalResultView).
- */
-export async function recordChunkActivations(input: {
-  readonly workspaceId: string
-  readonly citations: readonly ChatCitationView[] | undefined
-}): Promise<void> {
-  const activationInputs = (input.citations ?? []).flatMap((citation) => {
-    const documentId = citation.source.documentId
-    const chunkId = citation.chunkId
+function turnHadRetrieval(generated: HarnessRunResult): boolean {
+  if (generated.trace.ledger.retrievalCount > 0) return true
+  if (generated.trace.ledger.chunks.length > 0) return true
+  if (generated.memoryItems.length > 0) return true
+  return generated.trace.toolCalls.some(
+    (call) => call.tool === "memory_search" || call.tool === "knowhere_search",
+  )
+}
+
+function toChunkUnits(
+  chunks: readonly EvidenceChunk[],
+): MementoRetrievalUnit[] {
+  return chunks.flatMap((chunk) => {
+    const documentId = chunk.source.documentId
+    const chunkId = chunk.chunkId
     if (!documentId || !chunkId) return []
     return [
       {
-        workspaceId: input.workspaceId,
         unitType: "crystal_chunk" as const,
-        unitRef: toChunkUnitRef({ documentId, chunkId }),
+        unitRef: `${documentId}:${chunkId}`,
       },
     ]
   })
-  await recordActivations(activationInputs)
 }
 
-/**
- * Fire-and-forget activation ledger write for fluid memory items actually
- * cited in this turn's finalize output.
- */
-export async function recordMemoryActivations(input: {
-  readonly workspaceId: string
-  readonly memoryCitations: readonly MemoryCitation[]
-}): Promise<void> {
-  const activationInputs = input.memoryCitations.map((citation) => ({
-    workspaceId: input.workspaceId,
+function resolveCitedChunks(
+  citations: readonly { readonly ref: string }[],
+  chunks: readonly EvidenceChunk[],
+  assets: readonly EvidenceAsset[],
+): EvidenceChunk[] {
+  const chunksByRef = new Map(chunks.map((chunk) => [chunk.ref, chunk]))
+  const assetsByRef = new Map(assets.map((asset) => [asset.ref, asset]))
+  return citations.flatMap((citation) => {
+    const direct = chunksByRef.get(citation.ref)
+    if (direct) return [direct]
+    const asset = assetsByRef.get(citation.ref)
+    const fromAsset = asset ? chunksByRef.get(asset.chunkRef) : undefined
+    return fromAsset ? [fromAsset] : []
+  })
+}
+
+function toMemoryUnits(
+  items: readonly { readonly itemId: string }[],
+): MementoRetrievalUnit[] {
+  return items.map((item) => ({
     unitType: "fluid_memory" as const,
-    unitRef: citation.itemId,
+    unitRef: item.itemId,
   }))
-  await recordActivations(activationInputs)
-}
-
-function toChunkUnitRef(input: {
-  readonly documentId: string
-  readonly chunkId: string
-}): string {
-  return `${input.documentId}:${input.chunkId}`
 }
 
 function collectCitationDocumentIds(

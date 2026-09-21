@@ -147,6 +147,20 @@ export type MemoryToolRuntime = {
   readonly search: (input: MemorySearchRequest) => Promise<MemorySearchResponse>
 }
 
+export type WorkspaceProfile = {
+  readonly name?: string
+  readonly occupation?: string
+  readonly ageStage?: string
+  readonly communicationHabit?: string
+  readonly workHabit?: string
+}
+
+export type AgentFeedbackLesson = {
+  readonly itemId: string
+  readonly text: string
+  readonly reflection: string
+}
+
 export type MemoryCitation = {
   readonly ref: string
   readonly itemId: string
@@ -316,4 +330,5 @@ export type HarnessTrace = {
 export type HarnessRunResult = {
   readonly manifest: OutputManifest
   readonly trace: HarnessTrace
+  readonly memoryItems: readonly MemorySearchItem[]
 }

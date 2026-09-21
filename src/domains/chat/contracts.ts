@@ -65,6 +65,7 @@ export type GenerateAnswer = (input: {
 
 export type AnswerQuestionInput = {
   question: string
+  workspaceId?: string
   namespace: string
   namespaces?: readonly string[]
   sources: readonly Source[]

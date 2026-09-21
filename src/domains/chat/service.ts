@@ -132,6 +132,7 @@ export const handleChatTurnEffect = (input: ChatTurnInput) =>
 
     const answer = yield* answerQuestionWithRetrieval({
       question: input.question,
+      workspaceId: input.workspace.id,
       namespace: input.workspace.namespace,
       namespaces: [sharedLibraryNamespace],
       sources: readySources,

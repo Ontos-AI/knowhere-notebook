@@ -1,9 +1,11 @@
 import type { ModelMessage } from "ai"
 
 import type {
+  AgentFeedbackLesson,
   EvidenceLedgerSnapshot,
   EvidencePart,
   MemorySearchItem,
+  WorkspaceProfile,
 } from "./types"
 
 type UserContentParts = Exclude<
@@ -16,8 +18,25 @@ export async function composeAnswerContext(input: {
   readonly memoryItems: readonly MemorySearchItem[]
   readonly memorySearchAttempted?: boolean
   readonly userText: string
+  readonly profile?: WorkspaceProfile | null
+  readonly agentFeedbackLessons?: readonly AgentFeedbackLesson[]
 }): Promise<ModelMessage> {
   const content: UserContentParts = []
+
+  const profileText = formatProfile(input.profile)
+  if (profileText) {
+    appendText(content, `## User Profile\n${profileText}`)
+  }
+
+  if (input.agentFeedbackLessons && input.agentFeedbackLessons.length > 0) {
+    appendText(
+      content,
+      [
+        "## Lessons from Past Mistakes",
+        ...input.agentFeedbackLessons.map(formatLesson),
+      ].join("\n\n"),
+    )
+  }
 
   if (input.ledger.evidence.length === 0 && input.ledger.retrievalCount > 0) {
     appendText(
@@ -91,6 +110,28 @@ function appendRawText(content: UserContentParts, text: string): void {
     return
   }
   content.push({ type: "text", text })
+}
+
+function formatProfile(profile: WorkspaceProfile | null | undefined): string | null {
+  if (!profile) return null
+  const lines = (
+    [
+      ["name", profile.name],
+      ["occupation", profile.occupation],
+      ["ageStage", profile.ageStage],
+      ["communicationHabit", profile.communicationHabit],
+      ["workHabit", profile.workHabit],
+    ] as const
+  ).flatMap(([key, value]) =>
+    value && value.length > 0 ? [`${key}: ${value}`] : [],
+  )
+  return lines.length > 0 ? lines.join("\n") : null
+}
+
+function formatLesson(lesson: AgentFeedbackLesson): string {
+  return [lesson.text.trim(), lesson.reflection.trim()]
+    .filter((part) => part.length > 0)
+    .join("\n")
 }
 
 function formatMemoryItem(item: MemorySearchItem): string {
