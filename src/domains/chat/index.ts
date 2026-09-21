@@ -262,8 +262,6 @@ export const answerQuestionWithRetrieval = (
         ...(input.resolveConnectedAssets
           ? { resolveConnectedAssets: input.resolveConnectedAssets }
           : {}),
-        ...(input.readTableHtml ? { readTableHtml: input.readTableHtml } : {}),
-        ...(input.readImage ? { readImage: input.readImage } : {}),
       }),
     )
 
