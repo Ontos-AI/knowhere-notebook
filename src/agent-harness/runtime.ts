@@ -14,6 +14,7 @@ import { createEvidenceLedger } from "./ledger"
 import { knowhereToolText } from "./knowhere-text"
 import { memoryToolText } from "./memory-text"
 import type {
+  AgentFeedbackLesson,
   AgentTurn,
   AgentTurnInput,
   ContextPolicy,
@@ -32,6 +33,7 @@ import type {
   OutputCitation,
   OutputManifest,
   ResolveConnectedAssets,
+  WorkspaceProfile,
 } from "./types"
 import { memorySearchKinds } from "./types"
 
@@ -49,6 +51,8 @@ export type RunAgentHarnessInput = {
   readonly memoryTools: MemoryToolRuntime
   readonly resolveConnectedAssets?: ResolveConnectedAssets
   readonly maxSteps?: number
+  readonly profile?: WorkspaceProfile | null
+  readonly agentFeedbackLessons?: readonly AgentFeedbackLesson[]
 }
 
 type HarnessToolState = {
@@ -220,6 +224,8 @@ export async function runAgentHarness(
           memoryItems: state.memoryItems ?? [],
           memorySearchAttempted: state.memorySearchAttempted === true,
           userText: input.turn.userText,
+          profile: input.profile,
+          agentFeedbackLessons: input.agentFeedbackLessons,
         })
         await ledger.resolveConnectedAssets(input.resolveConnectedAssets)
       }
@@ -250,6 +256,7 @@ export async function runAgentHarness(
   const ledgerSnapshot = ledger.snapshot()
   return {
     manifest,
+    memoryItems: state.memoryItems ?? [],
     trace: {
       intent: state.intent,
       contextPolicy: state.contextPolicy,

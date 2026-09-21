@@ -27,7 +27,7 @@ const mocks = vi.hoisted(() => ({
   softDeleteChatThread: vi.fn(),
   startBackgroundReconciliation: vi.fn(),
   captureMemoryTurn: vi.fn(),
-  recordActivations: vi.fn(),
+  reportRetrieval: vi.fn(),
 }))
 
 vi.mock("ai", async (importOriginal) => {
@@ -67,7 +67,10 @@ vi.mock("@/domains/sources/background-reconcile", () => ({
 
 vi.mock("@/integrations/memento/client", () => ({
   captureMemoryTurn: mocks.captureMemoryTurn,
-  recordActivations: mocks.recordActivations,
+  reportRetrieval: mocks.reportRetrieval,
+  listActivations: vi.fn().mockResolvedValue([]),
+  getWorkspaceProfile: vi.fn().mockResolvedValue(null),
+  searchRelevantAgentFeedback: vi.fn().mockResolvedValue([]),
 }))
 
 vi.mock("@/domains/sources/workflow-runtime", () => ({

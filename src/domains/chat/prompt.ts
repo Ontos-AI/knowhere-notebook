@@ -20,6 +20,10 @@ import {
   emptyFolderSearchMessage,
   isEmptyFolderScope,
 } from "./retrieval"
+import {
+  getWorkspaceProfile,
+  searchRelevantAgentFeedback,
+} from "@/integrations/memento/client"
 import { mementoMemoryTools } from "@/integrations/memento/memory-tools"
 import { notebookKnowhereTools } from "./knowhere-tools"
 
@@ -60,6 +64,17 @@ export const generateAgenticOutputManifestEffect = (
       messageCharLength: turn.userText.length,
     })
 
+    const extras = yield* Effect.tryPromise(() =>
+      Promise.all([
+        getWorkspaceProfile(input.workspaceId),
+        searchRelevantAgentFeedback({
+          workspaceId: input.workspaceId,
+          query: input.question,
+        }),
+      ]),
+    )
+    const [profile, agentFeedbackLessons] = extras
+
     const result = yield* Effect.tryPromise(() =>
       runAgentHarness({
         model: CHAT_MODEL,
@@ -73,6 +88,8 @@ export const generateAgenticOutputManifestEffect = (
         memoryTools: mementoMemoryTools.createRuntime({
           workspaceId: input.workspaceId,
         }),
+        profile,
+        agentFeedbackLessons,
         ...(input.resolveConnectedAssets
           ? { resolveConnectedAssets: input.resolveConnectedAssets }
           : {}),

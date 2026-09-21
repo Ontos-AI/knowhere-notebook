@@ -53,6 +53,38 @@ describe("composeAnswerContext", () => {
     })
   })
 
+  it("puts profile and lessons before knowledge and memory", async () => {
+    const message = await composeAnswerContext({
+      ledger: {
+        ...makeLedger(),
+        retrievalCount: 0,
+        chunks: [],
+        evidence: [],
+      },
+      memoryItems: [],
+      profile: { occupation: "教师" },
+      agentFeedbackLessons: [
+        {
+          itemId: "fb_1",
+          text: "查毛利率 引用错了",
+          reflection: "下次先核对引用",
+        },
+      ],
+      userText: "再查一次",
+    })
+
+    const text = userContentParts(message)
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("\n")
+    expect(text.indexOf("## User Profile")).toBeLessThan(
+      text.indexOf("## Lessons from Past Mistakes"),
+    )
+    expect(text).toContain("occupation: 教师")
+    expect(text).toContain("下次先核对引用")
+    expect(text).toContain("## User's Question")
+  })
+
   it("omits knowledge and memory sections when neither search ran", async () => {
     const message = await composeAnswerContext({
       ledger: {

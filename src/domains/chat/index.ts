@@ -49,6 +49,11 @@ import {
 import type { HardenableRetrievalResult } from "./media-asset-hardening"
 import { notebookKnowhereTools } from "./knowhere-tools"
 import { toChatAgentTrace } from "./agent-trace"
+import { listActivations } from "@/integrations/memento/client"
+import {
+  applyCrystalChunkRankingFactors,
+  crystalChunkUnitRef,
+} from "./retrieval-ranking"
 
 const DEFAULT_TOP_K = 8
 const MAX_AGENTIC_TOP_K = 12
@@ -235,13 +240,16 @@ export const answerQuestionWithRetrieval = (
       ) {
         throw queryFailures[0]
       }
-      return mergeRetrievalResponses(
-        queryResponses,
-        retrievalPlan,
-        getAgenticMergedEvidenceLimits({
-          namespaceCount: queryResponses.length,
-          topK: queryInput.topK,
-        }),
+      return mixMergedRetrievalScores(
+        input.workspaceId,
+        mergeRetrievalResponses(
+          queryResponses,
+          retrievalPlan,
+          getAgenticMergedEvidenceLimits({
+            namespaceCount: queryResponses.length,
+            topK: queryInput.topK,
+          }),
+        ),
       )
     }
 
@@ -813,6 +821,50 @@ function getRetrievalNamespaces(input: AnswerQuestionInput): readonly string[] {
   }
 
   return namespaces
+}
+
+async function mixMergedRetrievalScores(
+  workspaceId: string | undefined,
+  response: AgenticRetrievalResponse,
+): Promise<AgenticRetrievalResponse> {
+  if (!workspaceId) return response
+  const unitRefs = [
+    ...new Set(
+      response.results.flatMap((result) => {
+        const unitRef = crystalChunkUnitRef(result)
+        return unitRef ? [unitRef] : []
+      }),
+    ),
+  ]
+  if (unitRefs.length === 0) return response
+
+  try {
+    const activations = await listActivations({
+      workspaceId,
+      unitType: "crystal_chunk",
+      unitRefs,
+    })
+    if (activations.length === 0) return response
+    return {
+      ...response,
+      results: applyCrystalChunkRankingFactors(
+        response.results,
+        new Map(
+          activations.map((activation) => [
+            activation.unitRef,
+            activation.rankingFactor,
+          ]),
+        ),
+      ),
+    }
+  } catch (error) {
+    logger.warn("chat-agent: failed to mix retrieval ranking factors", {
+      workspaceId,
+      unitRefCount: unitRefs.length,
+      error: formatUnknownError(error),
+    })
+    return response
+  }
 }
 
 function mergeRetrievalResponses(

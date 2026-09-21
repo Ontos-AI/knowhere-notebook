@@ -3,6 +3,12 @@ import type { RetrievalResult } from "@ontos-ai/knowhere-sdk";
 import { Either } from "effect";
 import type { HarnessRunResult } from "@/agent-harness";
 
+vi.mock("@/integrations/memento/client", () => ({
+  listActivations: vi.fn().mockResolvedValue([]),
+  getWorkspaceProfile: vi.fn().mockResolvedValue(null),
+  searchRelevantAgentFeedback: vi.fn().mockResolvedValue([]),
+}));
+
 import { handleChatTurn } from "./service";
 import type { ChatMessage, ChatThread, Source, Workspace } from "@/infrastructure/db/schema";
 
@@ -452,6 +458,7 @@ function makeHarnessRunResult(text: string): HarnessRunResult {
       artifacts: [],
       unresolved: [],
     },
+    memoryItems: [],
     trace: {
       ledger: {
         retrievalCount: 0,
