@@ -10,8 +10,6 @@ import {
   type AgentTurnInput,
   type HarnessRunResult,
   type KnowhereToolRuntime,
-  type ReadImage,
-  type ReadTableHtml,
   type ResolveConnectedAssets,
 } from "@/agent-harness"
 import type {
@@ -37,8 +35,6 @@ type GenerateAgenticOutputManifestInput = {
   searchSources: SearchSources
   knowhereTools?: KnowhereToolRuntime
   resolveConnectedAssets?: ResolveConnectedAssets
-  readTableHtml?: ReadTableHtml
-  readImage?: ReadImage
   folderScopeSourceIds?: readonly string[]
 }
 
@@ -80,8 +76,6 @@ export const generateAgenticOutputManifestEffect = (
         ...(input.resolveConnectedAssets
           ? { resolveConnectedAssets: input.resolveConnectedAssets }
           : {}),
-        ...(input.readTableHtml ? { readTableHtml: input.readTableHtml } : {}),
-        ...(input.readImage ? { readImage: input.readImage } : {}),
       }),
     )
 

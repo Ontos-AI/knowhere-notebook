@@ -24,7 +24,7 @@ import type {
 } from "./types"
 
 describe("agent harness runtime", () => {
-  it("runs retention, resolves connected assets, assembles once, and finalizes", async () => {
+  it("resolves connected assets, assembles once, and finalizes", async () => {
     const modelResults = [
       toolCallResult([
         {
@@ -54,13 +54,6 @@ describe("agent harness runtime", () => {
           toolCallId: "search",
           toolName: "knowhere_search",
           input: { query: "comparison", targetContent: "all" },
-        },
-      ]),
-      toolCallResult([
-        {
-          toolCallId: "retain",
-          toolName: "retainEvidence",
-          input: { picks: [1] },
         },
       ]),
       toolCallResult([
@@ -114,15 +107,6 @@ describe("agent harness runtime", () => {
           assetUrl: `https://assets.example/${lookup.chunkId}`,
         })),
     )
-    const readTableHtml = vi
-      .fn()
-      .mockResolvedValue("<table><tr><td>comparison</td></tr></table>")
-    const comparisonJpg = new Uint8Array([9, 8, 7])
-    const readImage = vi.fn().mockResolvedValue({
-      body: comparisonJpg,
-      mediaType: "image/jpeg",
-    })
-
     const result = await runAgentHarness({
       model,
       turn: makeTurnInput(),
@@ -131,20 +115,14 @@ describe("agent harness runtime", () => {
       ),
       memoryTools: makeMemoryTools(),
       resolveConnectedAssets,
-      readTableHtml,
-      readImage,
     })
 
-    expect(model.doGenerateCalls).toHaveLength(5)
+    expect(model.doGenerateCalls).toHaveLength(4)
     expect(resolveConnectedAssets).toHaveBeenCalledWith([
       { documentId: "doc_1", chunkId: "table_chunk", type: "table" },
       { documentId: "doc_1", chunkId: "image_chunk", type: "image" },
     ])
-    expect(readTableHtml).toHaveBeenCalledWith(
-      "https://assets.example/table_chunk",
-    )
-    expect(readImage).toHaveBeenCalledWith("https://assets.example/image_chunk")
-    expect(JSON.stringify(model.doGenerateCalls[4]?.prompt)).toContain(
+    expect(JSON.stringify(model.doGenerateCalls[3]?.prompt)).toContain(
       "<table><tr><td>comparison</td></tr></table>",
     )
     expect(result.manifest.citations).toEqual([{ ref: "r1:result:1" }])
@@ -162,14 +140,12 @@ describe("agent harness runtime", () => {
     expect(prompt).not.toContain("call knowhere_search again with a refined query")
     expect(prompt).not.toContain("Refine knowhere_search at most twice")
     expect(prompt).not.toContain("gapReason")
+    expect(prompt).not.toContain("retainEvidence")
     expect(prompt).toContain(
-      "After a search that returns new evidence, call retainEvidence",
+      "Composed evidence is already assembled for the answer step",
     )
     expect(prompt).toContain(
-      "asset paths in retrieved chunks represent connected assets",
-    )
-    expect(prompt).toContain(
-      "Do not search again because those assets have not been expanded yet",
+      "Do not search again because those assets have not been shown yet",
     )
     expect(prompt).not.toContain("knowhere_list_documents")
     expect(prompt).not.toContain("knowhere_get_document_outline")
@@ -216,7 +192,7 @@ describe("agent harness runtime", () => {
       "memory_search and knowhere_search are parallel retrieval sources",
     )
     expect(prompt).toContain(
-      "Images in retained evidence are embedded directly",
+      "Images in search evidence are embedded directly",
     )
     expect(prompt).not.toContain("inspectImage")
   })
@@ -310,7 +286,6 @@ describe("agent harness runtime", () => {
     })
 
     const firstResult = await executeTool(tools.knowhere_search, { query: "first" })
-    await retainLatestSearch(tools, ledger)
     const secondResult = await executeTool(tools.knowhere_search, {
       query: "second",
     })
@@ -339,8 +314,6 @@ describe("agent harness runtime", () => {
       knowhereTools: makeKnowhereTools(),
       recentTurns: [],
     })
-    await retainLatestSearch(tools, ledger)
-
     const rejected = await executeTool(tools.finalize, {
       text: "Target is <130/80 mmHg [[cite:1]].",
       citations: [{ pick: 99 }],
@@ -386,7 +359,6 @@ describe("agent harness runtime", () => {
       knowhereTools: makeKnowhereTools(),
       recentTurns: [],
     })
-    await retainLatestSearch(tools, ledger)
     ledger.addRetrievalResponse({
       ...makeRetrievalResponse(),
       query: "second query",
@@ -403,8 +375,6 @@ describe("agent harness runtime", () => {
         },
       ],
     })
-    await retainLatestSearch(tools, ledger)
-
     const accepted = await executeTool(tools.finalize, {
       text: "Second source [[cite:1]].",
       citations: [{ pick: 2 }],
@@ -935,174 +905,6 @@ describe("agent harness runtime", () => {
     expect(result.toolChoice).toEqual({ type: "tool", toolName: "finalize" })
   })
 
-  it("forces retainEvidence after a search returns new evidence", () => {
-    const result = prepareHarnessStep({
-      stepNumber: 4,
-      hasPendingRetention: true,
-      pendingRetentionRange: { startPick: 1, endPick: 3 },
-      hasKnowhereSearch: true,
-      intent: {
-        task: "answer",
-        dependsOnPreviousTurn: false,
-        retrievalNeeded: "yes",
-        targetModalities: ["text"],
-        constraints: {},
-        groundingPolicy: "must_use_sources",
-      },
-      messages: [],
-    })
-
-    expect(result.activeTools).toEqual(["retainEvidence"])
-    expect(result.toolChoice).toEqual({
-      type: "tool",
-      toolName: "retainEvidence",
-    })
-    expect(result.messages).toEqual([
-      {
-        role: "user",
-        content: expect.stringContaining("1-3"),
-      },
-    ])
-    expect(result.activeTools).not.toContain("finalize")
-    expect(result.activeTools).not.toContain("knowhere_search")
-  })
-
-  it("prepares the answer only after the latest search has been retained", async () => {
-    const ledger = createEvidenceLedger()
-    ledger.addRetrievalResponse(makeRetrievalResponse())
-    const state: { answerContextRequested?: boolean } = {}
-    const tools = createHarnessTools({
-      state,
-      ledger,
-      memoryTools: makeMemoryTools(),
-      knowhereTools: makeKnowhereTools(),
-      recentTurns: [],
-    })
-
-    expect(await executeTool(tools.prepareAnswer, {})).toMatchObject({ ok: false })
-    expect(state.answerContextRequested).not.toBe(true)
-
-    await executeTool(tools.retainEvidence, { picks: [1] })
-    expect(await executeTool(tools.prepareAnswer, {})).toEqual({ ok: true })
-    expect(state.answerContextRequested).toBe(true)
-  })
-
-  it("rejects displayed artifacts whose evidence was not retained", async () => {
-    const ledger = createEvidenceLedger()
-    ledger.addRetrievalResponse(makeRetrievalResponse())
-    const tools = createHarnessTools({
-      state: {},
-      ledger,
-      memoryTools: makeMemoryTools(),
-      knowhereTools: makeKnowhereTools(),
-      recentTurns: [],
-    })
-    await executeTool(tools.retainEvidence, { picks: [] })
-
-    const result = await executeTool(tools.finalize, {
-      text: "See the chart.",
-      citations: [],
-      memoryCitations: [],
-      artifacts: [
-        {
-          type: "image",
-          ref: "asset:r1:result:1",
-          display: true,
-          reason: "Show the chart.",
-        },
-      ],
-      unresolved: [],
-    })
-    expect(result).toMatchObject({
-      ok: false,
-      unretainedArtifactRefs: ["asset:r1:result:1"],
-    })
-  })
-
-  it("rejects retainEvidence picks outside the latest search", async () => {
-    const ledger = createEvidenceLedger()
-    ledger.addRetrievalResponse(makeRetrievalResponse())
-    const tools = createHarnessTools({
-      state: {},
-      ledger,
-      memoryTools: makeMemoryTools(),
-      knowhereTools: makeKnowhereTools(),
-      recentTurns: [],
-    })
-
-    const rejected = await executeTool(tools.retainEvidence, { picks: [2] })
-    expect(rejected).toMatchObject({
-      ok: false,
-      invalidPicks: [2],
-    })
-    expect(ledger.hasPendingRetention()).toBe(true)
-
-    const accepted = await executeTool(tools.retainEvidence, { picks: [] })
-    expect(accepted).toMatchObject({ ok: true, retainedPicks: [] })
-    expect(ledger.hasPendingRetention()).toBe(false)
-    expect(ledger.isRetained(1)).toBe(false)
-  })
-
-  it("rejects finalize of unretained first-search picks after a later search", async () => {
-    const ledger = createEvidenceLedger()
-    const tools = createHarnessTools({
-      state: {},
-      ledger,
-      memoryTools: makeMemoryTools(),
-      knowhereTools: makeKnowhereTools(),
-      recentTurns: [],
-    })
-    ledger.addRetrievalResponse(makeRetrievalResponse())
-    await executeTool(tools.retainEvidence, { picks: [] })
-    ledger.addRetrievalResponse({
-      ...makeRetrievalResponse(),
-      query: "second query",
-      results: [
-        {
-          content: "Second retrieval evidence.",
-          chunkType: "text",
-          score: 0.8,
-          source: {
-            documentId: "doc_2",
-            sourceFileName: "second.pdf",
-            sectionPath: "Second",
-          },
-        },
-      ],
-    })
-    await executeTool(tools.retainEvidence, { picks: [2] })
-
-    const rejected = await executeTool(tools.finalize, {
-      text: "First source [[cite:1]].",
-      citations: [{ pick: 1 }],
-      memoryCitations: [],
-      artifacts: [],
-      unresolved: [],
-    })
-    expect(rejected).toMatchObject({
-      ok: false,
-      unretainedPicks: [1],
-    })
-    expect(String((rejected as { message: string }).message)).toContain(
-      "Unretained citation picks",
-    )
-    expect(String((rejected as { message: string }).message)).not.toContain(
-      "Unknown citation picks",
-    )
-
-    const accepted = await executeTool(tools.finalize, {
-      text: "Second source [[cite:1]].",
-      citations: [{ pick: 2 }],
-      memoryCitations: [],
-      artifacts: [],
-      unresolved: [],
-    })
-    expect(accepted).toMatchObject({
-      ok: true,
-      citations: [{ ref: "r2:result:1" }],
-    })
-  })
-
   it("allows one knowhere_search and rejects a second call", async () => {
     const search = vi
       .fn<KnowhereToolRuntime["search"]>()
@@ -1129,19 +931,6 @@ describe("agent harness runtime", () => {
   })
 
 })
-
-function retainLatestSearch(
-  tools: { retainEvidence: unknown },
-  ledger: ReturnType<typeof createEvidenceLedger>,
-): Promise<unknown> {
-  const pending = ledger.pendingRetentionRange()
-  if (!pending) return Promise.resolve(undefined)
-  const picks: number[] = []
-  for (let pick = pending.startPick; pick <= pending.endPick; pick += 1) {
-    picks.push(pick)
-  }
-  return executeTool(tools.retainEvidence, { picks })
-}
 
 function executeTool(tool: unknown, input: unknown): Promise<unknown> {
   return (tool as { execute: (input: unknown) => Promise<unknown> }).execute(input)
@@ -1210,6 +999,17 @@ function makeConnectedRetrievalResponse(): RetrievalQueryResponse {
     routerUsed: "agent_explore",
     answerText: null,
     evidenceText: "Comparison evidence",
+    evidence: [
+      {
+        type: "text",
+        text: "Comparison \n<table><tr><td>comparison</td></tr></table>\n ",
+      },
+      {
+        type: "image",
+        mediaType: "image/jpeg",
+        data: Buffer.from([9, 8, 7]).toString("base64"),
+      },
+    ],
     stopReason: "answer_done",
     failureReason: null,
     results: [
@@ -1240,7 +1040,7 @@ function makeConnectedRetrievalResponse(): RetrievalQueryResponse {
       },
     ],
     referencedChunks: [],
-  }
+  } as unknown as RetrievalQueryResponse
 }
 
 function toolCallResult(

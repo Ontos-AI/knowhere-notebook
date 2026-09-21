@@ -9,11 +9,7 @@ import { z } from "zod"
 
 import { logger } from "@/lib/logger"
 
-import {
-  composeAnswerContext,
-  type ReadImage,
-  type ReadTableHtml,
-} from "./answer-context"
+import { composeAnswerContext } from "./answer-context"
 import { createEvidenceLedger } from "./ledger"
 import { knowhereToolText } from "./knowhere-text"
 import { memoryToolText } from "./memory-text"
@@ -52,8 +48,6 @@ export type RunAgentHarnessInput = {
   readonly knowhereTools: KnowhereToolRuntime
   readonly memoryTools: MemoryToolRuntime
   readonly resolveConnectedAssets?: ResolveConnectedAssets
-  readonly readTableHtml?: ReadTableHtml
-  readonly readImage?: ReadImage
   readonly maxSteps?: number
 }
 
@@ -219,18 +213,15 @@ export async function runAgentHarness(
     prepareStep: async ({ messages: stepMessages, stepNumber }) => {
       if (
         state.answerContextRequested &&
-        !state.answerContextMessage &&
-        !ledger.hasPendingRetention()
+        !state.answerContextMessage
       ) {
-        await ledger.resolveRetainedConnectedAssets(input.resolveConnectedAssets)
         state.answerContextMessage = await composeAnswerContext({
           ledger: ledger.snapshot(),
           memoryItems: state.memoryItems ?? [],
           memorySearchAttempted: state.memorySearchAttempted === true,
           userText: input.turn.userText,
-          readTableHtml: input.readTableHtml,
-          readImage: input.readImage,
         })
+        await ledger.resolveConnectedAssets(input.resolveConnectedAssets)
       }
       return prepareHarnessStep({
         messages: stepMessages,
@@ -240,8 +231,6 @@ export async function runAgentHarness(
         hasReachedKnowhereSearchLimit:
           (state.knowhereSearchAttemptCount ?? 0) >= maxKnowhereSearchAttempts,
         hasMemorySearch: state.memorySearchAttempted === true,
-        hasPendingRetention: ledger.hasPendingRetention(),
-        pendingRetentionRange: ledger.pendingRetentionRange(),
         answerContextMessage: state.answerContextMessage,
       })
     },
@@ -304,8 +293,6 @@ export function prepareHarnessStep(input: {
   readonly hasKnowhereSearch?: boolean
   readonly hasReachedKnowhereSearchLimit?: boolean
   readonly hasMemorySearch?: boolean
-  readonly hasPendingRetention?: boolean
-  readonly pendingRetentionRange?: { startPick: number; endPick: number } | null
   readonly answerContextMessage?: ModelMessage
   readonly intent?: IntentFrame
 }): HarnessStepPreparation {
@@ -318,23 +305,6 @@ export function prepareHarnessStep(input: {
       toolChoice: {
         type: "tool",
         toolName: "finalize",
-      },
-    }
-  }
-
-  if (input.hasPendingRetention === true && input.pendingRetentionRange) {
-    return {
-      messages: [
-        ...messages,
-        {
-          role: "user",
-          content: buildRetainEvidenceFeedback(input.pendingRetentionRange),
-        },
-      ],
-      activeTools: ["retainEvidence"],
-      toolChoice: {
-        type: "tool",
-        toolName: "retainEvidence",
       },
     }
   }
@@ -469,19 +439,6 @@ type ModelMessageForRole<TRole extends ModelMessage["role"]> = Extract<
   { readonly role: TRole }
 >
 
-function buildRetainEvidenceFeedback(range: {
-  readonly startPick: number
-  readonly endPick: number
-}): string {
-  return [
-    "The latest search returned new evidence that has not been retained.",
-    `Call retainEvidence with the pick numbers you will keep from ${range.startPick}-${range.endPick}.`,
-    "An empty picks list means this search found nothing useful.",
-    "Picks not retained cannot be cited later.",
-    "Do not search or finalize until retainEvidence has been called.",
-  ].join("\n")
-}
-
 export function createHarnessTools(input: {
   readonly state: HarnessToolState
   readonly ledger: ReturnType<typeof createEvidenceLedger>
@@ -538,24 +495,6 @@ export function createHarnessTools(input: {
             })
           },
           summarizeOutput: summarizeMemoryTextOutput,
-        }),
-    }),
-
-    retainEvidence: tool({
-      description:
-        "Keep pick numbers from the latest Knowhere search that are useful. " +
-        "Call this after every search that returns new evidence. " +
-        "An empty picks list means that search found nothing useful. " +
-        "Picks not retained cannot be cited later.",
-      inputSchema: z.object({
-        picks: z.array(z.number().int().positive()),
-      }),
-      execute: async ({ picks }) =>
-        traceToolCall(input.state, {
-          toolName: "retainEvidence",
-          inputSummary: { picks },
-          execute: async () => input.ledger.retainPicks(picks),
-          summarizeOutput: (output) => output,
         }),
     }),
 
@@ -639,19 +578,13 @@ export function createHarnessTools(input: {
 
     prepareAnswer: tool({
       description:
-        "Finish retrieval and assemble retained Knowledge Base evidence, all fluid memory results, and the user's original question into one multimodal message for the answer step.",
+        "Finish retrieval and assemble Knowledge Base search results, all fluid memory results, and the user's original question into one multimodal message for the answer step.",
       inputSchema: z.object({}),
       execute: async () =>
         traceToolCall(input.state, {
           toolName: "prepareAnswer",
           inputSummary: {},
           execute: async () => {
-            if (input.ledger.hasPendingRetention()) {
-              return {
-                ok: false as const,
-                message: "Call retainEvidence for the latest search before prepareAnswer.",
-              }
-            }
             input.state.answerContextRequested = true
             return { ok: true as const }
           },
@@ -679,23 +612,13 @@ export function createHarnessTools(input: {
               ledger: input.ledger,
             })
             if (!resolvedCitations.ok) {
-              if ("unknownPicks" in resolvedCitations) {
-                return {
-                  ok: false as const,
-                  message: buildFinalizeRequiresPicksMessage({
-                    unknownPicks: resolvedCitations.unknownPicks,
-                    ledger: input.ledger.snapshot(),
-                  }),
-                  unknownPicks: resolvedCitations.unknownPicks,
-                }
-              }
               return {
                 ok: false as const,
-                message: buildFinalizeRequiresRetainedPicksMessage({
-                  unretainedPicks: resolvedCitations.unretainedPicks,
+                message: buildFinalizeRequiresPicksMessage({
+                  unknownPicks: resolvedCitations.unknownPicks,
                   ledger: input.ledger.snapshot(),
                 }),
-                unretainedPicks: resolvedCitations.unretainedPicks,
+                unknownPicks: resolvedCitations.unknownPicks,
               }
             }
 
@@ -709,20 +632,6 @@ export function createHarnessTools(input: {
                 message:
                   "memoryCitations must use mem:N refs from this turn's Fluid Memory results.",
                 invalidMemoryCitations: resolvedMemoryCitations.invalid,
-              }
-            }
-
-            const unretainedArtifactRefs = getUnretainedDisplayedArtifactRefs({
-              artifacts: manifest.artifacts,
-              ledger: input.ledger,
-            })
-            if (unretainedArtifactRefs.length > 0) {
-              return {
-                ok: false as const,
-                message: buildFinalizeRequiresRetainedArtifactsMessage(
-                  unretainedArtifactRefs,
-                ),
-                unretainedArtifactRefs,
               }
             }
 
@@ -749,11 +658,9 @@ function resolveCitationPicks(input: {
   readonly ledger: ReturnType<typeof createEvidenceLedger>
 }):
   | { ok: true; citations: OutputCitation[] }
-  | { ok: false; unknownPicks: number[] }
-  | { ok: false; unretainedPicks: number[] } {
+  | { ok: false; unknownPicks: number[] } {
   const chunks = input.ledger.snapshot().chunks
   const unknownPicks: number[] = []
-  const unretainedPicks: number[] = []
   const citations: OutputCitation[] = []
 
   for (const citation of input.citations) {
@@ -766,20 +673,11 @@ function resolveCitationPicks(input: {
       }
       continue
     }
-    if (!input.ledger.isRetained(citation.pick)) {
-      if (!unretainedPicks.includes(citation.pick)) {
-        unretainedPicks.push(citation.pick)
-      }
-      continue
-    }
     citations.push({ ref: chunk.ref })
   }
 
   if (unknownPicks.length > 0) {
     return { ok: false, unknownPicks }
-  }
-  if (unretainedPicks.length > 0) {
-    return { ok: false, unretainedPicks }
   }
   return { ok: true, citations }
 }
@@ -824,67 +722,6 @@ function buildFinalizeRequiresPicksMessage(input: {
   ].join(" ")
 }
 
-function buildFinalizeRequiresRetainedPicksMessage(input: {
-  readonly unretainedPicks: readonly number[]
-  readonly ledger: EvidenceLedgerSnapshot
-}): string {
-  const retained =
-    input.ledger.retainedPicks.length > 0
-      ? `Retained picks: ${input.ledger.retainedPicks.join(" ")}.`
-      : "No evidence picks have been retained."
-  return [
-    "Citations can only use retained evidence picks.",
-    `Unretained citation picks: ${input.unretainedPicks.join(" ")}.`,
-    retained,
-    "Call retainEvidence after each search, then finalize using only retained picks.",
-  ].join(" ")
-}
-
-function getUnretainedDisplayedArtifactRefs(input: {
-  readonly artifacts: readonly OutputArtifactView[]
-  readonly ledger: ReturnType<typeof createEvidenceLedger>
-}): string[] {
-  const refs: string[] = []
-  for (const artifact of input.artifacts) {
-    if (artifact.display === false || artifact.type === "derived_table") continue
-    if (!isRefRetained(input.ledger, artifact.ref) && !refs.includes(artifact.ref)) {
-      refs.push(artifact.ref)
-    }
-  }
-  return refs
-}
-
-function buildFinalizeRequiresRetainedArtifactsMessage(
-  refs: readonly string[],
-): string {
-  return [
-    "Displayed artifacts can only use retained evidence.",
-    `Unretained artifact refs: ${refs.join(" ")}.`,
-    "Call retainEvidence after each search, then finalize using only retained evidence.",
-  ].join(" ")
-}
-
-function pickForRef(
-  snapshot: EvidenceLedgerSnapshot,
-  ref: string,
-): number | null {
-  const chunkIndex = snapshot.chunks.findIndex((chunk) => chunk.ref === ref)
-  if (chunkIndex >= 0) return chunkIndex + 1
-  const asset = snapshot.assets.find((candidate) => candidate.ref === ref)
-  if (!asset) return null
-  const parentIndex = snapshot.chunks.findIndex(
-    (chunk) => chunk.ref === asset.chunkRef,
-  )
-  return parentIndex >= 0 ? parentIndex + 1 : null
-}
-
-function isRefRetained(
-  ledger: ReturnType<typeof createEvidenceLedger>,
-  ref: string,
-): boolean {
-  const pick = pickForRef(ledger.snapshot(), ref)
-  return pick !== null && ledger.isRetained(pick)
-}
 
 type KnowhereToolOperation = "search"
 
@@ -1201,16 +1038,14 @@ export function buildHarnessSystemPrompt(turn: AgentTurnInput): string {
     "2. Call setContextPolicy when prior turns may influence this turn.",
     "3. When the policy needs prior-turn detail (references or corrections), call readPriorTurn for the relevant ids.",
     "4. Call memory_search for relevant fluid memory and knowhere_search when groundingPolicy requires source documents. When both are useful, call them together in the same step. Call knowhere_search once; do not change the query and search again. Knowhere's own retrieval agent already navigates the corpus internally.",
-    "5. After a search returns new evidence, call retainEvidence with the pick numbers from that search you will keep, then prepare the answer. An empty picks list means this search found nothing useful. Picks not retained cannot be cited later.",
-    "6. When retrieval is complete, call prepareAnswer. The retained evidence, all fluid memory results, and the user's original question will be assembled into one multimodal message.",
-    "7. Read that assembled message once and call finalize with the answer, citations, artifacts, and unresolved issues.",
+    "5. After a search, call prepareAnswer. All Knowhere search results, all fluid memory results, and the user's original question will be assembled into one multimodal message.",
+    "6. Read that assembled message once and call finalize with the answer, citations, artifacts, and unresolved issues.",
     "",
     "Retrieval rules:",
     "- memory_search and knowhere_search are parallel retrieval sources. When both apply, call them together rather than making one wait for the other.",
     "- Call memory_search once per turn. An empty result remains empty; do not retry it.",
     "- Call knowhere_search once per turn when groundingPolicy requires citing source documents. An empty result remains empty; do not change the query and search again.",
-    "- Image/table asset paths in retrieved chunks represent connected assets that prepareAnswer will resolve into table HTML and image inputs. Do not search again because those assets have not been expanded yet.",
-    "- After a search that returns new evidence, call retainEvidence before preparing the answer.",
+    "- Image/table asset paths in retrieved chunks are debug references. Composed evidence is already assembled for the answer step. Do not search again because those assets have not been shown yet.",
     "- Do not treat every question as a document-retrieval task.",
     "- For document-scoped searches, use includeDocumentIds/excludeDocumentIds only with verified IDs from prior search results. If IDs are unknown, preserve the document requirement in query so Knowhere can locate it. Never invent IDs or substitute filenames. Exclusions win; an empty includeDocumentIds means no documents.",
     "",
@@ -1223,13 +1058,13 @@ export function buildHarnessSystemPrompt(turn: AgentTurnInput): string {
     "- Final output is the OutputManifest passed to finalize, not freeform tool JSON or trailing text.",
     "- artifacts with display=true are the exact images/tables shown. Never display every candidate; honor constraints.desiredCount / maxCount.",
     "- Use type=derived_table only for tables you create from evidence; every derived_table.sourceRefs entry must reference evidence in the ledger.",
-    "- citations is a list of { pick }. pick is the 1-based number on the search chunk you are using, and it must have been retained. Notebook writes the citation list from those picks. Do not pass documentId or evidence refs as citations.",
+    "- citations is a list of { pick }. pick is the 1-based number on the search chunk you are using. Notebook writes the citation list from those picks. Do not pass documentId or evidence refs as citations.",
     "- Place [[cite:n]] immediately after the supported claim. n is the 1-based index into the citations array passed to finalize.",
     "- Write one marker per index: [[cite:1]] [[cite:3]] [[cite:5]]. Never group indices as [[cite:1, 3, 5]].",
     "- Do not write title/pN, [1], Markdown footnotes, or [Source N: ...] in the answer text. Notebook renders chips from [[cite:n]] and citation metadata.",
     "- Repeat [[cite:n]] when another claim uses the same page. Do not collapse same-page citations to one row.",
     "- If you have no supporting evidence pick, omit citations and list the gap in unresolved.",
-    "- Images in retained evidence are embedded directly in the assembled user message. Read them there; do not call a separate image-inspection step.",
+    "- Images in search evidence are embedded directly in the assembled user message. Read them there; do not call a separate image-inspection step.",
     "- If evidence is insufficient, list it in unresolved instead of fabricating facts.",
     `Surface: ${turn.surface}`,
     `Output capabilities: ${JSON.stringify(turn.outputCapabilities)}`,

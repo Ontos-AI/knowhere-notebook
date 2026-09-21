@@ -153,6 +153,17 @@ export type MemoryCitation = {
   readonly kind: MemorySearchKind
 }
 
+export type EvidencePart =
+  | {
+      readonly type: "text"
+      readonly text: string
+    }
+  | {
+      readonly type: "image"
+      readonly mediaType: string
+      readonly data: string
+    }
+
 export type EvidenceChunk = {
   readonly ref: string
   readonly kind: "result" | "referenced_chunk"
@@ -236,21 +247,15 @@ export type InspectImages = (
   input: ImageInspectionRequest,
 ) => Promise<ImageInspectionResponse>
 
-export type PendingRetentionRange = {
-  readonly startPick: number
-  readonly endPick: number
-}
-
 export type EvidenceLedgerSnapshot = {
   readonly retrievalCount: number
   readonly chunks: readonly EvidenceChunk[]
   readonly assets: readonly EvidenceAsset[]
+  readonly evidence: readonly EvidencePart[]
   readonly evidenceText: readonly string[]
   readonly stopReasons: readonly string[]
   readonly failureReasons: readonly string[]
   readonly decisionTraces: readonly unknown[]
-  readonly retainedPicks: readonly number[]
-  readonly pendingRetention: PendingRetentionRange | null
 }
 
 export type OutputCitation = {

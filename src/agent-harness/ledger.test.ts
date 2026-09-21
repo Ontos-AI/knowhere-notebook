@@ -11,6 +11,7 @@ describe("createEvidenceLedger", () => {
     const snapshot = ledger.addRetrievalResponse(makeRetrievalResponse())
 
     expect(snapshot.retrievalCount).toBe(1)
+    expect(snapshot.evidence).toEqual([{ type: "text", text: "Evidence tree" }])
     expect(snapshot.chunks.map((chunk) => chunk.ref)).toEqual([
       "r1:result:1",
       "r1:result:2",
@@ -193,25 +194,7 @@ describe("createEvidenceLedger", () => {
     expect(snapshot.chunks[0]?.content).toBe("Target BP is <130/80 mmHg.")
   })
 
-  it("opens a pending retention range for new chunks and keeps only retained picks", () => {
-    const ledger = createEvidenceLedger()
-    const snapshot = ledger.addRetrievalResponse(makeRetrievalResponse())
-
-    expect(snapshot.pendingRetention).toEqual({ startPick: 1, endPick: 3 })
-    expect(snapshot.retainedPicks).toEqual([])
-    expect(ledger.hasPendingRetention()).toBe(true)
-
-    const retained = ledger.retainPicks([1, 3])
-    expect(retained).toEqual({ ok: true, retainedPicks: [1, 3] })
-    expect(ledger.hasPendingRetention()).toBe(false)
-    expect(ledger.isRetained(1)).toBe(true)
-    expect(ledger.isRetained(2)).toBe(false)
-    expect(ledger.isRetained(3)).toBe(true)
-    expect(ledger.snapshot().pendingRetention).toBeNull()
-    expect(ledger.snapshot().retainedPicks).toEqual([1, 3])
-  })
-
-  it("does not open pending retention when a search adds no chunks", () => {
+  it("keeps an empty ledger when a search adds no chunks", () => {
     const ledger = createEvidenceLedger()
     const snapshot = ledger.addRetrievalResponse({
       namespace: "notebook",
@@ -226,54 +209,9 @@ describe("createEvidenceLedger", () => {
     })
 
     expect(snapshot.chunks).toEqual([])
-    expect(snapshot.pendingRetention).toBeNull()
-    expect(ledger.hasPendingRetention()).toBe(false)
-    expect(ledger.retainPicks([])).toMatchObject({ ok: false })
   })
 
-  it("rejects retain picks outside the latest search without changing state", () => {
-    const ledger = createEvidenceLedger()
-    ledger.addRetrievalResponse(makeRetrievalResponse())
-
-    expect(ledger.retainPicks([4])).toMatchObject({
-      ok: false,
-      invalidPicks: [4],
-    })
-    expect(ledger.hasPendingRetention()).toBe(true)
-    expect(ledger.snapshot().retainedPicks).toEqual([])
-  })
-
-  it("locks unretained first-search picks after a later search is retained", () => {
-    const ledger = createEvidenceLedger()
-    ledger.addRetrievalResponse(makeRetrievalResponse())
-    expect(ledger.retainPicks([])).toMatchObject({ ok: true, retainedPicks: [] })
-
-    ledger.addRetrievalResponse({
-      ...makeRetrievalResponse(),
-      results: [
-        {
-          content: "Second retrieval evidence.",
-          chunkType: "text",
-          score: 0.8,
-          source: {
-            documentId: "doc_2",
-            sourceFileName: "second.pdf",
-            sectionPath: "Second",
-          },
-        },
-      ],
-      referencedChunks: [],
-    })
-    expect(ledger.pendingRetentionRange()).toEqual({ startPick: 4, endPick: 4 })
-    expect(ledger.retainPicks([4])).toMatchObject({
-      ok: true,
-      retainedPicks: [4],
-    })
-    expect(ledger.isRetained(1)).toBe(false)
-    expect(ledger.isRetained(4)).toBe(true)
-  })
-
-  it("resolves every embedded table and image connected to retained text", async () => {
+  it("resolves every embedded table and image connected to search text", async () => {
     const ledger = createEvidenceLedger()
     ledger.addRetrievalResponse({
       ...makeRetrievalResponse(),
@@ -311,7 +249,6 @@ describe("createEvidenceLedger", () => {
       ],
       referencedChunks: [],
     })
-    ledger.retainPicks([1])
     const resolveConnectedAssets = vi.fn<ResolveConnectedAssets>(
       async (lookups) =>
         lookups.map((lookup) => ({
@@ -320,7 +257,7 @@ describe("createEvidenceLedger", () => {
         })),
     )
 
-    const snapshot = await ledger.resolveRetainedConnectedAssets(
+    const snapshot = await ledger.resolveConnectedAssets(
       resolveConnectedAssets,
     )
 
@@ -350,6 +287,41 @@ describe("createEvidenceLedger", () => {
       }),
     ])
   })
+
+  it("does not block the ledger when no connected asset resolver is provided", async () => {
+    const ledger = createEvidenceLedger()
+    ledger.addRetrievalResponse({
+      ...makeRetrievalResponse(),
+      results: [
+        {
+          chunkId: "text_chunk",
+          content: "Comparison [tables/comparison.html]",
+          chunkType: "text",
+          score: 0.9,
+          metadata: {
+            connectTo: [
+              {
+                target: "table_chunk",
+                relation: "embeds",
+                ref: "[tables/comparison.html]",
+              },
+            ],
+          },
+          source: {
+            documentId: "doc_1",
+            sourceFileName: "cardiology.pdf",
+            sectionPath: "Differential diagnosis",
+          },
+        },
+      ],
+      referencedChunks: [],
+    })
+
+    const snapshot = await ledger.resolveConnectedAssets()
+
+    expect(snapshot.evidence).toEqual([{ type: "text", text: "Evidence tree" }])
+    expect(snapshot.assets).toEqual([])
+  })
 })
 
 function makeRetrievalResponse(): RetrievalQueryResponse {
@@ -359,6 +331,7 @@ function makeRetrievalResponse(): RetrievalQueryResponse {
     routerUsed: "workflow_single_step",
     answerText: null,
     evidenceText: "Evidence tree",
+    evidence: [{ type: "text", text: "Evidence tree" }],
     stopReason: "answer_done",
     failureReason: null,
     decisionTrace: [{ step: "search" }],
@@ -394,7 +367,7 @@ function makeRetrievalResponse(): RetrievalQueryResponse {
         assetUrl: "https://assets.example/images/photo.jpg",
       },
     ],
-  }
+  } as unknown as RetrievalQueryResponse
 }
 
 function makePageAssetUrlRetrievalResponse(): RetrievalQueryResponse {

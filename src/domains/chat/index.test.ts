@@ -1194,12 +1194,11 @@ describe("answerQuestionWithRetrieval", () => {
           finalized: true,
           ledger: {
             retrievalCount: 1,
+            evidence: [],
             evidenceText: ["Identity image evidence."],
             stopReasons: [],
             failureReasons: [],
             decisionTraces: [],
-            retainedPicks: [],
-            pendingRetention: null,
             chunks: [
               {
                 ref: "r1:result:1",
@@ -1935,12 +1934,11 @@ describe("answerQuestionWithRetrieval", () => {
         trace: {
           ledger: {
             retrievalCount: 1,
+            evidence: [],
             evidenceText: ["Identity image candidates."],
             stopReasons: [],
             failureReasons: [],
             decisionTraces: [],
-            retainedPicks: [],
-            pendingRetention: null,
             chunks: [
               {
                 ref: "r1:result:1",
@@ -2196,7 +2194,6 @@ describe("answerQuestionWithRetrieval", () => {
             query: "information hiding",
             targetContent: "text",
           });
-          await tools.retainEvidence?.execute({ picks: [1] });
         }
 
         await tools.finalize?.execute({
@@ -2290,12 +2287,11 @@ describe("answerQuestionWithRetrieval", () => {
           toolCalls: [],
           ledger: {
             retrievalCount: 1,
+            evidence: [],
             evidenceText: ["Diagram candidate."],
             stopReasons: [],
             failureReasons: [],
             decisionTraces: [],
-            retainedPicks: [],
-            pendingRetention: null,
             chunks: [
               {
                 ref: "r1:result:1",
@@ -2412,12 +2408,11 @@ describe("answerQuestionWithRetrieval", () => {
           finalized: true,
           ledger: {
             retrievalCount: 1,
+            evidence: [],
             evidenceText: ["Plan comparison evidence."],
             stopReasons: [],
             failureReasons: [],
             decisionTraces: [],
-            retainedPicks: [],
-            pendingRetention: null,
             chunks: [
               {
                 ref: "r1:result:1",
@@ -2839,7 +2834,6 @@ describe("generateAgenticOutputManifest", () => {
           topK: 2,
           purpose: "Find exactly the requested identity-card images.",
         });
-        await tools.retainEvidence?.execute({ picks: [1] });
         await tools.finalize?.execute({
           text: "已找到相关身份证图片，见下方图片。",
           citations: [{ pick: 1 }],
@@ -2968,7 +2962,6 @@ describe("generateAgenticOutputManifest", () => {
             topK: 3,
             purpose: "Find requested identity images.",
           });
-          await tools.retainEvidence?.execute({ picks: [1, 2, 3] });
           await tools.finalize?.execute({
             text: "见下方图片。",
             citations: [{ pick: 1 }],
@@ -3174,12 +3167,11 @@ function makeHarnessRunResult(text: string): HarnessRunResult {
         retrievalCount: 0,
         chunks: [],
         assets: [],
+        evidence: [],
         evidenceText: [],
         stopReasons: [],
         failureReasons: [],
         decisionTraces: [],
-        retainedPicks: [],
-        pendingRetention: null,
       },
       finalized: true,
       priorTurnReads: [],
@@ -3228,12 +3220,11 @@ function makeHarnessRunResultWithLedger(
         retrievalCount: chunks.length > 0 ? 1 : 0,
         chunks,
         assets: input.assets ?? [],
+        evidence: [],
         evidenceText: [],
         stopReasons: [],
         failureReasons: [],
         decisionTraces: [],
-        retainedPicks: [],
-        pendingRetention: null,
       },
     },
   };

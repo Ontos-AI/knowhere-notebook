@@ -90,9 +90,6 @@ const answerChatEffect = (input: AnswerChatInput) =>
         assetUrl,
         contentType,
       })
-    const readTableHtml = (assetUrl: string): Promise<string> =>
-      readSignedTableHtml(assetUrl)
-    const readImage = (assetUrl: string) => readSignedImage(assetUrl)
     const resolveConnectedAssets = createConnectedAssetResolver(
       knowhereResources.client.documents,
     )
@@ -121,8 +118,6 @@ const answerChatEffect = (input: AnswerChatInput) =>
               hardenChatAssetUrl,
             }),
           resolveConnectedAssets,
-          readTableHtml,
-          readImage,
           repository: chatTurnPersistence.createRepository(),
         }),
       ).pipe(
@@ -176,30 +171,6 @@ async function answerChat(
 
 export const chatAnswerRouteService: ChatAnswerRouteService = {
   answerChat,
-}
-
-async function readSignedTableHtml(assetUrl: string): Promise<string> {
-  const response = await fetch(assetUrl)
-  if (!response.ok) {
-    throw new Error(
-      `Unable to read table HTML: ${response.status} ${response.statusText}`,
-    )
-  }
-  return response.text()
-}
-
-async function readSignedImage(assetUrl: string): Promise<{
-  readonly body: Uint8Array
-  readonly mediaType: string
-}> {
-  const fetched = await fetchChatAsset({
-    assetUrl,
-    fallbackContentType: inferContentTypeFromPath(assetUrl),
-  })
-  return {
-    body: fetched.body,
-    mediaType: fetched.contentType,
-  }
 }
 
 async function hardenSingleChatAsset(input: {

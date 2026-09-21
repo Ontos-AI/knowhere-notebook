@@ -7,7 +7,7 @@ import type {
   EvidenceAsset,
   EvidenceChunk,
   EvidenceLedgerSnapshot,
-  PendingRetentionRange,
+  EvidencePart,
   ResolveConnectedAssets,
 } from "./types"
 import { hasReferencedChunkEvidence } from "./referenced-chunks"
@@ -19,12 +19,11 @@ type MutableLedger = {
   retrievalCount: number
   chunks: EvidenceChunk[]
   assets: EvidenceAsset[]
+  evidence: EvidencePart[]
   evidenceText: string[]
   stopReasons: string[]
   failureReasons: string[]
   decisionTraces: unknown[]
-  retainedPicks: Set<number>
-  pendingRetention: PendingRetentionRange | null
 }
 
 type EvidenceAssetCandidate = {
@@ -57,19 +56,19 @@ export function createEvidenceLedger() {
     retrievalCount: 0,
     chunks: [],
     assets: [],
+    evidence: [],
     evidenceText: [],
     stopReasons: [],
     failureReasons: [],
     decisionTraces: [],
-    retainedPicks: new Set<number>(),
-    pendingRetention: null,
   }
 
   return {
     addRetrievalResponse(response: RetrievalQueryResponse): EvidenceLedgerSnapshot {
-      const chunkCountBefore = ledger.chunks.length
       ledger.retrievalCount += 1
       const retrievalIndex = ledger.retrievalCount
+
+      ledger.evidence.push(...readQueryEvidence(response))
 
       const evidenceText = response.evidenceText?.trim()
       if (evidenceText) ledger.evidenceText.push(evidenceText)
@@ -121,90 +120,15 @@ export function createEvidenceLedger() {
         })
       })
 
-      const chunkCountAfter = ledger.chunks.length
-      if (chunkCountAfter > chunkCountBefore) {
-        ledger.pendingRetention = {
-          startPick: chunkCountBefore + 1,
-          endPick: chunkCountAfter,
-        }
-      }
-
       return snapshot(ledger)
     },
 
-    retainPicks(picks: readonly number[]):
-      | { readonly ok: true; readonly retainedPicks: readonly number[] }
-      | {
-          readonly ok: false
-          readonly message: string
-          readonly invalidPicks: readonly number[]
-        } {
-      const pending = ledger.pendingRetention
-      if (!pending) {
-        return {
-          ok: false,
-          message:
-            "retainEvidence can only be called after a search that returned new evidence.",
-          invalidPicks: [],
-        }
-      }
-
-      const kept: number[] = []
-      const invalidPicks: number[] = []
-      for (const pick of picks) {
-        if (
-          !Number.isInteger(pick) ||
-          pick < pending.startPick ||
-          pick > pending.endPick
-        ) {
-          if (!invalidPicks.includes(pick)) invalidPicks.push(pick)
-          continue
-        }
-        if (!kept.includes(pick)) kept.push(pick)
-      }
-      if (invalidPicks.length > 0) {
-        return {
-          ok: false,
-          message: [
-            "retainEvidence picks must come from the latest search.",
-            `Invalid picks: ${invalidPicks.join(" ")}.`,
-            `Latest search picks: ${pending.startPick}-${pending.endPick}.`,
-          ].join(" "),
-          invalidPicks,
-        }
-      }
-
-      for (const pick of kept) {
-        ledger.retainedPicks.add(pick)
-      }
-      ledger.pendingRetention = null
-      return {
-        ok: true,
-        retainedPicks: [...ledger.retainedPicks].sort((left, right) => left - right),
-      }
-    },
-
-    isRetained(pick: number): boolean {
-      return ledger.retainedPicks.has(pick)
-    },
-
-    hasPendingRetention(): boolean {
-      return ledger.pendingRetention !== null
-    },
-
-    pendingRetentionRange(): PendingRetentionRange | null {
-      return ledger.pendingRetention
-    },
-
-    async resolveRetainedConnectedAssets(
+    async resolveConnectedAssets(
       resolveConnectedAssets?: ResolveConnectedAssets,
     ): Promise<EvidenceLedgerSnapshot> {
-      const candidates = getRetainedConnectedAssetCandidates(ledger)
-      if (candidates.length === 0) return snapshot(ledger)
-      if (!resolveConnectedAssets) {
-        throw new Error(
-          "No connected asset resolver was provided for retained evidence.",
-        )
+      const candidates = getConnectedAssetCandidates(ledger)
+      if (candidates.length === 0 || !resolveConnectedAssets) {
+        return snapshot(ledger)
       }
 
       const lookups = uniqueConnectedAssetLookups(candidates)
@@ -269,7 +193,11 @@ export function createEvidenceLedger() {
     },
 
     hasEvidence(): boolean {
-      return ledger.chunks.length > 0 || ledger.evidenceText.length > 0
+      return (
+        ledger.chunks.length > 0 ||
+        ledger.evidence.length > 0 ||
+        ledger.evidenceText.length > 0
+      )
     },
 
     snapshot(): EvidenceLedgerSnapshot {
@@ -331,12 +259,10 @@ function addChunk(input: {
   })
 }
 
-function getRetainedConnectedAssetCandidates(
+function getConnectedAssetCandidates(
   ledger: MutableLedger,
 ): ConnectedAssetCandidate[] {
-  return ledger.chunks.flatMap((chunk, index) => {
-    if (!ledger.retainedPicks.has(index + 1)) return []
-
+  return ledger.chunks.flatMap((chunk) => {
     const documentId = getTrimmedString(chunk.source.documentId)
     const connections = chunk.metadata?.connectTo ?? chunk.metadata?.connect_to
     if (!Array.isArray(connections)) return []
@@ -348,7 +274,7 @@ function getRetainedConnectedAssetCandidates(
       if (!targetChunkId || !sourcePath) return []
       if (!documentId) {
         throw new Error(
-          `Retained evidence ${chunk.ref} has connected assets but no document ID.`,
+          `Search result ${chunk.ref} has connected assets but no document ID.`,
         )
       }
 
@@ -680,13 +606,40 @@ function snapshot(ledger: MutableLedger): EvidenceLedgerSnapshot {
     retrievalCount: ledger.retrievalCount,
     chunks: [...ledger.chunks],
     assets: [...ledger.assets],
+    evidence: [...ledger.evidence],
     evidenceText: [...ledger.evidenceText],
     stopReasons: [...ledger.stopReasons],
     failureReasons: [...ledger.failureReasons],
     decisionTraces: [...ledger.decisionTraces],
-    retainedPicks: [...ledger.retainedPicks].sort((left, right) => left - right),
-    pendingRetention: ledger.pendingRetention,
   }
+}
+
+function readQueryEvidence(
+  response: RetrievalQueryResponse,
+): EvidencePart[] {
+  const evidence = (response as { evidence?: unknown }).evidence
+  if (!Array.isArray(evidence)) return []
+  const parts: EvidencePart[] = []
+  for (const item of evidence) {
+    const part = asEvidencePart(item)
+    if (part) parts.push(part)
+  }
+  return parts
+}
+
+function asEvidencePart(value: unknown): EvidencePart | null {
+  if (!isRecord(value)) return null
+  if (value.type === "text" && typeof value.text === "string") {
+    return { type: "text", text: value.text }
+  }
+  if (
+    value.type === "image" &&
+    typeof value.mediaType === "string" &&
+    typeof value.data === "string"
+  ) {
+    return { type: "image", mediaType: value.mediaType, data: value.data }
+  }
+  return null
 }
 
 function getDecisionTrace(response: RetrievalQueryResponse): unknown | null {
