@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   bigint,
   index,
   integer,
@@ -57,6 +58,49 @@ export type Workspace = typeof workspaces.$inferSelect;
 export type NewWorkspace = typeof workspaces.$inferInsert;
 
 /**
+ * Notebook-owned folder tree for organizing workspace sources.
+ *
+ * Folders are an optional path used by the sidebar and by chat retrieval
+ * scope. Knowhere never sees folder rows; retrieval converts a folder
+ * (and its descendants) into document IDs.
+ *
+ * `parent_id` is null at the workspace root. Rename/move do not rewrite
+ * a materialized path string — readers walk the adjacency list.
+ */
+export const folders = pgTable(
+  "folders",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    parentId: uuid("parent_id").references((): AnyPgColumn => folders.id, {
+      onDelete: "restrict",
+    }),
+    name: text("name").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("folders_workspace_parent_idx").on(t.workspaceId, t.parentId),
+    uniqueIndex("folders_workspace_parent_name_idx")
+      .on(t.workspaceId, t.parentId, t.name)
+      .where(sql`deleted_at IS NULL AND parent_id IS NOT NULL`),
+    uniqueIndex("folders_workspace_root_name_idx")
+      .on(t.workspaceId, t.name)
+      .where(sql`deleted_at IS NULL AND parent_id IS NULL`),
+  ],
+);
+
+export type Folder = typeof folders.$inferSelect;
+export type NewFolder = typeof folders.$inferInsert;
+
+/**
  * One row per user-uploaded source. The row is the Notebook-owned record
  * of a Knowhere parse + index job; the actual chunks / file bytes live
  * upstream in Knowhere, not here.
@@ -82,6 +126,9 @@ export type NewWorkspace = typeof workspaces.$inferInsert;
  *   - `chunk_count`  — Knowhere document total written when parse completes
  *                      (or when a demo is materialized); homepage reads this
  *                      locally and does not refetch chunks for the sidebar
+ *   - `folder_id`    — optional Notebook folder; null means the source sits
+ *                      at the workspace root. Demo, Official Library, and
+ *                      remote rows stay unfiled in v1.
  *   - `deleted_at`   — soft delete timestamp; reads filter it out
  *
  * Indexes:
@@ -110,6 +157,9 @@ export const sources = pgTable(
     originalBlobUrl: text("original_blob_url"),
     demoKey: text("demo_key"),
     chunkCount: integer("chunk_count"),
+    folderId: uuid("folder_id").references(() => folders.id, {
+      onDelete: "set null",
+    }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -127,6 +177,9 @@ export const sources = pgTable(
     uniqueIndex("sources_workspace_document_idx")
       .on(t.workspaceId, t.knowhereDocumentId)
       .where(sql`knowhere_document_id IS NOT NULL AND deleted_at IS NULL`),
+    index("sources_workspace_folder_idx")
+      .on(t.workspaceId, t.folderId)
+      .where(sql`deleted_at IS NULL`),
   ],
 );
 
@@ -331,6 +384,7 @@ export const chatMessages = pgTable(
     content: text("content").notNull(),
     citations: jsonb("citations"),
     artifacts: jsonb("artifacts"),
+    agentTrace: jsonb("agent_trace"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

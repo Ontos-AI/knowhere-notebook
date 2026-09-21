@@ -7,7 +7,10 @@ import type {
   EvidenceAsset,
   EvidenceChunk,
   EvidenceLedgerSnapshot,
+  EvidencePart,
+  ResolveConnectedAssets,
 } from "./types"
+import { hasReferencedChunkEvidence } from "./referenced-chunks"
 
 const contentPreviewLimit = 1_200
 const imageExtensions = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg"] as const
@@ -16,6 +19,7 @@ type MutableLedger = {
   retrievalCount: number
   chunks: EvidenceChunk[]
   assets: EvidenceAsset[]
+  evidence: EvidencePart[]
   evidenceText: string[]
   stopReasons: string[]
   failureReasons: string[]
@@ -27,6 +31,15 @@ type EvidenceAssetCandidate = {
   readonly assetUrl?: string
   readonly sourcePath?: string
   readonly label: string
+}
+
+type ConnectedAssetCandidate = {
+  readonly chunkRef: string
+  readonly targetChunkId: string
+  readonly documentId: string
+  readonly type: EvidenceAsset["type"]
+  readonly sourcePath: string
+  readonly source: EvidenceChunk["source"]
 }
 
 type PageCitationAssetCandidate = {
@@ -43,6 +56,7 @@ export function createEvidenceLedger() {
     retrievalCount: 0,
     chunks: [],
     assets: [],
+    evidence: [],
     evidenceText: [],
     stopReasons: [],
     failureReasons: [],
@@ -53,6 +67,8 @@ export function createEvidenceLedger() {
     addRetrievalResponse(response: RetrievalQueryResponse): EvidenceLedgerSnapshot {
       ledger.retrievalCount += 1
       const retrievalIndex = ledger.retrievalCount
+
+      ledger.evidence.push(...readQueryEvidence(response))
 
       const evidenceText = response.evidenceText?.trim()
       if (evidenceText) ledger.evidenceText.push(evidenceText)
@@ -76,15 +92,9 @@ export function createEvidenceLedger() {
       })
 
       response.referencedChunks.forEach((chunk, index) => {
-        // Knowhere's agent_explore router returns referencedChunks entries
-        // that may carry only a summary id with no chunkType/content
-        // (despite the SDK type declaring chunkType as required). Skip
-        // entries missing a usable chunkType: they have no real content
-        // (content is always "" here) and chunkType is required downstream
-        // (asset-type detection calls chunkType.toLowerCase()).
-        if (typeof chunk.chunkType !== "string" || chunk.chunkType.trim().length === 0) {
-          return
-        }
+        // ID-only references are provenance, not evidence. Structured page
+        // and media references remain available to the citation pipeline.
+        if (!hasReferencedChunkEvidence(chunk)) return
         const content = ""
         addChunk({
           ledger,
@@ -109,6 +119,46 @@ export function createEvidenceLedger() {
           },
         })
       })
+
+      return snapshot(ledger)
+    },
+
+    async resolveConnectedAssets(
+      resolveConnectedAssets?: ResolveConnectedAssets,
+    ): Promise<EvidenceLedgerSnapshot> {
+      const candidates = getConnectedAssetCandidates(ledger)
+      if (candidates.length === 0 || !resolveConnectedAssets) {
+        return snapshot(ledger)
+      }
+
+      const lookups = uniqueConnectedAssetLookups(candidates)
+      const resolved = await resolveConnectedAssets(lookups)
+      const assetUrlByLookup = new Map(
+        resolved.map((asset) => [connectedAssetLookupKey(asset), asset.assetUrl]),
+      )
+
+      for (const candidate of candidates) {
+        const lookupKey = connectedAssetLookupKey({
+          documentId: candidate.documentId,
+          chunkId: candidate.targetChunkId,
+          type: candidate.type,
+        })
+        const assetUrl = assetUrlByLookup.get(lookupKey)
+        if (!assetUrl) {
+          throw new Error(
+            `Connected ${candidate.type} chunk ${candidate.targetChunkId} was not resolved.`,
+          )
+        }
+        ledger.assets.push({
+          ref: `asset:${candidate.chunkRef}:${candidate.targetChunkId}`,
+          chunkRef: candidate.chunkRef,
+          type: candidate.type,
+          assetUrl,
+          sourcePath: candidate.sourcePath,
+          source: candidate.source,
+          label: formatConnectedAssetLabel(candidate),
+        })
+      }
 
       return snapshot(ledger)
     },
@@ -143,7 +193,11 @@ export function createEvidenceLedger() {
     },
 
     hasEvidence(): boolean {
-      return ledger.chunks.length > 0 || ledger.evidenceText.length > 0
+      return (
+        ledger.chunks.length > 0 ||
+        ledger.evidence.length > 0 ||
+        ledger.evidenceText.length > 0
+      )
     },
 
     snapshot(): EvidenceLedgerSnapshot {
@@ -183,7 +237,7 @@ function addChunkFromResult(input: {
 
 function addChunk(input: {
   readonly ledger: MutableLedger
-  readonly chunk: Omit<EvidenceChunk, "assetRef">
+  readonly chunk: EvidenceChunk
 }): void {
   const asset = getEvidenceAssetCandidate(input.chunk)
   if (!asset) {
@@ -192,21 +246,92 @@ function addChunk(input: {
   }
 
   const assetRef = `asset:${input.chunk.ref}`
-  const chunk: EvidenceChunk = {
-    ...input.chunk,
-    assetRef,
-  }
-  input.ledger.chunks.push(chunk)
+  input.ledger.chunks.push(input.chunk)
   input.ledger.assets.push({
     ref: assetRef,
-    chunkRef: chunk.ref,
+    chunkRef: input.chunk.ref,
     type: asset.type,
     ...(asset.assetUrl ? { assetUrl: asset.assetUrl } : {}),
     ...(asset.sourcePath ? { sourcePath: asset.sourcePath } : {}),
-    ...(chunk.revisionKey ? { revisionKey: chunk.revisionKey } : {}),
-    source: chunk.source,
+    ...(input.chunk.revisionKey ? { revisionKey: input.chunk.revisionKey } : {}),
+    source: input.chunk.source,
     label: asset.label,
   })
+}
+
+function getConnectedAssetCandidates(
+  ledger: MutableLedger,
+): ConnectedAssetCandidate[] {
+  return ledger.chunks.flatMap((chunk) => {
+    const documentId = getTrimmedString(chunk.source.documentId)
+    const connections = chunk.metadata?.connectTo ?? chunk.metadata?.connect_to
+    if (!Array.isArray(connections)) return []
+
+    return connections.flatMap((connection): ConnectedAssetCandidate[] => {
+      if (!isRecord(connection) || connection.relation !== "embeds") return []
+      const targetChunkId = getTrimmedString(connection.target)
+      const sourcePath = getConnectedAssetPath(connection.ref)
+      if (!targetChunkId || !sourcePath) return []
+      if (!documentId) {
+        throw new Error(
+          `Search result ${chunk.ref} has connected assets but no document ID.`,
+        )
+      }
+
+      return [{
+        chunkRef: chunk.ref,
+        targetChunkId,
+        documentId,
+        type: sourcePath.startsWith("images/") ? "image" : "table",
+        sourcePath,
+        source: chunk.source,
+      }]
+    })
+  })
+}
+
+function getConnectedAssetPath(value: unknown): string | null {
+  const ref = getTrimmedString(value)
+  if (!ref || !ref.startsWith("[") || !ref.endsWith("]")) return null
+  const path = ref.slice(1, -1).trim()
+  return path.startsWith("images/") || path.startsWith("tables/") ? path : null
+}
+
+function uniqueConnectedAssetLookups(
+  candidates: readonly ConnectedAssetCandidate[],
+) {
+  const lookups = new Map<
+    string,
+    { documentId: string; chunkId: string; type: EvidenceAsset["type"] }
+  >()
+  for (const candidate of candidates) {
+    const lookup = {
+      documentId: candidate.documentId,
+      chunkId: candidate.targetChunkId,
+      type: candidate.type,
+    }
+    lookups.set(connectedAssetLookupKey(lookup), lookup)
+  }
+  return [...lookups.values()]
+}
+
+function connectedAssetLookupKey(input: {
+  readonly documentId: string
+  readonly chunkId: string
+  readonly type: EvidenceAsset["type"]
+}): string {
+  return `${input.documentId}\u0000${input.type}\u0000${input.chunkId}`
+}
+
+function formatConnectedAssetLabel(candidate: ConnectedAssetCandidate): string {
+  return [
+    candidate.source.sourceFileName,
+    candidate.source.sectionPath,
+    candidate.sourcePath,
+    candidate.type,
+  ]
+    .filter((part): part is string => Boolean(part))
+    .join(" / ")
 }
 
 function buildContentPreview(content: string): string {
@@ -233,7 +358,7 @@ function isRenderableAsset(chunkType: string, assetUrl: string): boolean {
 }
 
 function getEvidenceAssetCandidate(
-  chunk: Omit<EvidenceChunk, "assetRef">,
+  chunk: EvidenceChunk,
 ): EvidenceAssetCandidate | null {
   const pageAsset = getPageCitationAssetCandidate(chunk)
   if (pageAsset) {
@@ -253,7 +378,7 @@ function getEvidenceAssetCandidate(
 }
 
 function getPageCitationAssetCandidate(
-  chunk: Omit<EvidenceChunk, "assetRef">,
+  chunk: EvidenceChunk,
 ): EvidenceAssetCandidate | null {
   if (normalizeChunkType(chunk.chunkType) !== "page") return null
 
@@ -296,7 +421,7 @@ function isImageAssetUrl(assetUrl: string): boolean {
 }
 
 function getAssetSourcePath(
-  chunk: Omit<EvidenceChunk, "assetRef">,
+  chunk: EvidenceChunk,
   assetUrl: string,
 ): string | null {
   const candidates = [
@@ -481,11 +606,40 @@ function snapshot(ledger: MutableLedger): EvidenceLedgerSnapshot {
     retrievalCount: ledger.retrievalCount,
     chunks: [...ledger.chunks],
     assets: [...ledger.assets],
+    evidence: [...ledger.evidence],
     evidenceText: [...ledger.evidenceText],
     stopReasons: [...ledger.stopReasons],
     failureReasons: [...ledger.failureReasons],
     decisionTraces: [...ledger.decisionTraces],
   }
+}
+
+function readQueryEvidence(
+  response: RetrievalQueryResponse,
+): EvidencePart[] {
+  const evidence = (response as { evidence?: unknown }).evidence
+  if (!Array.isArray(evidence)) return []
+  const parts: EvidencePart[] = []
+  for (const item of evidence) {
+    const part = asEvidencePart(item)
+    if (part) parts.push(part)
+  }
+  return parts
+}
+
+function asEvidencePart(value: unknown): EvidencePart | null {
+  if (!isRecord(value)) return null
+  if (value.type === "text" && typeof value.text === "string") {
+    return { type: "text", text: value.text }
+  }
+  if (
+    value.type === "image" &&
+    typeof value.mediaType === "string" &&
+    typeof value.data === "string"
+  ) {
+    return { type: "image", mediaType: value.mediaType, data: value.data }
+  }
+  return null
 }
 
 function getDecisionTrace(response: RetrievalQueryResponse): unknown | null {

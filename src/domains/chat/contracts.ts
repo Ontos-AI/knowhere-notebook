@@ -7,10 +7,11 @@ import type {
 import type { Source } from "@/infrastructure/db/schema"
 import type {
   HarnessRunResult,
-  InspectImages,
   KnowhereToolRuntime,
   KnowhereSearchRequest,
+  ResolveConnectedAssets,
 } from "@/agent-harness"
+import type { ChatAgentTrace } from "./agent-trace"
 import type {
   ChatArtifactView,
   ChatCitationView,
@@ -56,24 +57,27 @@ export type GenerateAnswer = (input: {
   messages: readonly ChatHistoryMessage[]
   sources: readonly Source[]
   excludedSourceIds: readonly string[]
+  folderScopeSourceIds?: readonly string[]
   searchSources: SearchSources
   knowhereTools?: KnowhereToolRuntime
-  inspectImages?: InspectImages
+  resolveConnectedAssets?: ResolveConnectedAssets
 }) => Promise<HarnessRunResult>
 
 export type AnswerQuestionInput = {
   question: string
+  workspaceId?: string
   namespace: string
   namespaces?: readonly string[]
   sources: readonly Source[]
   excludedSourceIds: readonly string[]
+  folderScopeSourceIds?: readonly string[]
   useAgentic?: boolean
   retrieval: RetrievalClient
   knowledge?: Knowledge
   generateAnswer: GenerateAnswer
   hardenChatAssetUrl?: HardenChatAssetUrl
   hardenMediaAssetUrls?: HardenMediaAssetUrls
-  inspectImages?: InspectImages
+  resolveConnectedAssets?: ResolveConnectedAssets
   messages: readonly ChatHistoryMessage[]
 }
 
@@ -81,4 +85,5 @@ export type AnswerQuestionResult = {
   answer: string
   citations: ChatCitationView[]
   artifacts?: ChatArtifactView[]
+  agentTrace: ChatAgentTrace
 }

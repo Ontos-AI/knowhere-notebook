@@ -242,6 +242,7 @@ function makeSource(
     originalBlobUrl: "https://example.com/tsla-q4-2025.pdf",
     demoKey: "demo-tsla-q4-2025",
     chunkCount: null,
+    folderId: null,
     createdAt: new Date("2026-05-10T00:00:00.000Z"),
     updatedAt: new Date("2026-05-10T00:00:00.000Z"),
     deletedAt: null,

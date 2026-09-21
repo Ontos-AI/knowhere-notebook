@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import type { RetrievalQueryResponse } from "@ontos-ai/knowhere-sdk"
 
 import { createEvidenceLedger } from "./ledger"
+import type { ResolveConnectedAssets } from "./types"
 
 describe("createEvidenceLedger", () => {
   it("normalizes retrieval chunks and media assets without treating candidates as final output", () => {
@@ -10,6 +11,7 @@ describe("createEvidenceLedger", () => {
     const snapshot = ledger.addRetrievalResponse(makeRetrievalResponse())
 
     expect(snapshot.retrievalCount).toBe(1)
+    expect(snapshot.evidence).toEqual([{ type: "text", text: "Evidence tree" }])
     expect(snapshot.chunks.map((chunk) => chunk.ref)).toEqual([
       "r1:result:1",
       "r1:result:2",
@@ -177,16 +179,148 @@ describe("createEvidenceLedger", () => {
           },
         },
       ],
-      // Real agent_explore responses can return referencedChunks entries
-      // that only carry a summary id, with no chunkType/chunkId/documentId
-      // even though the SDK type declares those as required strings.
+      // Real agent_explore responses carry provenance IDs without evidence
+      // fields even though the SDK type declares chunkType as required.
       referencedChunks: [
-        { summary: "8da0776b-c52b-5602-8579-25c421706f5f" },
+        {
+          documentId: "doc_1",
+          chunkId: "8da0776b-c52b-5602-8579-25c421706f5f",
+          pageNums: [],
+        },
       ] as unknown as RetrievalQueryResponse["referencedChunks"],
     })
 
     expect(snapshot.chunks.map((chunk) => chunk.ref)).toEqual(["r1:result:1"])
     expect(snapshot.chunks[0]?.content).toBe("Target BP is <130/80 mmHg.")
+  })
+
+  it("keeps an empty ledger when a search adds no chunks", () => {
+    const ledger = createEvidenceLedger()
+    const snapshot = ledger.addRetrievalResponse({
+      namespace: "notebook",
+      query: "empty",
+      routerUsed: "workflow_single_step",
+      answerText: null,
+      evidenceText: "No hits",
+      stopReason: "completed",
+      failureReason: null,
+      results: [],
+      referencedChunks: [],
+    })
+
+    expect(snapshot.chunks).toEqual([])
+  })
+
+  it("resolves every embedded table and image connected to search text", async () => {
+    const ledger = createEvidenceLedger()
+    ledger.addRetrievalResponse({
+      ...makeRetrievalResponse(),
+      results: [
+        {
+          chunkId: "text_chunk",
+          content: "Comparison [tables/comparison.html]",
+          chunkType: "text",
+          score: 0.9,
+          metadata: {
+            connectTo: [
+              {
+                target: "table_chunk",
+                relation: "embeds",
+                ref: "[tables/comparison.html]",
+              },
+              {
+                target: "image_chunk_1",
+                relation: "embeds",
+                ref: "[images/comparison-a.jpg]",
+              },
+              {
+                target: "image_chunk_2",
+                relation: "embeds",
+                ref: "[images/comparison-b.jpg]",
+              },
+            ],
+          },
+          source: {
+            documentId: "doc_1",
+            sourceFileName: "cardiology.pdf",
+            sectionPath: "Differential diagnosis",
+          },
+        },
+      ],
+      referencedChunks: [],
+    })
+    const resolveConnectedAssets = vi.fn<ResolveConnectedAssets>(
+      async (lookups) =>
+        lookups.map((lookup) => ({
+          ...lookup,
+          assetUrl: `https://assets.example/${lookup.chunkId}`,
+        })),
+    )
+
+    const snapshot = await ledger.resolveConnectedAssets(
+      resolveConnectedAssets,
+    )
+
+    expect(resolveConnectedAssets).toHaveBeenCalledWith([
+      { documentId: "doc_1", chunkId: "table_chunk", type: "table" },
+      { documentId: "doc_1", chunkId: "image_chunk_1", type: "image" },
+      { documentId: "doc_1", chunkId: "image_chunk_2", type: "image" },
+    ])
+    expect(snapshot.assets).toEqual([
+      expect.objectContaining({
+        ref: "asset:r1:result:1:table_chunk",
+        chunkRef: "r1:result:1",
+        type: "table",
+        sourcePath: "tables/comparison.html",
+      }),
+      expect.objectContaining({
+        ref: "asset:r1:result:1:image_chunk_1",
+        chunkRef: "r1:result:1",
+        type: "image",
+        sourcePath: "images/comparison-a.jpg",
+      }),
+      expect.objectContaining({
+        ref: "asset:r1:result:1:image_chunk_2",
+        chunkRef: "r1:result:1",
+        type: "image",
+        sourcePath: "images/comparison-b.jpg",
+      }),
+    ])
+  })
+
+  it("does not block the ledger when no connected asset resolver is provided", async () => {
+    const ledger = createEvidenceLedger()
+    ledger.addRetrievalResponse({
+      ...makeRetrievalResponse(),
+      results: [
+        {
+          chunkId: "text_chunk",
+          content: "Comparison [tables/comparison.html]",
+          chunkType: "text",
+          score: 0.9,
+          metadata: {
+            connectTo: [
+              {
+                target: "table_chunk",
+                relation: "embeds",
+                ref: "[tables/comparison.html]",
+              },
+            ],
+          },
+          source: {
+            documentId: "doc_1",
+            sourceFileName: "cardiology.pdf",
+            sectionPath: "Differential diagnosis",
+          },
+        },
+      ],
+      referencedChunks: [],
+    })
+
+    const snapshot = await ledger.resolveConnectedAssets()
+
+    expect(snapshot.evidence).toEqual([{ type: "text", text: "Evidence tree" }])
+    expect(snapshot.assets).toEqual([])
   })
 })
 
@@ -197,6 +331,7 @@ function makeRetrievalResponse(): RetrievalQueryResponse {
     routerUsed: "workflow_single_step",
     answerText: null,
     evidenceText: "Evidence tree",
+    evidence: [{ type: "text", text: "Evidence tree" }],
     stopReason: "answer_done",
     failureReason: null,
     decisionTrace: [{ step: "search" }],
@@ -232,7 +367,7 @@ function makeRetrievalResponse(): RetrievalQueryResponse {
         assetUrl: "https://assets.example/images/photo.jpg",
       },
     ],
-  }
+  } as unknown as RetrievalQueryResponse
 }
 
 function makePageAssetUrlRetrievalResponse(): RetrievalQueryResponse {

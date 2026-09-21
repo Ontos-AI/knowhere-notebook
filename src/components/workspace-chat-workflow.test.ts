@@ -60,7 +60,7 @@ describe("useWorkspaceChatWorkflow", () => {
     expect(result.current.chatThreads).toEqual([thread])
   })
 
-  it("sends Chat messages with excluded Source ids and updates the active thread", async () => {
+  it("sends Chat messages with excluded Source ids and the current folder", async () => {
     const source = makeSource({
       id: "source_excluded",
       excludedFromQuery: true,
@@ -78,6 +78,7 @@ describe("useWorkspaceChatWorkflow", () => {
     })
 
     const { result } = renderWorkspaceChatWorkflow({
+      currentFolderId: "folder_1",
       initialChatThreads: [],
       initialChatMessages: [],
       sources: [source],
@@ -94,6 +95,7 @@ describe("useWorkspaceChatWorkflow", () => {
       threadId: undefined,
       useAgentic: true,
       excludedSourceIds: ["source_excluded"],
+      folderId: "folder_1",
     })
     await waitFor(() => {
       expect(result.current.chat.threadId).toBe("thread_1")
@@ -192,6 +194,7 @@ describe("useWorkspaceChatWorkflow", () => {
 
 function renderWorkspaceChatWorkflow(input: {
   readonly activeChatThreadId?: string | null
+  readonly currentFolderId?: string | null
   readonly initialChatMessages: readonly []
   readonly initialChatThreads: readonly ChatThreadView[]
   readonly isGuest?: boolean

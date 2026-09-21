@@ -1,4 +1,5 @@
 import type { KnowhereToolRuntime } from "@/agent-harness"
+import { hasReferencedChunkEvidence } from "@/agent-harness/referenced-chunks"
 import type { SearchSources } from "./contracts"
 import type { Source } from "@/infrastructure/db/schema"
 
@@ -22,7 +23,7 @@ export const notebookKnowhereTools = {
         ]
         if (requestedIds.some((id) => !knownDocumentIds.has(id))) {
           throw new Error(
-            "Document scope contains an unverified ID. Use document IDs from source context or prior search results; otherwise keep the document requirement in query so Knowhere can locate it.",
+            "Document scope contains an unverified ID. Use document IDs from prior search results; otherwise keep the document requirement in query so Knowhere can locate it.",
           )
         }
         const response = await input.searchSources(request)
@@ -30,7 +31,9 @@ export const notebookKnowhereTools = {
           if (result.source.documentId) knownDocumentIds.add(result.source.documentId)
         }
         for (const ref of response.referencedChunks) {
-          if (ref.documentId) knownDocumentIds.add(ref.documentId)
+          if (hasReferencedChunkEvidence(ref) && ref.documentId) {
+            knownDocumentIds.add(ref.documentId)
+          }
         }
         return response
       },

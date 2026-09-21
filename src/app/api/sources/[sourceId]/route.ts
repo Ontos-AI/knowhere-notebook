@@ -31,7 +31,11 @@ export async function PATCH(
   const result =
     mutationRequest.mutation.kind === "archive"
       ? await sourceRouteService.archiveSource(mutationRequest.mutation.input)
-      : await sourceRouteService.retrySource(mutationRequest.mutation.input)
+      : mutationRequest.mutation.kind === "retry"
+        ? await sourceRouteService.retrySource(mutationRequest.mutation.input)
+        : await sourceRouteService.assignSourceFolder(
+            mutationRequest.mutation.input,
+          )
 
   return nextRouteResponse.toNextResponse(result)
 }

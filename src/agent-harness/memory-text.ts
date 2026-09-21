@@ -19,16 +19,27 @@ export const memoryToolText = {
   },
 
   formatError(input: ErrorTextInput): string {
-    return [
-      formatOpenTag("memory", {
-        operation: input.operation,
-        status: "error",
-      }),
-      formatTextTag("message", input.message),
-      "</memory>",
-    ].join("\n")
+    return formatStatusBlock(input, "error")
+  },
+
+  formatWarning(input: ErrorTextInput): string {
+    return formatStatusBlock(input, "warning")
   },
 } as const
+
+function formatStatusBlock(
+  input: ErrorTextInput,
+  status: "error" | "warning",
+): string {
+  return [
+    formatOpenTag("memory", {
+      operation: input.operation,
+      status,
+    }),
+    formatTextTag("message", input.message),
+    "</memory>",
+  ].join("\n")
+}
 
 function formatMemoryItems(response: MemorySearchResponse): string {
   if (response.items.length === 0) return ""
@@ -39,11 +50,9 @@ function formatMemoryItems(response: MemorySearchResponse): string {
       [
         formatOpenTag("item", {
           ref: item.ref,
-          itemId: item.itemId,
           kind: item.kind,
         }),
-        formatTextTag("abstract_l0", item.abstractL0),
-        formatTextTag("overview_l1", item.overviewL1),
+        formatTextTag("text", item.text),
         "</item>",
       ].join("\n"),
     ),

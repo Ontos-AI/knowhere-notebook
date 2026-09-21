@@ -62,6 +62,8 @@ export type SourceView = {
   readonly officialLibrary?: SourceOfficialLibraryView
   /** Count from the Notebook parsed snapshot manifest when available. */
   readonly chunkCount?: number
+  /** Notebook folder this source sits in. Missing means the workspace root. */
+  readonly folderId?: string
   /**
    * Preferred source content presentation. Missing values are treated as
    * parsed chunks so older views and cached responses remain compatible.

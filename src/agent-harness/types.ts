@@ -68,7 +68,6 @@ export type AgentTurnInput = {
   readonly userText: string
   readonly recentTurns: readonly AgentTurn[]
   readonly localContext?: string
-  readonly sourceContext?: string
   readonly outputCapabilities: {
     readonly text: boolean
     readonly image: boolean
@@ -102,11 +101,27 @@ export type KnowhereToolRuntime = {
   ) => Promise<RetrievalQueryResponse>
 }
 
+export type ConnectedAssetLookup = {
+  readonly documentId: string
+  readonly chunkId: string
+  readonly type: "image" | "table"
+}
+
+export type ResolvedConnectedAsset = ConnectedAssetLookup & {
+  readonly assetUrl: string
+}
+
+export type ResolveConnectedAssets = (
+  lookups: readonly ConnectedAssetLookup[],
+) => Promise<readonly ResolvedConnectedAsset[]>
+
 export const memorySearchKinds = [
   "indicator_pref",
   "stance",
   "decision_rule",
   "entity_of_interest",
+  "event",
+  "profile",
 ] as const
 
 export type MemorySearchKind = (typeof memorySearchKinds)[number]
@@ -120,8 +135,7 @@ export type MemorySearchItem = {
   readonly ref: string
   readonly itemId: string
   readonly kind: MemorySearchKind
-  readonly abstractL0: string
-  readonly overviewL1: string
+  readonly text: string
 }
 
 export type MemorySearchResponse = {
@@ -133,11 +147,36 @@ export type MemoryToolRuntime = {
   readonly search: (input: MemorySearchRequest) => Promise<MemorySearchResponse>
 }
 
+export type WorkspaceProfile = {
+  readonly name?: string
+  readonly occupation?: string
+  readonly ageStage?: string
+  readonly communicationHabit?: string
+  readonly workHabit?: string
+}
+
+export type AgentFeedbackLesson = {
+  readonly itemId: string
+  readonly text: string
+  readonly reflection: string
+}
+
 export type MemoryCitation = {
   readonly ref: string
   readonly itemId: string
   readonly kind: MemorySearchKind
 }
+
+export type EvidencePart =
+  | {
+      readonly type: "text"
+      readonly text: string
+    }
+  | {
+      readonly type: "image"
+      readonly mediaType: string
+      readonly data: string
+    }
 
 export type EvidenceChunk = {
   readonly ref: string
@@ -156,7 +195,6 @@ export type EvidenceChunk = {
     readonly sectionPath?: string | null
   }
   readonly revisionKey?: string | null
-  readonly assetRef?: string
   readonly assetUrl?: string
 }
 
@@ -227,6 +265,7 @@ export type EvidenceLedgerSnapshot = {
   readonly retrievalCount: number
   readonly chunks: readonly EvidenceChunk[]
   readonly assets: readonly EvidenceAsset[]
+  readonly evidence: readonly EvidencePart[]
   readonly evidenceText: readonly string[]
   readonly stopReasons: readonly string[]
   readonly failureReasons: readonly string[]
@@ -291,4 +330,5 @@ export type HarnessTrace = {
 export type HarnessRunResult = {
   readonly manifest: OutputManifest
   readonly trace: HarnessTrace
+  readonly memoryItems: readonly MemorySearchItem[]
 }

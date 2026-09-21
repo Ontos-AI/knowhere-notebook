@@ -5,6 +5,7 @@ export type ParsedChatRequest = {
   threadId?: string
   useAgentic: boolean
   excludedSourceIds: string[]
+  folderId?: string
 }
 
 export type ParseChatRequestResult =
@@ -16,6 +17,7 @@ const ChatRequestBody = Schema.Struct({
   threadId: Schema.optional(Schema.String),
   useAgentic: Schema.optional(Schema.Boolean),
   excludedSourceIds: Schema.optional(Schema.Array(Schema.Unknown)),
+  folderId: Schema.optional(Schema.String),
 })
 
 export function parseChatRequestBody(body: unknown): ParseChatRequestResult {
@@ -37,6 +39,7 @@ export function parseChatRequestBody(body: unknown): ParseChatRequestResult {
       const excludedSourceIds = (parsed.excludedSourceIds ?? []).filter(
         (id): id is string => typeof id === "string" && id.trim().length > 0,
       )
+      const folderId = parsed.folderId?.trim()
       return {
         ok: true,
         value: {
@@ -47,6 +50,7 @@ export function parseChatRequestBody(body: unknown): ParseChatRequestResult {
               : undefined,
           useAgentic: parsed.useAgentic ?? true,
           excludedSourceIds,
+          ...(folderId ? { folderId } : {}),
         },
       }
     },

@@ -35,6 +35,7 @@ type WorkspaceChatWorkflowInput = {
     materializedSources: readonly SourceView[],
   ) => void
   readonly sources: readonly SourceView[]
+  readonly currentFolderId?: string | null
 }
 
 type ChatMessageRequest = Parameters<typeof workspaceClient.sendChatMessage>[0]
@@ -67,6 +68,7 @@ export function useWorkspaceChatWorkflow({
   isGuest = false,
   onSourcesMaterialized,
   sources,
+  currentFolderId = null,
 }: WorkspaceChatWorkflowInput): WorkspaceChatWorkflow {
   const [loadingThreadId, setLoadingThreadId] = useState<string | null>(null)
   const [archivingThreadIds, setArchivingThreadIds] = useState<string[]>([])
@@ -308,6 +310,7 @@ export function useWorkspaceChatWorkflow({
         excludedSourceIds: sources
           .filter((source) => source.excludedFromQuery)
           .map((source) => source.id),
+        ...(currentFolderId ? { folderId: currentFolderId } : {}),
       })
 
       if (!body.threadId || !Array.isArray(body.messages)) {

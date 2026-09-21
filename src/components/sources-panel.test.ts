@@ -336,6 +336,33 @@ describe("SourcesPanel", () => {
     expect(screen.getByText("26-27 of 27")).toBeTruthy();
   });
 
+  it("opens a folder from the mixed sources list", () => {
+    const onOpenFolder = vi.fn();
+
+    render(
+      React.createElement(C, {
+        currentFolderId: null,
+        folders: [
+          { id: "folder_cardio", parentId: null, name: "Cardio" },
+        ],
+        onOpenFolder,
+        sources: [
+          {
+            id: "source_1",
+            title: "lecture.pdf",
+            status: "ready",
+            chunkCount: 3,
+          },
+        ],
+      }),
+    );
+
+    expect(screen.getByText("All sources")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Open folder Cardio" }));
+    expect(onOpenFolder).toHaveBeenCalledWith("folder_cardio");
+    expect(screen.getByText("lecture.pdf")).toBeTruthy();
+  });
+
   it("hides source actions that are not wired", () => {
     render(
       React.createElement(C, {

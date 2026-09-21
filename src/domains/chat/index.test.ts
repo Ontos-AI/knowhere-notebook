@@ -31,6 +31,7 @@ const loggerMock = vi.hoisted(() => ({
   warn: vi.fn(),
   error: vi.fn(),
 }));
+const listActivationsMock = vi.hoisted(() => vi.fn().mockResolvedValue([]));
 
 vi.mock("@/lib/logger", () => ({
   logger: {
@@ -40,11 +41,19 @@ vi.mock("@/lib/logger", () => ({
   },
 }));
 
+vi.mock("@/integrations/memento/client", () => ({
+  listActivations: listActivationsMock,
+  getWorkspaceProfile: vi.fn().mockResolvedValue(null),
+  searchRelevantAgentFeedback: vi.fn().mockResolvedValue([]),
+}));
+
 afterEach(() => {
   vi.restoreAllMocks();
   loggerMock.info.mockReset();
   loggerMock.warn.mockReset();
   loggerMock.error.mockReset();
+  listActivationsMock.mockReset();
+  listActivationsMock.mockResolvedValue([]);
   delete process.env.AI_GATEWAY_API_KEY;
 });
 
@@ -103,7 +112,168 @@ describe("answerQuestionWithRetrieval", () => {
       answer: "The answer is grounded.",
       citations: [],
       artifacts: [],
+      agentTrace: {
+        intentTask: "",
+        toolCalls: [],
+        referencedDocumentIds: [],
+      },
     });
+    expect(listActivationsMock).not.toHaveBeenCalled();
+  });
+
+  it("multiplies Knowhere scores by the Memento ranking factor when a ledger row exists", async () => {
+    listActivationsMock.mockResolvedValue([
+      { unitRef: "doc_included:chunk_1", rankingFactor: 1.25 },
+    ]);
+    const retrieval = {
+      query: vi.fn().mockResolvedValue({
+        results: [
+          makeRetrievalResult({
+            chunkId: "chunk_1",
+            score: 0.8,
+            source: { documentId: "doc_included" },
+          }),
+          makeRetrievalResult({
+            chunkId: "chunk_new",
+            score: 0.6,
+            source: { documentId: "doc_included" },
+          }),
+        ],
+        evidenceText: "Grounding content",
+        referencedChunks: [],
+        namespace: "notebook-workspace",
+        query: "What does the document say?",
+        routerUsed: "workflow_single_step",
+        answerText: null,
+      }),
+    };
+    let mixedScores: readonly (number | null)[] = [];
+    const generateAnswer = vi.fn<GenerateAnswer>(async ({ searchSources }) => {
+      const response = await searchSources({
+        query: "What does the document say?",
+      });
+      mixedScores = response.results.map((result) => result.score);
+      return makeHarnessRunResult("The answer is grounded.");
+    });
+
+    await Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "What does the document say?",
+        workspaceId: "workspace_1",
+        namespace: "notebook-workspace",
+        sources: [makeSource({ knowhereDocumentId: "doc_included" })],
+        excludedSourceIds: [],
+        retrieval,
+        generateAnswer,
+        messages: [],
+      }),
+    );
+
+    expect(listActivationsMock).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      unitType: "crystal_chunk",
+      unitRefs: ["doc_included:chunk_1", "doc_included:chunk_new"],
+    });
+    expect(mixedScores).toEqual([1, 0.6]);
+  });
+
+  it("returns a slim Notebook TRACE and does not pass the Knowhere TRACE through", async () => {
+    const generateAnswer = vi.fn(async () => {
+      const result = makeHarnessRunResult("Grounded answer.");
+      return {
+        ...result,
+        trace: {
+          ...result.trace,
+          intent: {
+            task: "answer" as const,
+            dependsOnPreviousTurn: false,
+            retrievalNeeded: "yes" as const,
+            targetModalities: ["text" as const],
+            constraints: {},
+            groundingPolicy: "must_use_sources" as const,
+          },
+          toolCalls: [
+            {
+              tool: "knowhere_search",
+              ok: true,
+              inputSummary: { query: "毛利率" },
+              outputSummary: { ok: true },
+              startedAt: "2026-09-20T00:00:00.000Z",
+              durationMs: 10,
+            },
+          ],
+          ledger: {
+            ...result.trace.ledger,
+            chunks: [
+              makeEvidenceChunkFromRetrievalResult(
+                "r1:result:1",
+                makeRetrievalResult({
+                  source: { documentId: "doc_1" },
+                }),
+              ),
+            ],
+            decisionTraces: [[{ agent: "agent_explore" }]],
+          },
+        },
+      };
+    });
+
+    const answer = await Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "毛利率怎么算",
+        namespace: "notebook-workspace",
+        sources: [makeSource()],
+        excludedSourceIds: [],
+        retrieval: { query: vi.fn() },
+        generateAnswer,
+        messages: [],
+      }),
+    );
+
+    expect(answer.agentTrace).toEqual({
+      intentTask: "answer",
+      toolCalls: [
+        {
+          tool: "knowhere_search",
+          ok: true,
+          summary: JSON.stringify({
+            input: { query: "毛利率" },
+            output: { ok: true },
+          }),
+        },
+      ],
+      referencedDocumentIds: ["doc_1"],
+    });
+    expect(JSON.stringify(answer.agentTrace)).not.toContain("agent_explore");
+  });
+
+  it("refuses knowhere search when the current folder has no documents", async () => {
+    const retrieval = { query: vi.fn() };
+    const generateAnswer = vi.fn(async ({ searchSources }) => {
+      await expect(searchSources({ query: "What is in this folder?" })).rejects.toThrow(
+        "The current folder has no documents. Do not call knowhere_search.",
+      );
+      return makeHarnessRunResult("This folder has no documents.");
+    });
+
+    const answer = await Effect.runPromise(
+      answerQuestionWithRetrieval({
+        question: "hello",
+        namespace: "notebook-workspace",
+        sources: [makeSource({ id: "source_elsewhere" })],
+        excludedSourceIds: [],
+        folderScopeSourceIds: [],
+        retrieval,
+        generateAnswer,
+        messages: [],
+      }),
+    );
+
+    expect(retrieval.query).not.toHaveBeenCalled();
+    expect(generateAnswer).toHaveBeenCalledWith(
+      expect.objectContaining({ folderScopeSourceIds: [] }),
+    );
+    expect(answer.answer).toBe("This folder has no documents.");
   });
 
   it.each([true, false])("sends document scope through the installed SDK (agentic=%s)", async (useAgentic) => {
@@ -235,6 +405,11 @@ describe("answerQuestionWithRetrieval", () => {
       answer: "The answer omits citations.",
       citations: [],
       artifacts: [],
+      agentTrace: {
+        intentTask: "",
+        toolCalls: [],
+        referencedDocumentIds: [],
+      },
     });
   });
 
@@ -376,6 +551,11 @@ describe("answerQuestionWithRetrieval", () => {
       answer: "The legacy answer is grounded.",
       citations: [],
       artifacts: [],
+      agentTrace: {
+        intentTask: "",
+        toolCalls: [],
+        referencedDocumentIds: [],
+      },
     });
   });
 
@@ -555,13 +735,21 @@ describe("answerQuestionWithRetrieval", () => {
       chunkType: "text" as const,
       sectionPath: `Reference ${index + 1}`,
     }));
+    const referencedChunksWithProvenance = [
+      {
+        documentId: "doc_provenance",
+        chunkId: "provenance-only-id",
+        pageNums: [],
+      } as unknown as (typeof referencedChunks)[number],
+      ...referencedChunks,
+    ];
     const retrieval = {
       query: vi
         .fn()
         .mockResolvedValueOnce({
           results: defaultResults,
           evidenceText: "Default evidence",
-          referencedChunks,
+          referencedChunks: referencedChunksWithProvenance,
           namespace: "default",
           query: "large response",
           routerUsed: "workflow_single_step",
@@ -572,7 +760,7 @@ describe("answerQuestionWithRetrieval", () => {
         .mockResolvedValueOnce({
           results: workspaceResults,
           evidenceText: "Workspace evidence",
-          referencedChunks,
+          referencedChunks: referencedChunksWithProvenance,
           namespace: "notebook-workspace",
           query: "large response",
           routerUsed: "workflow_single_step",
@@ -589,6 +777,7 @@ describe("answerQuestionWithRetrieval", () => {
         });
         expect(response.results).toHaveLength(6);
         expect(response.referencedChunks).toHaveLength(6);
+        expect(response.referencedChunks[0]?.chunkId).toBe("chunk_1");
         expect(response.results.map((result) => result.content)).toEqual(
           [
             ...defaultResults.slice(0, 3),
@@ -1066,11 +1255,13 @@ describe("answerQuestionWithRetrieval", () => {
           ],
           unresolved: [],
         },
+        memoryItems: [],
         trace: {
           ...makeHarnessRunResult("").trace,
           finalized: true,
           ledger: {
             retrievalCount: 1,
+            evidence: [],
             evidenceText: ["Identity image evidence."],
             stopReasons: [],
             failureReasons: [],
@@ -1084,7 +1275,6 @@ describe("answerQuestionWithRetrieval", () => {
                 chunkType: "image",
                 score: 0.9,
                 assetUrl: rawAssetUrl,
-                assetRef: "asset:r1:result:1",
                 source: {
                   documentId: "doc_identity",
                   sourceFileName: "document-generated.pdf",
@@ -1543,7 +1733,6 @@ describe("answerQuestionWithRetrieval", () => {
         chunks: [
           {
             ...makeEvidenceChunkFromRetrievalResult("r1:result:1", pageResult),
-            assetRef: "asset:r1:result:1",
           },
         ],
         assets: [
@@ -1606,7 +1795,6 @@ describe("answerQuestionWithRetrieval", () => {
       ...resultChunk,
       ref: "r1:referenced:1",
       kind: "referenced_chunk" as const,
-      assetRef: "asset:r1:referenced:1",
     };
     const generateAnswer = vi.fn(async () =>
       makeHarnessRunResultWithLedger("Revenue was $24.9B [[cite:1]].", {
@@ -1674,11 +1862,9 @@ describe("answerQuestionWithRetrieval", () => {
     });
     const catalogChunk = {
       ...makeEvidenceChunkFromRetrievalResult("r1:result:1", catalogResult),
-      assetRef: "asset:r1:result:1",
     };
     const workspaceChunk = {
       ...makeEvidenceChunkFromRetrievalResult("r1:result:2", workspaceResult),
-      assetRef: "asset:r1:result:2",
     };
     const assets = [
       {
@@ -1737,7 +1923,7 @@ describe("answerQuestionWithRetrieval", () => {
     ]);
   });
 
-  it("returns only harness-selected artifacts when retrieval has extra media candidates", async () => {
+  it("returns the exact displayed artifact set from the harness manifest", async () => {
     const frontAssetUrl = "https://blob.example/images/id-front.jpg";
     const backAssetUrl = "https://blob.example/images/id-back.jpg";
     const extraAssetUrl = "https://blob.example/images/extra.jpg";
@@ -1812,9 +1998,11 @@ describe("answerQuestionWithRetrieval", () => {
           ],
           unresolved: [],
         },
+        memoryItems: [],
         trace: {
           ledger: {
             retrievalCount: 1,
+            evidence: [],
             evidenceText: ["Identity image candidates."],
             stopReasons: [],
             failureReasons: [],
@@ -1828,7 +2016,6 @@ describe("answerQuestionWithRetrieval", () => {
                 chunkType: "image",
                 score: 0.9,
                 assetUrl: frontAssetUrl,
-                assetRef: "asset:r1:result:1",
                 source: {
                   documentId: "doc_identity",
                   sourceFileName: "document-generated.pdf",
@@ -1843,7 +2030,6 @@ describe("answerQuestionWithRetrieval", () => {
                 chunkType: "image",
                 score: 0.88,
                 assetUrl: backAssetUrl,
-                assetRef: "asset:r1:result:2",
                 source: {
                   documentId: "doc_identity",
                   sourceFileName: "document-generated.pdf",
@@ -1858,7 +2044,6 @@ describe("answerQuestionWithRetrieval", () => {
                 chunkType: "image",
                 score: 0.7,
                 assetUrl: extraAssetUrl,
-                assetRef: "asset:r1:result:3",
                 source: {
                   documentId: "doc_identity",
                   sourceFileName: "document-generated.pdf",
@@ -1949,6 +2134,7 @@ describe("answerQuestionWithRetrieval", () => {
     expect(answer.artifacts?.map((artifact) => artifact.assetUrl)).toEqual([
       frontAssetUrl,
       backAssetUrl,
+      extraAssetUrl,
     ]);
     expect(answer.artifacts?.map((artifact) => artifact.citation?.source)).toEqual(
       [
@@ -1962,11 +2148,17 @@ describe("answerQuestionWithRetrieval", () => {
           sourceFileName: "商务标文件.pdf",
           sectionPath: "身份证反面",
         },
+        {
+          documentId: "doc_identity",
+          sourceFileName: "商务标文件.pdf",
+          sectionPath: "营业执照",
+        },
       ],
     );
     expect(answer.citations.map((citation) => citation.assetUrl)).toEqual([
       frontAssetUrl,
       backAssetUrl,
+      extraAssetUrl,
     ]);
   });
 
@@ -2012,6 +2204,11 @@ describe("answerQuestionWithRetrieval", () => {
       answer: "This invalid answer should not ship.",
       citations: [],
       artifacts: [],
+      agentTrace: {
+        intentTask: "",
+        toolCalls: [],
+        referencedDocumentIds: [],
+      },
     });
   });
 
@@ -2151,6 +2348,7 @@ describe("answerQuestionWithRetrieval", () => {
           ],
           unresolved: [],
         },
+        memoryItems: [],
         trace: {
           ...makeHarnessRunResult("").trace,
           finalized: true,
@@ -2158,6 +2356,7 @@ describe("answerQuestionWithRetrieval", () => {
           toolCalls: [],
           ledger: {
             retrievalCount: 1,
+            evidence: [],
             evidenceText: ["Diagram candidate."],
             stopReasons: [],
             failureReasons: [],
@@ -2171,7 +2370,6 @@ describe("answerQuestionWithRetrieval", () => {
                 chunkType: "image",
                 score: 0.9,
                 assetUrl,
-                assetRef: "asset:r1:result:1",
                 source: {
                   documentId: "doc_diagram",
                   sourceFileName: "generated.pdf",
@@ -2274,11 +2472,13 @@ describe("answerQuestionWithRetrieval", () => {
           ],
           unresolved: [],
         },
+        memoryItems: [],
         trace: {
           ...makeHarnessRunResult("").trace,
           finalized: true,
           ledger: {
             retrievalCount: 1,
+            evidence: [],
             evidenceText: ["Plan comparison evidence."],
             stopReasons: [],
             failureReasons: [],
@@ -2428,7 +2628,7 @@ describe("answerQuestionWithRetrieval", () => {
     expect(hardenChatAssetUrl).not.toHaveBeenCalled();
   });
 
-  it("returns the agent answer without citations when retrieval has no results", async () => {
+  it("throws when the harness finalizes with empty answer text", async () => {
     const retrieval = {
       query: vi.fn().mockResolvedValue({
         results: [],
@@ -2442,26 +2642,29 @@ describe("answerQuestionWithRetrieval", () => {
     };
     const generateAnswer = vi.fn(async ({ searchSources }) => {
       await searchSources({ query: "Missing fact?" });
-      return makeHarnessRunResult("I couldn't find that in your sources.");
+      const run = makeHarnessRunResult("");
+      return {
+        ...run,
+        manifest: {
+          ...run.manifest,
+          unresolved: ["The requested fact is not present in the sources."],
+        },
+      };
     });
 
-    const answer = await Effect.runPromise(
-      answerQuestionWithRetrieval({
-        question: "Missing fact?",
-        namespace: "notebook-workspace",
-        sources: [makeSource()],
-        excludedSourceIds: [],
-        retrieval,
-        generateAnswer,
-        messages: [],
-      }),
-    );
-
-    expect(answer).toEqual({
-      answer: "I couldn't find that in your sources.",
-      citations: [],
-      artifacts: [],
-    });
+    await expect(
+      Effect.runPromise(
+        answerQuestionWithRetrieval({
+          question: "Missing fact?",
+          namespace: "notebook-workspace",
+          sources: [makeSource()],
+          excludedSourceIds: [],
+          retrieval,
+          generateAnswer,
+          messages: [],
+        }),
+      ),
+    ).rejects.toThrow();
   });
 
   it("lets the agent issue contextual retrieval queries while answering the original question", async () => {
@@ -2796,281 +2999,6 @@ describe("generateAgenticOutputManifest", () => {
     expect(JSON.stringify(capturedGenerateInput)).toContain("tax.pdf / deadline");
   });
 
-  it("lets the agent inspect retrieved image assets before finalizing cited image output", async () => {
-    process.env.AI_GATEWAY_API_KEY = "test_gateway_key";
-    vi.spyOn(ToolLoopAgent.prototype, "generate").mockImplementation(
-      async function mockGenerate(
-        this: ToolLoopAgent,
-      ): ReturnType<ToolLoopAgent["generate"]> {
-        const tools = this.tools as unknown as Record<
-          string,
-          { execute: (input: unknown) => Promise<unknown> }
-        >;
-
-        await tools.declareIntent?.execute({
-          task: "show_media",
-          dependsOnPreviousTurn: false,
-          retrievalNeeded: "yes",
-          targetModalities: ["image"],
-          constraints: { desiredCount: 1, maxCount: 1 },
-          groundingPolicy: "must_use_sources",
-        });
-        await tools.setContextPolicy?.execute({
-          carryHistory: "none",
-          reason: "The current request is self-contained.",
-          activePriorTurnIds: [],
-        });
-        await tools.knowhere_search?.execute({
-          query: "identity card front image",
-          targetContent: "image",
-          topK: 1,
-          purpose: "Find the ID card image to inspect.",
-        });
-        await tools.inspectImage?.execute({
-          refs: ["asset:r1:result:1"],
-          question: "What text is visible on the ID card?",
-        });
-        await tools.finalize?.execute({
-          text: "The inspected image appears to show the requested ID card.",
-          citations: [{ pick: 1 }],
-          memoryCitations: [],
-          artifacts: [
-            {
-              type: "image",
-              ref: "asset:r1:result:1",
-              display: true,
-              reason: "Requested inspected ID card image.",
-            },
-          ],
-          unresolved: [],
-        });
-
-        return {
-          text: "ignored",
-        } as Awaited<ReturnType<ToolLoopAgent["generate"]>>;
-      },
-    );
-    const searchSources = vi.fn().mockResolvedValue({
-      results: [
-        makeRetrievalResult({
-          chunkType: "image",
-          assetUrl: "https://blob.example/images/id-front.png",
-          source: {
-            documentId: "doc_identity",
-            sourceFileName: "generated.pdf",
-            sectionPath: "images/id-front.png",
-          },
-        }),
-      ],
-      evidenceText: "Identity image evidence.",
-      referencedChunks: [],
-      namespace: "notebook-workspace",
-      query: "identity card front image",
-      routerUsed: "workflow_single_step",
-      answerText: null,
-      stopReason: "answer_done",
-      failureReason: null,
-    });
-    const inspectImages = vi.fn().mockResolvedValue({
-      analysis: "The image contains a visible identity card number.",
-      inspected: [
-        {
-          ref: "asset:r1:result:1",
-          label: "generated.pdf / images/id-front.png / image",
-        },
-      ],
-      skipped: [],
-    });
-
-    const result = await generateAgenticOutputManifest({
-      workspaceId: "workspace_1",
-      question: "Inspect and show the ID card image.",
-      messages: [],
-      sources: [
-        makeSource({ title: "identity.pdf", knowhereDocumentId: "doc_identity" }),
-      ],
-      excludedSourceIds: [],
-      searchSources,
-      inspectImages,
-    });
-
-    expect(inspectImages).toHaveBeenCalledWith({
-      question: "What text is visible on the ID card?",
-      assets: [
-        {
-          ref: "asset:r1:result:1",
-          label: "generated.pdf / images/id-front.png / image",
-          assetUrl: "https://blob.example/images/id-front.png",
-          sourcePath: "images/id-front.png",
-          source: {
-            documentId: "doc_identity",
-            sourceFileName: "generated.pdf",
-            sectionPath: "images/id-front.png",
-          },
-        },
-      ],
-    });
-    expect(result.manifest.citations.map((citation) => citation.ref)).toEqual([
-      "r1:result:1",
-    ]);
-    expect(result.manifest.artifacts).toEqual([
-      {
-        type: "image",
-        ref: "asset:r1:result:1",
-        display: true,
-        reason: "Requested inspected ID card image.",
-      },
-    ]);
-    expect(result.trace.toolCalls.map((call) => call.tool)).toContain(
-      "inspectImage",
-    );
-    expect(result.trace.validationErrors).toEqual([]);
-  });
-
-  it("lets the agent inspect retrieved page assets before finalizing an OCR answer", async () => {
-    process.env.AI_GATEWAY_API_KEY = "test_gateway_key";
-    vi.spyOn(ToolLoopAgent.prototype, "generate").mockImplementation(
-      async function mockGenerate(
-        this: ToolLoopAgent,
-      ): ReturnType<ToolLoopAgent["generate"]> {
-        const tools = this.tools as unknown as Record<
-          string,
-          { execute: (input: unknown) => Promise<unknown> }
-        >;
-
-        await tools.declareIntent?.execute({
-          task: "answer",
-          dependsOnPreviousTurn: false,
-          retrievalNeeded: "yes",
-          targetModalities: ["text"],
-          constraints: { citationRequired: true, language: "zh-CN" },
-          groundingPolicy: "must_use_sources",
-        });
-        await tools.setContextPolicy?.execute({
-          carryHistory: "none",
-          reason: "The current request is self-contained.",
-          activePriorTurnIds: [],
-        });
-        await tools.knowhere_search?.execute({
-          query: "进度计划 违约金 承包人",
-          targetContent: "text",
-          topK: 6,
-          purpose: "Find the contract clause and page for the liquidated damages amount.",
-        });
-        await tools.inspectImage?.execute({
-          refs: ["asset:r1:referenced:1"],
-          question:
-            "OCR this clause and identify the liquidated damages amount for unauthorized schedule changes.",
-        });
-        await tools.finalize?.execute({
-          text: "承包人自行修改发包人审批的进度计划，应按每次 5000 元赔偿违约金。",
-          citations: [{ pick: 1 }],
-          memoryCitations: [],
-          artifacts: [],
-          unresolved: [],
-        });
-
-        return {
-          text: "ignored",
-        } as Awaited<ReturnType<ToolLoopAgent["generate"]>>;
-      },
-    );
-    const searchSources = vi.fn().mockResolvedValue({
-      results: [],
-      evidenceText: "Root / （6）现场工期进度管理方面的违约责任",
-      referencedChunks: [
-        {
-          chunkId: "chunk_page_8",
-          documentId: "doc_contract",
-          chunkType: "page",
-          sectionPath: "Root / （6）现场工期进度管理方面的违约责任",
-          filePath: null,
-          jobId: "job_contract",
-          metadata: {
-            pageNums: [8],
-            pageAssets: [
-              {
-                pageNum: 8,
-                artifactRef: "page_citation_assets/page-8.png",
-                assetUrl: "https://blob.example/page-8.png",
-                contentType: "image/png",
-              },
-            ],
-          },
-        },
-      ],
-      namespace: "notebook-workspace",
-      query: "进度计划 违约金 承包人",
-      routerUsed: "workflow_single_step",
-      answerText: null,
-      stopReason: "answer_done",
-      failureReason: null,
-    });
-    const inspectImages = vi.fn().mockResolvedValue({
-      analysis: "The clause states 5000 yuan per occurrence.",
-      inspected: [
-        {
-          ref: "asset:r1:referenced:1",
-          label:
-            "Root / （6）现场工期进度管理方面的违约责任 / page_citation_assets/page-8.png / page",
-        },
-      ],
-      skipped: [],
-    });
-
-    const result = await generateAgenticOutputManifest({
-      workspaceId: "workspace_1",
-      question: "承包人自行修改发包人审批的进度时需要赔偿多少违约金？",
-      messages: [],
-      sources: [
-        makeSource({
-          title: "投标书.pdf",
-          knowhereDocumentId: "doc_contract",
-        }),
-      ],
-      excludedSourceIds: [],
-      searchSources,
-      inspectImages,
-    });
-
-    expect(searchSources).toHaveBeenCalledWith({
-      query: "进度计划 违约金 承包人",
-      targetContent: "text",
-      purpose: "Find the contract clause and page for the liquidated damages amount.",
-      topK: 6,
-      signalPaths: undefined,
-      filterMode: undefined,
-      threshold: undefined,
-    });
-    expect(inspectImages).toHaveBeenCalledWith({
-      question:
-        "OCR this clause and identify the liquidated damages amount for unauthorized schedule changes.",
-      assets: [
-        {
-          ref: "asset:r1:referenced:1",
-          label:
-            "Root / （6）现场工期进度管理方面的违约责任 / page_citation_assets/page-8.png / page",
-          assetUrl: "https://blob.example/page-8.png",
-          sourcePath: "page_citation_assets/page-8.png",
-          revisionKey: "job_contract",
-          source: {
-            documentId: "doc_contract",
-            sourceFileName: null,
-            sectionPath: "Root / （6）现场工期进度管理方面的违约责任",
-          },
-        },
-      ],
-    });
-    expect(result.manifest.text).toContain("5000 元");
-    expect(result.manifest.citations.map((citation) => citation.ref)).toEqual([
-      "r1:referenced:1",
-    ]);
-    expect(result.trace.toolCalls.map((call) => call.tool)).toContain(
-      "inspectImage",
-    );
-    expect(result.trace.validationErrors).toEqual([]);
-  });
-
   it("keeps an over-budget manifest after the first generation", async () => {
     process.env.AI_GATEWAY_API_KEY = "test_gateway_key";
     let generateCallCount = 0;
@@ -3187,6 +3115,7 @@ describe("parseChatRequestBody", () => {
         message: "  What changed?  ",
         threadId: "thread_1",
         excludedSourceIds: ["source_1", 7, "source_2"],
+        folderId: " folder_1 ",
       }),
     ).toEqual({
       ok: true,
@@ -3195,6 +3124,7 @@ describe("parseChatRequestBody", () => {
         threadId: "thread_1",
         useAgentic: true,
         excludedSourceIds: ["source_1", "source_2"],
+        folderId: "folder_1",
       },
     });
   });
@@ -3285,6 +3215,7 @@ function makeSource(overrides: Partial<Source> = {}): Source {
     originalBlobUrl: null,
     demoKey: null,
     chunkCount: null,
+    folderId: null,
     createdAt: new Date("2026-05-06T00:00:00Z"),
     updatedAt: new Date("2026-05-06T00:00:00Z"),
     deletedAt: null,
@@ -3301,11 +3232,13 @@ function makeHarnessRunResult(text: string): HarnessRunResult {
       artifacts: [],
       unresolved: [],
     },
+    memoryItems: [],
     trace: {
       ledger: {
         retrievalCount: 0,
         chunks: [],
         assets: [],
+        evidence: [],
         evidenceText: [],
         stopReasons: [],
         failureReasons: [],
@@ -3351,6 +3284,7 @@ function makeHarnessRunResultWithLedger(
       artifacts: input.artifacts ?? [],
       unresolved: [],
     },
+    memoryItems: [],
     trace: {
       ...makeHarnessRunResult("").trace,
       imageHighlights: input.imageHighlights ?? [],
@@ -3358,6 +3292,7 @@ function makeHarnessRunResultWithLedger(
         retrievalCount: chunks.length > 0 ? 1 : 0,
         chunks,
         assets: input.assets ?? [],
+        evidence: [],
         evidenceText: [],
         stopReasons: [],
         failureReasons: [],
