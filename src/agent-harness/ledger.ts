@@ -20,7 +20,6 @@ type MutableLedger = {
   chunks: EvidenceChunk[]
   assets: EvidenceAsset[]
   evidence: EvidencePart[]
-  evidenceText: string[]
   stopReasons: string[]
   failureReasons: string[]
   decisionTraces: unknown[]
@@ -57,7 +56,6 @@ export function createEvidenceLedger() {
     chunks: [],
     assets: [],
     evidence: [],
-    evidenceText: [],
     stopReasons: [],
     failureReasons: [],
     decisionTraces: [],
@@ -69,9 +67,6 @@ export function createEvidenceLedger() {
       const retrievalIndex = ledger.retrievalCount
 
       ledger.evidence.push(...readQueryEvidence(response))
-
-      const evidenceText = response.evidenceText?.trim()
-      if (evidenceText) ledger.evidenceText.push(evidenceText)
 
       const stopReason = response.stopReason?.trim()
       if (stopReason) ledger.stopReasons.push(stopReason)
@@ -193,11 +188,7 @@ export function createEvidenceLedger() {
     },
 
     hasEvidence(): boolean {
-      return (
-        ledger.chunks.length > 0 ||
-        ledger.evidence.length > 0 ||
-        ledger.evidenceText.length > 0
-      )
+      return ledger.chunks.length > 0 || ledger.evidence.length > 0
     },
 
     snapshot(): EvidenceLedgerSnapshot {
@@ -607,7 +598,6 @@ function snapshot(ledger: MutableLedger): EvidenceLedgerSnapshot {
     chunks: [...ledger.chunks],
     assets: [...ledger.assets],
     evidence: [...ledger.evidence],
-    evidenceText: [...ledger.evidenceText],
     stopReasons: [...ledger.stopReasons],
     failureReasons: [...ledger.failureReasons],
     decisionTraces: [...ledger.decisionTraces],

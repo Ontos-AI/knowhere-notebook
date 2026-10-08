@@ -465,7 +465,6 @@ function makeHarnessRunResult(text: string): HarnessRunResult {
         chunks: [],
         assets: [],
         evidence: [],
-        evidenceText: [],
         stopReasons: [],
         failureReasons: [],
         decisionTraces: [],

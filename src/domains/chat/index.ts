@@ -626,7 +626,7 @@ function formatKnowhereQueryResponseForLog(
       KNOWHERE_RESPONSE_TEXT_LOG_LIMIT,
     ),
     evidenceText: truncateLogText(
-      response.evidenceText ?? "",
+      evidencePartsText(response),
       KNOWHERE_RESPONSE_TEXT_LOG_LIMIT,
     ),
     results: response.results
@@ -890,10 +890,6 @@ function mergeRetrievalResponses(
         .slice(0, evidenceLimits.referencedChunkCountPerResponse),
     )
     .slice(0, evidenceLimits.referencedChunkCount)
-  const evidenceTexts = responses
-    .map((response) => response.evidenceText)
-    .filter((value): value is string => Boolean(value))
-    .map(truncateAgenticModelText)
   const answerTexts = responses
     .map((response) => response.answerText)
     .filter((value): value is string => Boolean(value))
@@ -904,7 +900,7 @@ function mergeRetrievalResponses(
     namespace: responses.map((response) => response.namespace).join(","),
     routerUsed: joinResponseText(responses.map((response) => response.routerUsed)) ?? "",
     answerText: answerTexts.length > 0 ? answerTexts.join("\n\n") : null,
-    evidenceText: evidenceTexts.length > 0 ? evidenceTexts.join("\n\n") : null,
+    evidenceText: null,
     stopReason: joinResponseText(
       statusResponses.map((response) => response.stopReason),
     ),
@@ -955,9 +951,23 @@ function hasRetrievalEvidence(response: RetrievalQueryResponse): boolean {
   return (
     response.results.length > 0 ||
     response.referencedChunks.some(hasReferencedChunkEvidence) ||
-    Boolean(response.evidenceText?.trim()) ||
+    hasEvidenceParts(response) ||
     Boolean(response.answerText?.trim())
   )
+}
+
+function hasEvidenceParts(response: RetrievalQueryResponse): boolean {
+  return (response.evidence ?? []).some((part) =>
+    part.type === "text" ? Boolean(part.text.trim()) : true,
+  )
+}
+
+function evidencePartsText(response: RetrievalQueryResponse): string {
+  return (response.evidence ?? [])
+    .flatMap((part) =>
+      part.type === "text" && part.text.trim() ? [part.text] : [],
+    )
+    .join("")
 }
 
 function joinResponseText(

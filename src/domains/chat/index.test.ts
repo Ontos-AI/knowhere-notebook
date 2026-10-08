@@ -499,14 +499,14 @@ describe("answerQuestionWithRetrieval", () => {
         })
         .mockResolvedValueOnce({
           results: [legacyResult],
-          evidenceText: "Legacy namespace evidence",
-          referencedChunks: [],
-          namespace: "notebook-legacy",
-          query: "legacy document answer",
-          routerUsed: "workflow_single_step",
-          answerText: null,
-          stopReason: "answer_done",
-          failureReason: null,
+        evidenceText: null,
+        referencedChunks: [],
+        namespace: "notebook-legacy",
+        query: "legacy document answer",
+        routerUsed: "workflow_single_step",
+        answerText: null,
+        stopReason: "answer_done",
+        failureReason: null,
         }),
     };
     const generateAnswer = vi.fn(async ({ searchSources }) => {
@@ -516,7 +516,7 @@ describe("answerQuestionWithRetrieval", () => {
         stopReason: "answer_done",
         failureReason: null,
         results: [legacyResult],
-        evidenceText: "Legacy namespace evidence",
+        evidenceText: null,
       });
       return makeHarnessRunResult("The legacy answer is grounded.");
     });
@@ -871,9 +871,15 @@ describe("answerQuestionWithRetrieval", () => {
             }),
           ),
         ],
-        evidenceText: `Evidence https://blob.example/evidence.jpg ${"evidence ".repeat(
-          80,
-        )}`,
+        evidence: [
+          {
+            type: "text" as const,
+            text: `Evidence https://blob.example/evidence.jpg ${"evidence ".repeat(
+              80,
+            )}`,
+          },
+        ],
+        evidenceText: null,
         referencedChunks: [
           {
             chunkId: "chunk_identity_1",
@@ -1262,7 +1268,6 @@ describe("answerQuestionWithRetrieval", () => {
           ledger: {
             retrievalCount: 1,
             evidence: [],
-            evidenceText: ["Identity image evidence."],
             stopReasons: [],
             failureReasons: [],
             decisionTraces: [],
@@ -2003,7 +2008,6 @@ describe("answerQuestionWithRetrieval", () => {
           ledger: {
             retrievalCount: 1,
             evidence: [],
-            evidenceText: ["Identity image candidates."],
             stopReasons: [],
             failureReasons: [],
             decisionTraces: [],
@@ -2357,7 +2361,6 @@ describe("answerQuestionWithRetrieval", () => {
           ledger: {
             retrievalCount: 1,
             evidence: [],
-            evidenceText: ["Diagram candidate."],
             stopReasons: [],
             failureReasons: [],
             decisionTraces: [],
@@ -2479,7 +2482,6 @@ describe("answerQuestionWithRetrieval", () => {
           ledger: {
             retrievalCount: 1,
             evidence: [],
-            evidenceText: ["Plan comparison evidence."],
             stopReasons: [],
             failureReasons: [],
             decisionTraces: [],
@@ -3239,7 +3241,6 @@ function makeHarnessRunResult(text: string): HarnessRunResult {
         chunks: [],
         assets: [],
         evidence: [],
-        evidenceText: [],
         stopReasons: [],
         failureReasons: [],
         decisionTraces: [],
@@ -3293,7 +3294,6 @@ function makeHarnessRunResultWithLedger(
         chunks,
         assets: input.assets ?? [],
         evidence: [],
-        evidenceText: [],
         stopReasons: [],
         failureReasons: [],
         decisionTraces: [],

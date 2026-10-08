@@ -13,6 +13,7 @@ import type { ChatSendOptions } from "@/components/chat-composer"
 import { ChunksPanel } from "@/components/chunks-panel"
 import { MobileTabBar } from "@/components/mobile-tab-bar"
 import { OfficialLibraryPanel } from "@/components/official-library-panel"
+import { MemoryDocuments } from "@/components/memory-documents"
 import { SourcesPanel } from "@/components/sources-panel"
 import { TopNav } from "@/components/top-nav"
 import type { AnalyticsContext } from "@/lib/posthog"
@@ -33,7 +34,7 @@ import type {
 } from "@/domains/sources/types"
 
 export type PanelId = "sources" | "content" | "chat"
-export type ContentView = "chunks" | "library"
+export type ContentView = "chunks" | "library" | "memory"
 
 type DesktopPanelKey = keyof typeof workspaceShellState.minimumDesktopPanelWidths
 type DesktopSidePanelKey = Exclude<DesktopPanelKey, "chunks">
@@ -141,6 +142,7 @@ export type WorkspaceShellLayoutProps = {
   readonly onLoginClick: () => void
   readonly onLibraryBack: () => void
   readonly onLibraryOpen: () => void
+  readonly onMemoryOpen: () => void
   readonly onMobilePanelChange: (panel: PanelId) => void
   readonly onOfficialLibrarySourceAdd: (
     demoSourceId: string,
@@ -238,8 +240,10 @@ export function WorkspaceShellLayout(
                 sources={props.sources}
                 selectedSourceId={props.selectedSourceId}
                 isLibraryOpen={props.contentView === "library"}
+                isMemoryOpen={props.contentView === "memory"}
                 onExpand={() => props.onDesktopPanelExpand("sources")}
                 onLibraryOpen={props.onLibraryOpen}
+                onMemoryOpen={props.onMemoryOpen}
                 onSourceSelected={props.onSourceSelected}
               />
             ) : (
@@ -247,6 +251,7 @@ export function WorkspaceShellLayout(
                 sources={[...props.sources]}
                 officialLibrarySources={[...officialLibrarySources]}
                 isLibraryOpen={props.contentView === "library"}
+                isMemoryOpen={props.contentView === "memory"}
                 isNarrow={isSourcesPanelNarrow}
                 analyticsContext={props.analyticsContext}
                 sourceCountSnapshot={props.sources.length}
@@ -268,6 +273,7 @@ export function WorkspaceShellLayout(
                   props.isGuest ? undefined : props.onOfficialLibrarySourceAdd
                 }
                 onLibraryOpen={props.onLibraryOpen}
+                onMemoryOpen={props.onMemoryOpen}
                 archivingSourceIds={[...props.archivingSourceIds]}
                 retryingSourceIds={[...retryingSourceIds]}
                 addingLibrarySourceIds={[...addingLibrarySourceIds]}
@@ -309,7 +315,9 @@ export function WorkspaceShellLayout(
               width: `${props.desktopPanelWidths.chunks}px`,
             }}
           >
-            {props.contentView === "library" ? (
+            {props.contentView === "memory" ? (
+              <MemoryDocuments onBack={props.onLibraryBack} />
+            ) : props.contentView === "library" ? (
               <OfficialLibraryPanel
                 addingLibrarySourceIds={[...addingLibrarySourceIds]}
                 officialLibrarySources={[...officialLibrarySources]}
@@ -426,6 +434,7 @@ export function WorkspaceShellLayout(
           sourceCountSnapshot={props.sources.length}
           officialLibrarySources={[...officialLibrarySources]}
           isLibraryOpen={props.contentView === "library"}
+          isMemoryOpen={props.contentView === "memory"}
           onSourceUploaded={props.isGuest ? undefined : props.onSourceUploaded}
           selectedSourceId={props.selectedSourceId}
           onSelectSource={(id) => {
@@ -440,6 +449,10 @@ export function WorkspaceShellLayout(
           }
           onLibraryOpen={() => {
             props.onLibraryOpen()
+            props.onMobilePanelChange("content")
+          }}
+          onMemoryOpen={() => {
+            props.onMemoryOpen()
             props.onMobilePanelChange("content")
           }}
           archivingSourceIds={[...props.archivingSourceIds]}
@@ -469,7 +482,9 @@ export function WorkspaceShellLayout(
           props.mobilePanel === "content" ? "flex flex-col" : "hidden"
         }`}
       >
-        {props.contentView === "library" ? (
+        {props.contentView === "memory" ? (
+          <MemoryDocuments onBack={props.onLibraryBack} />
+        ) : props.contentView === "library" ? (
           <OfficialLibraryPanel
             addingLibrarySourceIds={[...addingLibrarySourceIds]}
             officialLibrarySources={[...officialLibrarySources]}
@@ -625,15 +640,19 @@ function DesktopPanelRestoreButton({
 
 function CompactSourcesSidebar({
   isLibraryOpen = false,
+  isMemoryOpen = false,
   onExpand,
   onLibraryOpen,
+  onMemoryOpen,
   onSourceSelected,
   selectedSourceId,
   sources,
 }: {
   readonly isLibraryOpen?: boolean
+  readonly isMemoryOpen?: boolean
   readonly onExpand: () => void
   readonly onLibraryOpen?: () => void
+  readonly onMemoryOpen?: () => void
   readonly onSourceSelected: (sourceId: string | null) => void
   readonly selectedSourceId: string | null
   readonly sources: readonly SourceView[]
@@ -654,6 +673,15 @@ function CompactSourcesSidebar({
         onClick={() => onLibraryOpen?.()}
       >
         <BookOpen className="size-4" strokeWidth={1.8} />
+      </CompactSidebarButton>
+      <CompactSidebarButton
+        ariaLabel="Open memory documents"
+        isActive={isMemoryOpen}
+        label="Mem"
+        title="Open memory documents"
+        onClick={() => onMemoryOpen?.()}
+      >
+        <span className="text-[10px] font-semibold">M</span>
       </CompactSidebarButton>
       <div className="my-3 h-px w-9 bg-border" />
       <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-2 overflow-y-auto">
