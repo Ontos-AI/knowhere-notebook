@@ -195,6 +195,118 @@ function parseActivations(body: unknown): readonly MementoActivation[] {
   })
 }
 
+export type MementoMemoryArea = {
+  readonly id: string
+  readonly title: string
+  readonly kind: string
+  readonly summaryStatus: "current" | "pending"
+}
+
+export type MementoMemoryDocument = {
+  readonly id: string
+  readonly title: string
+  readonly summaryStatus: "current" | "pending"
+  readonly summary: string | null
+  readonly members: readonly {
+    readonly itemId: string
+    readonly kind: string
+    readonly status: string
+    readonly text: string
+  }[]
+}
+
+export async function listMemoryAreas(
+  workspaceId: string,
+): Promise<readonly MementoMemoryArea[]> {
+  const body = await getJson(
+    `/memory-areas?${new URLSearchParams({ workspaceId }).toString()}`,
+  )
+  return parseMemoryAreas(body)
+}
+
+export async function getMemoryAreaDocument(
+  workspaceId: string,
+  areaId: string,
+): Promise<MementoMemoryDocument> {
+  const body = await getJson(
+    `/memory-areas/${areaId}?${new URLSearchParams({ workspaceId }).toString()}`,
+  )
+  return parseMemoryAreaDocument(body)
+}
+
+export async function deleteMemoryItem(
+  workspaceId: string,
+  itemId: string,
+): Promise<void> {
+  await deleteJson(
+    `/memory-items/${itemId}?${new URLSearchParams({ workspaceId }).toString()}`,
+  )
+}
+
+function parseMemoryAreas(body: unknown): readonly MementoMemoryArea[] {
+  if (typeof body !== "object" || body === null) {
+    throw new Error("memento memory areas: invalid response")
+  }
+  const areas = Reflect.get(body, "areas")
+  if (!Array.isArray(areas)) {
+    throw new Error("memento memory areas: invalid response")
+  }
+  return areas.flatMap((area) => {
+    if (typeof area !== "object" || area === null) return []
+    const id = Reflect.get(area, "id")
+    const title = Reflect.get(area, "title")
+    const kind = Reflect.get(area, "kind")
+    const summaryStatus = Reflect.get(area, "summaryStatus")
+    if (typeof id !== "string" || typeof title !== "string" || typeof kind !== "string") {
+      return []
+    }
+    if (summaryStatus !== "current" && summaryStatus !== "pending") return []
+    return [{ id, title, kind, summaryStatus }]
+  })
+}
+
+function parseMemoryAreaDocument(body: unknown): MementoMemoryDocument {
+  if (typeof body !== "object" || body === null) {
+    throw new Error("memento memory area: invalid response")
+  }
+  const id = Reflect.get(body, "id")
+  const title = Reflect.get(body, "title")
+  const summaryStatus = Reflect.get(body, "summaryStatus")
+  const summary = Reflect.get(body, "summary")
+  const members = Reflect.get(body, "members")
+  if (typeof id !== "string" || typeof title !== "string") {
+    throw new Error("memento memory area: invalid response")
+  }
+  if (summaryStatus !== "current" && summaryStatus !== "pending") {
+    throw new Error("memento memory area: invalid response")
+  }
+  if (!Array.isArray(members)) {
+    throw new Error("memento memory area: invalid response")
+  }
+  return {
+    id,
+    title,
+    summaryStatus,
+    summary: typeof summary === "string" ? summary : null,
+    members: members.flatMap((member) => {
+      if (typeof member !== "object" || member === null) return []
+      const itemId = Reflect.get(member, "itemId")
+      const kind = Reflect.get(member, "kind")
+      const status = Reflect.get(member, "status")
+      const text = Reflect.get(member, "text")
+      if (
+        typeof itemId !== "string" ||
+        typeof kind !== "string" ||
+        typeof status !== "string" ||
+        typeof text !== "string"
+      ) {
+        return []
+      }
+      return [{ itemId, kind, status, text }]
+    }),
+  }
+}
+
 async function getJson(path: string): Promise<unknown> {
   const { status, body } = await Effect.runPromise(
     Effect.gen(function* () {
@@ -216,6 +328,22 @@ async function getJson(path: string): Promise<unknown> {
     throw new Error(`memento ${path}: HTTP ${status}`)
   }
   return body
+}
+
+async function deleteJson(path: string): Promise<void> {
+  const status = await Effect.runPromise(
+    Effect.gen(function* () {
+      const { baseUrl, serviceKey } = readMementoConfig()
+      const request = HttpClientRequest.del(`${baseUrl}${path}`).pipe(
+        HttpClientRequest.setHeader("Authorization", `Bearer ${serviceKey}`),
+      )
+      const response = yield* HttpClient.execute(request)
+      return response.status
+    }).pipe(Effect.provide(FetchHttpClient.layer)),
+  )
+  if (status < 200 || status >= 300) {
+    throw new Error(`memento ${path}: HTTP ${status}`)
+  }
 }
 
 async function postJson(path: string, body: unknown): Promise<void> {

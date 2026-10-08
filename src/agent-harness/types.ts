@@ -266,7 +266,6 @@ export type EvidenceLedgerSnapshot = {
   readonly chunks: readonly EvidenceChunk[]
   readonly assets: readonly EvidenceAsset[]
   readonly evidence: readonly EvidencePart[]
-  readonly evidenceText: readonly string[]
   readonly stopReasons: readonly string[]
   readonly failureReasons: readonly string[]
   readonly decisionTraces: readonly unknown[]

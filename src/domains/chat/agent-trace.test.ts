@@ -116,7 +116,6 @@ function makeTrace(overrides: Partial<HarnessTrace> = {}): HarnessTrace {
       ],
       assets: [],
       evidence: [],
-      evidenceText: [],
       stopReasons: [],
       failureReasons: [],
       decisionTraces: [

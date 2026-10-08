@@ -178,6 +178,10 @@ function WorkspaceShellContent({
     setContentView("library")
   }
 
+  function handleMemoryOpen(): void {
+    setContentView("memory")
+  }
+
   function handleLibraryBack(): void {
     setContentView("chunks")
   }
@@ -279,6 +283,7 @@ function WorkspaceShellContent({
       onLoginClick={redirectToLogin}
       onLibraryBack={handleLibraryBack}
       onLibraryOpen={handleLibraryOpen}
+      onMemoryOpen={handleMemoryOpen}
       onMobilePanelChange={setMobilePanel}
       onSelectChatThread={chatWorkflow.handleSelectChatThread}
       onSourceSelected={handleSourceSelected}

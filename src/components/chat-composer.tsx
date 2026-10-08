@@ -214,8 +214,8 @@ export function ChatComposer({
                     </label>
                   </TooltipTrigger>
                   <TooltipContent className="max-w-64">
-                    Deep search plans document selection and navigation for
-                    more thorough answers. Turn off for faster classic search.
+                    Deep search turns on agent retrieval. Turn it off for
+                    classic search without an agent.
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>

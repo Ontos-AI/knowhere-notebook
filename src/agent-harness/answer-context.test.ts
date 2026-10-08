@@ -152,7 +152,6 @@ function makeLedger(): EvidenceLedgerSnapshot {
         data: Buffer.from(revenuePng).toString("base64"),
       },
     ],
-    evidenceText: [],
     stopReasons: [],
     failureReasons: [],
     decisionTraces: [],

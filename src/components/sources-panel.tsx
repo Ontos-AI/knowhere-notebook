@@ -55,6 +55,7 @@ export type SourcesPanelProps = {
   readonly isNarrow?: boolean;
   readonly addingLibrarySourceIds?: readonly string[];
   readonly isLibraryOpen?: boolean;
+  readonly isMemoryOpen?: boolean;
   readonly officialLibrarySources?: readonly OfficialLibrarySourceView[];
   sources: SourceView[];
   onSourceUploaded?: (source: SourceView) => void;
@@ -64,6 +65,7 @@ export type SourcesPanelProps = {
   onArchiveSource?: (sourceId: string) => void;
   onRetrySource?: (sourceId: string) => void;
   onLibraryOpen?: () => void;
+  onMemoryOpen?: () => void;
   folders?: readonly FolderView[];
   currentFolderId?: string | null;
   creatingFolder?: boolean;
@@ -94,6 +96,7 @@ type SourcePageState = {
 export function SourcesPanel({
   isNarrow = false,
   isLibraryOpen = false,
+  isMemoryOpen = false,
   sources = [],
   onSourceUploaded,
   selectedSourceId = null,
@@ -102,6 +105,7 @@ export function SourcesPanel({
   onArchiveSource,
   onRetrySource,
   onLibraryOpen,
+  onMemoryOpen,
   folders = [],
   currentFolderId = null,
   creatingFolder = false,
@@ -385,6 +389,19 @@ export function SourcesPanel({
             >
               <BookOpen className="size-3.5" />
               {isNarrow ? null : "open library"}
+            </button>
+            <button
+              type="button"
+              onClick={onMemoryOpen}
+              className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-border/80 bg-background text-[11px] font-semibold text-foreground shadow-xs hover:bg-muted ${
+                isNarrow ? "w-8 justify-center px-0" : "px-2"
+              } ${
+                isMemoryOpen ? "border-primary/40 bg-primary/5 text-primary" : ""
+              }`}
+              aria-label="Open memory documents"
+              title="Open memory documents"
+            >
+              {isNarrow ? "M" : "memory"}
             </button>
           </div>
           {onOpenFolder ? (
