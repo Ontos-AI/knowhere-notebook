@@ -48,7 +48,7 @@ describe("ChatComposer", () => {
 
     const tooltip = await screen.findByRole("tooltip");
     expect(tooltip.textContent).toContain(
-      "Deep search plans document selection and navigation",
+      "Deep search turns on agent retrieval",
     );
   });
 
