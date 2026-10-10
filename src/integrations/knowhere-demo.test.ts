@@ -316,6 +316,160 @@ describe("knowhereDemoApi", () => {
         "/api/demo-sources/demo-tsla-q4-2025/assets/page_citation_assets/page-12.png",
     })
   })
+
+  it("maps shared-corpus demo citations without legacy nested fields", async () => {
+    globalThis.fetch = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          sources: [
+            {
+              demo_source_id: "demo-tsla-q4-2025",
+              canonical_document_id: "ddoc_d55868b790cd",
+              title: "TSLA-Q4-2025-Update.pdf",
+              mime_type: "application/pdf",
+              size_bytes: 5648867,
+              import_status: "ready",
+              chunk_count: 71,
+              original_file: {
+                url: "/api/v1/demo/sources/demo-tsla-q4-2025/original",
+                mime_type: "application/pdf",
+                size_bytes: 5648867,
+                can_download: true,
+              },
+              examples: [
+                {
+                  id: "demo-tsla-q4-2025-xai",
+                  question: "What does the document say about Tesla's xAI investment?",
+                  answer: "Tesla invested in xAI. [[cite:1]]",
+                  citations: [
+                    {
+                      description: "xAI investment",
+                      document_id: "ddoc_d55868b790cd",
+                      canonical_document_id: "ddoc_d55868b790cd",
+                      job_result_id: "afc92902-5846-4d11-b658-2ccaf4f04242",
+                      demo_source_id: "demo-tsla-q4-2025",
+                      id: "dchk_1236885e2eda",
+                      demo_chunk_id: "dchk_1236885e2eda",
+                      chunk_id: "node_5ead044d-60cc-5b64-a066-fa6c0a81bbd6",
+                      section_path: "Q4 and FY 2025 Update / OTHER UPDATES",
+                      content:
+                        "On January 16, 2026, Tesla entered into an agreement to invest approximately",
+                      page_number: 12,
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+          official_library: { categories: [], sources: [] },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    )
+
+    const catalog = await knowhereDemoApi.fetchCatalog()
+    const citation = catalog.sources[0]?.examples[0]?.citations[0]
+
+    expect(citation).toMatchObject({
+      demoSourceId: "demo-tsla-q4-2025",
+      canonicalDocumentId: "ddoc_d55868b790cd",
+      canonicalChunkId: "dchk_1236885e2eda",
+      chunkId: "node_5ead044d-60cc-5b64-a066-fa6c0a81bbd6",
+      chunkType: "text",
+      content:
+        "On January 16, 2026, Tesla entered into an agreement to invest approximately",
+      pageCitationPageNumber: 12,
+      pageNums: [12],
+      source: {
+        documentId: "ddoc_d55868b790cd",
+        sourceFileName: "TSLA-Q4-2025-Update.pdf",
+        sectionPath: "Q4 and FY 2025 Update / OTHER UPDATES",
+      },
+    })
+  })
+
+  it("normalizes shared-corpus chunk pages with catalog metadata fallback", async () => {
+    globalThis.fetch = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            document_id: "ddoc_d55868b790cd",
+            namespace: "__knowhere_demo__",
+            job_result_id: "afc92902-5846-4d11-b658-2ccaf4f04242",
+            chunks: [
+              {
+                id: "dchk_1236885e2eda",
+                chunk_id: "node_5ead044d-60cc-5b64-a066-fa6c0a81bbd6",
+                chunk_type: "text",
+                content: "Tesla entered into an agreement to invest approximately",
+                section_path: "Q4 and FY 2025 Update / OTHER UPDATES",
+                source_chunk_path:
+                  "Q4 and FY 2025 Update / OTHER UPDATES",
+                file_path: null,
+                sort_order: 0,
+                metadata: { page_nums: [12] },
+                asset_url: null,
+              },
+            ],
+            pagination: { page: 1, page_size: 50, total: 1, total_pages: 1 },
+            demo_source_id: undefined,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            sources: [
+              {
+                demo_source_id: "demo-tsla-q4-2025",
+                canonical_document_id: "ddoc_d55868b790cd",
+                title: "TSLA-Q4-2025-Update.pdf",
+                mime_type: "application/pdf",
+                size_bytes: 5648867,
+                import_status: "ready",
+                chunk_count: 71,
+                original_file: {
+                  url: "/api/v1/demo/sources/demo-tsla-q4-2025/original",
+                  mime_type: "application/pdf",
+                  size_bytes: 5648867,
+                  can_download: true,
+                },
+                examples: [],
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      )
+
+    const page = await knowhereDemoApi.fetchChunkPage({
+      demoSourceId: "demo-tsla-q4-2025",
+      page: 1,
+      pageSize: 50,
+    })
+
+    expect(page).toMatchObject({
+      demoSourceId: "demo-tsla-q4-2025",
+      canonicalDocumentId: "ddoc_d55868b790cd",
+      title: "TSLA-Q4-2025-Update.pdf",
+      mimeType: "application/pdf",
+    })
+    expect(page.chunks[0]).toMatchObject({
+      id: "dchk_1236885e2eda",
+      chunkId: "node_5ead044d-60cc-5b64-a066-fa6c0a81bbd6",
+      sectionPath: "Q4 and FY 2025 Update / OTHER UPDATES",
+    })
+    expect(globalThis.fetch).toHaveBeenNthCalledWith(
+      1,
+      "https://api.knowhereto.ai/api/v1/demo/sources/demo-tsla-q4-2025/chunks?page=1&page_size=50",
+    )
+    expect(globalThis.fetch).toHaveBeenNthCalledWith(
+      2,
+      "https://api.knowhereto.ai/api/v1/demo/catalog",
+    )
+  })
 })
 
 function restoreEnv(key: string, value: string | undefined): void {

@@ -126,6 +126,7 @@ type DemoCatalogResponse = {
 type DemoSourceResponse = {
   readonly demo_source_id?: unknown
   readonly canonical_document_id?: unknown
+  readonly job_result_id?: unknown
   readonly title?: unknown
   readonly mime_type?: unknown
   readonly size_bytes?: unknown
@@ -151,13 +152,19 @@ type DemoExampleResponse = {
 }
 
 type DemoCitationResponse = {
+  readonly id?: unknown
+  readonly demo_chunk_id?: unknown
+  readonly document_id?: unknown
   readonly demo_source_id?: unknown
   readonly canonical_document_id?: unknown
   readonly canonical_chunk_id?: unknown
   readonly chunk_id?: unknown
   readonly chunk_type?: unknown
+  readonly type?: unknown
   readonly content?: unknown
   readonly description?: unknown
+  readonly section_path?: unknown
+  readonly page_number?: unknown
   readonly page_citation_page_number?: unknown
   readonly page_citation_asset_url?: unknown
   readonly page_nums?: unknown
@@ -169,8 +176,10 @@ type DemoCitationResponse = {
 }
 
 type DemoChunkPageResponse = {
+  readonly document_id?: unknown
   readonly demo_source_id?: unknown
   readonly canonical_document_id?: unknown
+  readonly job_result_id?: unknown
   readonly title?: unknown
   readonly mime_type?: unknown
   readonly chunks?: readonly DemoChunkResponse[]
@@ -279,13 +288,53 @@ const fetchChunkPageEffect = Effect.fn("knowhereDemo.fetchChunkPage")(
     )
     yield* assertOkEffect(response)
 
-    return toDemoChunkPage(
-      (yield* Effect.tryPromise(() =>
-        response.json(),
-      )) as DemoChunkPageResponse,
-    )
+    const body = (yield* Effect.tryPromise(() =>
+      response.json(),
+    )) as DemoChunkPageResponse
+    const source = yield* readDemoSourceFallback(input.demoSourceId, body)
+
+    return toDemoChunkPage(body, source)
   },
 )
+
+function readDemoSourceFallback(
+  demoSourceId: string,
+  response: DemoChunkPageResponse,
+): Effect.Effect<{
+  readonly demoSourceId: string
+  readonly canonicalDocumentId?: string
+  readonly title?: string
+  readonly mimeType?: string
+}, never> {
+  const hasCompleteMetadata =
+    optionalString(response.demo_source_id) !== undefined &&
+    (optionalString(response.canonical_document_id) ??
+      optionalString(response.document_id)) !== undefined &&
+    optionalString(response.title) !== undefined &&
+    optionalString(response.mime_type) !== undefined
+  if (hasCompleteMetadata) {
+    return Effect.succeed({ demoSourceId })
+  }
+
+  return fetchCatalogEffect().pipe(
+    Effect.map((catalog) => {
+      const source = catalog.sources.find(
+        (candidate) => candidate.demoSourceId === demoSourceId,
+      )
+      return {
+        demoSourceId,
+        ...(source
+          ? {
+              canonicalDocumentId: source.canonicalDocumentId,
+              title: source.title,
+              mimeType: source.mimeType,
+            }
+          : {}),
+      }
+    }),
+    Effect.catchAll(() => Effect.succeed({ demoSourceId })),
+  )
+}
 
 const materializeSourcesEffect = Effect.fn("knowhereDemo.materializeSources")(
   function* (input: {
@@ -419,48 +468,74 @@ function assertOkEffect(
 }
 
 function toDemoSource(source: DemoSourceResponse): DemoSource {
+  const demoSourceId = requireString(source.demo_source_id)
+  const title = requireString(source.title)
   const officialLibrary = source.official_library
     ? toOfficialLibrarySource(source.official_library)
     : undefined
   return {
-    demoSourceId: requireString(source.demo_source_id),
+    demoSourceId,
     canonicalDocumentId: requireString(source.canonical_document_id),
-    title: requireString(source.title),
+    title,
     mimeType: requireString(source.mime_type),
     sizeBytes: requireNumber(source.size_bytes),
     status: "ready",
     chunkCount: requireNumber(source.chunk_count),
     originalFile: toOriginalFile(source.original_file),
     ...(officialLibrary ? { officialLibrary } : {}),
-    examples: (source.examples ?? []).map(toDemoExample),
+    examples: (source.examples ?? []).map((example) =>
+      toDemoExample(example, title, demoSourceId),
+    ),
   }
 }
 
-function toDemoExample(example: DemoExampleResponse): DemoExample {
+function toDemoExample(
+  example: DemoExampleResponse,
+  sourceTitle: string,
+  demoSourceId: string,
+): DemoExample {
   return {
     id: requireString(example.id),
     question: requireString(example.question),
     answer: requireString(example.answer),
-    citations: (example.citations ?? []).map(toDemoCitation),
+    citations: (example.citations ?? []).map((citation) =>
+      toDemoCitation(citation, sourceTitle, demoSourceId),
+    ),
   }
 }
 
-function toDemoCitation(citation: DemoCitationResponse): DemoCitation {
+function toDemoCitation(
+  citation: DemoCitationResponse,
+  sourceTitle: string,
+  demoSourceId: string,
+): DemoCitation {
   const source = citation.source ?? {}
   const description = optionalString(citation.description)
-  const pageNums = toPositiveIntegers(citation.page_nums)
+  const canonicalDocumentId = requireString(
+    citation.canonical_document_id ?? citation.document_id,
+  )
+  const pageNums = toPositiveIntegers(
+    citation.page_nums,
+    citation.page_number,
+  )
   const pageCitationPageNumber =
-    optionalPositiveInteger(citation.page_citation_page_number) ?? pageNums[0]
+    optionalPositiveInteger(citation.page_citation_page_number) ??
+    optionalPositiveInteger(citation.page_number) ??
+    pageNums[0]
   const pageCitationAssetUrl = toDemoAssetUrl(
-    requireString(citation.demo_source_id),
+    optionalString(citation.demo_source_id) ?? demoSourceId,
     optionalString(citation.page_citation_asset_url),
   )
   return {
-    demoSourceId: requireString(citation.demo_source_id),
-    canonicalDocumentId: requireString(citation.canonical_document_id),
-    canonicalChunkId: requireString(citation.canonical_chunk_id),
+    demoSourceId: optionalString(citation.demo_source_id) ?? demoSourceId,
+    canonicalDocumentId,
+    canonicalChunkId: requireString(
+      citation.canonical_chunk_id ?? citation.id ?? citation.demo_chunk_id,
+    ),
     chunkId: requireString(citation.chunk_id),
-    chunkType: requireString(citation.chunk_type),
+    chunkType: optionalString(citation.chunk_type) ??
+      optionalString(citation.type) ??
+      "text",
     content: requireString(citation.content),
     ...(description ? { description } : {}),
     ...(pageCitationPageNumber !== undefined
@@ -469,22 +544,39 @@ function toDemoCitation(citation: DemoCitationResponse): DemoCitation {
     ...(pageCitationAssetUrl ? { pageCitationAssetUrl } : {}),
     ...(pageNums.length > 0 ? { pageNums } : {}),
     source: {
-      documentId: requireString(source.document_id),
-      sourceFileName: requireString(source.source_file_name),
-      sectionPath: requireString(source.section_path),
+      documentId: requireString(
+        source.document_id ?? citation.document_id ?? canonicalDocumentId,
+      ),
+      sourceFileName: optionalString(source.source_file_name) ?? sourceTitle,
+      sectionPath: requireString(source.section_path ?? citation.section_path),
     },
   }
 }
 
-function toDemoChunkPage(response: DemoChunkPageResponse): DemoChunkPage {
+function toDemoChunkPage(
+  response: DemoChunkPageResponse,
+  fallback: {
+    readonly demoSourceId: string
+    readonly canonicalDocumentId?: string
+    readonly title?: string
+    readonly mimeType?: string
+  },
+): DemoChunkPage {
   const pagination = response.pagination ?? {}
   return {
-    demoSourceId: requireString(response.demo_source_id),
-    canonicalDocumentId: requireString(response.canonical_document_id),
-    title: requireString(response.title),
-    mimeType: requireString(response.mime_type),
+    demoSourceId: requireString(response.demo_source_id ?? fallback.demoSourceId),
+    canonicalDocumentId: requireString(
+      response.canonical_document_id ??
+        response.document_id ??
+        fallback.canonicalDocumentId,
+    ),
+    title: requireString(response.title ?? fallback.title),
+    mimeType: requireString(response.mime_type ?? fallback.mimeType),
     chunks: (response.chunks ?? []).map((chunk) =>
-      toDemoChunk(requireString(response.demo_source_id), chunk),
+      toDemoChunk(
+        requireString(response.demo_source_id ?? fallback.demoSourceId),
+        chunk,
+      ),
     ),
     pagination: {
       page: requireNumber(pagination.page),
@@ -697,12 +789,19 @@ function optionalPositiveInteger(value: unknown): number | undefined {
     : undefined
 }
 
-function toPositiveIntegers(value: unknown): readonly number[] {
-  if (!Array.isArray(value)) return []
-  return value.flatMap((item) => {
+function toPositiveIntegers(
+  value: unknown,
+  scalarValue?: unknown,
+): readonly number[] {
+  const values = Array.isArray(value) ? value : []
+  const pages = values.flatMap((item) => {
     const page = optionalPositiveInteger(item)
     return page === undefined ? [] : [page]
   })
+  const scalarPage = optionalPositiveInteger(scalarValue)
+  return scalarPage !== undefined && !pages.includes(scalarPage)
+    ? [...pages, scalarPage]
+    : pages
 }
 
 function toDemoAssetUrl(
