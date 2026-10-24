@@ -2,6 +2,7 @@ import type {
   ChunkKnowhereClient,
   ChunkPage,
   ChunkPageParams,
+  ChunkReadType,
 } from "@/domains/chunks"
 import type { ParsedChunkView } from "@/domains/chunks/types"
 import type {
@@ -182,6 +183,7 @@ type SourceRouteService = {
 }
 
 type SourceWorkflowService = {
+  readonly findLegacyDemoSource?: (workspaceId: string, sourceId: string) => Promise<Source | null>
   readonly uploadSourceToKnowhere: (
     workspace: Workspace,
     file: File,
@@ -214,6 +216,8 @@ type SourceWorkflowService = {
     demoSourceId: string,
   ) => Promise<void>
   readonly listHiddenDemoSourceIds: (workspaceId: string) => Promise<string[]>
+  readonly listSelectedDemoSourceIds?: (workspaceId: string) => Promise<string[]>
+  readonly listLegacyDemoDocumentIds?: (workspaceId: string) => Promise<string[]>
   readonly localizeRemoteDocument: (
     workspaceId: string,
     input: {
@@ -245,6 +249,8 @@ type SourceRouteDemoApi = {
     readonly demoSourceId: string
     readonly page: number
     readonly pageSize: number
+    readonly jobResultId?: string
+    readonly chunkType?: ChunkReadType
   }) => Promise<DemoChunkPage>
 }
 

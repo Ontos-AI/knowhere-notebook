@@ -48,6 +48,8 @@ export type SourceView = {
   readonly kind?: SourceKind
   readonly demoSourceId?: string
   readonly namespace?: string
+  /** Complete Knowhere revision used by shared demo reads and citations. */
+  readonly jobResultId?: string
   readonly title: string
   /** Browser-provided content type for preview routing. */
   readonly mimeType: string

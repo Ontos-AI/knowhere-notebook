@@ -2,7 +2,6 @@ import { Effect } from "effect"
 
 import { CHAT_MODEL } from "@/lib/ai"
 import { logger } from "@/lib/logger"
-import type { Source } from "@/infrastructure/db/schema"
 import type { ChatCitationView } from "@/domains/chat/types"
 import {
   runAgentHarness,
@@ -13,6 +12,7 @@ import {
   type ResolveConnectedAssets,
 } from "@/agent-harness"
 import type {
+  ChatSource,
   ChatHistoryMessage,
   SearchSources,
 } from "./contracts"
@@ -34,7 +34,7 @@ type GenerateAgenticOutputManifestInput = {
   workspaceId: string
   question: string
   messages: readonly ChatHistoryMessage[]
-  sources: readonly Source[]
+  sources: readonly ChatSource[]
   excludedSourceIds: readonly string[]
   searchSources: SearchSources
   knowhereTools?: KnowhereToolRuntime

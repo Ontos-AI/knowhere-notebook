@@ -2,10 +2,16 @@ import "server-only"
 
 import type { RetrievalResult } from "@ontos-ai/knowhere-sdk"
 
-import type { Source } from "@/infrastructure/db/schema"
+import { bindCitationSourceRevision } from "./citation-source-revision"
+import type { ChatSource } from "./contracts"
 import type { HardenChatAssetUrl } from "./media-assets"
 
 export type PageCitationAssetRetrievalResult = RetrievalResult & {
+  readonly chunkRowId?: string
+  readonly source: RetrievalResult["source"] & {
+    readonly namespace?: string
+    readonly jobResultId?: string
+  }
   readonly pageCitationAssetUrl?: string
   readonly pageCitationPageNumber?: number
   readonly highlightRegions?: readonly {
@@ -18,7 +24,7 @@ export type PageCitationAssetRetrievalResult = RetrievalResult & {
 
 type EnrichRetrievalResultsWithPageCitationAssetUrlsInput = {
   readonly results: readonly RetrievalResult[]
-  readonly sources: readonly Source[]
+  readonly sources: readonly ChatSource[]
   readonly hardenChatAssetUrl?: HardenChatAssetUrl
 }
 
@@ -39,7 +45,7 @@ export async function enrichRetrievalResultsWithPageCitationAssetUrls({
   if (results.length === 0) return []
 
   const sourcesByDocumentId = new Map(
-    sources.flatMap((source): readonly [string, Source][] =>
+    sources.flatMap((source): readonly [string, ChatSource][] =>
       source.knowhereDocumentId ? [[source.knowhereDocumentId, source]] : [],
     ),
   )
@@ -72,7 +78,7 @@ export function resolvePageCitationPageNumber(
 
 async function enrichRetrievalResultWithPageCitationAssetUrl(input: {
   readonly result: RetrievalResult
-  readonly sourcesByDocumentId: ReadonlyMap<string, Source>
+  readonly sourcesByDocumentId: ReadonlyMap<string, ChatSource>
   readonly hardenChatAssetUrl?: HardenChatAssetUrl
 }): Promise<PageCitationAssetRetrievalResult> {
   const pageNumbers = getPageNumbers(input.result.metadata)
@@ -103,14 +109,15 @@ async function enrichRetrievalResultWithPageCitationAssetUrl(input: {
 async function getStoredPageCitationAssetUrl(input: {
   readonly result: RetrievalResult
   readonly directAsset: PageCitationAssetCandidate | null
-  readonly sourcesByDocumentId: ReadonlyMap<string, Source>
+  readonly sourcesByDocumentId: ReadonlyMap<string, ChatSource>
   readonly hardenChatAssetUrl?: HardenChatAssetUrl
 }): Promise<string | null> {
   const artifactRef = getTrimmedString(input.directAsset?.artifactRef)
   const documentId = getTrimmedString(input.result.source.documentId)
   if (!artifactRef || !documentId || !input.hardenChatAssetUrl) return null
 
-  const source = input.sourcesByDocumentId.get(documentId)
+  const candidate = input.sourcesByDocumentId.get(documentId)
+  const source = candidate ? bindCitationSourceRevision(candidate, input.result.source, input.result.metadata) : null
   if (!source) return null
 
   return input.hardenChatAssetUrl({

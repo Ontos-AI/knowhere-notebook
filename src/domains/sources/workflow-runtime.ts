@@ -48,6 +48,11 @@ type UploadRepositoryRuntime = {
 }
 
 type SourceWorkflowRuntime = UploadRepositoryRuntime & {
+  readonly listLegacyDemoSources: (workspaceId: string) => Promise<Source[]>
+  readonly findLegacyDemoSource: (workspaceId: string, sourceId: string) => Promise<Source | null>
+  readonly listLegacyDemoDocumentIds: (workspaceId: string) => Promise<string[]>
+  readonly listSelectedDemoSourceIds: (workspaceId: string) => Promise<string[]>
+  readonly restoreDemoSource: (workspaceId: string, demoSourceId: string) => Promise<void>
   readonly createUploadRepository: (
     runtime?: UploadRepositoryRuntime,
   ) => UploadSourceRepository
@@ -154,6 +159,12 @@ const localizeRemoteDocument: SourceWorkflowRuntime["localizeRemoteDocument"] =
     databaseRuntime.runPromise(
       sourceRepository.localizeRemoteDocumentEffect(workspaceId, input),
     )
+
+const listLegacyDemoSources: SourceWorkflowRuntime["listLegacyDemoSources"] = (workspaceId: string) => databaseRuntime.runPromise(sourceRepository.listLegacyDemoSourcesEffect(workspaceId))
+const findLegacyDemoSource: SourceWorkflowRuntime["findLegacyDemoSource"] = (workspaceId: string, sourceId: string) => databaseRuntime.runPromise(sourceRepository.findLegacyDemoSourceEffect(workspaceId, sourceId))
+const listLegacyDemoDocumentIds: SourceWorkflowRuntime["listLegacyDemoDocumentIds"] = (workspaceId: string) => databaseRuntime.runPromise(sourceRepository.listLegacyDemoDocumentIdsEffect(workspaceId))
+const listSelectedDemoSourceIds: SourceWorkflowRuntime["listSelectedDemoSourceIds"] = (workspaceId: string) => databaseRuntime.runPromise(sourceRepository.listSelectedDemoSourceIdsEffect(workspaceId))
+const restoreDemoSource: SourceWorkflowRuntime["restoreDemoSource"] = (workspaceId: string, demoSourceId: string) => databaseRuntime.runPromise(sourceRepository.restoreDemoSourceEffect(workspaceId, demoSourceId))
 
 const listHiddenDemoSourceIds: SourceWorkflowRuntime["listHiddenDemoSourceIds"] =
   (workspaceId: string) =>
@@ -357,6 +368,11 @@ function requireSource(source: Source | null, message: string): Source {
 }
 
 export const sourceWorkflowRuntime: SourceWorkflowRuntime = {
+  listLegacyDemoSources,
+  findLegacyDemoSource,
+  listLegacyDemoDocumentIds,
+  listSelectedDemoSourceIds,
+  restoreDemoSource,
   clearStagedBlob,
   createUploadRepository,
   createUploading,

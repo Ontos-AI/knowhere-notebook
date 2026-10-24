@@ -1,10 +1,14 @@
-import { Either } from "effect"
+import { Effect, Either } from "effect"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { ChatMessage, ChatThread, Source, Workspace } from "@/infrastructure/db/schema"
 
 const mocks = vi.hoisted(() => ({
   appendMessageToThread: vi.fn(),
+  fetchDemoCatalog: vi.fn(),
+  listHiddenDemoSourceIds: vi.fn(),
+  listSelectedDemoSourceIds: vi.fn(),
+  listLegacyDemoDocumentIds: vi.fn(),
   createChatThread: vi.fn(),
   documentListChunks: vi.fn(),
   ensureDefaultChatThread: vi.fn(),
@@ -45,6 +49,7 @@ vi.mock("@/integrations/knowhere", () => ({
 
 vi.mock("@/integrations/knowhere-demo", () => ({
   knowhereDemoApi: {
+    fetchCatalog: mocks.fetchDemoCatalog,
     resolveApiURL: (pathname: string) => `https://demo.example${pathname}`,
   },
 }))
@@ -73,9 +78,18 @@ vi.mock("@/integrations/memento/client", () => ({
   searchRelevantAgentFeedback: vi.fn().mockResolvedValue([]),
 }))
 
+vi.mock("@/domains/sources/service", () => ({ sourceService: {
+  listForWorkspace: mocks.listSourcesForWorkspace,
+  listLegacyDemoSources: async () => [],
+  listHiddenDemoSourceIds: mocks.listHiddenDemoSourceIds,
+  listSelectedDemoSourceIds: mocks.listSelectedDemoSourceIds,
+  listLegacyDemoDocumentIds: mocks.listLegacyDemoDocumentIds,
+} }))
+
 vi.mock("@/domains/sources/workflow-runtime", () => ({
   sourceWorkflowRuntime: {
     listForWorkspace: mocks.listSourcesForWorkspace,
+  listLegacyDemoSources: async () => [],
   },
 }))
 
@@ -121,6 +135,11 @@ import { chatThreadRouteService } from "./route-threads"
 describe("chat route services", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.listSourcesForWorkspace.mockResolvedValue([])
+    mocks.fetchDemoCatalog.mockResolvedValue({ sources: [], officialLibrary: { categories: [], sources: [] } })
+    mocks.listHiddenDemoSourceIds.mockResolvedValue([])
+    mocks.listSelectedDemoSourceIds.mockResolvedValue([])
+    mocks.listLegacyDemoDocumentIds.mockResolvedValue([])
     mocks.parsedStorageGetAssetUrl.mockResolvedValue(null)
     mocks.parsedStorageWriteAsset.mockResolvedValue({ url: null })
     mocks.makeKnowhereClientWithParsedStorage.mockReturnValue({
@@ -166,6 +185,7 @@ describe("chat route services", () => {
     mocks.handleChatTurn.mockResolvedValue(
       Either.right({
         threadId: "thread_1",
+        citationSources: [],
         messages: [
           { id: "message_user", role: "user", content: "Summarize it" },
           { id: "message_assistant", role: "assistant", content: "Answer" },
@@ -186,6 +206,7 @@ describe("chat route services", () => {
       status: 200,
       body: {
         threadId: "thread_1",
+        citationSources: [],
         messages: [
           { id: "message_user", role: "user", content: "Summarize it" },
           { id: "message_assistant", role: "assistant", content: "Answer" },
@@ -214,6 +235,77 @@ describe("chat route services", () => {
         }),
       }),
     )
+  })
+
+  it("resolves demo chat sources from the current server catalog and excludes hidden and historical rows", async () => {
+    const workspace = makeWorkspace()
+    const visible = { demoSourceId: "visible", canonicalDocumentId: "shared-document", namespace: "__knowhere_demo__", jobResultId: "catalog-revision",
+      title: "Shared", mimeType: "text/plain", sizeBytes: 1, status: "ready", chunkCount: 1,
+      originalFile: { url: "https://example.com/source", mimeType: "text/plain", sizeBytes: 1, canDownload: false }, examples: [] }
+    mocks.getAuthenticatedWithClient.mockResolvedValue({ workspace, apiKey: "key", client: { retrieval: { query: vi.fn() } } })
+    mocks.fetchDemoCatalog.mockResolvedValue({ sources: [visible,
+      { ...visible, demoSourceId: "hidden", canonicalDocumentId: "hidden-document" },
+      { ...visible, demoSourceId: "not-added-official", canonicalDocumentId: "official-document", officialLibrary: { librarySourceId: "official", categoryId: "reports", title: "Official", sourceUrl: "https://example.com", mimeType: "text/plain", status: "ready" } },
+    ], officialLibrary: { categories: [], sources: [] } })
+    mocks.listHiddenDemoSourceIds.mockResolvedValue(["hidden"])
+    mocks.listLegacyDemoDocumentIds.mockResolvedValue(["deleted-private-demo"])
+    mocks.listSourcesForWorkspace.mockResolvedValue([makeSource({ demoKey: "visible", knowhereDocumentId: "old-private-demo" })])
+    mocks.handleChatTurn.mockResolvedValue(Either.right({ threadId: "thread", messages: [
+      { id: "user", role: "user", content: "question" }, { id: "assistant", role: "assistant", content: "answer" },
+    ] }))
+    await chatAnswerRouteService.answerChat({ body: { message: "question", namespace: "browser-namespace", documentIds: ["hidden-document"] } })
+    expect(mocks.fetchDemoCatalog).toHaveBeenCalledOnce()
+    expect(mocks.listHiddenDemoSourceIds).toHaveBeenCalledWith(workspace.id)
+    expect(mocks.handleChatTurn).toHaveBeenCalledWith(expect.objectContaining({ sources: [expect.objectContaining({
+      id: "visible", knowhereDocumentId: "shared-document", namespace: "__knowhere_demo__", jobResultId: "catalog-revision" })],
+      excludedWorkspaceDemoDocumentIds: expect.arrayContaining(["old-private-demo", "deleted-private-demo"]) }))
+  })
+
+  it("keeps private retrieval available with a demo preparation warning when the catalog is unavailable", async () => {
+    mocks.getAuthenticatedWithClient.mockResolvedValue({ workspace: makeWorkspace(), apiKey: "key", client: { retrieval: { query: vi.fn() } } })
+    mocks.listSourcesForWorkspace.mockResolvedValue([makeSource()])
+    mocks.fetchDemoCatalog.mockRejectedValue(Object.assign(new Error("catalog unavailable"), { status: 503 }))
+    mocks.handleChatTurn.mockResolvedValue(Either.right({ threadId: "thread", messages: [
+      { id: "user", role: "user", content: "question" }, { id: "assistant", role: "assistant", content: "answer" },
+    ] }))
+    const result = await chatAnswerRouteService.answerChat({ body: { message: "question" } })
+    expect(result.status).toBe(200)
+    expect(mocks.handleChatTurn).toHaveBeenCalledWith(expect.objectContaining({ sources: [makeSource()], retrievalPreparationFailures: [
+      expect.objectContaining({ warning: expect.objectContaining({ scope: "demo", code: "demo_catalog_unavailable" }) }),
+    ] }))
+  })
+
+  it.each([401, 409, 503])("preserves upstream status %s when catalog failure leaves no searchable sources", async (status) => {
+    mocks.getAuthenticatedWithClient.mockResolvedValue({ workspace: makeWorkspace(), apiKey: "key", client: { retrieval: { query: vi.fn() } } })
+    mocks.listSourcesForWorkspace.mockResolvedValue([])
+    mocks.fetchDemoCatalog.mockRejectedValue(Object.assign(new Error("catalog unavailable"), { status }))
+    const result = await chatAnswerRouteService.answerChat({ body: { message: "question" } })
+    expect(result.status).toBe(status)
+    expect(mocks.handleChatTurn).not.toHaveBeenCalled()
+  })
+
+  it("preserves catalog status inside an actual Effect FiberFailure", async () => {
+    mocks.getAuthenticatedWithClient.mockResolvedValue({ workspace: makeWorkspace(), apiKey: "key", client: { retrieval: { query: vi.fn() } } })
+    mocks.listSourcesForWorkspace.mockResolvedValue([])
+    mocks.fetchDemoCatalog.mockImplementation(() => Effect.runPromise(Effect.fail({ status: 503, message: "Catalog unavailable" })))
+    const result = await chatAnswerRouteService.answerChat({ body: { message: "question" } })
+    expect(result.status).toBe(503)
+  })
+
+  it("pins a shared media request and Blob key to the retrieval result revision", async () => {
+    mocks.getAuthenticatedWithClient.mockResolvedValue({ workspace: makeWorkspace(), apiKey: "key", client: { retrieval: { query: vi.fn() } } })
+    mocks.parsedStorageWriteAsset.mockResolvedValue({ url: "https://blob.example/pinned.png" })
+    mocks.handleChatTurn.mockImplementation(async (input) => {
+      const url = await input.hardenChatAssetUrl({ source: { ...makeSource(), demoKey: "shared", namespace: "__knowhere_demo__",
+        knowhereDocumentId: "shared-doc", knowhereJobId: null, jobResultId: "retrieval-revision" }, sourcePath: "pages/page-1.png" })
+      expect(url).toBe("https://blob.example/pinned.png")
+      return Either.right({ threadId: "thread", messages: [
+        { id: "user", role: "user", content: "question" }, { id: "assistant", role: "assistant", content: "answer" },
+      ] })
+    })
+    await chatAnswerRouteService.answerChat({ body: { message: "question" } })
+    expect(fetch).toHaveBeenCalledWith("https://demo.example/api/v1/demo/sources/shared/assets/pages/page-1.png?job_result_id=retrieval-revision")
+    expect(mocks.parsedStorageWriteAsset).toHaveBeenCalledWith(expect.objectContaining({ documentId: "shared-doc", revisionKey: "retrieval-revision" }))
   })
 
   it("injects a resolver that matches connected assets by parser chunk id", async () => {
@@ -550,6 +642,7 @@ describe("chat route services", () => {
           createdAt: "2026-05-06T00:00:00.000Z",
           updatedAt: "2026-05-06T00:00:00.000Z",
         },
+        citationSources: [],
         messages: [
           {
             id: "message_1",

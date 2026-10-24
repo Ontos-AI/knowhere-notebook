@@ -142,7 +142,7 @@ describe("OfficialLibraryPanel", () => {
     expect(addButton.className).toContain("min-[1116px]:opacity-0");
   });
 
-  it("marks already added library documents and removes duplicate add actions", () => {
+  it("marks selected shared library documents and removes duplicate add actions", () => {
     const onOfficialLibrarySourceAdd = vi.fn();
 
     render(
@@ -150,7 +150,7 @@ describe("OfficialLibraryPanel", () => {
         sources: [
           {
             id: "source_spacex",
-            kind: "workspace",
+            kind: "demo",
             demoSourceId: "demo-spacex-s1",
             title: "spacex-s1.pdf",
             status: "ready",

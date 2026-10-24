@@ -74,6 +74,7 @@ import { PATCH } from "./route";
 describe("PATCH /api/sources/[sourceId]", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.fetchDemoCatalog.mockResolvedValue({ sources: [], officialLibrary: { categories: [], sources: [] } });
   });
 
   it("archives the Knowhere document before soft deleting the source", async () => {
@@ -244,7 +245,7 @@ describe("PATCH /api/sources/[sourceId]", () => {
     );
   });
 
-  it("archives materialized demo sources and records canonical visibility", async () => {
+  it("hides legacy demo selections and retains existing rows for citations", async () => {
     mocks.requireUser.mockResolvedValue({ id: "user_1" });
     mocks.ensureWorkspace.mockResolvedValue({ id: "workspace_1" });
     mocks.findSourceInWorkspace.mockResolvedValue({
@@ -274,16 +275,10 @@ describe("PATCH /api/sources/[sourceId]", () => {
       archived: true,
     });
     expect(response.status).toBe(200);
-    expect(mocks.ensureApiKeyForWorkspace).toHaveBeenCalledWith(
-      "workspace_1",
-      "session=abc",
-    );
-    expect(mocks.archive).toHaveBeenCalledWith("doc_user_copy");
+    expect(mocks.ensureApiKeyForWorkspace).not.toHaveBeenCalled();
+    expect(mocks.archive).not.toHaveBeenCalled();
     expect(mocks.deleteBlob).not.toHaveBeenCalled();
-    expect(mocks.softDeleteSource).toHaveBeenCalledWith(
-      "workspace_1",
-      "source_demo",
-    );
+    expect(mocks.softDeleteSource).not.toHaveBeenCalled();
     expect(mocks.hideDemoSource).toHaveBeenCalledWith(
       "workspace_1",
       "demo-tsla-q4-2025",

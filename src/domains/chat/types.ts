@@ -6,11 +6,14 @@ export type RetrievalResultView = {
   readonly chunkType: string
   readonly score: number | null
   readonly chunkId?: string
+  readonly chunkRowId?: string
   readonly assetUrl?: string
   readonly pageCitationAssetUrl?: string
   readonly pageCitationPageNumber?: number
   readonly source: {
     readonly documentId?: string | null
+    readonly namespace?: string
+    readonly jobResultId?: string
     readonly sourceFileName?: string | null
     readonly sectionPath?: string | null
   }
@@ -59,12 +62,19 @@ export type ChatArtifactView = {
   readonly citation?: ChatCitationView
 }
 
+export type RetrievalWarning = {
+  readonly scope: "workspace" | "demo"
+  readonly code: string
+  readonly message: string
+}
+
 export type ChatMessageView = {
   readonly id: string
   readonly role: "user" | "assistant"
   readonly content: string
   readonly citations?: readonly ChatCitationView[]
   readonly artifacts?: readonly ChatArtifactView[]
+  readonly retrievalWarnings?: readonly RetrievalWarning[]
 }
 
 export type ChatThreadView = {

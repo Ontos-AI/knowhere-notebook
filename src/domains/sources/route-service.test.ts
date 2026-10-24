@@ -561,13 +561,14 @@ describe("source route service", () => {
           {
             id: "demo-tsla-q4-2025",
             kind: "demo",
+        namespace: "__knowhere_demo__",
             demoSourceId: "demo-tsla-q4-2025",
             title: "TSLA-Q4-2025-Update.pdf",
             mimeType: "application/pdf",
             status: "ready",
             documentId: "demo-doc-tsla-q4-2025",
             originalFile: {
-              url: "https://example.com/tsla-q4-2025.pdf",
+              url: "/api/demo-sources/demo-tsla-q4-2025/original",
               mimeType: "application/pdf",
               sizeBytes: 1024,
               canDownload: false,
@@ -637,6 +638,7 @@ describe("source route service", () => {
           expect.objectContaining({
             id: "demo-tsla-q4-2025",
             kind: "demo",
+        namespace: "__knowhere_demo__",
             demoSourceId: "demo-tsla-q4-2025",
           }),
         ],
@@ -644,7 +646,7 @@ describe("source route service", () => {
     });
   });
 
-  it("uses stored chunk counts for materialized demo sources", async () => {
+  it("uses current shared metadata instead of persisted personal demo copies", async () => {
     const materializedSource: Source = {
       ...source,
       id: "source_demo",
@@ -703,10 +705,11 @@ describe("source route service", () => {
       body: {
         sources: [
           expect.objectContaining({
-            id: "source_demo",
-            kind: "workspace",
+            id: "demo-tsla-q4-2025",
+            kind: "demo",
+        namespace: "__knowhere_demo__",
             demoSourceId: "demo-tsla-q4-2025",
-            documentId: "doc_user_copy",
+            documentId: "demo-doc-tsla-q4-2025",
             chunkCount: 70,
           }),
         ],
@@ -733,13 +736,14 @@ describe("source route service", () => {
           {
             id: "demo-tsla-q4-2025",
             kind: "demo",
+        namespace: "__knowhere_demo__",
             demoSourceId: "demo-tsla-q4-2025",
             title: "TSLA-Q4-2025-Update.pdf",
             mimeType: "application/pdf",
             status: "ready",
             documentId: "demo-doc-tsla-q4-2025",
             originalFile: {
-              url: "https://example.com/tsla-q4-2025.pdf",
+              url: "/api/demo-sources/demo-tsla-q4-2025/original",
               mimeType: "application/pdf",
               sizeBytes: 1024,
               canDownload: false,
@@ -842,6 +846,7 @@ describe("source route service", () => {
     });
     const softDelete = vi.fn(async () => true);
     const service = createSourceRouteService({
+      demoApi: { fetchCatalog: vi.fn(async () => emptyDemoCatalog) },
       ensureApiKeyForWorkspace: vi.fn(async () => "jwt_123"),
       ensureWorkspace: vi.fn(async () => workspace),
       makeKnowhereClient: vi.fn(() => ({
@@ -899,6 +904,7 @@ describe("source route service", () => {
     };
     const softDelete = vi.fn(async () => true);
     const service = createSourceRouteService({
+      demoApi: { fetchCatalog: vi.fn(async () => emptyDemoCatalog) },
       ensureApiKeyForWorkspace: vi.fn(async () => "jwt_123"),
       ensureWorkspace: vi.fn(async () => workspace),
       makeKnowhereClient: vi.fn(() => ({
@@ -1086,7 +1092,7 @@ const demoCatalog: DemoCatalog = {
       status: "ready",
       chunkCount: 70,
       originalFile: {
-        url: "https://example.com/tsla-q4-2025.pdf",
+        url: "/api/demo-sources/demo-tsla-q4-2025/original",
         mimeType: "application/pdf",
         sizeBytes: 1024,
         canDownload: false,

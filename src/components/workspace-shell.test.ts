@@ -1220,24 +1220,24 @@ describe("WorkspaceShell", () => {
     expect(desktopSourcesPanel.queryByText("No sources yet.")).toBeNull();
   });
 
-  it("refreshes the active chat after adding an Official Library source", async () => {
+  it("selects a shared Official Library source without rewriting the active chat", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
       const request = input instanceof Request
         ? input
         : new Request(new URL(String(input), "http://localhost").toString(), init);
       const path = getRequestPath(request);
 
-      if (path === "/api/demo-sources/materialize" && request.method === "POST") {
+      if (path === "/api/demo-sources/select" && request.method === "POST") {
         return Response.json({
           sources: [
             {
-              id: "source_spacex",
-              kind: "workspace",
+              id: "demo-spacex-s1",
+              kind: "demo",
               title: "spacex-s1.pdf",
               status: "ready",
               mimeType: "application/pdf",
               demoSourceId: "demo-spacex-s1",
-              documentId: "doc_user_copy",
+              documentId: "ddoc_spacex",
               chunkCount: 1,
             },
           ],
@@ -1263,7 +1263,7 @@ describe("WorkspaceShell", () => {
                   chunkType: "text",
                   score: 0.91,
                   source: {
-                    documentId: "doc_user_copy",
+                    documentId: "ddoc_spacex",
                     sourceFileName: "spacex-s1.pdf",
                     sectionPath: "Overview",
                   },
@@ -1279,7 +1279,7 @@ describe("WorkspaceShell", () => {
           chunks: [
             {
               chunkId: "source_spacex:chunk_1",
-              documentId: "doc_user_copy",
+              documentId: "ddoc_spacex",
               sectionPath: "Overview",
               type: "text",
               content: "User-copy cited section",
@@ -1380,8 +1380,8 @@ describe("WorkspaceShell", () => {
     );
 
     const desktopChatPanel = within(screen.getByTestId("desktop-chat-panel"));
-    await desktopChatPanel.findByText("Refreshed materialized answer.");
-    expect(desktopChatPanel.queryByText("Seeded canonical answer.")).toBeNull();
+    expect(desktopChatPanel.getByText("Seeded canonical answer.")).toBeTruthy();
+    expect(desktopChatPanel.queryByText("Refreshed materialized answer.")).toBeNull();
     const refreshedLibraryPanel = within(
       within(screen.getByTestId("desktop-chunks-panel")).getByTestId(
         "official-library-panel",
@@ -1397,7 +1397,7 @@ describe("WorkspaceShell", () => {
         name: "Add spacex-s1.pdf to sources",
       }),
     ).toBeNull();
-    expect(countFetches(fetch, "/api/chat/threads/thread_1")).toBe(1);
+    expect(countFetches(fetch, "/api/chat/threads/thread_1")).toBe(0);
   });
 
   it("uses cached chat data when reopening a previously loaded thread", async () => {

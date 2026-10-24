@@ -1,4 +1,4 @@
-import { Effect, Either } from "effect"
+import { Cause, Effect, Either } from "effect"
 
 import {
   answerQuestionWithRetrieval,
@@ -7,8 +7,10 @@ import {
   type GenerateAnswer,
   type RetrievalClient,
 } from "."
+import type { SourceView } from "@/domains/sources/types"
+import type { ChatSource } from "./contracts"
 import { toChatMessageView } from "./view"
-import type { ChatMessage, ChatThread, Source, Workspace } from "@/infrastructure/db/schema"
+import type { ChatMessage, ChatThread, Workspace } from "@/infrastructure/db/schema"
 import { sharedLibraryNamespace } from "@/domains/sources/namespace"
 import type {
   ChatArtifactView,
@@ -42,6 +44,7 @@ export type ChatRepository = {
 
 export type ChatTurnError =
   | { _tag: "NoReadySources"; message: string; status: 409 }
+  | { _tag: "NoSelectedSources"; message: string; status: 409 }
   | { _tag: "ThreadNotFound"; message: string; status: 404 }
 
 const noReadySources = {
@@ -59,15 +62,18 @@ const threadNotFound = {
 export type ChatTurnValue = {
   threadId: string
   messages: [ChatMessageView, ChatMessageView]
+  citationSources?: readonly SourceView[]
 }
 
 type ChatTurnInput = {
   workspace: Workspace
-  sources: readonly Source[]
+  sources: readonly ChatSource[]
   question: string
   threadId?: string
   useAgentic?: boolean
   excludedSourceIds: readonly string[]
+  retrievalPreparationFailures?: AnswerQuestionInput["retrievalPreparationFailures"]
+  excludedWorkspaceDemoDocumentIds?: readonly string[]
   folderId?: string
   resolveFolderScopeSourceIds?: (
     workspaceId: string,
@@ -84,18 +90,25 @@ type ChatTurnInput = {
 
 /** Wrap a Promise as an Effect, treating rejections as defects. */
 const tryPromiseOrDie = <A>(f: () => Promise<A>) =>
-  Effect.tryPromise(f).pipe(Effect.catchAllCause(Effect.die))
+  Effect.tryPromise(f).pipe(Effect.catchAllCause((cause) => Effect.die(Cause.squash(cause))))
 
 export const handleChatTurnEffect = (input: ChatTurnInput) =>
   Effect.gen(function* () {
     const readySources = input.sources.filter(
-      (source) => source.status === "ready" && source.knowhereDocumentId,
+      (source) => source.status === "ready" && source.knowhereDocumentId && (!source.demoKey || source.namespace === "__knowhere_demo__"),
     )
     if (readySources.length === 0) {
       return yield* Effect.fail(noReadySources)
     }
 
     const folderScopeSourceIds = yield* resolveFolderScopeSourceIdsEffect(input)
+    const excludedSourceIds: ReadonlySet<string> = new Set(input.excludedSourceIds)
+    const hasSelectedReadySource: boolean = readySources.some((source) => !excludedSourceIds.has(source.id) &&
+      (folderScopeSourceIds === undefined || (!source.demoKey && folderScopeSourceIds.includes(source.id))))
+    if (!hasSelectedReadySource) {
+      return yield* Effect.fail({ _tag: "NoSelectedSources" as const, status: 409 as const,
+        message: "Select at least one ready source before asking questions." })
+    }
 
     const thread = input.threadId
       ? yield* tryPromiseOrDie(() =>
@@ -136,6 +149,11 @@ export const handleChatTurnEffect = (input: ChatTurnInput) =>
       namespace: input.workspace.namespace,
       namespaces: [sharedLibraryNamespace],
       sources: readySources,
+      retrievalPreparationFailures: input.retrievalPreparationFailures,
+      excludedWorkspaceDemoDocumentIds: [...new Set([
+        ...(input.excludedWorkspaceDemoDocumentIds ?? []),
+        ...input.sources.flatMap((source) => source.demoKey && source.namespace !== "__knowhere_demo__" && source.knowhereDocumentId ? [source.knowhereDocumentId] : []),
+      ])],
       useAgentic: input.useAgentic ?? true,
       excludedSourceIds: input.excludedSourceIds,
       folderScopeSourceIds,
@@ -148,7 +166,7 @@ export const handleChatTurnEffect = (input: ChatTurnInput) =>
         ? { resolveConnectedAssets: input.resolveConnectedAssets }
         : {}),
       messages: chatHistoryMessages,
-    }).pipe(Effect.catchAllCause(Effect.die))
+    }).pipe(Effect.catchAllCause((cause) => Effect.die(Cause.squash(cause))))
 
     const assistantMessage = yield* tryPromiseOrDie(() =>
       input.repository.appendMessageToThread(input.workspace.id, {
@@ -168,7 +186,8 @@ export const handleChatTurnEffect = (input: ChatTurnInput) =>
       threadId: thread.id,
       messages: [
         toChatMessageView(userMessage),
-        toChatMessageView(assistantMessage, answer.citations, answer.artifacts),
+        { ...toChatMessageView(assistantMessage, answer.citations, answer.artifacts),
+          ...(answer.retrievalWarnings ? { retrievalWarnings: answer.retrievalWarnings } : {}) },
       ] as [ChatMessageView, ChatMessageView],
     }
   })

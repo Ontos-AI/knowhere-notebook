@@ -10,6 +10,8 @@ type ParsedChunkNormalizationInput = {
   readonly chunkId: string
   readonly parserChunkId?: unknown
   readonly documentId?: string
+  readonly namespace?: string
+  readonly jobResultId?: string
   readonly sectionPath?: string | null
   readonly chunkType: unknown
   readonly contentSource?: unknown
@@ -47,6 +49,8 @@ function createParsedChunkView(
   return {
     chunkId: input.chunkId,
     documentId: input.documentId,
+    namespace: input.namespace,
+    jobResultId: input.jobResultId,
     parserChunkId: getString(input.parserChunkId),
     sectionPath: input.sectionPath,
     type,
@@ -134,6 +138,8 @@ function resolveCitationChunk(
   chunks: readonly ParsedChunkView[],
 ): ParsedChunkView | null {
   const documentChunks = getCitationDocumentChunks(citation, chunks)
+  const byIdentifier = findByCitationIdentifier(citation, documentChunks)
+  if (byIdentifier) return byIdentifier
   const byContent = findByContent(documentChunks, citation.content)
   if (byContent) return byContent
 
@@ -150,8 +156,9 @@ function resolveCitationChunkByContent(
   citation: ChatCitationView,
   chunks: readonly ParsedChunkView[],
 ): ParsedChunkView | null {
-  return findByContent(
-    getCitationDocumentChunks(citation, chunks),
+  const documentChunks = getCitationDocumentChunks(citation, chunks)
+  return findByCitationIdentifier(citation, documentChunks) ?? findByContent(
+    documentChunks,
     citation.content,
   )
 }
@@ -249,8 +256,11 @@ function getCitationDocumentChunks(
   citation: ChatCitationView,
   chunks: readonly ParsedChunkView[],
 ): readonly ParsedChunkView[] {
-  if (!citation.source.documentId) return chunks
-  return chunks.filter((chunk) => chunk.documentId === citation.source.documentId)
+  return chunks.filter((chunk) =>
+    (!citation.source.documentId || chunk.documentId === citation.source.documentId) &&
+    (!citation.source.namespace || chunk.namespace === citation.source.namespace) &&
+    (!citation.source.jobResultId || chunk.jobResultId === citation.source.jobResultId),
+  )
 }
 
 function findByContent(
@@ -379,3 +389,8 @@ export const parsedChunkNormalization = {
   resolveCitationChunkByContent,
   resolveConnectionTargets,
 } as const
+
+function findByCitationIdentifier(citation: ChatCitationView, chunks: readonly ParsedChunkView[]): ParsedChunkView | null {
+  const matches = chunks.filter((chunk) => citation.chunkRowId ? chunk.chunkId === citation.chunkRowId : Boolean(citation.chunkId && (chunk.parserChunkId === citation.chunkId || chunk.chunkId === citation.chunkId)))
+  return matches.length === 1 ? matches[0]! : null
+}

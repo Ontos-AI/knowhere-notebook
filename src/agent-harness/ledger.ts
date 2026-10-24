@@ -4,6 +4,7 @@ import type {
 } from "@ontos-ai/knowhere-sdk"
 
 import type {
+  ConnectedAssetLookup,
   EvidenceAsset,
   EvidenceChunk,
   EvidenceLedgerSnapshot,
@@ -97,6 +98,7 @@ export function createEvidenceLedger() {
             ref: `r${retrievalIndex}:referenced:${index + 1}`,
             kind: "referenced_chunk",
             chunkId: chunk.chunkId,
+            ...(getTrimmedString(chunk.metadata?.chunkRowId) ? { chunkRowId: getTrimmedString(chunk.metadata?.chunkRowId) ?? undefined } : {}),
             content,
             contentPreview: content,
             chunkType: chunk.chunkType,
@@ -108,8 +110,9 @@ export function createEvidenceLedger() {
               documentId: chunk.documentId,
               sourceFileName: null,
               sectionPath: chunk.sectionPath,
+              ...getSourceProvenance(chunk.metadata),
             },
-            ...(chunk.jobId ? { revisionKey: chunk.jobId } : {}),
+            ...(getSourceProvenance(chunk.metadata).jobResultId ? { revisionKey: getSourceProvenance(chunk.metadata).jobResultId } : chunk.jobId ? { revisionKey: chunk.jobId } : {}),
             ...(chunk.assetUrl ? { assetUrl: chunk.assetUrl } : {}),
           },
         })
@@ -137,6 +140,8 @@ export function createEvidenceLedger() {
           documentId: candidate.documentId,
           chunkId: candidate.targetChunkId,
           type: candidate.type,
+          namespace: candidate.source.namespace,
+          jobResultId: candidate.source.jobResultId,
         })
         const assetUrl = assetUrlByLookup.get(lookupKey)
         if (!assetUrl) {
@@ -213,6 +218,7 @@ function addChunkFromResult(input: {
       chunkType: input.result.chunkType,
       score: input.result.score,
       chunkId: input.result.chunkId,
+      ...(getTrimmedString(input.result.metadata?.chunkRowId) ? { chunkRowId: getTrimmedString(input.result.metadata?.chunkRowId) ?? undefined } : {}),
       sourceChunkPath: input.result.sourceChunkPath,
       filePath: input.result.filePath,
       metadata: input.result.metadata,
@@ -220,7 +226,9 @@ function addChunkFromResult(input: {
         documentId: input.result.source.documentId,
         sourceFileName: input.result.source.sourceFileName,
         sectionPath: input.result.source.sectionPath,
+        ...getSourceProvenance(input.result.metadata),
       },
+      ...(getSourceProvenance(input.result.metadata).jobResultId ? { revisionKey: getSourceProvenance(input.result.metadata).jobResultId } : {}),
       ...(input.result.assetUrl ? { assetUrl: input.result.assetUrl } : {}),
     },
   })
@@ -293,13 +301,15 @@ function uniqueConnectedAssetLookups(
 ) {
   const lookups = new Map<
     string,
-    { documentId: string; chunkId: string; type: EvidenceAsset["type"] }
+    ConnectedAssetLookup
   >()
   for (const candidate of candidates) {
     const lookup = {
       documentId: candidate.documentId,
       chunkId: candidate.targetChunkId,
       type: candidate.type,
+      ...(candidate.source.namespace ? { namespace: candidate.source.namespace } : {}),
+      ...(candidate.source.jobResultId ? { jobResultId: candidate.source.jobResultId } : {}),
     }
     lookups.set(connectedAssetLookupKey(lookup), lookup)
   }
@@ -310,8 +320,10 @@ function connectedAssetLookupKey(input: {
   readonly documentId: string
   readonly chunkId: string
   readonly type: EvidenceAsset["type"]
+  readonly namespace?: string
+  readonly jobResultId?: string
 }): string {
-  return `${input.documentId}\u0000${input.type}\u0000${input.chunkId}`
+  return `${input.documentId}\u0000${input.namespace ?? ""}\u0000${input.jobResultId ?? ""}\u0000${input.type}\u0000${input.chunkId}`
 }
 
 function formatConnectedAssetLabel(candidate: ConnectedAssetCandidate): string {
@@ -645,4 +657,10 @@ function getDecisionTrace(response: RetrievalQueryResponse): unknown | null {
     record.decision_tree ??
     null
   )
+}
+
+function getSourceProvenance(metadata?: Readonly<Record<string, unknown>>): { readonly namespace?: string; readonly jobResultId?: string } {
+  const namespace = getTrimmedString(metadata?.namespace)
+  const jobResultId = getTrimmedString(metadata?.jobResultId)
+  return { ...(namespace ? { namespace } : {}), ...(jobResultId ? { jobResultId } : {}) }
 }

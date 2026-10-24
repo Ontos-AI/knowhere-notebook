@@ -28,6 +28,17 @@ describe("ChatMessageList", () => {
     vi.restoreAllMocks();
   });
 
+  it("shows retrieval coverage warnings beside the answer", () => {
+    render(React.createElement(ChatMessageList, {
+      messages: [{
+        id: "partial-answer", role: "assistant", content: "Available evidence answer.",
+        retrievalWarnings: [{ scope: "demo", code: "DEMO_NOT_READY", message: "Demo sources could not be searched. This answer uses your documents only." }],
+      }],
+    }));
+    expect(screen.getByRole("status").textContent).toContain("Demo sources could not be searched");
+    expect(screen.getByText("Available evidence answer.")).toBeTruthy();
+  });
+
   it("renders assistant citations using Notebook source labels", () => {
     render(
       React.createElement(ChatMessageList, {

@@ -27,6 +27,8 @@ export type ParsedChunkView = {
   readonly parserChunkId?: string
   /** Knowhere document ID. Present when loaded through a Notebook source. */
   readonly documentId?: string
+  readonly namespace?: string
+  readonly jobResultId?: string
   /** Human-readable section path from Knowhere, used to focus citations. */
   readonly sectionPath?: string | null
   readonly type: ChunkType

@@ -295,7 +295,7 @@ function getLibraryItems(
 ): LibraryItem[] {
   const addedDemoSourceIdSet = new Set(
     sources
-      .filter((source) => source.kind !== "demo")
+      .filter((source) => source.officialLibrary === undefined)
       .flatMap((source) => (source.demoSourceId ? [source.demoSourceId] : [])),
   );
   const metadataByLibrarySourceId = new Map(

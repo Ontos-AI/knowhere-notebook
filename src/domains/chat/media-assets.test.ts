@@ -19,6 +19,11 @@ vi.mock("@/lib/logger", () => ({
 }))
 
 describe("chat media assets", () => {
+  it("keeps media from separate revisions of the same document distinct", () => {
+    const result = makeRetrievalResult({ chunkType: "image", assetUrl: "https://assets.example/images/a.png", source: { documentId: "doc", sectionPath: "images/a.png" } })
+    expect(dedupeMediaCitationResults([{ ...result, metadata: { namespace: "__knowhere_demo__", jobResultId: "old" } }, { ...result, metadata: { namespace: "__knowhere_demo__", jobResultId: "new" } }])).toHaveLength(2)
+  })
+
   it("enriches retrieved image chunks from Notebook parsed asset URLs", async () => {
     const hardenChatAssetUrl = vi
       .fn()

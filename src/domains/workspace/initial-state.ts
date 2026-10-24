@@ -2,6 +2,7 @@ import "server-only"
 
 import { Effect } from "effect"
 
+import { resolveCitationSources } from "@/domains/chat/citation-sources"
 import type { ChatMessageView } from "@/domains/chat/types"
 import type { ParsedChunkView } from "@/domains/chunks/types"
 import { demoView } from "@/domains/demo/view"
@@ -40,6 +41,7 @@ import {
 import { effectOperation } from "@/lib/effect-operation"
 import { logger } from "@/lib/logger"
 import { notebookRequestContext } from "./request-context"
+import { workspaceClientCache } from "./client-cache"
 
 type WorkspaceShellInitialState = {
   readonly activeChatThreadId?: string | null
@@ -52,6 +54,7 @@ type WorkspaceShellInitialState = {
   readonly officialLibrarySources?: OfficialLibrarySourceView[]
   readonly folders?: FolderView[]
   readonly sources?: SourceView[]
+  readonly citationSources?: SourceView[]
   readonly user?: {
     readonly id: string
     readonly name: string | null
@@ -70,9 +73,11 @@ const workspaceInitialStateContext = "Workspace initial state"
 
 async function getDemoChunksForSource(
   demoSourceId: string,
+  jobResultId: string,
 ): Promise<ParsedChunkView[]> {
   const chunkPage = await knowhereDemoApi.fetchChunkPage({
     demoSourceId,
+    jobResultId,
     page: 1,
     pageSize: DEMO_CHUNK_PREFETCH_PAGE_SIZE,
   })
@@ -86,6 +91,8 @@ async function getDemoChunksForSource(
     mimeType: chunkPage.mimeType,
     status: "ready",
     documentId: chunkPage.canonicalDocumentId,
+    namespace: chunkPage.namespace ?? "__knowhere_demo__",
+    ...(chunkPage.jobResultId ? { jobResultId: chunkPage.jobResultId } : {}),
   }
   return chunkPage.chunks.map((chunk) =>
     demoView.toParsedChunkView(sourceView, chunk),
@@ -133,6 +140,9 @@ type WorkspaceShellInitialStateDependencies = {
     workspaceId: string,
   ) => Promise<readonly ChatThread[]>
   readonly listHiddenDemoSourceIds: (workspaceId: string) => Promise<string[]>
+  readonly listSelectedDemoSourceIds?: (workspaceId: string) => Promise<string[]>
+  readonly listLegacyDemoDocumentIds?: (workspaceId: string) => Promise<string[]>
+  readonly listLegacyDemoSources?: (workspaceId: string) => Promise<Source[]>
   readonly listMessages: (
     workspaceId: string,
     threadId: string,
@@ -158,6 +168,9 @@ const defaultDependencies: WorkspaceShellInitialStateDependencies = {
   ensureDemoChatThread: chatThreadService.ensureDemo,
   listChatThreads: chatThreadService.listForWorkspace,
   listHiddenDemoSourceIds: sourceService.listHiddenDemoSourceIds,
+  listSelectedDemoSourceIds: sourceService.listSelectedDemoSourceIds,
+  listLegacyDemoDocumentIds: sourceService.listLegacyDemoDocumentIds,
+  listLegacyDemoSources: sourceService.listLegacyDemoSources,
   listMessages: chatThreadService.listMessages,
   listFoldersForWorkspace: folderWorkflowRuntime.listForWorkspace,
   listSourcesForWorkspace: sourceWorkflowRuntime.listForWorkspace,
@@ -202,20 +215,20 @@ export const loadWorkspaceShellInitialStateEffect = (
         string,
         ParsedChunkView[]
       > = {}
-      if (firstDemoSource) {
+      if (firstDemoSource?.jobResultId) {
         const chunks = yield* Effect.catchAll(
           effectOperation.tryPromise(
             {
               context: workspaceInitialStateContext,
               operation: "getDemoChunksForSource",
             },
-            () => getDemoChunksForSource(firstDemoSource.demoSourceId),
+            () => getDemoChunksForSource(firstDemoSource.demoSourceId, firstDemoSource.jobResultId ?? ""),
           ),
-          () => Effect.succeed([] as ParsedChunkView[]),
+          () => Effect.succeed<ParsedChunkView[]>([]),
         )
         if (chunks.length > 0) {
           initialPrefetchedChunksBySourceId = {
-            [firstDemoSource.demoSourceId]: chunks,
+            [workspaceClientCache.getSourceReadKey(firstDemoSource.demoSourceId, { jobResultId: firstDemoSource.jobResultId, namespace: firstDemoSource.namespace ?? "__knowhere_demo__" })]: chunks,
           }
         }
       }
@@ -312,20 +325,12 @@ export const loadWorkspaceShellInitialStateEffect = (
       },
       () => Promise.resolve(listedSources),
     )
-    const demoSourceResolution = resolveWorkspaceDemoSources(
-      sources,
-      demoCatalog,
-    )
-    const visibleDemoCatalogSources = demoCatalog.sources
-      .filter(
-        (source) =>
-          !demoSourceResolution.materializedDemoSourceIds.has(
-            source.demoSourceId,
-          ),
-      )
-      .filter((source) => !hiddenDemoSourceIds.has(source.demoSourceId))
-    const demoSources = visibleDemoCatalogSources.map(demoView.toSourceView)
+    const selectedDemoSourceIds: ReadonlySet<string> = new Set(yield* effectOperation.tryPromise({ context: workspaceInitialStateContext, operation: "listSelectedDemoSourceIds" }, () => deps.listSelectedDemoSourceIds?.(workspace.id) ?? Promise.resolve([])))
+    const demoSourceResolution = resolveWorkspaceDemoSources(sources, demoCatalog, hiddenDemoSourceIds, selectedDemoSourceIds)
+    const demoSources = demoSourceResolution.demoSources
     const workspaceSources = demoSourceResolution.workspaceSources
+    const legacyDemoSources: readonly Source[] = yield* effectOperation.tryPromise({ context: workspaceInitialStateContext, operation: "listLegacyDemoSources" }, () => deps.listLegacyDemoSources?.(workspace.id) ?? Promise.resolve([]))
+    const excludedLegacyDocumentIds: ReadonlySet<string> = new Set(yield* effectOperation.tryPromise({ context: workspaceInitialStateContext, operation: "listLegacyDemoDocumentIds" }, () => deps.listLegacyDemoDocumentIds?.(workspace.id) ?? Promise.resolve([])))
     const remoteSourceViews = yield* effectOperation.addContext(
       {
         context: workspaceInitialStateContext,
@@ -334,13 +339,14 @@ export const loadWorkspaceShellInitialStateEffect = (
       listRemoteLibrarySourceViews({
         workspace,
         client,
-        localSources: demoSourceResolution.workspaceSources,
+        localSources: sources,
+        excludedDocumentIds: excludedLegacyDocumentIds,
       }),
     )
     yield* Effect.sync(() =>
       triggerBackgroundReconciliationForParsingSources({
         workspaceId: workspace.id,
-        sources,
+        sources: workspaceSources,
         apiKey,
         startBackgroundReconciliation:
           deps.startBackgroundReconciliation ??
@@ -364,6 +370,7 @@ export const loadWorkspaceShellInitialStateEffect = (
         ...workspaceSources.map((source) => toSourceView(source)),
         ...remoteSourceViews,
       ],
+      citationSources: resolveCitationSources({ messages: chatMessages, sources: [...sources, ...legacyDemoSources], catalog: demoCatalog, namespace: workspace.namespace }),
       officialLibrarySources: toOfficialLibrarySourceViews(demoCatalog),
       folders: listedFolders.map(toFolderView),
       chatThreads: chatThreads.map(toChatThreadView),

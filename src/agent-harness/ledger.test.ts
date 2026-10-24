@@ -5,6 +5,13 @@ import { createEvidenceLedger } from "./ledger"
 import type { ResolveConnectedAssets } from "./types"
 
 describe("createEvidenceLedger", () => {
+  it("preserves actual job-result provenance for retrieved and referenced evidence", () => {
+    const response = makeRetrievalResponse()
+    const snapshot = createEvidenceLedger().addRetrievalResponse({ ...response, results: response.results.map((result) => ({ ...result, metadata: { ...result.metadata, namespace: "__knowhere_demo__", jobResultId: "saved" } })), referencedChunks: response.referencedChunks.map((chunk) => ({ ...chunk, metadata: { ...chunk.metadata, namespace: "__knowhere_demo__", jobResultId: "saved" } })) })
+    expect(snapshot.chunks.every((chunk) => chunk.source.namespace === "__knowhere_demo__" && chunk.source.jobResultId === "saved")).toBe(true)
+    expect(snapshot.chunks.every((chunk) => chunk.revisionKey === "saved")).toBe(true)
+  })
+
   it("normalizes retrieval chunks and media assets without treating candidates as final output", () => {
     const ledger = createEvidenceLedger()
 

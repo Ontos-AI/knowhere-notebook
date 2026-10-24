@@ -1,7 +1,8 @@
 import type { RetrievalResult } from "@ontos-ai/knowhere-sdk"
 
 import { logger } from "@/lib/logger"
-import type { Source } from "@/infrastructure/db/schema"
+import { bindCitationSourceRevision } from "./citation-source-revision"
+import type { ChatSource } from "./contracts"
 
 // Knowhere's chunkType is declared as a required string in the SDK type,
 // but real retrieval results can omit it. Normalize defensively instead of
@@ -21,7 +22,7 @@ const internalMetadataKeys = new Set([
 ])
 
 export type HardenChatAssetUrlInput = {
-  readonly source: Source
+  readonly source: ChatSource
   readonly sourcePath: string
   readonly assetUrl?: string | null
   readonly contentType?: string | null
@@ -33,7 +34,7 @@ export type HardenChatAssetUrl = (
 
 export type RetrievalResultAssetInput = {
   readonly results: readonly RetrievalResult[]
-  readonly sources: readonly Source[]
+  readonly sources: readonly ChatSource[]
   readonly hardenChatAssetUrl?: HardenChatAssetUrl
 }
 
@@ -47,14 +48,15 @@ export async function enrichRetrievalResultsWithAssetUrls({
   }
 
   const sourcesByDocumentId = new Map(
-    sources.flatMap((source): readonly [string, Source][] =>
+    sources.flatMap((source): readonly [string, ChatSource][] =>
       source.knowhereDocumentId ? [[source.knowhereDocumentId, source]] : [],
     ),
   )
   const enrichedResults = await Promise.all(
     results.map(async (result): Promise<readonly RetrievalResult[]> => {
       const documentId = getTrimmedString(result.source.documentId)
-      const source = documentId ? sourcesByDocumentId.get(documentId) : undefined
+      const candidate = documentId ? sourcesByDocumentId.get(documentId) : undefined
+      const source = candidate ? bindCitationSourceRevision(candidate, result.source, result.metadata) : null
       if (!source) return [result]
 
       return addAssetCitationResults(result, source, hardenChatAssetUrl)
@@ -209,10 +211,13 @@ function getMediaCitationDedupeKey(
     getTrimmedString(result.source.documentId) ??
     getTrimmedString(result.source.sourceFileName) ??
     "unknown"
+  const namespace = typeof result.metadata?.namespace === "string" ? result.metadata.namespace : ""
+  const jobResultId = typeof result.metadata?.jobResultId === "string" ? result.metadata.jobResultId : ""
+  const revisionKey = JSON.stringify([namespace, jobResultId])
   const assetPath =
     getCanonicalAssetPathFromSource(result) ?? getCanonicalAssetPathFromUrl(assetUrl)
 
-  return assetPath ? `asset:${documentKey}:${assetPath}` : `url:${assetUrl}`
+  return assetPath ? `asset:${documentKey}:${revisionKey}:${assetPath}` : `url:${revisionKey}:${assetUrl}`
 }
 
 function getCanonicalAssetPathFromSource(
@@ -248,7 +253,7 @@ function isNotebookParsedAssetUrl(assetUrl: string): boolean {
 
 async function addAssetCitationResults(
   result: RetrievalResult,
-  source: Source,
+  source: ChatSource,
   hardenChatAssetUrl: HardenChatAssetUrl,
 ): Promise<readonly RetrievalResult[]> {
   if (normalizeChunkType(result.chunkType) === "page") return [result]

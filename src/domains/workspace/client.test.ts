@@ -22,6 +22,28 @@ describe("workspaceClient", () => {
     vi.clearAllMocks()
   })
 
+  it("selects shared demos through the metadata selection endpoint", async () => {
+    mockRouteClient.postJsonWithStatus.mockResolvedValue({
+      status: 200,
+      body: { sources: [{ id: "demo-tsla-q4-2025", kind: "demo" }] },
+    })
+    await expect(workspaceClient.selectDemoSources({ demoSourceIds: ["demo-tsla-q4-2025"] }))
+      .resolves.toEqual([{ id: "demo-tsla-q4-2025", kind: "demo" }])
+    expect(mockRouteClient.postJsonWithStatus).toHaveBeenCalledWith(
+      "/api/demo-sources/select", { demoSourceIds: ["demo-tsla-q4-2025"] },
+    )
+  })
+
+  it("passes revision identity through filtered chunk pagination", async () => {
+    mockRouteClient.getJson.mockResolvedValue({ chunks: [], pagination: { page: 1, totalPages: 1 } })
+    await workspaceClient.fetchChunks("demo-report", {
+      chunkType: "page", jobResultId: "revision-old", untilPageNumber: 2,
+    })
+    expect(mockRouteClient.getJson).toHaveBeenCalledWith(
+      "/api/sources/demo-report/chunks?page=1&pageSize=50&chunkType=page&jobResultId=revision-old",
+    )
+  })
+
   it("fetches a normalized chunk page with an encoded source id", async () => {
     mockRouteClient.getJson.mockResolvedValue({
       chunks: [

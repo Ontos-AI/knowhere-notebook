@@ -21,6 +21,8 @@ const loadAllPageSize = 200
 type ReadableSource = {
   readonly documentId: string
   readonly title: string
+  readonly namespace?: string
+  readonly jobResultId?: string
   readonly revisionKey?: string | null
 }
 
@@ -33,6 +35,7 @@ type DisplayReadClient = {
         readonly pageSize: number
         readonly chunkType?: ChunkReadType
         readonly includeAssetUrls: true
+        readonly jobResultId?: string
       },
     ): Promise<{
       readonly chunks: readonly DocumentChunk[]
@@ -59,16 +62,18 @@ export async function readSourceChunkPage(input: {
   readonly source: ReadableSource
   readonly params: ChunkPageParams
 }): Promise<ChunkPage> {
-  const response = await input.knowledge.readChunks({
-    documentId: input.source.documentId,
-    ...(input.source.revisionKey ? { revisionKey: input.source.revisionKey } : {}),
-    page: input.params.page,
-    pageSize: input.params.pageSize,
-    ...(input.params.chunkType ? { chunkType: input.params.chunkType } : {}),
-  })
+  if (!input.source.jobResultId) {
+    const response = await input.knowledge.readChunks({
+      documentId: input.source.documentId,
+      ...(input.source.revisionKey ? { revisionKey: input.source.revisionKey } : {}),
+      page: input.params.page,
+      pageSize: input.params.pageSize,
+      ...(input.params.chunkType ? { chunkType: input.params.chunkType } : {}),
+    })
 
-  if (shouldUseKnowledgeChunkResponse(response)) {
-    return toChunkPageFromKnowledgeResponse(response, input.source, input.params)
+    if (shouldUseKnowledgeChunkResponse(response)) {
+      return toChunkPageFromKnowledgeResponse(response, input.source, input.params)
+    }
   }
 
   const remoteResponse = await input.client.documents.listChunks(
@@ -78,6 +83,7 @@ export async function readSourceChunkPage(input: {
       pageSize: input.params.pageSize,
       ...(input.params.chunkType ? { chunkType: input.params.chunkType } : {}),
       includeAssetUrls: true,
+      ...(input.source.jobResultId ? { jobResultId: input.source.jobResultId } : {}),
     },
   )
   const chunks = remoteResponse.chunks.map((chunk) =>
@@ -86,7 +92,7 @@ export async function readSourceChunkPage(input: {
       input.source.title,
       input.source.documentId,
     ),
-  )
+  ).map((chunk) => ({ ...chunk, namespace: input.source.namespace, jobResultId: input.source.jobResultId }))
 
   return {
     chunks,
@@ -107,7 +113,7 @@ function toChunkPageFromKnowledgeResponse(
   params: ChunkPageParams,
 ): ChunkPage {
   const chunks = response.chunks.map((chunk) =>
-    toParsedChunkViewFromReadChunk(chunk, source.title, source.documentId),
+    ({ ...toParsedChunkViewFromReadChunk(chunk, source.title, source.documentId), namespace: source.namespace, jobResultId: source.jobResultId }),
   )
 
   return {
@@ -136,51 +142,13 @@ export async function readAllSourceChunks(input: {
   const chunks: ParsedChunkView[] = []
   let page = 1
   let totalPages = 1
-
   do {
-    const response = await input.knowledge.readChunks({
-      documentId: input.source.documentId,
-      ...(input.source.revisionKey
-        ? { revisionKey: input.source.revisionKey }
-        : {}),
-      page,
-      pageSize: loadAllPageSize,
-      ...(input.chunkType ? { chunkType: input.chunkType } : {}),
+    const result = await readSourceChunkPage({
+      ...input,
+      params: { page, pageSize: loadAllPageSize, ...(input.chunkType ? { chunkType: input.chunkType } : {}) },
     })
-    if (shouldUseKnowledgeChunkResponse(response)) {
-      for (const chunk of response.chunks) {
-        chunks.push(
-          toParsedChunkViewFromReadChunk(
-            chunk,
-            input.source.title,
-            input.source.documentId,
-          ),
-        )
-      }
-      totalPages = Math.max(1, response.totalPages ?? 1)
-      page += 1
-      continue
-    }
-
-    const remoteResponse = await input.client.documents.listChunks(
-      input.source.documentId,
-      {
-        page,
-        pageSize: loadAllPageSize,
-        ...(input.chunkType ? { chunkType: input.chunkType } : {}),
-        includeAssetUrls: true,
-      },
-    )
-    for (const chunk of remoteResponse.chunks) {
-      chunks.push(
-        toParsedChunkView(
-          chunk,
-          input.source.title,
-          input.source.documentId,
-        ),
-      )
-    }
-    totalPages = Math.max(1, remoteResponse.pagination?.totalPages ?? 1)
+    chunks.push(...result.chunks)
+    totalPages = Math.max(1, result.pagination.totalPages)
     page += 1
   } while (page <= totalPages)
 

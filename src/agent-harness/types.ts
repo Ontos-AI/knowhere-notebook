@@ -102,6 +102,8 @@ export type KnowhereToolRuntime = {
 }
 
 export type ConnectedAssetLookup = {
+  readonly namespace?: string
+  readonly jobResultId?: string
   readonly documentId: string
   readonly chunkId: string
   readonly type: "image" | "table"
@@ -181,6 +183,7 @@ export type EvidencePart =
 export type EvidenceChunk = {
   readonly ref: string
   readonly kind: "result" | "referenced_chunk"
+  readonly chunkRowId?: string
   readonly chunkId?: string
   readonly content: string
   readonly contentPreview: string
@@ -191,6 +194,8 @@ export type EvidenceChunk = {
   readonly metadata?: Readonly<Record<string, unknown>>
   readonly source: {
     readonly documentId?: string | null
+    readonly namespace?: string
+    readonly jobResultId?: string
     readonly sourceFileName?: string | null
     readonly sectionPath?: string | null
   }

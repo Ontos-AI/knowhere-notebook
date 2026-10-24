@@ -36,7 +36,7 @@ import { useWorkspaceChatWorkflow } from "./workspace-chat-workflow"
 
 describe("useWorkspaceChatWorkflow", () => {
   beforeEach(() => {
-    vi.clearAllMocks()
+    vi.resetAllMocks()
   })
 
   it("creates a Chat Thread and makes it active without route knowledge in the caller", async () => {
@@ -81,7 +81,7 @@ describe("useWorkspaceChatWorkflow", () => {
       currentFolderId: "folder_1",
       initialChatThreads: [],
       initialChatMessages: [],
-      sources: [source],
+      sources: [source, makeSource({ id: "source_included" })],
     })
 
     await act(async () => {
@@ -114,20 +114,22 @@ describe("useWorkspaceChatWorkflow", () => {
     ])
   })
 
-  it("shows a retryable error without sending chat when demo materialization fails", async () => {
+  it("sends directly with a shared demo even when the retired materialization API is unavailable", async () => {
     const demoSource = makeSource({
       id: "demo-tsla-q4-2025",
       kind: "demo",
       demoSourceId: "demo-tsla-q4-2025",
     })
-    const onSourcesMaterialized = vi.fn()
     mocks.fetchChatThreads.mockResolvedValue([])
     mocks.materializeDemoSources.mockRejectedValue(new Error("Bad gateway"))
+    mocks.sendChatMessage.mockResolvedValue({
+      threadId: "thread_demo",
+      messages: [{ id: "assistant_demo", role: "assistant", content: "Q4 answer" }],
+    })
 
     const { result } = renderWorkspaceChatWorkflow({
       initialChatThreads: [],
       initialChatMessages: [],
-      onSourcesMaterialized,
       sources: [demoSource],
     })
 
@@ -137,16 +139,62 @@ describe("useWorkspaceChatWorkflow", () => {
       })
     })
 
-    expect(mocks.materializeDemoSources).toHaveBeenCalledWith({
-      demoSourceIds: ["demo-tsla-q4-2025"],
+    expect(mocks.materializeDemoSources).not.toHaveBeenCalled()
+    expect(mocks.sendChatMessage).toHaveBeenCalledWith(expect.objectContaining({
+      message: "What changed in Q4?",
+      excludedSourceIds: [],
+    }))
+    expect(result.current.chat.error).toBeNull()
+    expect(result.current.chat.isSending).toBe(false)
+  })
+
+  it("does not send when every ready source is excluded", async () => {
+    mocks.fetchChatThreads.mockResolvedValue([])
+    const { result } = renderWorkspaceChatWorkflow({
+      initialChatThreads: [], initialChatMessages: [],
+      sources: [makeSource({ excludedFromQuery: true })],
+    })
+    await act(async () => {
+      await result.current.handleChatSend("Summarize it", { useAgentic: true })
     })
     expect(mocks.sendChatMessage).not.toHaveBeenCalled()
-    expect(onSourcesMaterialized).not.toHaveBeenCalled()
-    expect(result.current.chat.messages).toEqual([])
-    expect(result.current.chat.error).toBe(
-      "Demo sources could not be prepared right now.",
-    )
-    expect(result.current.chat.isSending).toBe(false)
+    expect(result.current.chat.error).toBe("Add a ready source before asking questions.")
+  })
+
+  it("keeps historical citation sources separate from queryable sources", async () => {
+    const historicalSource = makeSource({ id: "legacy-demo-copy", documentId: "old-private-doc" })
+    mocks.fetchChatThreads.mockResolvedValue([])
+    mocks.fetchChatThread.mockResolvedValue({
+      requestedThreadId: "thread_history", thread: makeThread({ id: "thread_history" }),
+      messages: [], citationSources: [historicalSource],
+    })
+    const { result } = renderWorkspaceChatWorkflow({
+      initialChatThreads: [], initialChatMessages: [], sources: [],
+    })
+    await act(async () => result.current.handleSelectChatThread("thread_history"))
+    await waitFor(() => {
+      expect(result.current.citationSources).toEqual([historicalSource])
+    })
+  })
+
+  it("retains earlier historical citation sources after sending another turn", async () => {
+    const historicalSource = makeSource({ id: "legacy-copy", documentId: "legacy-doc" })
+    const currentSource = makeSource({ id: "current-source", documentId: "current-doc" })
+    mocks.fetchChatThreads.mockResolvedValue([])
+    mocks.sendChatMessage.mockResolvedValue({ threadId: "thread_history", messages: [
+      { id: "new-answer", role: "assistant", content: "New answer" },
+    ], citationSources: [currentSource] })
+    const { result } = renderWorkspaceChatWorkflow({
+      activeChatThreadId: "thread_history", initialChatThreads: [makeThread({ id: "thread_history" })],
+      initialChatMessages: [], initialCitationSources: [historicalSource], sources: [currentSource],
+    })
+    await act(async () => {
+      await result.current.handleChatSend("Another question", { useAgentic: true })
+    })
+    expect(result.current.citationSources).toEqual([historicalSource, currentSource])
+    await act(async () => result.current.handleSelectChatThread("another-thread"))
+    await act(async () => result.current.handleSelectChatThread("thread_history"))
+    expect(result.current.citationSources).toEqual([historicalSource, currentSource])
   })
 
   it("blocks chat until Official Library demo sources are explicitly added", async () => {
@@ -197,6 +245,7 @@ function renderWorkspaceChatWorkflow(input: {
   readonly currentFolderId?: string | null
   readonly initialChatMessages: readonly []
   readonly initialChatThreads: readonly ChatThreadView[]
+  readonly initialCitationSources?: readonly SourceView[]
   readonly isGuest?: boolean
   readonly onSourcesMaterialized?: (
     demoSourceIds: readonly string[],

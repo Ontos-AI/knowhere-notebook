@@ -1,70 +1,25 @@
+import { demoView } from "@/domains/demo/view"
+import type { SourceView } from "@/domains/sources/types"
 import type { Source } from "@/infrastructure/db/schema"
 import type { DemoCatalog } from "@/integrations/knowhere-demo"
 
 type WorkspaceDemoSourceResolution = {
-  readonly materializedDemoSourceIds: ReadonlySet<string>
   readonly workspaceSources: readonly Source[]
+  readonly demoSources: readonly SourceView[]
 }
 
 export function resolveWorkspaceDemoSources(
   sources: readonly Source[],
   catalog: DemoCatalog,
+  hiddenDemoSourceIds: ReadonlySet<string> = new Set<string>(),
+  selectedDemoSourceIds: ReadonlySet<string> = new Set<string>(),
 ): WorkspaceDemoSourceResolution {
-  const canonicalDocumentIdByDemoSourceId: Map<string, string> = new Map(
-    catalog.sources.map((source) => [
-      source.demoSourceId,
-      source.canonicalDocumentId,
-    ]),
-  )
-  const workspaceSources: Source[] = sources.filter(
-    (source) =>
-      !isLegacyCanonicalDemoSource(source, canonicalDocumentIdByDemoSourceId),
-  )
-  const materializedDemoSourceIds: Set<string> = new Set(
-    workspaceSources.flatMap((source) => {
-      if (!isMaterializedDemoSource(source, canonicalDocumentIdByDemoSourceId)) {
-        return []
-      }
-      return source.demoKey ? [source.demoKey] : []
-    }),
-  )
-
   return {
-    materializedDemoSourceIds,
-    workspaceSources,
+    workspaceSources: sources.filter((source) => source.demoKey === null),
+    demoSources: catalog.sources
+      .filter((source) => !hiddenDemoSourceIds.has(source.demoSourceId))
+      .map((source) => selectedDemoSourceIds.has(source.demoSourceId)
+        ? demoView.toSelectedSourceView(source)
+        : demoView.toSourceView(source)),
   }
-}
-
-function isLegacyCanonicalDemoSource(
-  source: Source,
-  canonicalDocumentIdByDemoSourceId: ReadonlyMap<string, string>,
-): boolean {
-  if (!source.demoKey) return false
-  if (
-    source.knowhereJobId === null &&
-    (source.knowhereDocumentId === null ||
-      source.knowhereDocumentId.startsWith("demo-doc-"))
-  ) {
-    return true
-  }
-
-  const canonicalDocumentId = canonicalDocumentIdByDemoSourceId.get(
-    source.demoKey,
-  )
-  if (canonicalDocumentId === undefined) return false
-  return source.knowhereDocumentId === canonicalDocumentId
-}
-
-function isMaterializedDemoSource(
-  source: Source,
-  canonicalDocumentIdByDemoSourceId: ReadonlyMap<string, string>,
-): boolean {
-  if (!source.demoKey || !source.knowhereDocumentId) return false
-  const canonicalDocumentId = canonicalDocumentIdByDemoSourceId.get(
-    source.demoKey,
-  )
-  return (
-    canonicalDocumentId === undefined ||
-    source.knowhereDocumentId !== canonicalDocumentId
-  )
 }

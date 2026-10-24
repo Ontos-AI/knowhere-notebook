@@ -19,6 +19,7 @@ export type ChunkKnowhereClient = {
         pageSize: number
         chunkType?: "text" | "image" | "table" | "page"
         includeAssetUrls: boolean
+        jobResultId?: string
       },
     ): Promise<{
       documentId?: string
@@ -46,6 +47,8 @@ export type ChunkPageParams = {
   page: number
   pageSize: number
   chunkType?: ChunkReadType
+  jobResultId?: string
+  namespace?: string
 }
 
 export type ChunkPagePagination = {
@@ -64,6 +67,8 @@ export function getChunkPageParams(
   searchParams: URLSearchParams,
 ): ChunkPageParams {
   const chunkType = parseChunkReadType(searchParams.get("chunkType"))
+  const jobResultId = searchParams.get("jobResultId")?.trim()
+  const namespace = searchParams.get("namespace")?.trim()
   return {
     page: normalizePositiveInteger(searchParams.get("page"), 1),
     pageSize: normalizePageSize(
@@ -73,6 +78,8 @@ export function getChunkPageParams(
       ),
     ),
     ...(chunkType ? { chunkType } : {}),
+    ...(jobResultId ? { jobResultId } : {}),
+    ...(namespace ? { namespace } : {}),
   }
 }
 

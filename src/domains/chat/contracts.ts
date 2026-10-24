@@ -15,9 +15,23 @@ import type { ChatAgentTrace } from "./agent-trace"
 import type {
   ChatArtifactView,
   ChatCitationView,
+  RetrievalWarning,
 } from "@/domains/chat/types"
 import type { HardenMediaAssetUrls } from "./media-asset-hardening"
 import type { HardenChatAssetUrl } from "./media-assets"
+
+export type ChatSource = Pick<
+  Source,
+  "id" | "title" | "status" | "knowhereDocumentId" | "knowhereJobId" | "demoKey" | "mimeType"
+> & {
+  readonly namespace?: string
+  readonly jobResultId?: string
+}
+
+export type RetrievalPreparationFailure = {
+  readonly warning: RetrievalWarning
+  readonly cause: unknown
+}
 
 export type RetrievalClient = {
   query(params: RetrievalQueryParams): Promise<RetrievalQueryResponse>
@@ -55,7 +69,7 @@ export type SearchSources = (
 export type GenerateAnswer = (input: {
   question: string
   messages: readonly ChatHistoryMessage[]
-  sources: readonly Source[]
+  sources: readonly ChatSource[]
   excludedSourceIds: readonly string[]
   folderScopeSourceIds?: readonly string[]
   searchSources: SearchSources
@@ -68,7 +82,7 @@ export type AnswerQuestionInput = {
   workspaceId?: string
   namespace: string
   namespaces?: readonly string[]
-  sources: readonly Source[]
+  sources: readonly ChatSource[]
   excludedSourceIds: readonly string[]
   folderScopeSourceIds?: readonly string[]
   useAgentic?: boolean
@@ -79,6 +93,8 @@ export type AnswerQuestionInput = {
   hardenMediaAssetUrls?: HardenMediaAssetUrls
   resolveConnectedAssets?: ResolveConnectedAssets
   messages: readonly ChatHistoryMessage[]
+  retrievalPreparationFailures?: readonly RetrievalPreparationFailure[]
+  excludedWorkspaceDemoDocumentIds?: readonly string[]
 }
 
 export type AnswerQuestionResult = {
@@ -86,4 +102,5 @@ export type AnswerQuestionResult = {
   citations: ChatCitationView[]
   artifacts?: ChatArtifactView[]
   agentTrace: ChatAgentTrace
+  retrievalWarnings?: readonly RetrievalWarning[]
 }

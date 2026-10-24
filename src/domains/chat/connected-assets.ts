@@ -48,7 +48,7 @@ function groupLookups(
 ): Map<string, ConnectedAssetLookup[]> {
   const groups = new Map<string, ConnectedAssetLookup[]>()
   for (const lookup of lookups) {
-    const key = `${lookup.documentId}\u0000${lookup.type}`
+    const key = `${lookup.documentId}\u0000${lookup.jobResultId ?? ""}\u0000${lookup.namespace ?? ""}\u0000${lookup.type}`
     const group = groups.get(key) ?? []
     group.push(lookup)
     groups.set(key, group)
@@ -74,6 +74,7 @@ async function resolveLookupGroup(
       pageSize: documentChunkApiMaximumPageSize,
       chunkType: first.type,
       includeAssetUrls: true,
+      ...(first.jobResultId ? { jobResultId: first.jobResultId } : {}),
     })
     totalPages = response.pagination.totalPages
 
@@ -87,6 +88,8 @@ async function resolveLookupGroup(
       }
       resolved.push({
         documentId: first.documentId,
+        ...(first.jobResultId ? { jobResultId: first.jobResultId } : {}),
+        ...(first.namespace ? { namespace: first.namespace } : {}),
         chunkId: chunk.chunkId,
         type: first.type,
         assetUrl,
@@ -101,5 +104,5 @@ async function resolveLookupGroup(
 }
 
 function lookupKey(lookup: ConnectedAssetLookup): string {
-  return `${lookup.documentId}\u0000${lookup.type}\u0000${lookup.chunkId}`
+  return `${lookup.documentId}\u0000${lookup.jobResultId ?? ""}\u0000${lookup.namespace ?? ""}\u0000${lookup.type}\u0000${lookup.chunkId}`
 }

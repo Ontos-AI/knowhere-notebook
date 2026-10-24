@@ -94,6 +94,48 @@ describe("handleChatTurn", () => {
     });
   });
 
+  it("answers from shared demo projections without local database rows", async () => {
+    const repository = makeRepository()
+    const sharedSource = { id: "demo:visible", title: "Shared", mimeType: "text/plain", status: "ready" as const,
+      knowhereDocumentId: "shared-doc", knowhereJobId: null, demoKey: "visible", namespace: "__knowhere_demo__", jobResultId: "catalog-revision" }
+    const query = vi.fn().mockResolvedValue({ namespace: "__knowhere_demo__", query: "question", routerUsed: "test", answerText: null,
+      results: [], referencedChunks: [] })
+    const result = await handleChatTurn({ workspace: makeWorkspace(), sources: [sharedSource], question: "question", excludedSourceIds: [],
+      repository, retrieval: { query }, generateAnswer: async ({ searchSources }) => {
+        await searchSources({ query: "question" })
+        return makeHarnessRunResult("Shared answer")
+      } })
+    expect(Either.isRight(result)).toBe(true)
+    expect(query).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ namespace: "__knowhere_demo__", includeDocumentIds: ["shared-doc"] }))
+  })
+
+  it("removes historical demo rows from agent context while retaining their private exclusions", async () => {
+    const legacy = makeSource({ id: "legacy", demoKey: "demo", knowhereDocumentId: "old-demo" })
+    const query = vi.fn().mockResolvedValue({ namespace: "default", query: "question", routerUsed: "test", answerText: null, results: [], referencedChunks: [] })
+    const generateAnswer = vi.fn(async ({ searchSources }) => {
+      await searchSources({ query: "question" })
+      return makeHarnessRunResult("Answer")
+    })
+    await handleChatTurn({ workspace: makeWorkspace(), sources: [makeSource(), legacy], question: "question", excludedSourceIds: [],
+      repository: makeRepository(), retrieval: { query }, generateAnswer })
+    expect(generateAnswer).toHaveBeenCalledWith(expect.objectContaining({ sources: [makeSource()] }))
+    expect(query).toHaveBeenCalledWith(expect.objectContaining({ excludeDocumentIds: ["old-demo"] }))
+  })
+
+  it.each(["workspace", "demo"])("rejects all deselected %s sources before persisting a turn", async (kind) => {
+    const source = kind === "workspace" ? makeSource() : { ...makeSource(), demoKey: "shared", namespace: "__knowhere_demo__" }
+    const repository = makeRepository()
+    const generateAnswer = vi.fn(async () => makeHarnessRunResult("Unexpected answer"))
+    const query = vi.fn()
+    const result = await handleChatTurn({ workspace: makeWorkspace(), sources: [source], question: "question", excludedSourceIds: [source.id],
+      repository, retrieval: { query }, generateAnswer })
+    expect(Either.isLeft(result)).toBe(true)
+    if (Either.isLeft(result)) expect(result.left.status).toBe(409)
+    expect(repository.appendMessageToThread).not.toHaveBeenCalled()
+    expect(generateAnswer).not.toHaveBeenCalled()
+    expect(query).not.toHaveBeenCalled()
+  })
+
   it("rejects a turn with no local sources without calling retrieval", async () => {
     const retrieval = { query: vi.fn() };
     const repository = makeRepository();
@@ -264,7 +306,7 @@ describe("handleChatTurn", () => {
     });
   });
 
-  it("answers in an empty folder without searching", async () => {
+  it("rejects an empty folder before persisting a turn", async () => {
     const retrieval = { query: vi.fn() };
     const repository = makeRepository();
     const generateAnswer = vi.fn(async ({ searchSources, folderScopeSourceIds }) => {
@@ -287,9 +329,10 @@ describe("handleChatTurn", () => {
       repository,
     });
 
-    expect(Either.isRight(result)).toBe(true);
+    expect(Either.isLeft(result)).toBe(true);
+    expect(repository.appendMessageToThread).not.toHaveBeenCalled();
+    expect(generateAnswer).not.toHaveBeenCalled();
     expect(retrieval.query).not.toHaveBeenCalled();
-    expect(repository.appendMessageToThread).toHaveBeenCalled();
   });
 
   it("scopes retrieval to the ready documents in the current folder", async () => {

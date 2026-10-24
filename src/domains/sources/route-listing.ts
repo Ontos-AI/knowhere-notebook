@@ -32,7 +32,7 @@ type RouteListingDependencies = Pick<
   >
   readonly sourceService: Pick<
     SourceRouteServiceDependencies["sourceService"],
-    "listHiddenDemoSourceIds" | "localizeRemoteDocument"
+    "listHiddenDemoSourceIds" | "listSelectedDemoSourceIds" | "listLegacyDemoDocumentIds" | "localizeRemoteDocument"
   >
   readonly reconcileSourcesForWorkspace: SourceRouteServiceDependencies[
     "reconcileSourcesForWorkspace"
@@ -84,41 +84,30 @@ const listSourcesEffect = (
     )
     const client = deps.makeKnowhereClient(apiKey)
     const sources = listedSources
-    const demoSourceResolution = resolveWorkspaceDemoSources(sources, catalog)
+    const hiddenDemoSourceIds: ReadonlySet<string> = new Set(yield* Effect.tryPromise(() => deps.sourceService.listHiddenDemoSourceIds(workspace.id)))
+    const selectedDemoSourceIds: ReadonlySet<string> = new Set(yield* Effect.tryPromise(() => deps.sourceService.listSelectedDemoSourceIds?.(workspace.id) ?? Promise.resolve([])))
+    const demoSourceResolution = resolveWorkspaceDemoSources(sources, catalog, hiddenDemoSourceIds, selectedDemoSourceIds)
     const workspaceSources = demoSourceResolution.workspaceSources
+    const excludedLegacyDocumentIds: ReadonlySet<string> = new Set(yield* Effect.tryPromise(() => deps.sourceService.listLegacyDemoDocumentIds?.(workspace.id) ?? Promise.resolve([])))
     const remoteSourceViews = yield* listRemoteLibrarySourceViews({
       workspace,
       client,
-      localSources: demoSourceResolution.workspaceSources,
+      localSources: sources,
+      excludedDocumentIds: excludedLegacyDocumentIds,
     })
     yield* Effect.sync(() =>
       triggerBackgroundReconciliationForParsingSources({
         workspaceId: workspace.id,
-        sources,
+        sources: workspaceSources,
         apiKey,
         startBackgroundReconciliation:
           deps.startBackgroundReconciliation ??
           defaultStartBackgroundReconciliation,
       }),
     )
-    const hiddenDemoSourceIds = new Set(
-      yield* Effect.tryPromise(() =>
-        deps.sourceService.listHiddenDemoSourceIds(workspace.id),
-      ),
-    )
-    const visibleDemoSources = catalog.sources
-      .filter(
-        (source) =>
-          !demoSourceResolution.materializedDemoSourceIds.has(
-            source.demoSourceId,
-          ),
-      )
-      .filter((source) => !hiddenDemoSourceIds.has(source.demoSourceId))
-      .map(demoView.toSourceView)
-
     return routeResult.ok({
       sources: [
-        ...visibleDemoSources,
+        ...demoSourceResolution.demoSources,
         ...workspaceSources.map((source) => toSourceView(source)),
         ...remoteSourceViews,
       ],

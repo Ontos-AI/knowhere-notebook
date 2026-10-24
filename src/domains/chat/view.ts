@@ -1,4 +1,5 @@
 import { normalizeHighlightBoxes } from "@/agent-harness/image-highlights"
+import { readChatAgentTrace } from "./agent-trace"
 import { deriveChatThreadTitle } from "./title"
 import type { ChatMessage, ChatThread } from "@/infrastructure/db/schema"
 import type {
@@ -32,12 +33,14 @@ export function toChatMessageView(
       ? [...artifacts]
       : toPersistedArtifactViews(message.artifacts)
 
+  const retrievalWarnings = readChatAgentTrace(message.agentTrace)?.retrievalWarnings
   return {
     id: message.id,
     role: message.role === "assistant" ? "assistant" : "user",
     content: message.content,
     citations: citationViews,
     ...(artifactViews !== undefined ? { artifacts: artifactViews } : {}),
+    ...(retrievalWarnings?.length ? { retrievalWarnings } : {}),
   }
 }
 
@@ -49,6 +52,8 @@ function toPersistedCitationViews(value: unknown): ChatCitationView[] | undefine
 
     return [
       {
+        chunkId: getString(item.chunkId),
+        chunkRowId: getString(item.chunkRowId),
         chunkType: getString(item.chunkType) ?? "text",
         score: getNumber(item.score) ?? 0,
         assetUrl: getString(item.assetUrl),
@@ -58,6 +63,8 @@ function toPersistedCitationViews(value: unknown): ChatCitationView[] | undefine
         highlightRegions: getHighlightRegions(item.highlightRegions),
         source: {
           documentId: getString(item.source.documentId),
+          namespace: getString(item.source.namespace),
+          jobResultId: getString(item.source.jobResultId),
           sourceFileName: getString(item.source.sourceFileName),
           sectionPath: getString(item.source.sectionPath),
         },
@@ -82,6 +89,8 @@ function toPersistedArtifactViews(value: unknown): ChatArtifactView[] | undefine
     const citation =
       isRecord(item.citation) && isRecord(item.citation.source)
         ? {
+            chunkId: getString(item.citation.chunkId),
+            chunkRowId: getString(item.citation.chunkRowId),
             chunkType: getString(item.citation.chunkType) ?? "text",
             score: getNumber(item.citation.score) ?? 0,
             assetUrl: getString(item.citation.assetUrl),
@@ -97,6 +106,8 @@ function toPersistedArtifactViews(value: unknown): ChatArtifactView[] | undefine
             ),
             source: {
               documentId: getString(item.citation.source.documentId),
+              namespace: getString(item.citation.source.namespace),
+              jobResultId: getString(item.citation.source.jobResultId),
               sourceFileName: getString(item.citation.source.sourceFileName),
               sectionPath: getString(item.citation.source.sectionPath),
             },

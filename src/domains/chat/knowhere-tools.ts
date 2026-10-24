@@ -1,11 +1,10 @@
 import type { KnowhereToolRuntime } from "@/agent-harness"
 import { hasReferencedChunkEvidence } from "@/agent-harness/referenced-chunks"
-import type { SearchSources } from "./contracts"
-import type { Source } from "@/infrastructure/db/schema"
+import type { ChatSource, SearchSources } from "./contracts"
 
 type NotebookKnowhereToolsInput = {
   readonly searchSources: SearchSources
-  readonly sources: readonly Source[]
+  readonly sources: readonly ChatSource[]
 }
 
 export const notebookKnowhereTools = {

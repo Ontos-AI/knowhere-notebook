@@ -16,21 +16,32 @@ export const demoView = {
   toChatMessages,
   toParsedChunkView,
   toSourceView,
+  toSelectedSourceView,
 } as const
 
 function toSourceView(source: DemoSource): SourceView {
+  return buildSourceView(source, false)
+}
+
+function toSelectedSourceView(source: DemoSource): SourceView {
+  return buildSourceView(source, true)
+}
+
+function buildSourceView(source: DemoSource, isSelected: boolean): SourceView {
   const originalFile = demoOriginalFile.toSourceOriginalFileView(source)
 
   return {
     id: source.demoSourceId,
     kind: "demo",
     demoSourceId: source.demoSourceId,
+    namespace: source.namespace ?? "__knowhere_demo__",
+    ...(source.jobResultId ? { jobResultId: source.jobResultId } : {}),
     title: source.title,
     mimeType: source.mimeType,
     status: "ready",
     documentId: source.canonicalDocumentId,
     ...(originalFile ? { originalFile } : {}),
-    ...(source.officialLibrary
+    ...(source.officialLibrary && !isSelected
       ? {
           officialLibrary: {
             librarySourceId: source.officialLibrary.librarySourceId,
@@ -85,6 +96,8 @@ function toDemoRetrievalResult(
 ): PageCitationAssetRetrievalResult {
   return {
     content: citation.content,
+    chunkId: citation.chunkId,
+    chunkRowId: citation.canonicalChunkId,
     chunkType: citation.chunkType,
     score: 0.95,
     ...(citation.pageCitationAssetUrl
@@ -98,6 +111,8 @@ function toDemoRetrievalResult(
       : {}),
     source: {
       documentId: citation.canonicalDocumentId,
+      ...(citation.namespace ? { namespace: citation.namespace } : {}),
+      ...(citation.jobResultId ? { jobResultId: citation.jobResultId } : {}),
       sourceFileName: citation.source.sourceFileName,
       sectionPath: citation.source.sectionPath,
     },
@@ -112,6 +127,8 @@ function toParsedChunkView(
     chunkId: chunk.id,
     parserChunkId: chunk.chunkId,
     documentId: source.documentId,
+    namespace: source.namespace,
+    jobResultId: source.jobResultId,
     sectionPath: chunk.sectionPath,
     chunkType: chunk.chunkType,
     content: chunk.content,

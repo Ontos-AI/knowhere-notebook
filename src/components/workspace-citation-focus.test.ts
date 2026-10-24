@@ -39,6 +39,38 @@ const prefetchedChunk: ParsedChunkView = {
 };
 
 describe("useWorkspaceCitationFocus", () => {
+  it.each(["empty", "error"])("shows unavailable when an exact citation read is %s", async (mode) => {
+    const fetchChunks = vi.fn(async (): Promise<ParsedChunkView[]> => { if (mode === "error") throw new Error("Revision not found"); return [] })
+    const { result } = renderHook(() => useWorkspaceCitationFocus({ fetchChunks, onSelectSource: vi.fn(), selectedSourceId: readySource.id, sources: [readySource] }), { wrapper: createSWRWrapper })
+    await act(async () => { await result.current.handleCitationClick({ ...citation, chunkId: "missing" }, "missing:0") })
+    expect(result.current.selectedChunksMessage).toEqual(expect.stringMatching(/unavailable/i))
+    expect(result.current.focusedChunk.chunkId).toBeNull()
+  })
+
+  it("shows unavailable when an old citation cannot be resolved", async () => {
+    const fetchChunks = vi.fn(async () => [prefetchedChunk])
+    const { result } = renderHook(() => useWorkspaceCitationFocus({ fetchChunks, onSelectSource: vi.fn(), selectedSourceId: readySource.id, sources: [readySource] }), { wrapper: createSWRWrapper })
+    await act(async () => { await result.current.handleCitationClick({ ...citation, source: { documentId: "old_static_document" } }, "old:0") })
+    expect(fetchChunks).not.toHaveBeenCalled()
+    expect(result.current.selectedChunksMessage).toMatch(/unavailable/i)
+    expect(result.current.selectedChunks).toEqual([])
+  })
+
+  it("reads and retains hidden citations at their saved revision independently of sidebar selection", async () => {
+    const historicalSource: SourceView = { ...readySource, id: "demo-report", namespace: "__knowhere_demo__", jobResultId: "old" }
+    const historicalCitation: ChatCitationView = { ...citation, chunkId: "parser_old", source: { ...citation.source, namespace: "__knowhere_demo__", jobResultId: "old" } }
+    const historicalChunk: ParsedChunkView = { ...prefetchedChunk, chunkId: "row_old", parserChunkId: "parser_old", namespace: "__knowhere_demo__", jobResultId: "old" }
+    const fetchChunks = vi.fn(async () => [historicalChunk])
+    const { result } = renderHook(() => useWorkspaceCitationFocus({ fetchChunks, onSelectSource: vi.fn(), selectedSourceId: readySource.id, sources: [readySource], citationSources: [historicalSource] }), { wrapper: createSWRWrapper })
+    await act(async () => { await result.current.handleCitationClick(historicalCitation, "message:0") })
+    expect(fetchChunks).toHaveBeenCalledWith("demo-report", { jobResultId: "old", namespace: "__knowhere_demo__" })
+    expect(result.current.selectedSource).toMatchObject({ id: "demo-report", jobResultId: "old" })
+    expect(result.current.selectedChunks).toEqual([historicalChunk])
+    expect(result.current.focusedChunk.chunkId).toBe("row_old")
+    act(() => { result.current.handleSourceSelected(readySource.id) })
+    expect(result.current.selectedSource?.id).toBe(readySource.id)
+  })
+
   it("loads all chunks, selects the source, and focuses the cited chunk", async () => {
     const fetchChunks = vi.fn(async () => [prefetchedChunk]);
     const selectSource = vi.fn();
@@ -283,7 +315,7 @@ describe("useWorkspaceCitationFocus", () => {
     };
     const cache = new Map([
       [
-        unstable_serialize(["source-chunks", "source_1", 1]),
+        unstable_serialize(["source-chunks", "source_1", 1, "", "", "page"]),
         {
           data: {
             chunks: [pageChunk],
@@ -367,7 +399,7 @@ describe("useWorkspaceCitationFocus", () => {
       expect(fetchChunks).toHaveBeenCalledWith("source_1", { chunkType: "page" });
     });
     expect(result.current.prefetchedChunksBySourceId).toEqual({
-      source_1: [pageChunk],
+      [JSON.stringify(["source_1", "", "", "page"])]: [pageChunk],
     });
   });
 

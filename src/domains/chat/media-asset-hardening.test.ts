@@ -22,6 +22,12 @@ afterEach(() => {
 })
 
 describe("hardenChatMediaAssetUrls", () => {
+  it("hardens assets against the actual retrieval revision instead of the current catalog", async () => {
+    const hardenChatAssetUrl = vi.fn(async () => "https://blob.example/saved.png")
+    await hardenChatMediaAssetUrls({ workspaceId: "workspace_1", sources: [{ ...makeSource({ knowhereDocumentId: "doc_1" }), namespace: "__knowhere_demo__", jobResultId: "current" }], results: [makeRetrievalResult({ assetUrl: "https://storage.example/images/a.png", metadata: { namespace: "__knowhere_demo__", jobResultId: "saved" }, source: { documentId: "doc_1", sectionPath: "images/a.png" } })], hardenChatAssetUrl })
+    expect(hardenChatAssetUrl).toHaveBeenCalledWith(expect.objectContaining({ source: expect.objectContaining({ jobResultId: "saved", knowhereJobId: "saved" }) }))
+  })
+
   it("keeps an already Notebook-owned asset URL without calling the hardener", async () => {
     const ownedUrl =
       "https://fake.public.blob.vercel-storage.com/workspaces/workspace_1/parsed-documents/doc_1/rev_1/images/a.png"

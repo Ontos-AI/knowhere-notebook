@@ -349,6 +349,13 @@ function MessageBubble({
           pendingCitationId={pendingCitationId}
           sourceTitlesByDocumentId={sourceTitlesByDocumentId}
         />
+        {message.retrievalWarnings && message.retrievalWarnings.length > 0 && (
+          <div role="status" className="mt-3 space-y-1 border-t border-border/70 pt-2.5 text-xs text-muted-foreground">
+            {message.retrievalWarnings.map((warning) => (
+              <p key={`${warning.scope}-${warning.code}`}>{warning.message}</p>
+            ))}
+          </div>
+        )}
         {displayDerivedTables.length > 0 && (
           <div className="mt-3 space-y-3 border-t border-border/70 pt-2.5">
             {displayDerivedTables.map((artifact) => (

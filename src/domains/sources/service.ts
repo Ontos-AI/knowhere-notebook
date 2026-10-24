@@ -13,6 +13,11 @@ import { retrySourceToKnowhereEffect } from "./retry"
 import { sourceWorkflowRuntime } from "./workflow-runtime"
 
 type SourceService = {
+  readonly listLegacyDemoSources: (workspaceId: string) => Promise<Source[]>
+  readonly findLegacyDemoSource: (workspaceId: string, sourceId: string) => Promise<Source | null>
+  readonly listLegacyDemoDocumentIds: (workspaceId: string) => Promise<string[]>
+  readonly listSelectedDemoSourceIds: (workspaceId: string) => Promise<string[]>
+  readonly restoreDemoSource: (workspaceId: string, demoSourceId: string) => Promise<void>
   readonly findInWorkspace: (
     workspaceId: string,
     sourceId: string,
@@ -99,6 +104,11 @@ const retrySourceToKnowhere: SourceService["retrySourceToKnowhere"] = (
   )
 
 export const sourceService: SourceService = {
+  listLegacyDemoSources: sourceWorkflowRuntime.listLegacyDemoSources,
+  findLegacyDemoSource: sourceWorkflowRuntime.findLegacyDemoSource,
+  listLegacyDemoDocumentIds: sourceWorkflowRuntime.listLegacyDemoDocumentIds,
+  listSelectedDemoSourceIds: sourceWorkflowRuntime.listSelectedDemoSourceIds,
+  restoreDemoSource: sourceWorkflowRuntime.restoreDemoSource,
   findInWorkspace: sourceWorkflowRuntime.findInWorkspace,
   findByKnowhereDocumentId: sourceWorkflowRuntime.findByKnowhereDocumentId,
   hideDemoSource: sourceWorkflowRuntime.hideDemoSource,

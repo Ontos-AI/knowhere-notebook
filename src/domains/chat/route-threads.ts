@@ -1,5 +1,9 @@
 import { Effect } from "effect"
 
+import { resolveCitationSources } from "./citation-sources"
+import { sourceService } from "@/domains/sources/service"
+import { knowhereDemoApi } from "@/integrations/knowhere-demo"
+import type { SourceView } from "@/domains/sources/types"
 import { chatThreadService } from "@/domains/chat/thread-service"
 import { toChatMessageView, toChatThreadView } from "@/domains/chat/view"
 import { notebookRequestContext } from "@/domains/workspace/request-context"
@@ -28,6 +32,7 @@ type ThreadInput = {
 type GetThreadBody = {
   readonly thread: ChatThreadView
   readonly messages: ChatMessageView[]
+  readonly citationSources: readonly SourceView[]
 }
 
 export type ArchiveThreadInput = {
@@ -101,11 +106,16 @@ const getThreadEffect = (input: ThreadInput) =>
       return routeResult.error(404, "Chat thread not found.")
     }
 
+    const messageViews = messages.map((message): ChatMessageView => toChatMessageView(message))
+    const [sources, legacyDemoSources, catalog] = yield* Effect.tryPromise(() => Promise.all([
+      sourceService.listForWorkspace(workspace.id),
+      sourceService.listLegacyDemoSources(workspace.id),
+      knowhereDemoApi.fetchCatalog().catch(() => null),
+    ]))
     return routeResult.ok({
       thread: toChatThreadView(thread),
-      messages: messages.map((message): ChatMessageView =>
-        toChatMessageView(message),
-      ),
+      messages: messageViews,
+      citationSources: resolveCitationSources({ messages: messageViews, sources: [...sources, ...legacyDemoSources], catalog, namespace: workspace.namespace }),
     })
   })
 

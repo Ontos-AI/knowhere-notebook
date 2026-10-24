@@ -443,7 +443,7 @@ describe("answerQuestionWithRetrieval", () => {
           topK: 2,
         });
 
-        expect(searchResponse.results).toEqual([result]);
+        expect(searchResponse.results).toMatchObject([result]);
         return makeHarnessRunResult("Runtime answer.");
       },
     );
@@ -2302,7 +2302,7 @@ describe("answerQuestionWithRetrieval", () => {
     expect(generateCallCount).toBe(1);
     expect(answer.answer).toBe("Information hiding is a module design principle.");
     expect(answer.artifacts).toEqual([]);
-    expect(answer.citations.map((citation) => citation.source)).toEqual([
+    expect(answer.citations.map((citation) => citation.source)).toMatchObject([
       {
         documentId: "doc_information_hiding",
         sourceFileName: "information_hiding.pdf",

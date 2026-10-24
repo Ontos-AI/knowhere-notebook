@@ -38,9 +38,12 @@ const defaultDependencies: SourceRouteServiceDependencies = {
   requireUser,
   sourceService: {
     findInWorkspace: defaultSourceService.findInWorkspace,
+    findLegacyDemoSource: defaultSourceService.findLegacyDemoSource,
     findByKnowhereDocumentId: defaultSourceService.findByKnowhereDocumentId,
     hideDemoSource: defaultSourceService.hideDemoSource,
     listHiddenDemoSourceIds: defaultSourceService.listHiddenDemoSourceIds,
+    listSelectedDemoSourceIds: defaultSourceService.listSelectedDemoSourceIds,
+    listLegacyDemoDocumentIds: defaultSourceService.listLegacyDemoDocumentIds,
     localizeRemoteDocument: defaultSourceService.localizeRemoteDocument,
     softDelete: defaultSourceService.softDelete,
     upsertMaterializedDemoSource:
