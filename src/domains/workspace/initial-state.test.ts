@@ -42,13 +42,14 @@ describe("loadWorkspaceShellInitialState", () => {
       {
         id: "demo-tsla-q4-2025",
         kind: "demo",
+        namespace: "__knowhere_demo__",
         demoSourceId: "demo-tsla-q4-2025",
         title: "TSLA-Q4-2025-Update.pdf",
         mimeType: "application/pdf",
         status: "ready",
         documentId: "demo-doc-tsla-q4-2025",
         originalFile: {
-          url: "https://example.com/tsla-q4-2025.pdf",
+          url: "/api/demo-sources/demo-tsla-q4-2025/original",
           mimeType: "application/pdf",
           sizeBytes: 1024,
           canDownload: false,
@@ -88,6 +89,8 @@ describe("loadWorkspaceShellInitialState", () => {
         citations: [
           {
             chunkType: "text",
+            chunkId: "parser-chunk-1",
+            chunkRowId: "demo-chunk-1",
             score: 0.95,
             content: "Automotive revenue increased.",
             source: {
@@ -101,6 +104,19 @@ describe("loadWorkspaceShellInitialState", () => {
     ])
     expect(state.loginUrl).toBe("/login")
     expect(deps.listSourcesForWorkspace).not.toHaveBeenCalled()
+  })
+
+  it("keys guest prefetched demo chunks by namespace and immutable revision", async () => {
+    const catalog: DemoCatalog = makeDemoCatalog()
+    const source = catalog.sources[0]!
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ demo_source_id: source.demoSourceId, canonical_document_id: source.canonicalDocumentId, namespace: "__knowhere_demo__", job_result_id: "revision-one", title: source.title, mime_type: source.mimeType, chunks: [{ id: "row-one", chunk_id: "node-one", chunk_type: "text", content: "content", sort_order: 0, metadata: {} }], pagination: { page: 1, page_size: 50, total: 1, total_pages: 1 } }), { headers: { "content-type": "application/json" } }))
+    vi.stubGlobal("fetch", fetcher)
+    try {
+      const state = await loadWorkspaceShellInitialState(createDependencies({ getOptionalAuthenticated: vi.fn(async () => null), fetchDemoCatalog: vi.fn(async () => ({ ...catalog, sources: [{ ...source, namespace: "__knowhere_demo__", jobResultId: "revision-one" }] })) }))
+      const readKey: string = JSON.stringify([source.demoSourceId, "revision-one", "__knowhere_demo__", ""])
+      expect(Object.keys(state.initialPrefetchedChunksBySourceId ?? {})).toEqual([readKey])
+      expect(state.initialPrefetchedChunksBySourceId?.[readKey]?.[0]).toMatchObject({ jobResultId: "revision-one", namespace: "__knowhere_demo__" })
+    } finally { vi.unstubAllGlobals() }
   })
 
   it("exposes the configured Dashboard origin to the shell", async () => {
@@ -128,6 +144,7 @@ describe("loadWorkspaceShellInitialState", () => {
       expect.objectContaining({
         id: "demo-tsla-q4-2025",
         kind: "demo",
+        namespace: "__knowhere_demo__",
         demoSourceId: "demo-tsla-q4-2025",
       }),
       {
@@ -174,7 +191,7 @@ describe("loadWorkspaceShellInitialState", () => {
     ])
   })
 
-  it("hides canonical demos that are hidden or already materialized", async () => {
+  it("uses the shared catalog even when an old private demo copy exists", async () => {
     const workspace = makeWorkspace()
     const materializedSource = makeSource(workspace.id, {
       id: "source_demo",
@@ -192,9 +209,10 @@ describe("loadWorkspaceShellInitialState", () => {
 
     expect(state.sources).toEqual([
       expect.objectContaining({
-        id: "source_demo",
-        kind: "workspace",
-        documentId: "doc_user_copy",
+        id: "demo-tsla-q4-2025",
+        kind: "demo",
+        namespace: "__knowhere_demo__",
+        documentId: "demo-doc-tsla-q4-2025",
         chunkCount: 70,
       }),
     ])
@@ -219,6 +237,7 @@ describe("loadWorkspaceShellInitialState", () => {
       expect.objectContaining({
         id: "demo-tsla-q4-2025",
         kind: "demo",
+        namespace: "__knowhere_demo__",
         demoSourceId: "demo-tsla-q4-2025",
         documentId: "demo-doc-tsla-q4-2025",
       }),
@@ -244,6 +263,7 @@ describe("loadWorkspaceShellInitialState", () => {
       expect.objectContaining({
         id: "demo-tsla-q4-2025",
         kind: "demo",
+        namespace: "__knowhere_demo__",
       }),
     ])
   })
@@ -351,6 +371,7 @@ describe("loadWorkspaceShellInitialState", () => {
       expect.objectContaining({
         id: "demo-tsla-q4-2025",
         kind: "demo",
+        namespace: "__knowhere_demo__",
       }),
       {
         id: readySource.id,
@@ -438,6 +459,7 @@ describe("loadWorkspaceShellInitialState", () => {
       expect.objectContaining({
         id: "demo-tsla-q4-2025",
         kind: "demo",
+        namespace: "__knowhere_demo__",
       }),
       {
         id: parsingSource.id,

@@ -288,3 +288,13 @@ describe("readAllSourceChunks", () => {
     expect(chunks.map((chunk) => chunk.parserChunkId)).toEqual(["c1", "c2"])
   })
 })
+
+describe("pinned source revision reads", () => {
+  it("bypasses the latest parsed snapshot and requests the cited job result", async () => {
+    const readChunks = vi.fn(async () => ({ document: { resultDirectoryPath: "parsed-storage:doc_1" }, chunks: [] }))
+    const listChunks = vi.fn(async () => ({ chunks: [], pagination: { totalPages: 1 } }))
+    await readSourceChunkPage({ client: { documents: { listChunks } }, knowledge: { readChunks } as unknown as Knowledge, source: { documentId: "doc_1", title: "Report", jobResultId: "saved_revision", namespace: "__knowhere_demo__" }, params: { page: 1, pageSize: 50 } })
+    expect(readChunks).not.toHaveBeenCalled()
+    expect(listChunks).toHaveBeenCalledWith("doc_1", { page: 1, pageSize: 50, includeAssetUrls: true, jobResultId: "saved_revision" })
+  })
+})

@@ -1,3 +1,4 @@
+import type { RetrievalWarning } from "./types"
 import type { HarnessTrace } from "@/agent-harness"
 
 export const RECENT_CONTEXT_TURN_LIMIT = 5
@@ -12,6 +13,7 @@ export type ChatAgentTrace = {
   readonly intentTask: string
   readonly toolCalls: readonly ChatAgentTraceToolCall[]
   readonly referencedDocumentIds: readonly string[]
+  readonly retrievalWarnings?: readonly RetrievalWarning[]
 }
 
 export type RecentCaptureContextTurn = {
@@ -105,6 +107,7 @@ export function readChatAgentTrace(value: unknown): ChatAgentTrace | undefined {
     intentTask: value.intentTask,
     toolCalls,
     referencedDocumentIds,
+    ...(Array.isArray(value.retrievalWarnings) ? { retrievalWarnings: value.retrievalWarnings.filter(isRetrievalWarning) } : {}),
   }
 }
 
@@ -122,4 +125,9 @@ function collectReferencedDocumentIds(trace: HarnessTrace): string[] {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
+}
+
+function isRetrievalWarning(value: unknown): value is RetrievalWarning {
+  return isRecord(value) && (value.scope === "demo" || value.scope === "workspace") &&
+    typeof value.code === "string" && typeof value.message === "string"
 }

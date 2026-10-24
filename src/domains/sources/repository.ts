@@ -5,6 +5,11 @@ import { sourceParseResultRepository } from "./source-parse-result-repository"
 import { sourceRowRepository } from "./source-row-repository"
 
 type SourceRepository = {
+  readonly listLegacyDemoSourcesEffect: typeof demoSourceRepository.listLegacyDemoSourcesEffect
+  readonly findLegacyDemoSourceEffect: typeof demoSourceRepository.findLegacyDemoSourceEffect
+  readonly listLegacyDemoDocumentIdsEffect: typeof demoSourceRepository.listLegacyDemoDocumentIdsEffect
+  readonly listSelectedDemoSourceIdsEffect: typeof demoSourceRepository.listSelectedDemoSourceIdsEffect
+  readonly restoreDemoSourceEffect: typeof demoSourceRepository.restoreDemoSourceEffect
   readonly findInWorkspaceEffect: typeof sourceRowRepository.findInWorkspaceEffect
   readonly findByKnowhereDocumentIdEffect: typeof sourceRowRepository.findByKnowhereDocumentIdEffect
   readonly listForWorkspaceEffect: typeof sourceRowRepository.listForWorkspaceEffect
@@ -30,6 +35,11 @@ type SourceRepository = {
 }
 
 export const sourceRepository: SourceRepository = {
+  listLegacyDemoSourcesEffect: demoSourceRepository.listLegacyDemoSourcesEffect,
+  findLegacyDemoSourceEffect: demoSourceRepository.findLegacyDemoSourceEffect,
+  listLegacyDemoDocumentIdsEffect: demoSourceRepository.listLegacyDemoDocumentIdsEffect,
+  listSelectedDemoSourceIdsEffect: demoSourceRepository.listSelectedDemoSourceIdsEffect,
+  restoreDemoSourceEffect: demoSourceRepository.restoreDemoSourceEffect,
   findInWorkspaceEffect: sourceRowRepository.findInWorkspaceEffect,
   findByKnowhereDocumentIdEffect:
     sourceRowRepository.findByKnowhereDocumentIdEffect,

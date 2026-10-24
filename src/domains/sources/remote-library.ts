@@ -68,6 +68,7 @@ type RemoteLibraryProjectionInput = {
   readonly workspace: RemoteLibraryWorkspace
   readonly client: RemoteDocumentClient
   readonly localSources: readonly Source[]
+  readonly excludedDocumentIds?: ReadonlySet<string>
 }
 
 type RemoteLibraryLocalizationInput = RemoteLibraryProjectionInput & {
@@ -158,6 +159,7 @@ export function listRemoteLibrarySourceViews(
       (document) =>
         isNotebookVisibleRemoteDocument(document) &&
         !localDocumentIds.has(document.documentId) &&
+        !input.excludedDocumentIds?.has(document.documentId) &&
         !matchesActiveNotebookParsingSource(document, input.localSources),
     )
 

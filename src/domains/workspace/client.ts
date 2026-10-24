@@ -16,6 +16,7 @@ const workspaceClientKeys = {
   chatDiagram: "/api/chat/diagram",
   chat: "/api/chat",
   materializeDemoSources: "/api/demo-sources/materialize",
+  selectDemoSources: "/api/demo-sources/select",
   folders: "/api/folders",
   archiveSource: "archive-source",
   retrySource: "retry-source",
@@ -29,6 +30,8 @@ const workspaceClientConfig = {
 
 export type FetchChunksOptions = {
   readonly chunkType?: "text" | "image" | "table" | "page"
+  readonly jobResultId?: string
+  readonly namespace?: string
   readonly untilPageNumber?: number
 }
 
@@ -49,6 +52,7 @@ type ChatThreadResponse = {
   thread?: ChatThreadView
   messages?: ChatMessageView[]
   message?: string
+  citationSources?: SourceView[]
 }
 
 type ChatThreadDetailResponse = ChatThreadResponse & {
@@ -98,6 +102,7 @@ type ChatMessageResponse = {
   threadId?: string
   messages?: ChatMessageView[]
   message?: string
+  citationSources?: SourceView[]
 }
 
 type ChatDiagramRequest = {
@@ -135,6 +140,7 @@ export const workspaceClient = {
   createChatDiagram,
   sendChatMessage,
   materializeDemoSources,
+  selectDemoSources,
   archiveSource,
   retrySource,
   archiveChatThread,
@@ -152,6 +158,8 @@ async function fetchChunks(
   try {
     const searchParams = new URLSearchParams()
     if (options?.chunkType) searchParams.set("chunkType", options.chunkType)
+    if (options?.jobResultId) searchParams.set("jobResultId", options.jobResultId)
+    if (options?.namespace) searchParams.set("namespace", options.namespace)
     const query = searchParams.toString()
     const body = await workspaceRouteClient.getJson<{
       chunks?: ParsedChunkView[]
@@ -167,13 +175,15 @@ async function fetchChunks(
 async function fetchChunkPage(
   sourceId: string,
   page: number,
-  options?: Pick<FetchChunksOptions, "chunkType">,
+  options?: Pick<FetchChunksOptions, "chunkType" | "jobResultId" | "namespace">,
 ): Promise<SourceChunksResponse> {
   const searchParams = new URLSearchParams({
     page: String(page),
     pageSize: String(workspaceClientConfig.sourceChunkPageSize),
   })
   if (options?.chunkType) searchParams.set("chunkType", options.chunkType)
+  if (options?.jobResultId) searchParams.set("jobResultId", options.jobResultId)
+  if (options?.namespace) searchParams.set("namespace", options.namespace)
   const body = await workspaceRouteClient.getJson<SourceChunksResponse>(
     `/api/sources/${encodeURIComponent(sourceId)}/chunks?${searchParams.toString()}`,
   )
@@ -204,6 +214,8 @@ async function fetchChunkPagesUntil(
   do {
     const result = await fetchChunkPage(sourceId, page, {
       chunkType: options.chunkType,
+      jobResultId: options.jobResultId,
+      namespace: options.namespace,
     })
     pages.push(result)
     chunks.push(...(result.chunks ?? []))
@@ -296,6 +308,22 @@ async function materializeDemoSources(
   }
   const body = response.body
   return Array.isArray(body.sources) ? body.sources : []
+}
+
+async function selectDemoSources(
+  input: MaterializeDemoSourcesRequest,
+): Promise<SourceView[]> {
+  const response = await workspaceRouteClient.postJsonWithStatus<SourcesResponse & { message?: string }>(
+    workspaceClientKeys.selectDemoSources,
+    input,
+  )
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(response.body.message ?? "Demo sources could not be selected right now.")
+  }
+  if (!Array.isArray(response.body.sources)) {
+    throw new Error("Demo selection returned an invalid source list.")
+  }
+  return response.body.sources
 }
 
 function archiveSource(sourceId: string): Promise<ArchiveResponse> {

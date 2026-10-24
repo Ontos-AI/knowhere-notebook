@@ -1,4 +1,6 @@
 import { NextRequest } from "next/server"
+import { Effect } from "effect"
+import { workspaceClient } from "@/domains/workspace/client"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
@@ -70,6 +72,39 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
     })
   })
 
+  it.each([401, 404, 409, 503])("preserves real upstream %s statuses and safe client state for current and saved demo reads", async (status) => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+    try {
+      mocks.getCurrentUser.mockResolvedValue(null)
+      mocks.fetchDemoChunkPage.mockImplementation(() => Effect.runPromise(Effect.fail({ _tag: "KnowhereDemoApiError", status, body: "internal upstream diagnostic" })))
+      for (const jobResultId of [undefined, "saved_revision"]) {
+        const query: string = jobResultId ? "?page=1&jobResultId=saved_revision" : "?page=1"
+        const response = await GET(new NextRequest(`http://localhost:3001/api/sources/demo-report/chunks${query}`), { params: Promise.resolve({ sourceId: "demo-report" }) })
+        expect(response.status).toBe(status)
+        const body: unknown = await response.clone().json()
+        expect(body).toMatchObject({ chunks: [], message: expect.any(String), ...(status === 409 ? { isProcessing: true } : { isUnavailable: true }) })
+        expect(JSON.stringify(body)).not.toContain("internal upstream diagnostic")
+        if (status === 404 && jobResultId) expect(body).toMatchObject({ message: expect.stringMatching(/cited.*revision.*unavailable/i) })
+        vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(response))
+        const page = await workspaceClient.fetchChunkPage("demo-report", 1, jobResultId ? { jobResultId } : undefined)
+        expect(page).toMatchObject(status === 409 ? { isProcessing: true } : { isUnavailable: true })
+        expect(page.isProcessing === true).toBe(status === 409)
+        vi.unstubAllGlobals()
+      }
+    } finally {
+      vi.unstubAllGlobals()
+      warnSpy.mockRestore()
+    }
+  })
+
+  it("does not substitute the current shared revision when a pinned read returns another revision", async () => {
+    mocks.getCurrentUser.mockResolvedValue(null)
+    mocks.fetchDemoChunkPage.mockResolvedValue({ demoSourceId: "demo-report", canonicalDocumentId: "doc", namespace: "__knowhere_demo__", jobResultId: "current", title: "Report", mimeType: "application/pdf", chunks: [], pagination: { page: 1, pageSize: 50, total: 0, totalPages: 1 } })
+    const response = await GET(new NextRequest("http://localhost:3001/api/sources/demo-report/chunks?page=1&jobResultId=saved"), { params: Promise.resolve({ sourceId: "demo-report" }) })
+    expect(await response.json()).toMatchObject({ chunks: [], isUnavailable: true })
+    expect(mocks.fetchDemoChunkPage).toHaveBeenCalledWith({ demoSourceId: "demo-report", page: 1, pageSize: 50, jobResultId: "saved" })
+  })
+
   it("serves API-owned demo chunks for anonymous canonical demo sources", async () => {
     mocks.getCurrentUser.mockResolvedValue(null)
     mocks.fetchDemoChunkPage.mockResolvedValue({
@@ -136,6 +171,8 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
       .mockResolvedValueOnce({
         demoSourceId: "demo-tsla-q4-2025",
         canonicalDocumentId: "demo-doc-tsla-q4-2025",
+        namespace: "__knowhere_demo__",
+        jobResultId: "first_revision",
         title: "TSLA-Q4-2025-Update.pdf",
         mimeType: "application/pdf",
         chunks: [
@@ -162,6 +199,8 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
       .mockResolvedValueOnce({
         demoSourceId: "demo-tsla-q4-2025",
         canonicalDocumentId: "demo-doc-tsla-q4-2025",
+        namespace: "__knowhere_demo__",
+        jobResultId: "first_revision",
         title: "TSLA-Q4-2025-Update.pdf",
         mimeType: "application/pdf",
         chunks: [
@@ -209,6 +248,7 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
       demoSourceId: "demo-tsla-q4-2025",
       page: 2,
       pageSize: 200,
+      jobResultId: "first_revision",
     })
   })
 
@@ -284,7 +324,7 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
     expect(mocks.makeKnowhereClient).not.toHaveBeenCalled()
   })
 
-  it("serves demo chunks for authenticated materialized demo sources", async () => {
+  it("reads historical private demo documents through the authenticated document API", async () => {
     mocks.getCurrentUser.mockResolvedValue({
       id: "user_1",
       email: null,
@@ -316,6 +356,12 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
       createdAt: new Date("2026-05-10T00:00:00.000Z"),
       updatedAt: new Date("2026-05-10T00:00:00.000Z"),
       deletedAt: null,
+    })
+    mocks.ensureApiKeyForWorkspace.mockResolvedValue("key")
+    mocks.readChunks.mockResolvedValue({
+      document: { resultDirectoryPath: "parsed-storage:private" },
+      chunks: [{ chunkId: "private_parser", chunkType: "text", content: "Private historical content", metadata: {} }],
+      page: 1, pageSize: 100, totalChunks: 1, totalPages: 1,
     })
     mocks.fetchDemoChunkPage.mockResolvedValue({
       demoSourceId: "demo-tsla-q4-2025",
@@ -351,28 +397,10 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
       { params: Promise.resolve({ sourceId: "00000000-0000-0000-0000-000000000001" }) },
     )
 
-    await expect(response.json()).resolves.toMatchObject({
-      chunks: [
-        {
-          chunkId: "demo-tsla-q4-2025:chunk_1",
-          documentId: "copied-doc-tsla-q4-2025",
-          sourceTitle: "TSLA-Q4-2025-Update.pdf",
-        },
-      ],
-      pagination: {
-        page: 1,
-        pageSize: 100,
-        total: 70,
-      },
-    })
+    await expect(response.json()).resolves.toMatchObject({ chunks: [{ documentId: "copied-doc-tsla-q4-2025", content: "Private historical content" }] })
     expect(response.status).toBe(200)
-    expect(mocks.fetchDemoChunkPage).toHaveBeenCalledWith({
-      demoSourceId: "demo-tsla-q4-2025",
-      page: 1,
-      pageSize: 100,
-    })
-    expect(mocks.ensureApiKeyForWorkspace).not.toHaveBeenCalled()
-    expect(mocks.makeKnowhereClient).not.toHaveBeenCalled()
+    expect(mocks.fetchDemoChunkPage).not.toHaveBeenCalled()
+    expect(mocks.readChunks).toHaveBeenCalledWith({ documentId: "copied-doc-tsla-q4-2025", page: 1, pageSize: 100 })
   })
 
   it("logs the demo chunk load failure before returning 404", async () => {
@@ -807,6 +835,7 @@ describe("GET /api/sources/[sourceId]/chunks", () => {
       },
     })
     expect(response.status).toBe(200)
+    expect(mocks.fetchDemoChunkPage).not.toHaveBeenCalled()
     expect(mocks.findSourceInWorkspace).not.toHaveBeenCalled()
     expect(mocks.ensureApiKeyForWorkspace).toHaveBeenCalledWith(
       "workspace_1",

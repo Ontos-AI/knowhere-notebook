@@ -1,11 +1,13 @@
 import "server-only"
 
 import { Effect, Schema } from "effect"
-import { cacheLife, cacheTag } from "next/cache"
+import { FetchHttpClient, HttpClient, HttpClientRequest } from "@effect/platform"
 
 export type DemoCitation = {
   readonly demoSourceId: string
   readonly canonicalDocumentId: string
+  readonly namespace?: string
+  readonly jobResultId?: string
   readonly canonicalChunkId: string
   readonly chunkId: string
   readonly chunkType: string
@@ -31,6 +33,8 @@ export type DemoExample = {
 export type DemoSource = {
   readonly demoSourceId: string
   readonly canonicalDocumentId: string
+  readonly namespace?: string
+  readonly jobResultId?: string
   readonly title: string
   readonly mimeType: string
   readonly sizeBytes: number
@@ -49,6 +53,7 @@ export type DemoSource = {
 export type DemoCatalog = {
   readonly sources: readonly DemoSource[]
   readonly officialLibrary: OfficialLibraryCatalog
+  readonly importStatuses?: readonly { readonly demoSourceId: string; readonly status: string }[]
 }
 
 export type OfficialLibraryCategory = {
@@ -91,6 +96,8 @@ export type DemoChunk = {
 export type DemoChunkPage = {
   readonly demoSourceId: string
   readonly canonicalDocumentId: string
+  readonly namespace?: string
+  readonly jobResultId?: string
   readonly title: string
   readonly mimeType: string
   readonly chunks: readonly DemoChunk[]
@@ -102,31 +109,11 @@ export type DemoChunkPage = {
   }
 }
 
-export type MaterializedDemoSource = {
-  readonly demoSourceId: string
-  readonly documentId: string
-  readonly status: "created" | "existing"
-  readonly title: string
-  readonly mimeType: string
-  readonly sizeBytes: number
-  readonly chunkCount: number
-  readonly originalFile: {
-    readonly url: string
-    readonly mimeType: string
-    readonly sizeBytes: number
-    readonly canDownload: boolean
-  }
-}
-
-type DemoCatalogResponse = {
-  readonly sources?: readonly DemoSourceResponse[]
-  readonly official_library?: OfficialLibraryCatalogResponse
-}
-
 type DemoSourceResponse = {
   readonly demo_source_id?: unknown
   readonly canonical_document_id?: unknown
   readonly job_result_id?: unknown
+  readonly namespace?: unknown
   readonly title?: unknown
   readonly mime_type?: unknown
   readonly size_bytes?: unknown
@@ -168,6 +155,8 @@ type DemoCitationResponse = {
   readonly page_citation_page_number?: unknown
   readonly page_citation_asset_url?: unknown
   readonly page_nums?: unknown
+  readonly job_result_id?: unknown
+  readonly namespace?: unknown
   readonly source?: {
     readonly document_id?: unknown
     readonly source_file_name?: unknown
@@ -180,6 +169,7 @@ type DemoChunkPageResponse = {
   readonly demo_source_id?: unknown
   readonly canonical_document_id?: unknown
   readonly job_result_id?: unknown
+  readonly namespace?: unknown
   readonly title?: unknown
   readonly mime_type?: unknown
   readonly chunks?: readonly DemoChunkResponse[]
@@ -228,21 +218,6 @@ type OfficialLibrarySourceResponse = {
   readonly chunk_count?: unknown
 }
 
-type MaterializeResponse = {
-  readonly sources?: readonly MaterializedDemoSourceResponse[]
-}
-
-type MaterializedDemoSourceResponse = {
-  readonly demo_source_id?: unknown
-  readonly document_id?: unknown
-  readonly status?: unknown
-  readonly title?: unknown
-  readonly mime_type?: unknown
-  readonly size_bytes?: unknown
-  readonly chunk_count?: unknown
-  readonly original_file?: DemoOriginalFileResponse
-}
-
 const DEFAULT_KNOWHERE_BASE_URL = "https://api.knowhereto.ai"
 
 const emptyCatalog: DemoCatalog = {
@@ -254,18 +229,44 @@ const emptyCatalog: DemoCatalog = {
 // Effect core
 // ---------------------------------------------------------------------------
 
-const fetchCatalogEffect = Effect.fn("knowhereDemo.fetchCatalog")(function* () {
-  const response = yield* Effect.tryPromise(() =>
-    fetch(resolveApiURL("/api/v1/demo/catalog")),
-  )
-  yield* assertOkEffect(response)
+const readJsonEffect = Effect.fn("knowhereDemo.readJson")(function* (path: string) {
+  const http = yield* HttpClient.HttpClient
+  const response = yield* http.execute(HttpClientRequest.get(resolveApiURL(path)))
+  if (response.status < 200 || response.status >= 300) {
+    const body = yield* response.text.pipe(Effect.orElseSucceed(() => ""))
+    return yield* Effect.fail(new KnowhereDemoApiError(response.status, body))
+  }
+  return yield* response.json
+})
 
-  const body = (yield* Effect.tryPromise(() =>
-    response.json(),
-  )) as DemoCatalogResponse
+const DemoResponseRecord = Schema.Record({ key: Schema.String, value: Schema.Unknown })
+const DemoCatalogResponseSchema = Schema.Struct({
+  import_status: Schema.optional(Schema.Array(Schema.Struct({ demo_source_id: Schema.String, status: Schema.String }))),
+  sources: Schema.optional(Schema.Array(DemoResponseRecord)),
+  official_library: Schema.optional(Schema.Struct({
+    categories: Schema.optional(Schema.Array(DemoResponseRecord)),
+    sources: Schema.optional(Schema.Array(DemoResponseRecord)),
+  })),
+})
+const DemoChunkPageResponseSchema = Schema.Struct({
+  demo_source_id: Schema.optional(Schema.Unknown),
+  document_id: Schema.optional(Schema.Unknown),
+  canonical_document_id: Schema.optional(Schema.Unknown),
+  namespace: Schema.optional(Schema.Unknown),
+  job_result_id: Schema.optional(Schema.Unknown),
+  title: Schema.optional(Schema.Unknown),
+  mime_type: Schema.optional(Schema.Unknown),
+  chunks: Schema.optional(Schema.Array(DemoResponseRecord)),
+  pagination: Schema.optional(DemoResponseRecord),
+})
+
+const fetchCatalogEffect = Effect.fn("knowhereDemo.fetchCatalog")(function* () {
+  const response = yield* readJsonEffect("/api/v1/demo/catalog")
+  const body = yield* Schema.decodeUnknown(DemoCatalogResponseSchema)(response)
   return {
-    sources: (body.sources ?? []).map(toDemoSource),
+    sources: (body.sources ?? []).map(decodeDemoSource),
     officialLibrary: toOfficialLibraryCatalog(body.official_library),
+    ...(body.import_status ? { importStatuses: body.import_status.map((entry) => ({ demoSourceId: entry.demo_source_id, status: entry.status })) } : {}),
   }
 })
 
@@ -274,25 +275,13 @@ const fetchChunkPageEffect = Effect.fn("knowhereDemo.fetchChunkPage")(
     readonly demoSourceId: string
     readonly page: number
     readonly pageSize: number
+    readonly jobResultId?: string
   }) {
-    const params = new URLSearchParams({
-      page: String(input.page),
-      page_size: String(input.pageSize),
-    })
-    const response = yield* Effect.tryPromise(() =>
-      fetch(
-        resolveApiURL(
-          `/api/v1/demo/sources/${encodeURIComponent(input.demoSourceId)}/chunks?${params.toString()}`,
-        ),
-      ),
-    )
-    yield* assertOkEffect(response)
-
-    const body = (yield* Effect.tryPromise(() =>
-      response.json(),
-    )) as DemoChunkPageResponse
+    const params: URLSearchParams = new URLSearchParams({ page: String(input.page), page_size: String(input.pageSize) })
+    if (input.jobResultId) params.set("job_result_id", input.jobResultId)
+    const response = yield* readJsonEffect(`/api/v1/demo/sources/${encodeURIComponent(input.demoSourceId)}/chunks?${params.toString()}`)
+    const body = yield* Schema.decodeUnknown(DemoChunkPageResponseSchema)(response)
     const source = yield* readDemoSourceFallback(input.demoSourceId, body)
-
     return toDemoChunkPage(body, source)
   },
 )
@@ -305,7 +294,7 @@ function readDemoSourceFallback(
   readonly canonicalDocumentId?: string
   readonly title?: string
   readonly mimeType?: string
-}, never> {
+}, never, HttpClient.HttpClient> {
   const hasCompleteMetadata =
     optionalString(response.demo_source_id) !== undefined &&
     (optionalString(response.canonical_document_id) ??
@@ -336,91 +325,31 @@ function readDemoSourceFallback(
   )
 }
 
-const materializeSourcesEffect = Effect.fn("knowhereDemo.materializeSources")(
-  function* (input: {
-    readonly apiKey: string
-    readonly namespace: string
-    readonly demoSourceIds: readonly string[]
-  }) {
-    const requestBody = yield* Schema.encode(MaterializeSourcesRequestJson)({
-      namespace: input.namespace,
-      demo_source_ids: input.demoSourceIds,
-    })
-    const response = yield* Effect.tryPromise(() =>
-      fetch(resolveApiURL("/api/v1/demo/materializations"), {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${input.apiKey}`,
-          "content-type": "application/json",
-        },
-        body: requestBody,
-      }),
-    )
-    yield* assertOkEffect(response)
-
-    const body = (yield* Effect.tryPromise(() =>
-      response.json(),
-    )) as MaterializeResponse
-    return (body.sources ?? []).map(toMaterializedDemoSource)
-  },
-)
-
-const MaterializeSourcesRequestJson = Schema.parseJson(
-  Schema.Struct({
-    namespace: Schema.String,
-    demo_source_ids: Schema.Array(Schema.String),
-  }),
-)
-
-const fetchOptionalCatalogEffect = (
-  fetcher?: () => Effect.Effect<DemoCatalog, unknown>,
-) =>
-  (fetcher ?? fetchCatalogEffect)().pipe(
-    Effect.catchAll(() => Effect.succeed(emptyCatalog)),
-  )
-
 // ---------------------------------------------------------------------------
 // Async wrappers (backward-compatible)
 // ---------------------------------------------------------------------------
 
 async function fetchCatalog(): Promise<DemoCatalog> {
-  "use cache"
-  cacheLife("max")
-  cacheTag("demo-catalog")
-
-  return Effect.runPromise(fetchCatalogEffect())
+  return Effect.runPromise(fetchCatalogEffect().pipe(Effect.provide(FetchHttpClient.layer), Effect.provideService(FetchHttpClient.RequestInit, { cache: "no-store" })))
 }
 
 async function fetchOptionalCatalog(
   fetcher?: () => Promise<DemoCatalog>,
 ): Promise<DemoCatalog> {
-  const effectFetcher = fetcher
-    ? () =>
-        Effect.tryPromise(() => fetcher()).pipe(
-          Effect.catchAll(() => Effect.succeed(emptyCatalog)),
-        )
-    : undefined
-  return Effect.runPromise(fetchOptionalCatalogEffect(effectFetcher))
+  return Effect.runPromise(
+    Effect.tryPromise(() => (fetcher ?? fetchCatalog)()).pipe(
+      Effect.orElseSucceed(() => emptyCatalog),
+    ),
+  )
 }
 
 async function fetchChunkPage(input: {
   readonly demoSourceId: string
   readonly page: number
   readonly pageSize: number
+  readonly jobResultId?: string
 }): Promise<DemoChunkPage> {
-  "use cache"
-  cacheLife("max")
-  cacheTag("demo-chunks", input.demoSourceId)
-
-  return Effect.runPromise(fetchChunkPageEffect(input))
-}
-
-async function materializeSources(input: {
-  readonly apiKey: string
-  readonly namespace: string
-  readonly demoSourceIds: readonly string[]
-}): Promise<readonly MaterializedDemoSource[]> {
-  return Effect.runPromise(materializeSourcesEffect(input))
+  return Effect.runPromise(fetchChunkPageEffect(input).pipe(Effect.provide(FetchHttpClient.layer), Effect.provideService(FetchHttpClient.RequestInit, { cache: "no-store" })))
 }
 
 // ---------------------------------------------------------------------------
@@ -431,7 +360,6 @@ export const knowhereDemoApi = {
   fetchCatalog,
   fetchOptionalCatalog,
   fetchChunkPage,
-  materializeSources,
   resolveApiURL,
 } as const
 
@@ -452,19 +380,27 @@ class KnowhereDemoApiError {
   ) {}
 }
 
-function assertOkEffect(
-  response: Response,
-): Effect.Effect<void, KnowhereDemoApiError> {
-  if (response.ok) return Effect.void
+function decodeDemoSource(source: Readonly<Record<string, unknown>>): DemoSource {
+  const decoded = Schema.decodeUnknownSync(Schema.Struct({
+    demo_source_id: Schema.Unknown, canonical_document_id: Schema.Unknown,
+    namespace: Schema.Literal("__knowhere_demo__"), job_result_id: Schema.String.pipe(Schema.minLength(1)),
+    title: Schema.Unknown, mime_type: Schema.Unknown, size_bytes: Schema.Unknown,
+    chunk_count: Schema.Unknown, status: Schema.optional(Schema.Unknown),
+    original_file: Schema.optional(DemoResponseRecord),
+    official_library: Schema.optional(DemoResponseRecord),
+  }))(source)
+  return toDemoSource({ ...decoded, examples: decodeDemoExamples(source.examples) })
+}
 
-  return Effect.gen(function* () {
-    const body = yield* Effect.tryPromise(() =>
-      response.text().catch(() => ""),
-    ).pipe(Effect.orDie)
-    return yield* Effect.fail(
-      new KnowhereDemoApiError(response.status, body),
-    )
-  })
+function decodeDemoExamples(value: unknown): readonly DemoExampleResponse[] {
+  if (!Array.isArray(value)) return []
+  return value.filter(isRecord).map((example) => ({
+    ...example,
+    citations: Array.isArray(example.citations) ? example.citations.filter(isRecord).map((citation) => ({
+      ...citation,
+      source: isRecord(citation.source) ? citation.source : undefined,
+    })) : [],
+  }))
 }
 
 function toDemoSource(source: DemoSourceResponse): DemoSource {
@@ -476,6 +412,8 @@ function toDemoSource(source: DemoSourceResponse): DemoSource {
   return {
     demoSourceId,
     canonicalDocumentId: requireString(source.canonical_document_id),
+    namespace: optionalString(source.namespace) ?? "__knowhere_demo__",
+    ...(optionalString(source.job_result_id) ? { jobResultId: optionalString(source.job_result_id) } : {}),
     title,
     mimeType: requireString(source.mime_type),
     sizeBytes: requireNumber(source.size_bytes),
@@ -525,10 +463,13 @@ function toDemoCitation(
   const pageCitationAssetUrl = toDemoAssetUrl(
     optionalString(citation.demo_source_id) ?? demoSourceId,
     optionalString(citation.page_citation_asset_url),
+    optionalString(citation.job_result_id),
   )
   return {
     demoSourceId: optionalString(citation.demo_source_id) ?? demoSourceId,
     canonicalDocumentId,
+    namespace: optionalString(citation.namespace) ?? "__knowhere_demo__",
+    ...(optionalString(citation.job_result_id) ? { jobResultId: optionalString(citation.job_result_id) } : {}),
     canonicalChunkId: requireString(
       citation.canonical_chunk_id ?? citation.id ?? citation.demo_chunk_id,
     ),
@@ -570,12 +511,15 @@ function toDemoChunkPage(
         response.document_id ??
         fallback.canonicalDocumentId,
     ),
+    namespace: optionalString(response.namespace) ?? "__knowhere_demo__",
+    ...(optionalString(response.job_result_id) ? { jobResultId: optionalString(response.job_result_id) } : {}),
     title: requireString(response.title ?? fallback.title),
     mimeType: requireString(response.mime_type ?? fallback.mimeType),
     chunks: (response.chunks ?? []).map((chunk) =>
       toDemoChunk(
         requireString(response.demo_source_id ?? fallback.demoSourceId),
         chunk,
+        optionalString(response.job_result_id),
       ),
     ),
     pagination: {
@@ -590,10 +534,12 @@ function toDemoChunkPage(
 function toDemoChunk(
   demoSourceId: string,
   chunk: DemoChunkResponse,
+  jobResultId?: string,
 ): DemoChunk {
   const metadata = rewriteDemoPageAssetMetadata(
     demoSourceId,
     toRecord(chunk.metadata),
+    jobResultId,
   )
   return {
     id: requireString(chunk.id),
@@ -606,24 +552,9 @@ function toDemoChunk(
     sortOrder: requireNumber(chunk.sort_order),
     metadata,
     assetUrl:
-      toDemoAssetUrl(demoSourceId, optionalString(chunk.asset_url)) ??
+      toDemoArtifactUrl(demoSourceId, optionalString(chunk.file_path), jobResultId) ??
+      toDemoAssetUrl(demoSourceId, optionalString(chunk.asset_url), jobResultId) ??
       firstDemoPageAssetUrl(metadata),
-  }
-}
-
-function toMaterializedDemoSource(
-  source: MaterializedDemoSourceResponse,
-): MaterializedDemoSource {
-  const status = requireString(source.status)
-  return {
-    demoSourceId: requireString(source.demo_source_id),
-    documentId: requireString(source.document_id),
-    status: status === "existing" ? "existing" : "created",
-    title: requireString(source.title),
-    mimeType: requireString(source.mime_type),
-    sizeBytes: requireNumber(source.size_bytes),
-    chunkCount: requireNumber(source.chunk_count),
-    originalFile: toOriginalFile(source.original_file),
   }
 }
 
@@ -716,12 +647,13 @@ function toRecord(value: unknown): Readonly<Record<string, unknown>> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return {}
   }
-  return value as Readonly<Record<string, unknown>>
+  return Schema.decodeUnknownSync(DemoResponseRecord)(value)
 }
 
 function rewriteDemoPageAssetMetadata(
   demoSourceId: string,
   metadata: Readonly<Record<string, unknown>>,
+  jobResultId?: string,
 ): Readonly<Record<string, unknown>> {
   const rawAssets = metadata.pageAssets ?? metadata.page_assets
   if (!Array.isArray(rawAssets)) return metadata
@@ -730,7 +662,7 @@ function rewriteDemoPageAssetMetadata(
     if (typeof item !== "object" || item === null || Array.isArray(item)) {
       return []
     }
-    const asset = item as Readonly<Record<string, unknown>>
+    const asset = toRecord(item)
     const pageNum =
       optionalPositiveNumber(asset.pageNum) ??
       optionalPositiveNumber(asset.pageNumber) ??
@@ -738,13 +670,11 @@ function rewriteDemoPageAssetMetadata(
     const contentType =
       optionalString(asset.contentType) ?? optionalString(asset.content_type)
     const artifactRef = optionalString(asset.artifact_ref)
-    const remoteAssetUrl =
-      optionalString(asset.assetUrl) ??
-      optionalString(asset.asset_url) ??
-      (artifactRef
-        ? `/api/v1/demo/sources/${encodeURIComponent(demoSourceId)}/assets/${artifactRef}`
-        : undefined)
-    const assetUrl = toDemoAssetUrl(demoSourceId, remoteAssetUrl)
+    const assetUrl: string | null = toDemoArtifactUrl(demoSourceId, artifactRef, jobResultId) ?? toDemoAssetUrl(
+      demoSourceId,
+      optionalString(asset.assetUrl) ?? optionalString(asset.asset_url),
+      jobResultId,
+    )
     if (!pageNum || !contentType || !assetUrl) return []
 
     return [
@@ -774,7 +704,7 @@ function firstDemoPageAssetUrl(
   if (!Array.isArray(pageAssets) || pageAssets.length === 0) return null
   const first = pageAssets[0]
   if (typeof first !== "object" || first === null) return null
-  return optionalString((first as Readonly<Record<string, unknown>>).assetUrl) ?? null
+  return optionalString(toRecord(first).assetUrl) ?? null
 }
 
 function optionalPositiveNumber(value: unknown): number | undefined {
@@ -807,19 +737,28 @@ function toPositiveIntegers(
 function toDemoAssetUrl(
   demoSourceId: string,
   assetUrl: string | undefined,
+  jobResultId?: string,
 ): string | null {
   if (!assetUrl) return null
-
-  const assetPath = extractDemoAssetPath(assetUrl)
-  if (!assetPath) return null
-
-  return `/api/demo-sources/${encodeURIComponent(demoSourceId)}/assets/${assetPath}`
+  const remoteUrl: URL = new URL(assetUrl, "https://notebook.invalid")
+  const marker: string = "/assets/"
+  const markerIndex: number = remoteUrl.pathname.indexOf(marker)
+  if (markerIndex === -1) return null
+  const assetPath: string = remoteUrl.pathname.slice(markerIndex + marker.length)
+  const parameters: URLSearchParams = new URLSearchParams()
+  const revision: string | null | undefined = jobResultId ?? remoteUrl.searchParams.get("job_result_id")
+  if (revision) parameters.set("job_result_id", revision)
+  const query: string = parameters.size > 0 ? `?${parameters.toString()}` : ""
+  return `/api/demo-sources/${encodeURIComponent(demoSourceId)}/assets/${assetPath}${query}`
 }
 
-function extractDemoAssetPath(assetUrl: string): string | null {
-  const marker = "/assets/"
-  const markerIndex = assetUrl.indexOf(marker)
-  if (markerIndex === -1) return null
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
 
-  return assetUrl.slice(markerIndex + marker.length)
+function toDemoArtifactUrl(demoSourceId: string, artifactRef: string | undefined, jobResultId: string | undefined): string | null {
+  if (!artifactRef || artifactRef.startsWith("/") || artifactRef.includes("\\")) return null
+  const segments: readonly string[] = artifactRef.split("/")
+  if (segments.some((segment) => segment.length === 0 || segment === "." || segment === "..")) return null
+  return toDemoAssetUrl(demoSourceId, `/api/v1/demo/sources/${encodeURIComponent(demoSourceId)}/assets/${segments.map(encodeURIComponent).join("/")}`, jobResultId)
 }

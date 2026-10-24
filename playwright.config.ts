@@ -12,6 +12,7 @@ export default defineConfig({
   },
   use: {
     baseURL: "http://localhost:3000",
+    ...(process.env.PLAYWRIGHT_CHANNEL ? { channel: process.env.PLAYWRIGHT_CHANNEL } : {}),
     trace: "on-first-retry",
   },
   projects: [

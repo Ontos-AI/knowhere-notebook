@@ -95,9 +95,21 @@ messages, duplicate-submit prevention, and post-upload cleanup.
 
 ## Demo Source
 
-A Demo Source is app-owned static content served to guest users and optionally
-materialized into an authenticated workspace. Demo sources should not depend on
-live workspace state for guest rendering.
+A Demo Source is a shared public document available to guests and authenticated
+users. A user's selection controls whether that source participates in their
+questions; selecting or hiding it does not create or archive a private copy.
+
+## Demo Source Revision
+
+A Demo Source Revision is a complete published version of a shared document.
+Normal browsing uses the current revision; a saved Citation identifies the
+revision containing its original evidence.
+
+## Legacy Demo Copy
+
+A Legacy Demo Copy is a private document created by the former demo-copying
+workflow. It remains available for historical Citations but does not appear as
+a new shared Demo Source or automatically participate in new questions.
 
 ## Source Original Preview
 
@@ -168,7 +180,8 @@ scrolling to the latest row.
 
 A Citation is the metadata that connects an assistant answer to a retrieval
 result. Fresh answers can include chunk content for focusing the UI; persisted
-history stores only citation metadata.
+history stores only citation metadata, including the source namespace and
+published revision when available.
 
 ## Citation Focus
 

@@ -1,4 +1,4 @@
-import { Cause, Effect, Either, Option } from "effect"
+import { Cause, Effect, Either, Option, Runtime, Schema } from "effect"
 
 import { parseChatRequestBody } from "@/domains/chat"
 import { commitAgenticChatTurn } from "@/domains/chat/commit-turn"
@@ -15,6 +15,11 @@ import { BlobParsedDocumentStorage } from "@/domains/sources/parsed-document-blo
 import { sourceWorkflowRuntime } from "@/domains/sources/workflow-runtime"
 import { notebookRequestContext } from "@/domains/workspace/request-context"
 import type { Source } from "@/infrastructure/db/schema"
+import { resolveCitationSources } from "./citation-sources"
+import type { DemoCatalog } from "@/integrations/knowhere-demo"
+import type { ChatSource, RetrievalPreparationFailure } from "./contracts"
+import { sourceService } from "@/domains/sources/service"
+import { resolveWorkspaceDemoSources } from "@/domains/demo/workspace-source-resolution"
 import type { HardenChatAssetUrl } from "./media-assets"
 import { isAuthError } from "@/integrations/dashboard/api-key-service"
 import { makeKnowhereClientWithParsedStorage } from "@/integrations/knowhere"
@@ -30,9 +35,14 @@ type MessageBody = {
 }
 
 type ChatRouteFailure = {
-  readonly status: 401 | 502
+  readonly status: 401 | 409 | 429 | 502 | 503
   readonly message: string
 }
+
+class ChatDemoCatalogUnavailable extends Schema.TaggedError<ChatDemoCatalogUnavailable>()("ChatDemoCatalogUnavailable", {
+  message: Schema.String,
+  cause: Schema.Unknown,
+}) {}
 
 type ChatAnswerFailure = ChatTurnError | ChatRouteFailure
 
@@ -60,16 +70,45 @@ const answerChatEffect = (input: AnswerChatInput) =>
     const { workspace, client, apiKey } = yield* Effect.tryPromise(() =>
       notebookRequestContext.getAuthenticatedWithClient(),
     )
-    const sources = yield* Effect.tryPromise(() =>
+    const listedSources = yield* Effect.tryPromise(() =>
       sourceWorkflowRuntime.listForWorkspace(workspace.id),
     )
     yield* Effect.sync(() =>
       triggerBackgroundReconciliationForParsingSources({
         workspaceId: workspace.id,
-        sources,
+        sources: listedSources,
         apiKey,
       }),
     )
+    const preparation = yield* Effect.all({
+      catalog: Effect.either(Effect.tryPromise({ try: () => knowhereDemoApi.fetchCatalog(), catch: (cause: unknown) => new ChatDemoCatalogUnavailable({ message: summarizeUnknownError(cause), cause }) })),
+      hiddenDemoSourceIds: Effect.tryPromise(() => sourceService.listHiddenDemoSourceIds(workspace.id)),
+      selectedDemoSourceIds: Effect.tryPromise(() => sourceService.listSelectedDemoSourceIds(workspace.id)),
+      legacyDemoDocumentIds: Effect.tryPromise(() => sourceService.listLegacyDemoDocumentIds(workspace.id)),
+    }, { concurrency: 4 })
+    const { hiddenDemoSourceIds, selectedDemoSourceIds, legacyDemoDocumentIds } = preparation
+    const catalog: DemoCatalog = Either.isRight(preparation.catalog) ? preparation.catalog.right : { sources: [], officialLibrary: { categories: [], sources: [] } }
+    const retrievalPreparationFailures: readonly RetrievalPreparationFailure[] = Either.isLeft(preparation.catalog)
+      ? [{ warning: { scope: "demo", code: "demo_catalog_unavailable", message: "Demo sources are unavailable. The answer uses available workspace sources." }, cause: preparation.catalog.left }]
+      : []
+    if (Either.isLeft(preparation.catalog) && !listedSources.some((source) => !source.demoKey && source.status === "ready" && source.knowhereDocumentId)) {
+      const failure = toChatRouteFailure(summarizeUnknownError(preparation.catalog.left), preparation.catalog.left)
+      return routeResult.error(failure.status, failure.message)
+    }
+    const resolvedSources = resolveWorkspaceDemoSources(listedSources, catalog, new Set(hiddenDemoSourceIds), new Set(selectedDemoSourceIds))
+    const sources: readonly ChatSource[] = [
+      ...resolvedSources.workspaceSources,
+      ...resolvedSources.demoSources.filter((source) => source.officialLibrary === undefined).map((source): ChatSource => ({
+        id: source.id, title: source.title, mimeType: source.mimeType, status: source.status,
+        knowhereDocumentId: source.documentId ?? null, knowhereJobId: null,
+        demoKey: source.demoSourceId ?? source.id, namespace: "__knowhere_demo__",
+        ...(source.jobResultId ? { jobResultId: source.jobResultId } : {}),
+      })),
+    ]
+    const excludedWorkspaceDemoDocumentIds: readonly string[] = [...new Set([
+      ...legacyDemoDocumentIds,
+      ...listedSources.flatMap((source) => source.demoKey && source.knowhereDocumentId ? [source.knowhereDocumentId] : []),
+    ])]
     const parsedStorage = new BlobParsedDocumentStorage({
       workspaceId: workspace.id,
     })
@@ -99,6 +138,8 @@ const answerChatEffect = (input: AnswerChatInput) =>
         commitAgenticChatTurn({
           workspace,
           sources,
+          excludedWorkspaceDemoDocumentIds,
+          retrievalPreparationFailures,
           question: body.value.question,
           threadId: body.value.threadId,
           useAgentic: body.value.useAgentic,
@@ -130,7 +171,7 @@ const answerChatEffect = (input: AnswerChatInput) =>
             Effect.gen(function* () {
               const detail = getCauseSummary(cause)
               const prettyCause = Cause.pretty(cause).slice(0, 2_000)
-              const failure = toChatRouteFailure(detail)
+              const failure = toChatRouteFailure(detail, Cause.squash(cause))
               yield* Effect.logError("chat: answer failed").pipe(
                 Effect.annotateLogs({
                   status: failure.status,
@@ -155,7 +196,9 @@ const answerChatEffect = (input: AnswerChatInput) =>
       onLeft: (error): RouteResponse<MessageBody> =>
         routeResult.error(error.status, error.message),
       onRight: (value): RouteResponse<ChatTurnValue> =>
-        routeResult.ok(value),
+        routeResult.ok({ ...value, citationSources: resolveCitationSources({
+          messages: value.messages, sources: listedSources, catalog, namespace: workspace.namespace,
+        }) }),
     })
   })
 
@@ -166,7 +209,10 @@ const answerChatEffect = (input: AnswerChatInput) =>
 async function answerChat(
   input: AnswerChatInput,
 ): Promise<RouteResponse<ChatTurnValue | MessageBody>> {
-  return Effect.runPromise(answerChatEffect(input))
+  return Effect.runPromise(answerChatEffect(input).pipe(Effect.catchAllCause((cause) => {
+    const failure = toChatRouteFailure(getCauseSummary(cause), Cause.squash(cause))
+    return Effect.succeed(routeResult.error(failure.status, failure.message))
+  })))
 }
 
 export const chatAnswerRouteService: ChatAnswerRouteService = {
@@ -176,7 +222,7 @@ export const chatAnswerRouteService: ChatAnswerRouteService = {
 async function hardenSingleChatAsset(input: {
   readonly workspaceId: string
   readonly parsedStorage: BlobParsedDocumentStorage
-  readonly source: Source
+  readonly source: ChatSource
   readonly sourcePath: string
   readonly assetUrl?: string | null
   readonly contentType?: string | null
@@ -186,9 +232,11 @@ async function hardenSingleChatAsset(input: {
   }
 
   if (input.source.demoKey) {
+    if (input.source.namespace === "__knowhere_demo__" && !input.source.jobResultId) return null
     const demoAssetUrl = resolveDemoSourceAssetUrl({
       demoSourceId: input.source.demoKey,
       sourcePath: input.sourcePath,
+      jobResultId: input.source.jobResultId,
     })
     if (!demoAssetUrl) return null
 
@@ -196,7 +244,7 @@ async function hardenSingleChatAsset(input: {
       workspaceId: input.workspaceId,
       parsedStorage: input.parsedStorage,
       documentId: input.source.knowhereDocumentId,
-      revisionKey: input.source.knowhereDocumentId,
+      revisionKey: input.source.jobResultId ?? input.source.knowhereDocumentId,
       sourcePath: input.sourcePath,
       assetUrl: demoAssetUrl,
       contentType: input.contentType,
@@ -221,6 +269,7 @@ async function hardenSingleChatAsset(input: {
 function resolveDemoSourceAssetUrl(input: {
   readonly demoSourceId: string
   readonly sourcePath: string
+  readonly jobResultId?: string
 }): string | null {
   const normalizedPath = input.sourcePath
     .replaceAll("\\", "/")
@@ -236,7 +285,7 @@ function resolveDemoSourceAssetUrl(input: {
 
   const encodedPath = pathSegments.map(encodeURIComponent).join("/")
   return knowhereDemoApi.resolveApiURL(
-    `/api/v1/demo/sources/${encodeURIComponent(input.demoSourceId)}/assets/${encodedPath}`,
+    `/api/v1/demo/sources/${encodeURIComponent(input.demoSourceId)}/assets/${encodedPath}${input.jobResultId ? `?job_result_id=${encodeURIComponent(input.jobResultId)}` : ""}`,
   )
 }
 
@@ -363,8 +412,10 @@ function triggerBackgroundReconciliationForParsingSources(input: {
   }
 }
 
-function toChatRouteFailure(detail: string): ChatRouteFailure {
+function toChatRouteFailure(detail: string, error?: unknown): ChatRouteFailure {
   const routeDetail = getSafeRouteDetail(detail)
+  const status = resolveUpstreamFailureStatus(error)
+  if (status) return { status, message: `Chat generation failed: ${routeDetail}` }
   if (isAuthError({ message: routeDetail })) {
     return {
       status: 401,
@@ -415,4 +466,20 @@ function isMeaningfulSummary(value: string): boolean {
 function getTrimmedString(value: string | null | undefined): string | null {
   const trimmedValue = value?.trim() ?? ""
   return trimmedValue.length > 0 ? trimmedValue : null
+}
+
+function resolveUpstreamFailureStatus(error: unknown, depth: number = 0): ChatRouteFailure["status"] | undefined {
+  if (depth > 5 || typeof error !== "object" || error === null) return undefined
+  if (Runtime.isFiberFailure(error)) {
+    const cause: Cause.Cause<unknown> = error[Runtime.FiberFailureCauseId]
+    const status: ChatRouteFailure["status"] | undefined = resolveUpstreamFailureStatus(Cause.squash(cause), depth + 1)
+    if (status) return status
+  }
+  const status: unknown = Reflect.get(error, "status") ?? Reflect.get(error, "statusCode")
+  if (status === 401 || status === 409 || status === 429 || status === 503) return status
+  for (const key of ["cause", "error", "response", "defect"]) {
+    const nested: ChatRouteFailure["status"] | undefined = resolveUpstreamFailureStatus(Reflect.get(error, key), depth + 1)
+    if (nested) return nested
+  }
+  return undefined
 }

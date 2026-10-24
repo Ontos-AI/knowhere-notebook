@@ -36,7 +36,7 @@ describe("knowhereDemoApi", () => {
     expect(url).toBe("https://api.knowhereto.ai/api/v1/demo/catalog")
   })
 
-  it("uses deploy-lifetime cache profiles for demo catalog data", async () => {
+  it("keeps catalog requests no-store without deploy-lifetime caching", async () => {
     globalThis.fetch = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(JSON.stringify({ sources: [] }), {
         status: 200,
@@ -52,16 +52,54 @@ describe("knowhereDemoApi", () => {
       },
     })
 
-    expect(nextCacheMocks.cacheLife).toHaveBeenCalledWith("max")
-    expect(nextCacheMocks.cacheTag).toHaveBeenCalledWith("demo-catalog")
+    expect(nextCacheMocks.cacheLife).not.toHaveBeenCalled()
+    expect(globalThis.fetch).toHaveBeenCalledWith(expect.any(URL), expect.objectContaining({ cache: "no-store" }))
   })
 
+  it("preserves source and chunk revisions in upstream requests and stable media URLs", async () => {
+    globalThis.fetch = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
+      demo_source_id: "demo-report", canonical_document_id: "ddoc_report", namespace: "__knowhere_demo__", job_result_id: "revision-1", title: "report.pdf", mime_type: "application/pdf",
+      chunks: [{ id: "dchk_row", chunk_id: "node-content", chunk_type: "page", content: "page", sort_order: 0, metadata: {}, asset_url: "https://api.example/api/v1/demo/sources/demo-report/assets/pages/1.png?job_result_id=revision-1&signature=expired" }],
+      pagination: { page: 1, page_size: 50, total: 1, total_pages: 1 },
+    }), { headers: { "content-type": "application/json" } }))
+    const page = await knowhereDemoApi.fetchChunkPage({ demoSourceId: "demo-report", jobResultId: "revision-1", page: 1, pageSize: 50 })
+    expect(page).toMatchObject({ namespace: "__knowhere_demo__", jobResultId: "revision-1" })
+    expect(page.chunks[0]).toMatchObject({ id: "dchk_row", chunkId: "node-content", assetUrl: "/api/demo-sources/demo-report/assets/pages/1.png?job_result_id=revision-1" })
+    expect(globalThis.fetch).toHaveBeenCalledWith(new URL("https://api.knowhereto.ai/api/v1/demo/sources/demo-report/chunks?page=1&page_size=50&job_result_id=revision-1"), expect.objectContaining({ cache: "no-store" }))
+  })
+
+  it("replaces signed storage media with manifest paths and pinned same-origin URLs", async () => {
+    globalThis.fetch = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
+      demo_source_id: "demo-report", canonical_document_id: "ddoc_report", job_result_id: "revision-1", title: "report.pdf", mime_type: "application/pdf",
+      chunks: [{ id: "dchk_row", chunk_id: "node-content", chunk_type: "image", content: "image", sort_order: 0,
+        file_path: "images/figure-1.png", asset_url: "https://s3.example/jobs/job/raw/images/figure-1.png?X-Amz-Signature=expires",
+        metadata: { page_assets: [{ page_num: 1, artifact_ref: "source.pdf", content_type: "application/pdf", asset_url: "https://s3.example/jobs/job/raw/source.pdf?X-Amz-Signature=expires" }] } }],
+      pagination: { page: 1, page_size: 50, total: 1, total_pages: 1 },
+    }), { headers: { "content-type": "application/json" } }))
+    const page = await knowhereDemoApi.fetchChunkPage({ demoSourceId: "demo-report", jobResultId: "revision-1", page: 1, pageSize: 50 })
+    expect(page.chunks[0]?.assetUrl).toBe("/api/demo-sources/demo-report/assets/images/figure-1.png?job_result_id=revision-1")
+    expect(page.chunks[0]?.metadata).toMatchObject({ pageAssets: [{ assetUrl: "/api/demo-sources/demo-report/assets/source.pdf?job_result_id=revision-1" }] })
+    expect(JSON.stringify(page)).not.toContain("X-Amz")
+  })
+  it("rejects ready catalog entries missing immutable provenance or using the private namespace", async () => {
+    const source = { demo_source_id: "demo-report", canonical_document_id: "ddoc_report", title: "report.pdf", mime_type: "application/pdf", size_bytes: 10, chunk_count: 1, original_file: { url: "/api/v1/demo/sources/demo-report/original", mime_type: "application/pdf", size_bytes: 10, can_download: true } }
+    for (const provenance of [{ namespace: "__knowhere_demo__" }, { namespace: "default", job_result_id: "revision-1" }, { namespace: "__knowhere_demo__", job_result_id: "" }]) {
+      globalThis.fetch = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ sources: [{ ...source, ...provenance }] }), { headers: { "content-type": "application/json" } }))
+      await expect(knowhereDemoApi.fetchCatalog()).rejects.toThrow()
+    }
+  })
+  it("retains import readiness for known sources outside the ready subset", async () => {
+    globalThis.fetch = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ sources: [], import_status: [{ demo_source_id: "demo-new", status: "processing" }] }), { headers: { "content-type": "application/json" } }))
+    expect(await knowhereDemoApi.fetchCatalog()).toMatchObject({ importStatuses: [{ demoSourceId: "demo-new", status: "processing" }] })
+  })
   it("accepts empty demo chunk content from parser output", async () => {
     globalThis.fetch = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(
         JSON.stringify({
           demo_source_id: "demo-tsla-q4-2025",
           canonical_document_id: "demo-doc-tsla-q4-2025",
+          namespace: "__knowhere_demo__",
+          job_result_id: "revision-fixture",
           title: "TSLA-Q4-2025-Update.pdf",
           mime_type: "application/pdf",
           chunks: [
@@ -99,11 +137,7 @@ describe("knowhereDemoApi", () => {
       id: "demo-tsla-q4-2025:chunk-empty",
       content: "",
     })
-    expect(nextCacheMocks.cacheLife).toHaveBeenCalledWith("max")
-    expect(nextCacheMocks.cacheTag).toHaveBeenCalledWith(
-      "demo-chunks",
-      "demo-tsla-q4-2025",
-    )
+    expect(nextCacheMocks.cacheLife).not.toHaveBeenCalled()
   })
 
   it("rewrites demo page citation assets onto the Notebook asset proxy", async () => {
@@ -112,6 +146,8 @@ describe("knowhereDemoApi", () => {
         JSON.stringify({
           demo_source_id: "demo-tsla-q4-2025",
           canonical_document_id: "demo-doc-tsla-q4-2025",
+          namespace: "__knowhere_demo__",
+          job_result_id: "revision-fixture",
           title: "TSLA-Q4-2025-Update.pdf",
           mime_type: "application/pdf",
           chunks: [
@@ -164,14 +200,14 @@ describe("knowhereDemoApi", () => {
       chunkType: "page",
       filePath: "page_citation_assets/page-8.png",
       assetUrl:
-        "/api/demo-sources/demo-tsla-q4-2025/assets/page_citation_assets/page-8.png",
+        "/api/demo-sources/demo-tsla-q4-2025/assets/page_citation_assets/page-8.png?job_result_id=revision-fixture",
       metadata: {
         pageAssets: [
           {
             pageNum: 8,
             contentType: "image/png",
             assetUrl:
-              "/api/demo-sources/demo-tsla-q4-2025/assets/page_citation_assets/page-8.png",
+              "/api/demo-sources/demo-tsla-q4-2025/assets/page_citation_assets/page-8.png?job_result_id=revision-fixture",
             width: 1200,
             height: 1600,
           },
@@ -188,6 +224,8 @@ describe("knowhereDemoApi", () => {
             {
               demo_source_id: "demo-spacex-s1",
               canonical_document_id: "demo-doc-spacex-s1",
+              namespace: "__knowhere_demo__",
+              job_result_id: "revision-fixture",
               title: "spacex-s1.pdf",
               mime_type: "application/pdf",
               size_bytes: 7441414,
@@ -261,6 +299,8 @@ describe("knowhereDemoApi", () => {
             {
               demo_source_id: "demo-tsla-q4-2025",
               canonical_document_id: "demo-doc-tsla-q4-2025",
+              namespace: "__knowhere_demo__",
+              job_result_id: "revision-fixture",
               title: "TSLA-Q4-2025-Update.pdf",
               mime_type: "application/pdf",
               size_bytes: 1024,
@@ -325,6 +365,8 @@ describe("knowhereDemoApi", () => {
             {
               demo_source_id: "demo-tsla-q4-2025",
               canonical_document_id: "ddoc_d55868b790cd",
+              namespace: "__knowhere_demo__",
+              job_result_id: "revision-fixture",
               title: "TSLA-Q4-2025-Update.pdf",
               mime_type: "application/pdf",
               size_bytes: 5648867,
@@ -425,6 +467,8 @@ describe("knowhereDemoApi", () => {
               {
                 demo_source_id: "demo-tsla-q4-2025",
                 canonical_document_id: "ddoc_d55868b790cd",
+                namespace: "__knowhere_demo__",
+                job_result_id: "revision-fixture",
                 title: "TSLA-Q4-2025-Update.pdf",
                 mime_type: "application/pdf",
                 size_bytes: 5648867,
@@ -463,11 +507,13 @@ describe("knowhereDemoApi", () => {
     })
     expect(globalThis.fetch).toHaveBeenNthCalledWith(
       1,
-      "https://api.knowhereto.ai/api/v1/demo/sources/demo-tsla-q4-2025/chunks?page=1&page_size=50",
+      new URL("https://api.knowhereto.ai/api/v1/demo/sources/demo-tsla-q4-2025/chunks?page=1&page_size=50"),
+      expect.objectContaining({ cache: "no-store" }),
     )
     expect(globalThis.fetch).toHaveBeenNthCalledWith(
       2,
-      "https://api.knowhereto.ai/api/v1/demo/catalog",
+      new URL("https://api.knowhereto.ai/api/v1/demo/catalog"),
+      expect.objectContaining({ cache: "no-store" }),
     )
   })
 })

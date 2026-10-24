@@ -23,9 +23,9 @@ type WorkspaceSourceWorkflow = {
   readonly handleOfficialLibrarySourceAdd: (demoSourceId: string) => Promise<boolean>
   readonly handleSelectedSourceChange: (sourceId: string | null) => void
   readonly handleSourcesRefresh: () => void
-  readonly handleSourcesMaterialized: (
+  readonly handleSourcesSelected: (
     demoSourceIds: readonly string[],
-    materializedSources: readonly SourceView[],
+    selectedSources: readonly SourceView[],
   ) => void
   readonly handleSourceUploaded: (source: SourceView) => void
   readonly handleSourceMoved: (source: SourceView) => void
@@ -41,7 +41,7 @@ type WorkspaceSourceWorkflow = {
 const sourcesSWRKey = workspaceClient.keys.sources
 const archiveSourceSWRKey = workspaceClient.keys.archiveSource
 const retrySourceSWRKey = workspaceClient.keys.retrySource
-const materializeDemoSourceSWRKey = workspaceClient.keys.materializeDemoSources
+const selectDemoSourceSWRKey = workspaceClient.keys.selectDemoSources
 
 export function useWorkspaceSourceWorkflow({
   initialSelectedDocumentId = null,
@@ -105,9 +105,9 @@ export function useWorkspaceSourceWorkflow({
     retrySourceSWRKey,
     retrySourceMutation,
   )
-  const { trigger: materializeDemoSources } = useSWRMutation(
-    materializeDemoSourceSWRKey,
-    materializeDemoSourcesMutation,
+  const { trigger: selectDemoSources } = useSWRMutation(
+    selectDemoSourceSWRKey,
+    selectDemoSourcesMutation,
   )
 
   function handleSourceMoved(source: SourceView): void {
@@ -127,25 +127,25 @@ export function useWorkspaceSourceWorkflow({
     void mutateSources()
   }
 
-  function handleSourcesMaterialized(
+  function handleSourcesSelected(
     demoSourceIds: readonly string[],
-    materializedSources: readonly SourceView[],
+    selectedSources: readonly SourceView[],
   ): void {
-    const materializedDemoSourceIdSet = new Set(demoSourceIds)
+    const selectedDemoSourceIdSet = new Set(demoSourceIds)
     void mutateSources(
       (current) => [
         ...(current ?? sourceRows).filter(
           (source) =>
             !source.demoSourceId ||
-            !materializedDemoSourceIdSet.has(source.demoSourceId),
+            !selectedDemoSourceIdSet.has(source.demoSourceId),
         ),
-        ...materializedSources,
+        ...selectedSources,
       ],
       { revalidate: false },
     )
     setSelectedSourceId((current) => {
-      if (!current || materializedDemoSourceIdSet.has(current)) {
-        return materializedSources[0]?.id ?? current
+      if (!current || selectedDemoSourceIdSet.has(current)) {
+        return selectedSources[0]?.id ?? current
       }
 
       return current
@@ -231,11 +231,11 @@ export function useWorkspaceSourceWorkflow({
       workspaceSourceState.addPendingId(current, demoSourceId),
     )
     try {
-      const materializedSources = await materializeDemoSources([demoSourceId])
-      handleSourcesMaterialized([demoSourceId], materializedSources)
+      const selectedSources = await selectDemoSources([demoSourceId])
+      handleSourcesSelected([demoSourceId], selectedSources)
       return true
     } catch {
-      // Keep the library source visible when materialization fails.
+      // Keep the library source visible when selection fails.
       return false
     } finally {
       setAddingLibrarySourceIds((current) =>
@@ -252,7 +252,7 @@ export function useWorkspaceSourceWorkflow({
     handleOfficialLibrarySourceAdd,
     handleSelectedSourceChange,
     handleSourcesRefresh,
-    handleSourcesMaterialized,
+    handleSourcesSelected,
     handleSourceUploaded,
     handleSourceMoved,
     handleToggleIncluded,
@@ -293,11 +293,11 @@ function retrySourceMutation(
   return workspaceClient.retrySource(sourceId)
 }
 
-function materializeDemoSourcesMutation(
+function selectDemoSourcesMutation(
   _key: string,
   { arg: demoSourceIds }: { readonly arg: readonly string[] },
-): ReturnType<typeof workspaceClient.materializeDemoSources> {
-  return workspaceClient.materializeDemoSources({
+): ReturnType<typeof workspaceClient.selectDemoSources> {
+  return workspaceClient.selectDemoSources({
     demoSourceIds: [...demoSourceIds],
   })
 }

@@ -9,7 +9,7 @@ describe("workspaceClientCache", () => {
   it("builds chunk page keys until the selected Source has no more pages", () => {
     expect(workspaceClientCache.getSourceChunksKey(null, 0, null)).toBeNull();
     expect(workspaceClientCache.getSourceChunksKey("source_1", 1, null)).toEqual(
-      ["source-chunks", "source_1", 2],
+      ["source-chunks", "source_1", 2, "", "", ""],
     );
     expect(
       workspaceClientCache.getSourceChunksKey("source_1", 1, {
@@ -56,7 +56,7 @@ describe("workspaceClientCache", () => {
   it("reads cached source chunk pages for citation jumps", () => {
     const cache = new Map<string, unknown>([
       [
-        unstable_serialize(["source-chunks", "source_1", 1]),
+        unstable_serialize(["source-chunks", "source_1", 1, "", "", ""]),
         {
           data: {
             chunks: [

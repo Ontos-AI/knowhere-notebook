@@ -29,11 +29,8 @@ type WorkspaceChatWorkflowInput = {
   readonly analyticsContext?: AnalyticsContext
   readonly initialChatMessages?: readonly ChatMessageView[]
   readonly initialChatThreads?: readonly ChatThreadView[]
+  readonly initialCitationSources?: readonly SourceView[]
   readonly isGuest?: boolean
-  readonly onSourcesMaterialized?: (
-    demoSourceIds: readonly string[],
-    materializedSources: readonly SourceView[],
-  ) => void
   readonly sources: readonly SourceView[]
   readonly currentFolderId?: string | null
 }
@@ -41,6 +38,7 @@ type WorkspaceChatWorkflowInput = {
 type ChatMessageRequest = Parameters<typeof workspaceClient.sendChatMessage>[0]
 
 type WorkspaceChatWorkflow = {
+  readonly citationSources: readonly SourceView[]
   readonly archivingThreadIds: string[]
   readonly chat: ReturnType<typeof workspaceChatState.createInitialState>
   readonly chatThreads: ChatThreadView[]
@@ -65,8 +63,8 @@ export function useWorkspaceChatWorkflow({
   analyticsContext,
   initialChatMessages = [],
   initialChatThreads = [],
+  initialCitationSources = [],
   isGuest = false,
-  onSourcesMaterialized,
   sources,
   currentFolderId = null,
 }: WorkspaceChatWorkflowInput): WorkspaceChatWorkflow {
@@ -79,6 +77,9 @@ export function useWorkspaceChatWorkflow({
     ),
   )
   const optimisticMessageSequence = useRef(0)
+  const [citationSourcesByThreadId, setCitationSourcesByThreadId] = useState<
+    Readonly<Record<string, readonly SourceView[]>>
+  >(() => activeChatThreadId ? { [activeChatThreadId]: initialCitationSources } : {})
   const didTrackFirstQuestionRef = useRef(initialChatMessages.length > 0)
   const { cache, mutate: mutateSWR } = useSWRConfig()
   const initialThreadRows = useMemo(
@@ -112,7 +113,8 @@ export function useWorkspaceChatWorkflow({
     fallbackData:
       chat.threadId === activeChatThreadId ? initialChatThreadData : undefined,
     revalidateIfStale: false,
-    revalidateOnMount: false,
+    revalidateOnMount:
+      chat.threadId === activeChatThreadId && initialChatThreadData ? false : undefined,
     onSuccess: handleChatThreadLoaded,
     onError: handleChatThreadLoadFailed,
   })
@@ -130,11 +132,23 @@ export function useWorkspaceChatWorkflow({
 
   function handleChatThreadLoaded(body: ChatThreadDetailResponse): void {
     const requestedThreadId = body.requestedThreadId
-
+    storeCitationSources(requestedThreadId, body.citationSources)
     setChat((current) => workspaceChatState.loadThread(current, body))
     setLoadingThreadId((current) =>
       current === requestedThreadId ? null : current,
     )
+  }
+
+  function storeCitationSources(threadId: string, citationSources: readonly SourceView[] | undefined): void {
+    if (!citationSources) return
+    setCitationSourcesByThreadId((current) => {
+      const sourcesByReference: Map<string, SourceView> = new Map(
+        [...(current[threadId] ?? []), ...citationSources].map((source): [string, SourceView] => [
+          JSON.stringify([source.id, source.namespace, source.jobResultId]), source,
+        ]),
+      )
+      return { ...current, [threadId]: [...sourcesByReference.values()] }
+    })
   }
 
   function handleChatThreadLoadFailed(): void {
@@ -163,6 +177,7 @@ export function useWorkspaceChatWorkflow({
         { revalidate: false },
       )
       setChat(workspaceChatState.createThread(body.thread.id, body.messages))
+      storeCitationSources(body.thread.id, body.citationSources)
     } catch {
       setChat((current) => workspaceChatState.failCreate(current))
     }
@@ -176,6 +191,7 @@ export function useWorkspaceChatWorkflow({
       (threadId === activeChatThreadId ? initialChatThreadData : null)
 
     if (workspaceClientCache.hasLoadedChatThreadData(cachedThreadData)) {
+      storeCitationSources(threadId, cachedThreadData.citationSources)
       void mutateSWR(
         workspaceClientCache.getChatThreadKey(threadId),
         cachedThreadData,
@@ -238,6 +254,7 @@ export function useWorkspaceChatWorkflow({
       const fresh = await workspaceClient.fetchChatThread(threadId)
       if (!fresh.thread || !Array.isArray(fresh.messages)) return
       const messages = fresh.messages
+      storeCitationSources(threadId, fresh.citationSources)
 
       void mutateSWR(
         workspaceClientCache.getChatThreadKey(threadId),
@@ -262,27 +279,6 @@ export function useWorkspaceChatWorkflow({
       (source) =>
         isQueryableReadySource(source) && !source.excludedFromQuery,
     ).length
-    const demoSourceIds = getMaterializableDemoSourceIds(sources)
-    if (demoSourceIds.length > 0) {
-      setChat((current) =>
-        workspaceChatState.prepareSend(current, "Thinking"),
-      )
-      try {
-        const materializedSources =
-          await workspaceClient.materializeDemoSources({ demoSourceIds })
-        onSourcesMaterialized?.(demoSourceIds, materializedSources)
-        await handleRefreshActiveChatThread()
-      } catch {
-        setChat((current) => ({
-          ...current,
-          isSending: false,
-          isLoading: false,
-          pendingStatusText: null,
-          error: "Demo sources could not be prepared right now.",
-        }))
-        return
-      }
-    }
     if (!hasQueryableReadySource(sources)) {
       setChat((current) => ({
         ...current,
@@ -335,6 +331,7 @@ export function useWorkspaceChatWorkflow({
           selectedSourcesCount,
         })
       }
+      storeCitationSources(body.threadId, body.citationSources)
       void trackNotebookAssistantAnswerCompleted({
         context: analyticsContext,
         threadId: body.threadId,
@@ -365,6 +362,7 @@ export function useWorkspaceChatWorkflow({
             requestedThreadId: body.threadId,
             thread: nextThread,
             messages: body.messages,
+            citationSources: body.citationSources,
           },
           { revalidate: false },
         )
@@ -382,6 +380,7 @@ export function useWorkspaceChatWorkflow({
   }
 
   return {
+    citationSources: chat.threadId ? citationSourcesByThreadId[chat.threadId] ?? [] : [],
     archivingThreadIds,
     chat,
     chatThreads,
@@ -395,20 +394,8 @@ export function useWorkspaceChatWorkflow({
   }
 }
 
-function getMaterializableDemoSourceIds(
-  sources: readonly SourceView[],
-): string[] {
-  const demoSourceIds = sources
-    .filter((source) => source.kind === "demo")
-    .filter((source) => source.officialLibrary === undefined)
-    .filter((source) => !source.excludedFromQuery)
-    .map((source) => source.demoSourceId ?? source.id)
-
-  return Array.from(new Set(demoSourceIds))
-}
-
 function hasQueryableReadySource(sources: readonly SourceView[]): boolean {
-  return sources.some(isQueryableReadySource)
+  return sources.some((source) => isQueryableReadySource(source) && !source.excludedFromQuery)
 }
 
 function isQueryableReadySource(source: SourceView): boolean {

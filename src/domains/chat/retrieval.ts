@@ -1,6 +1,6 @@
 import type { KnowhereSearchRequest } from "@/agent-harness/types"
 
-import type { Source } from "@/infrastructure/db/schema"
+import type { ChatSource } from "./contracts"
 import { decodeRemoteSourceId } from "@/domains/sources/remote-library"
 
 const RETRIEVAL_QUERY_CHAR_LIMIT = 600
@@ -26,24 +26,40 @@ export const emptyFolderSearchMessage =
 
 export function isEmptyFolderScope(
   folderScopeSourceIds: readonly string[] | undefined,
-  sources: readonly Source[],
+  sources: readonly ChatSource[],
 ): boolean {
   if (folderScopeSourceIds === undefined) return false
   const scoped = new Set(folderScopeSourceIds)
   return !sources.some(
-    (source) => scoped.has(source.id) && Boolean(source.knowhereDocumentId),
+    (source) => !source.demoKey && scoped.has(source.id) && Boolean(source.knowhereDocumentId),
   )
 }
 
 export function getRetrievalDocumentScope(
-  sources: readonly Source[],
+  sources: readonly ChatSource[],
   excludedSourceIds: readonly string[],
   request: Pick<KnowhereSearchRequest, "includeDocumentIds" | "excludeDocumentIds">,
   folderScopeSourceIds?: readonly string[],
+  namespace?: string,
+  excludedWorkspaceDemoDocumentIds: readonly string[] = [],
 ): Pick<KnowhereSearchRequest, "includeDocumentIds" | "excludeDocumentIds"> {
   const excluded = new Set(excludedSourceIds)
+  if (namespace === "__knowhere_demo__") {
+    if (folderScopeSourceIds !== undefined) return { includeDocumentIds: [] }
+    const requested: ReadonlySet<string> | undefined = request.includeDocumentIds === undefined
+      ? undefined : new Set(request.includeDocumentIds)
+    const excludedDocuments: ReadonlySet<string> = new Set(request.excludeDocumentIds ?? [])
+    return {
+      includeDocumentIds: [...new Set(sources.flatMap((source): string[] => {
+        const documentId: string | null = source.knowhereDocumentId
+        if (source.namespace !== namespace || source.status !== "ready" || !documentId ||
+          excluded.has(source.id) || excludedDocuments.has(documentId) || (requested && !requested.has(documentId))) return []
+        return [documentId]
+      }))],
+    }
+  }
   const localDocumentIds = sources
-    .filter((source) => excluded.has(source.id))
+    .filter((source) => source.namespace !== "__knowhere_demo__" && (excluded.has(source.id) || Boolean(source.demoKey)))
     .map((source) => source.knowhereDocumentId)
     .filter((documentId): documentId is string => Boolean(documentId))
   const remoteDocumentIds = excludedSourceIds
@@ -52,18 +68,26 @@ export function getRetrievalDocumentScope(
   const documentIds = Array.from(
     new Set([
       ...localDocumentIds,
+      ...excludedWorkspaceDemoDocumentIds,
       ...remoteDocumentIds,
       ...(request.excludeDocumentIds ?? []),
     ]),
   )
-  const includeDocumentIds = getFolderScopeDocumentIds(
-    sources,
+  const folderDocumentIds = getFolderScopeDocumentIds(
+    sources.filter((source) => !source.demoKey),
     folderScopeSourceIds,
   )
 
+  const sharedDocumentIds: ReadonlySet<string> = new Set(sources.flatMap((source) => source.namespace === "__knowhere_demo__" && source.knowhereDocumentId ? [source.knowhereDocumentId] : []))
+  const requestedDocumentIds: readonly string[] | undefined = request.includeDocumentIds?.filter((documentId) =>
+    !sharedDocumentIds.has(documentId) && !excludedWorkspaceDemoDocumentIds.includes(documentId) &&
+    !sources.some((source) => source.demoKey && source.namespace !== "__knowhere_demo__" && source.knowhereDocumentId === documentId))
+  const includeDocumentIds: readonly string[] | undefined = folderDocumentIds !== undefined
+    ? folderDocumentIds.filter((documentId) => requestedDocumentIds === undefined || requestedDocumentIds.includes(documentId))
+    : requestedDocumentIds
   return {
     ...(includeDocumentIds !== undefined
-      ? { includeDocumentIds }
+      ? { includeDocumentIds: [...new Set(includeDocumentIds)] }
       : request.includeDocumentIds !== undefined
         ? { includeDocumentIds: [...new Set(request.includeDocumentIds)] }
         : {}),
@@ -72,7 +96,7 @@ export function getRetrievalDocumentScope(
 }
 
 function getFolderScopeDocumentIds(
-  sources: readonly Source[],
+  sources: readonly ChatSource[],
   folderScopeSourceIds: readonly string[] | undefined,
 ): string[] | undefined {
   if (folderScopeSourceIds === undefined) return undefined

@@ -1,6 +1,7 @@
 import { Effect } from "effect"
 
 import type { Source } from "@/infrastructure/db/schema"
+import type { DemoCatalog } from "@/integrations/knowhere-demo"
 import { routeResult } from "@/lib/route-result"
 import { getClientForWorkspace } from "./route-dependencies"
 import { decodeRemoteSourceId } from "./remote-library"
@@ -53,6 +54,34 @@ const archiveSourceEffect = (
       deps.sourceService.findInWorkspace(workspace.id, input.sourceId),
     )
 
+    if (source?.demoKey) {
+      yield* Effect.tryPromise(() => deps.sourceService.hideDemoSource(workspace.id, source.demoKey ?? ""))
+      return routeResult.ok({ id: input.sourceId, archived: true as const })
+    }
+
+    const remoteSource = decodeRemoteSourceId(input.sourceId)
+    const documentId: string | null | undefined = source?.knowhereDocumentId ?? remoteSource?.documentId
+    const canReferenceSharedDemo: boolean =
+      (!source && !remoteSource) ||
+      remoteSource?.namespace === "__knowhere_demo__" ||
+      documentId?.startsWith("ddoc_") === true ||
+      documentId?.startsWith("demo-doc-") === true
+    const catalog: DemoCatalog = canReferenceSharedDemo
+      ? yield* Effect.tryPromise(() => deps.demoApi.fetchCatalog())
+      : { sources: [], officialLibrary: { categories: [], sources: [] } }
+    const sharedSource = catalog.sources.find((candidate) =>
+      candidate.demoSourceId === input.sourceId ||
+      candidate.canonicalDocumentId === source?.knowhereDocumentId ||
+      candidate.canonicalDocumentId === remoteSource?.documentId,
+    )
+    if (sharedSource) {
+      yield* Effect.tryPromise(() => deps.sourceService.hideDemoSource(workspace.id, sharedSource.demoSourceId))
+      return routeResult.ok({ id: input.sourceId, archived: true as const })
+    }
+    if (remoteSource?.namespace === "__knowhere_demo__" || documentId?.startsWith("ddoc_") || documentId?.startsWith("demo-doc-")) {
+      return routeResult.error(404, "Shared demo source not found.")
+    }
+
     if (source) {
       if (source.knowhereDocumentId) {
         yield* archiveKnowhereDocument(
@@ -67,20 +96,19 @@ const archiveSourceEffect = (
       return routeResult.ok({ id: input.sourceId, archived: true as const })
     }
 
-    const catalog = yield* Effect.tryPromise(() => deps.demoApi.fetchCatalog())
-    const isDemoSource = catalog.sources.some(
-      (candidate) => candidate.demoSourceId === input.sourceId,
-    )
-    if (isDemoSource) {
-      yield* Effect.tryPromise(() =>
-        deps.sourceService.hideDemoSource(workspace.id, input.sourceId),
-      )
-      return routeResult.ok({ id: input.sourceId, archived: true as const })
-    }
-
-    const remoteSource = decodeRemoteSourceId(input.sourceId)
     if (!remoteSource) {
       return routeResult.error(404, "Source not found.")
+    }
+
+    const localSource = yield* Effect.tryPromise(() =>
+      deps.sourceService.findByKnowhereDocumentId(
+        workspace.id,
+        remoteSource.documentId,
+      ),
+    )
+    if (localSource?.demoKey) {
+      yield* Effect.tryPromise(() => deps.sourceService.hideDemoSource(workspace.id, localSource.demoKey ?? ""))
+      return routeResult.ok({ id: input.sourceId, archived: true as const })
     }
 
     yield* archiveKnowhereDocument(
@@ -90,12 +118,6 @@ const archiveSourceEffect = (
       deps,
     )
 
-    const localSource = yield* Effect.tryPromise(() =>
-      deps.sourceService.findByKnowhereDocumentId(
-        workspace.id,
-        remoteSource.documentId,
-      ),
-    )
     if (localSource) {
       yield* cleanupLocalSource(workspace.id, localSource, deps)
     }

@@ -12,6 +12,7 @@ import type {
   ChatArtifactView,
   ChatCitationView,
   ChatImageHighlightBox,
+  RetrievalWarning,
 } from "@/domains/chat/types"
 import type {
   DerivedTableArtifact,
@@ -48,6 +49,7 @@ import {
 } from "./page-citation-assets"
 import type { HardenableRetrievalResult } from "./media-asset-hardening"
 import { notebookKnowhereTools } from "./knowhere-tools"
+import { decodeNotebookRetrievalResponse } from "./retrieval-response"
 import { toChatAgentTrace } from "./agent-trace"
 import { listActivations } from "@/integrations/memento/client"
 import {
@@ -149,6 +151,8 @@ export const answerQuestionWithRetrieval = (
   Effect.gen(function* () {
     const question = input.question.trim()
     const retrievalResponses: RetrievalQueryResponse[] = []
+    const retrievalWarnings: RetrievalWarning[] = input.retrievalPreparationFailures?.map((failure) => failure.warning) ?? []
+    const retrievalFailures: unknown[] = input.retrievalPreparationFailures?.map((failure) => failure.cause) ?? []
 
     logger.info("chat-agent: answer start", {
       questionLength: question.length,
@@ -222,6 +226,13 @@ export const answerQuestionWithRetrieval = (
           queryResponses.push(outcome.response)
         } else {
           queryFailures.push(outcome.error)
+          retrievalFailures.push(outcome.error)
+          const scope: RetrievalWarning["scope"] = outcome.namespace === "__knowhere_demo__" ? "demo" : "workspace"
+          if (!retrievalWarnings.some((warning) => warning.scope === scope)) {
+            retrievalWarnings.push({ scope, code: "retrieval_failed", message: scope === "demo"
+              ? "Demo sources could not be searched. The answer uses available sources."
+              : "Workspace sources could not be searched. The answer uses available sources." })
+          }
         }
       }
 
@@ -233,6 +244,7 @@ export const answerQuestionWithRetrieval = (
         rateLimitFallbackCount: rateLimitedOutcomes.length,
       })
 
+      if (finalOutcomes.length === 0) return emptyRetrievalResponse(question, retrievalPlan)
       if (queryResponses.length === 0) throw queryFailures[0]
       if (
         queryFailures.length > 0 &&
@@ -272,6 +284,10 @@ export const answerQuestionWithRetrieval = (
           : {}),
       }),
     )
+
+    if (retrievalFailures.length > 0 && !retrievalResponses.some(hasRetrievalEvidence)) {
+      return yield* Effect.die(retrievalFailures[0])
+    }
 
     logger.info("chat-agent: answer generated", {
       answerLength: generatedAnswer.manifest.text.length,
@@ -347,7 +363,9 @@ export const answerQuestionWithRetrieval = (
       answer,
       citations: toChatCitationViews(hardenedMedia.results, answer),
       artifacts: displayArtifacts,
-      agentTrace: toChatAgentTrace(generatedAnswer.trace),
+      agentTrace: { ...toChatAgentTrace(generatedAnswer.trace),
+        ...(retrievalWarnings.length > 0 ? { retrievalWarnings } : {}) },
+      ...(retrievalWarnings.length > 0 ? { retrievalWarnings } : {}),
     }
   })
 
@@ -454,6 +472,8 @@ function normalizeHarnessSource(
 
   return {
     documentId: source.documentId,
+    ...(source.namespace ? { namespace: source.namespace } : {}),
+    ...(source.jobResultId ? { jobResultId: source.jobResultId } : {}),
     sourceFileName: sourceTitle ?? source.sourceFileName,
     sectionPath: source.sectionPath,
   }
@@ -685,7 +705,12 @@ function queryRetrievalNamespaces(input: {
 }): Promise<RetrievalNamespaceQueryOutcome[]> {
   return Effect.runPromise(
     Effect.all(
-      input.namespaces.map((namespace) =>
+      input.namespaces.filter((namespace) => {
+        const scope = getRetrievalDocumentScope(input.answerInput.sources, input.answerInput.excludedSourceIds,
+          input.queryInput, input.answerInput.folderScopeSourceIds, namespace, input.answerInput.excludedWorkspaceDemoDocumentIds)
+        if (namespace !== "__knowhere_demo__" && input.answerInput.folderScopeSourceIds === undefined && input.queryInput.includeDocumentIds?.length === 0) return true
+        return scope.includeDocumentIds === undefined || scope.includeDocumentIds.some((documentId) => !scope.excludeDocumentIds?.includes(documentId))
+      }).map((namespace) =>
         Effect.promise(() =>
           queryRetrievalNamespace({
             namespace,
@@ -719,6 +744,7 @@ async function queryRetrievalNamespace(input: {
     sources: input.answerInput.sources,
     excludedSourceIds: input.answerInput.excludedSourceIds,
     folderScopeSourceIds: input.answerInput.folderScopeSourceIds,
+    excludedWorkspaceDemoDocumentIds: input.answerInput.excludedWorkspaceDemoDocumentIds,
   })
   logger.info("chat-agent: searchSources start", {
     namespace: input.namespace,
@@ -735,7 +761,7 @@ async function queryRetrievalNamespace(input: {
   })
 
   try {
-    const response = await input.answerInput.retrieval.query(retrievalQueryParams)
+    const response = decodeNotebookRetrievalResponse(await input.answerInput.retrieval.query(retrievalQueryParams))
     logger.info("chat-agent: searchSources ok", {
       namespace: input.namespace,
       query: response.query,
@@ -809,13 +835,16 @@ function getUnknownProperty(value: unknown, key: string): unknown {
 }
 
 function getRetrievalNamespaces(input: AnswerQuestionInput): readonly string[] {
+  const excludedSourceIds: ReadonlySet<string> = new Set(input.excludedSourceIds)
+  const hasWorkspaceSources: boolean = input.sources.some((source) => !source.demoKey && source.status === "ready" && Boolean(source.knowhereDocumentId) && !excludedSourceIds.has(source.id))
+  const hasDemoSources: boolean = input.folderScopeSourceIds === undefined && input.sources.some((source) => source.namespace === "__knowhere_demo__" && source.status === "ready" && Boolean(source.knowhereDocumentId) && !excludedSourceIds.has(source.id))
   const candidates =
     input.namespaces && input.namespaces.length > 0
       ? input.namespaces
       : [input.namespace]
   const namespaces: string[] = []
 
-  for (const namespace of candidates) {
+  for (const namespace of [...(hasWorkspaceSources ? candidates.filter((candidate) => candidate !== "__knowhere_demo__") : []), ...(hasDemoSources ? ["__knowhere_demo__"] : [])]) {
     if (namespaces.includes(namespace)) continue
     namespaces.push(namespace)
   }
@@ -916,6 +945,11 @@ function mergeRetrievalResponses(
   }
 }
 
+function emptyRetrievalResponse(query: string, retrievalPlan: AgenticRetrievalPlan): AgenticRetrievalResponse {
+  return { namespace: "", query, routerUsed: "notebook_empty_scope", answerText: null,
+    evidenceText: null, results: [], referencedChunks: [], retrievalPlan }
+}
+
 function getAgenticMergedEvidenceLimits(input: {
   readonly namespaceCount: number
   readonly topK: number | undefined
@@ -952,7 +986,7 @@ function hasRetrievalEvidence(response: RetrievalQueryResponse): boolean {
     response.results.length > 0 ||
     response.referencedChunks.some(hasReferencedChunkEvidence) ||
     hasEvidenceParts(response) ||
-    Boolean(response.answerText?.trim())
+    Boolean(response.evidenceText?.trim())
   )
 }
 
@@ -991,6 +1025,7 @@ function buildRetrievalQueryParams(input: {
   readonly sources: AnswerQuestionInput["sources"]
   readonly excludedSourceIds: readonly string[]
   readonly folderScopeSourceIds?: readonly string[]
+  readonly excludedWorkspaceDemoDocumentIds?: readonly string[]
 }): RetrievalQueryParams {
   const query = normalizeRetrievalQuery(
     input.input.query,
@@ -1015,6 +1050,8 @@ function buildRetrievalQueryParams(input: {
       input.excludedSourceIds,
       input.input,
       input.folderScopeSourceIds,
+      input.namespace,
+      input.excludedWorkspaceDemoDocumentIds,
     ),
   }
 }
@@ -1192,7 +1229,7 @@ function resolveCitationImageAssetRefs(
         (candidate) =>
           candidate.ref !== chunk.ref &&
           candidate.chunkId === chunk.chunkId &&
-          candidate.source.documentId === chunk.source.documentId,
+          hasSameSourceRevision(candidate, chunk),
       )
       .map((candidate) => candidate.ref),
   )
@@ -1284,6 +1321,7 @@ function mergeChunkPageMetadata(
     (candidate) =>
       candidate.ref !== chunk.ref &&
       candidate.chunkId === chunk.chunkId &&
+      hasSameSourceRevision(candidate, chunk) &&
       hasResolvablePageNumber(candidate),
   )
   if (!donor?.metadata) return chunk
@@ -1304,6 +1342,7 @@ async function hydrateMissingCitationPageMetadata(input: {
       (chunk) =>
         Boolean(result.chunkId) &&
         chunk.chunkId === result.chunkId &&
+        hasSameSourceRevision(chunk, result) &&
         hasResolvablePageNumber(chunk),
     )
     if (!donor?.metadata || resolvePageCitationPageNumber(result)) {
@@ -1335,7 +1374,9 @@ async function hydrateResultPageMetadataFromKnowledge(
   if (!documentId || !chunkId) return result
 
   try {
-    const response = await knowledge.readChunks({ documentId, chunkId })
+    const revisionKey: string | undefined = getSourceRevision(result)
+    if (getSourceNamespace(result) === "__knowhere_demo__" && !revisionKey) return result
+    const response = await knowledge.readChunks({ documentId, chunkId, ...(revisionKey ? { revisionKey } : {}) })
     const chunk = response.chunks[0]
     if (!chunk) return result
     return {
@@ -1364,6 +1405,8 @@ function hasResolvablePageNumber(chunk: EvidenceChunk): boolean {
         documentId: chunk.source.documentId ?? undefined,
         sourceFileName: chunk.source.sourceFileName ?? undefined,
         sectionPath: chunk.source.sectionPath ?? undefined,
+      ...(chunk.source.namespace ? { namespace: chunk.source.namespace } : {}),
+      ...(chunk.source.jobResultId ? { jobResultId: chunk.source.jobResultId } : {}),
       },
     }) !== undefined
   )
@@ -1374,6 +1417,7 @@ function toRetrievalResultFromEvidenceChunk(
 ): RetrievalResult {
   return {
     ...(chunk.chunkId ? { chunkId: chunk.chunkId } : {}),
+    ...(chunk.chunkRowId ? { chunkRowId: chunk.chunkRowId } : {}),
     content: chunk.content,
     chunkType: chunk.chunkType,
     score: chunk.score,
@@ -1385,6 +1429,8 @@ function toRetrievalResultFromEvidenceChunk(
       documentId: chunk.source.documentId ?? undefined,
       sourceFileName: chunk.source.sourceFileName ?? undefined,
       sectionPath: chunk.source.sectionPath ?? undefined,
+      ...(chunk.source.namespace ? { namespace: chunk.source.namespace } : {}),
+      ...(chunk.source.jobResultId ? { jobResultId: chunk.source.jobResultId } : {}),
     },
   }
 }
@@ -1396,7 +1442,7 @@ function hasDisplayedManifestArtifacts(result: HarnessRunResult): boolean {
 function getRetrievalResultKey(result: RetrievalResult): string {
   const source = result.source
   return [
-    source.documentId ?? "",
+    getSourceRevisionIdentity(result),
     source.sourceFileName ?? "",
     source.sectionPath ?? "",
     result.chunkType,
@@ -1405,4 +1451,32 @@ function getRetrievalResultKey(result: RetrievalResult): string {
   ]
     .map((part) => `${part.length}:${part}`)
     .join("|")
+}
+
+type RetrievalSourceReference = {
+  readonly source: {
+    readonly documentId?: string | null
+    readonly namespace?: string | null
+    readonly jobResultId?: string | null
+  }
+  readonly revisionKey?: string | null
+  readonly metadata?: Readonly<Record<string, unknown>>
+}
+
+function hasSameSourceRevision(first: RetrievalSourceReference, second: RetrievalSourceReference): boolean {
+  return getSourceRevisionIdentity(first) === getSourceRevisionIdentity(second)
+}
+
+function getSourceRevisionIdentity(reference: RetrievalSourceReference): string {
+  return JSON.stringify([reference.source.documentId ?? "", getSourceNamespace(reference) ?? "", getSourceRevision(reference) ?? ""])
+}
+
+function getSourceNamespace(reference: RetrievalSourceReference): string | undefined {
+  const value: unknown = reference.source.namespace ?? reference.metadata?.namespace
+  return typeof value === "string" && value.trim() ? value : undefined
+}
+
+function getSourceRevision(reference: RetrievalSourceReference): string | undefined {
+  const value: unknown = reference.source.jobResultId ?? reference.metadata?.jobResultId ?? reference.revisionKey
+  return typeof value === "string" && value.trim() ? value : undefined
 }

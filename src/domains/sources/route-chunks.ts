@@ -1,4 +1,4 @@
-import { Effect } from "effect"
+import { Cause, Effect, Option, Runtime } from "effect"
 
 import { demoView } from "@/domains/demo/view"
 import { readAllSourceChunks, readSourceChunkPage } from "@/domains/chunks/read"
@@ -7,6 +7,7 @@ import type { ParsedChunkView } from "@/domains/chunks/types"
 import type { DemoChunkPage } from "@/integrations/knowhere-demo"
 import { logger } from "@/lib/logger"
 import { routeResult } from "@/lib/route-result"
+import { getCompatibleNamespaces } from "./namespace"
 import { displayReadUnavailable } from "./display-read-unavailable"
 import {
   decodeRemoteSourceId,
@@ -57,11 +58,12 @@ const loadSourceChunksEffect = (
 ) =>
   Effect.gen(function* () {
     if (!sourceRowRepository.isWorkspaceSourceId(input.sourceId)) {
+      if (decodeRemoteSourceId(input.sourceId)) {
+        const remoteResult = yield* loadRemoteChunkPageEffect(input, deps)
+        return remoteResult ?? sourceNotFound()
+      }
       const demoResult = yield* loadDemoChunkPageEffect(input, deps)
-      if (demoResult) return demoResult
-
-      const remoteResult = yield* loadRemoteChunkPageEffect(input, deps)
-      return remoteResult ?? sourceNotFound()
+      return demoResult ?? sourceNotFound()
     }
 
     const user = yield* Effect.tryPromise(() => deps.getCurrentUser())
@@ -72,22 +74,15 @@ const loadSourceChunksEffect = (
     const workspace = yield* Effect.tryPromise(() =>
       deps.ensureWorkspace(user.id),
     )
-    const source = yield* Effect.tryPromise(() =>
-      deps.sourceService.findInWorkspace(workspace.id, input.sourceId),
+    const source = yield* Effect.tryPromise(
+      async () => {
+        const source = await deps.sourceService.findInWorkspace(workspace.id, input.sourceId)
+        return source ?? await deps.sourceService.findLegacyDemoSource?.(workspace.id, input.sourceId) ?? null
+      },
     )
 
     if (!source) {
       return sourceNotFound()
-    }
-
-    if (source.demoKey) {
-      const demoResult = yield* loadDemoChunkPageEffect(
-        input,
-        deps,
-        source.demoKey,
-        source.knowhereDocumentId,
-      )
-      return demoResult ?? sourceNotFound()
     }
 
     // Reads never return zero chunks for a ready remote document; the SDK falls
@@ -97,6 +92,7 @@ const loadSourceChunksEffect = (
       return sourceSnapshotProcessing(input)
     }
 
+    if (input.pageParams.namespace && !getCompatibleNamespaces(workspace).includes(input.pageParams.namespace)) return sourceChunksUnavailable(input)
     const apiKey = yield* Effect.tryPromise(() =>
       deps.ensureApiKeyForWorkspace(workspace.id, input.cookieHeader),
     )
@@ -110,6 +106,8 @@ const loadSourceChunksEffect = (
     const readableSource = {
       documentId: source.knowhereDocumentId,
       title: source.title,
+      namespace: input.pageParams.namespace ?? workspace.namespace,
+      ...(input.pageParams.jobResultId ? { jobResultId: input.pageParams.jobResultId } : {}),
       revisionKey: source.knowhereJobId,
     }
 
@@ -194,6 +192,8 @@ const loadRemoteChunkPageEffect = (
     const readableSource = {
       documentId,
       title: source.title,
+      namespace: input.pageParams.namespace ?? remoteDocument.namespace,
+      ...(input.pageParams.jobResultId ? { jobResultId: input.pageParams.jobResultId } : {}),
       revisionKey: source.knowhereJobId ?? remoteDocument.revisionKey ?? null,
     }
 
@@ -232,7 +232,6 @@ const loadDemoChunkPageEffect = (
   input: LoadSourceChunksInput,
   deps: RouteChunksDependencies,
   demoSourceId: string = input.sourceId,
-  documentIdOverride?: string | null,
 ) =>
   Effect.gen(function* () {
     const pages = input.shouldLoadAll
@@ -245,11 +244,15 @@ const loadDemoChunkPageEffect = (
               demoSourceId,
               page: input.pageParams.page,
               pageSize: input.pageParams.pageSize,
+              ...(input.pageParams.jobResultId ? { jobResultId: input.pageParams.jobResultId } : {}),
+              ...(input.pageParams.chunkType ? { chunkType: input.pageParams.chunkType } : {}),
             }),
           ),
         ]
     const page = pages[0]
     if (!page) return null
+    const expectedJobResultId: string | undefined = input.pageParams.jobResultId ?? page.jobResultId
+    if (expectedJobResultId && pages.some((candidate) => candidate.jobResultId !== expectedJobResultId)) return sourceChunksUnavailable(input)
     const source = {
       id: page.demoSourceId,
       kind: "demo" as const,
@@ -257,12 +260,14 @@ const loadDemoChunkPageEffect = (
       title: page.title,
       mimeType: page.mimeType,
       status: "ready" as const,
-      documentId: documentIdOverride ?? page.canonicalDocumentId,
+      documentId: page.canonicalDocumentId,
+      namespace: page.namespace,
+      jobResultId: page.jobResultId,
     }
     const chunks = filterChunksByType(
       pages.flatMap((demoChunkPage) =>
         demoChunkPage.chunks.map((chunk) =>
-          demoView.toParsedChunkView(source, chunk),
+          ({ ...demoView.toParsedChunkView(source, chunk), namespace: page.namespace, jobResultId: page.jobResultId }),
         ),
       ),
       input.pageParams.chunkType,
@@ -288,10 +293,43 @@ const loadDemoChunkPageEffect = (
           knowhereBaseUrl: process.env.KNOWHERE_BASE_URL ?? "(default)",
           error: getErrorMessage(error),
         })
-        return null
+        const status: DemoReadFailureStatus | undefined = readDemoFailureStatus(error)
+        if (status !== undefined) return createDemoReadFailure(input, status)
+        return input.pageParams.jobResultId ? sourceChunksUnavailable(input) : null
       }),
     ),
   )
+
+type DemoReadFailureStatus = 401 | 404 | 409 | 503
+
+function readDemoFailureStatus(error: unknown, depth: number = 0): DemoReadFailureStatus | undefined {
+  if (depth > 8) return undefined
+  if (Runtime.isFiberFailure(error)) {
+    const failure = Cause.failureOption(error[Runtime.FiberFailureCauseId])
+    return Option.isSome(failure) ? readDemoFailureStatus(failure.value, depth + 1) : undefined
+  }
+  if (typeof error !== "object" || error === null) return undefined
+  if ("status" in error && (error.status === 401 || error.status === 404 || error.status === 409 || error.status === 503)) return error.status
+  return "cause" in error ? readDemoFailureStatus(error.cause, depth + 1) : undefined
+}
+
+function createDemoReadFailure(input: LoadSourceChunksInput, status: DemoReadFailureStatus): JsonRouteResult<SourceChunksBody> {
+  const message: string = status === 401
+    ? "Sign in to read this demo source."
+    : status === 404
+      ? input.pageParams.jobResultId ? "This cited source revision is unavailable." : "Demo source not found."
+      : status === 409
+        ? "Demo source is still being prepared. Please try again shortly."
+        : "Demo sources are temporarily unavailable. Please try again shortly."
+  return routeResult.ok({
+    chunks: [],
+    ...(!input.shouldLoadAll ? {
+      pagination: { page: input.pageParams.page, pageSize: input.pageParams.pageSize, total: 0, totalPages: 0 },
+    } : {}),
+    message,
+    ...(status === 409 ? { isProcessing: true } : { isUnavailable: true }),
+  }, status)
+}
 
 async function loadAllDemoChunkPages(
   input: LoadSourceChunksInput,
@@ -303,8 +341,11 @@ async function loadAllDemoChunkPages(
     demoSourceId,
     page: 1,
     pageSize,
+    ...(input.pageParams.jobResultId ? { jobResultId: input.pageParams.jobResultId } : {}),
+    ...(input.pageParams.chunkType ? { chunkType: input.pageParams.chunkType } : {}),
   })
   const pages = [firstPage]
+  const jobResultId: string | undefined = input.pageParams.jobResultId ?? firstPage.jobResultId
   for (
     let pageNumber = 2;
     pageNumber <= firstPage.pagination.totalPages;
@@ -315,6 +356,8 @@ async function loadAllDemoChunkPages(
         demoSourceId,
         page: pageNumber,
         pageSize,
+        ...(jobResultId ? { jobResultId } : {}),
+        ...(input.pageParams.chunkType ? { chunkType: input.pageParams.chunkType } : {}),
       }),
     )
   }
@@ -416,7 +459,7 @@ function recoverUnavailableChunks(
   input: LoadSourceChunksInput,
   error: unknown,
 ): Effect.Effect<ReturnType<typeof sourceChunksUnavailable>, unknown> {
-  return displayReadUnavailable.isError(error)
+  return input.pageParams.jobResultId || displayReadUnavailable.isError(error)
     ? Effect.succeed(sourceChunksUnavailable(input))
     : Effect.fail(error)
 }

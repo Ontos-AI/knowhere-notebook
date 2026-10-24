@@ -5,6 +5,16 @@ import { demoView } from "@/domains/demo/view"
 import type { DemoCatalog, DemoCitation, DemoSource } from "@/integrations/knowhere-demo"
 
 describe("demoView.toChatMessages", () => {
+  it("preserves shared namespace, revision and both chunk identifiers in seeded citations", () => {
+    const messages = demoView.toChatMessages(makeCatalog({ answer: "Report answer.", citations: [makeCitation({ namespace: "__knowhere_demo__", jobResultId: "revision-1" })] }))
+    expect(messages[1]?.citations?.[0]).toMatchObject({ chunkRowId: "demo-tsla-q4-2025:chunk", chunkId: "chunk", source: { namespace: "__knowhere_demo__", jobResultId: "revision-1" } })
+  })
+  it("preserves shared revision on normalized parsed chunks", () => {
+    const source = { id: "demo-report", kind: "demo" as const, demoSourceId: "demo-report", namespace: "__knowhere_demo__", jobResultId: "revision-1", title: "report.pdf", mimeType: "application/pdf", status: "ready" as const, documentId: "ddoc_report" }
+    const chunk = { id: "dchk_row", chunkId: "node-content", chunkType: "text", content: "content", sortOrder: 0, metadata: {} }
+    expect(demoView.toParsedChunkView(source, chunk)).toMatchObject({ chunkId: "dchk_row", parserChunkId: "node-content", namespace: "__knowhere_demo__", jobResultId: "revision-1" })
+  })
+
   it("uses the live citation mapper so demo answers render title/pN chips", () => {
     const messages = demoView.toChatMessages(
       makeCatalog({

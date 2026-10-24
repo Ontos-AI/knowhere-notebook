@@ -4,7 +4,8 @@ import type {
   ChatArtifactView,
   ChatCitationView,
 } from "@/domains/chat/types"
-import type { Source } from "@/infrastructure/db/schema"
+import { bindCitationSourceRevision } from "./citation-source-revision"
+import type { ChatSource } from "./contracts"
 import { logger } from "@/lib/logger"
 import type { HardenChatAssetUrl } from "./media-assets"
 
@@ -29,7 +30,7 @@ export type HardenMediaAssetUrls = (
 export type HardenChatMediaAssetUrlsForWorkspaceInput =
   HardenMediaAssetUrlsInput & {
     readonly workspaceId: string
-    readonly sources: readonly Source[]
+    readonly sources: readonly ChatSource[]
     readonly hardenChatAssetUrl: HardenChatAssetUrl
   }
 
@@ -39,10 +40,11 @@ type AssetUrlReference = {
   readonly assetUrl: string
   readonly source?: AssetReferenceSource
   readonly content?: string
+  readonly metadata?: Readonly<Record<string, unknown>>
 }
 
 type HardeningContext = {
-  readonly sourcesByDocumentId: ReadonlyMap<string, Source>
+  readonly sourcesByDocumentId: ReadonlyMap<string, ChatSource>
   readonly hardenChatAssetUrl: HardenChatAssetUrl
 }
 
@@ -99,7 +101,7 @@ async function hardenRetrievalResult(
 
   const hardenedAssetUrl = assetUrl
     ? await resolveDurableAssetUrl(
-        { assetUrl, source: result.source, content: result.content },
+        { assetUrl, source: result.source, content: result.content, metadata: result.metadata },
         context,
       )
     : undefined
@@ -109,6 +111,7 @@ async function hardenRetrievalResult(
           assetUrl: pageCitationAssetUrl,
           source: result.source,
           content: result.content,
+          metadata: result.metadata,
         },
         context,
       )
@@ -351,16 +354,17 @@ function decodeUrlText(value: string): string {
 function resolveSourceForReference(
   reference: AssetUrlReference,
   context: HardeningContext,
-): Source | undefined {
+): ChatSource | undefined {
   const documentId = getTrimmedString(reference.source?.documentId)
-  return documentId ? context.sourcesByDocumentId.get(documentId) : undefined
+  const source = documentId ? context.sourcesByDocumentId.get(documentId) : undefined
+  return source ? bindCitationSourceRevision(source, reference.source, reference.metadata) ?? undefined : undefined
 }
 
 function createSourcesByDocumentId(
-  sources: readonly Source[],
-): ReadonlyMap<string, Source> {
+  sources: readonly ChatSource[],
+): ReadonlyMap<string, ChatSource> {
   return new Map(
-    sources.flatMap((source): readonly [string, Source][] =>
+    sources.flatMap((source): readonly [string, ChatSource][] =>
       source.knowhereDocumentId ? [[source.knowhereDocumentId, source]] : [],
     ),
   )

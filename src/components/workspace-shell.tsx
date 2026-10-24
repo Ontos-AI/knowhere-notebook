@@ -57,6 +57,7 @@ export type WorkspaceShellProps = {
   chatThreads?: ChatThreadView[]
   activeChatThreadId?: string | null
   chatMessages?: ChatMessageView[]
+  citationSources?: SourceView[]
   chunkViewDocumentId?: string | null
   dashboardUrl?: string
   initialPrefetchedChunksBySourceId?: Record<string, ParsedChunkView[]>
@@ -88,6 +89,7 @@ function WorkspaceShellContent({
   chatThreads: initialChatThreads,
   activeChatThreadId,
   chatMessages: initialChatMessages,
+  citationSources: initialCitationSources,
   chunkViewDocumentId,
   dashboardUrl,
   workspace,
@@ -119,6 +121,16 @@ function WorkspaceShellContent({
     }),
     [isGuest, user?.id, workspace?.id, workspace?.namespace],
   )
+  const chatWorkflow = useWorkspaceChatWorkflow({
+    activeChatThreadId: activeChatThreadId ?? null,
+    analyticsContext,
+    initialChatMessages: initialChatMessages ?? [],
+    initialChatThreads: initialChatThreads ?? [],
+    initialCitationSources: initialCitationSources ?? [],
+    isGuest,
+    sources: sourceWorkflow.sources,
+    currentFolderId: folderWorkflow.currentFolderId,
+  })
   const citationFocus = useWorkspaceCitationFocus({
     fetchChunks: workspaceClient.fetchChunks,
     initialPrefetchedChunksBySourceId:
@@ -126,16 +138,7 @@ function WorkspaceShellContent({
     onSelectSource: handleCitationSourceSelected,
     selectedSourceId: sourceWorkflow.selectedSourceId,
     sources: sourceWorkflow.sources,
-  })
-  const chatWorkflow = useWorkspaceChatWorkflow({
-    activeChatThreadId: activeChatThreadId ?? null,
-    analyticsContext,
-    initialChatMessages: initialChatMessages ?? [],
-    initialChatThreads: initialChatThreads ?? [],
-    isGuest,
-    onSourcesMaterialized: sourceWorkflow.handleSourcesMaterialized,
-    sources: sourceWorkflow.sources,
-    currentFolderId: folderWorkflow.currentFolderId,
+    citationSources: chatWorkflow.citationSources,
   })
   const {
     desktopPanelWidths,
@@ -167,11 +170,7 @@ function WorkspaceShellContent({
   async function handleOfficialLibrarySourceAdd(
     demoSourceId: string,
   ): Promise<void> {
-    const didMaterialize =
-      await sourceWorkflow.handleOfficialLibrarySourceAdd(demoSourceId)
-    if (didMaterialize) {
-      await chatWorkflow.handleRefreshActiveChatThread()
-    }
+    await sourceWorkflow.handleOfficialLibrarySourceAdd(demoSourceId)
   }
 
   function handleLibraryOpen(): void {

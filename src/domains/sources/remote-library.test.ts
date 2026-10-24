@@ -31,6 +31,14 @@ const localSource: Source = {
 }
 
 describe("listRemoteLibrarySourceViews", () => {
+  it("does not reintroduce hidden or deleted private demo copies as remote rows", async () => {
+    const sources = await Effect.runPromise(listRemoteLibrarySourceViews({
+      workspace: { namespace: "private" }, localSources: [], excludedDocumentIds: new Set(["doc-old-demo"]),
+      client: { documents: { list: async () => ({ documents: [{ documentId: "doc-old-demo", namespace: "default", status: "active", sourceFileName: "report.pdf", documentMetadata: { createdByClient: "notebook" } }] }) } },
+    }))
+    expect(sources).toEqual([])
+  })
+
   it("keeps notebook, cli, and mcp remotes and hides other origins", async () => {
     const list = vi.fn(
       async (params?: { readonly namespace?: string }) => {

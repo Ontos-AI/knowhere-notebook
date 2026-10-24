@@ -1,6 +1,6 @@
 import type { RetrievalResult } from "@ontos-ai/knowhere-sdk"
 
-import type { Source } from "@/infrastructure/db/schema"
+import type { ChatSource } from "./contracts"
 import type { ChatCitationView } from "@/domains/chat/types"
 import {
   resolvePageCitationPageNumber,
@@ -21,6 +21,7 @@ export function toChatCitationViews(
       chunkType: result.chunkType,
       score: result.score,
       ...(result.chunkId ? { chunkId: result.chunkId } : {}),
+      ...(result.chunkRowId ? { chunkRowId: result.chunkRowId } : {}),
       ...(result.assetUrl ? { assetUrl: result.assetUrl } : {}),
       ...(result.pageCitationAssetUrl
         ? { pageCitationAssetUrl: result.pageCitationAssetUrl }
@@ -34,6 +35,8 @@ export function toChatCitationViews(
         : {}),
       source: {
         documentId: result.source.documentId,
+        ...(getProvenanceString(result.source.namespace ?? result.metadata?.namespace) ? { namespace: getProvenanceString(result.source.namespace ?? result.metadata?.namespace) } : {}),
+        ...(getProvenanceString(result.source.jobResultId ?? result.metadata?.jobResultId) ? { jobResultId: getProvenanceString(result.source.jobResultId ?? result.metadata?.jobResultId) } : {}),
         sourceFileName: result.source.sourceFileName,
         sectionPath: result.source.sectionPath,
       },
@@ -43,7 +46,7 @@ export function toChatCitationViews(
 
 export function useNotebookSourceTitles(
   results: readonly RetrievalResult[],
-  sources: readonly Source[],
+  sources: readonly ChatSource[],
 ): RetrievalResult[] {
   const sourceTitlesByDocumentId = new Map(
     sources.flatMap((source): readonly [string, string][] =>
@@ -90,4 +93,8 @@ function getCitationDescriptions(answer: string): Map<number, string> {
   }
 
   return descriptions
+}
+
+function getProvenanceString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined
 }

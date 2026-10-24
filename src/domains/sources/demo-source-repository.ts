@@ -1,6 +1,6 @@
 import "server-only"
 
-import { and, eq, isNotNull, or, sql } from "drizzle-orm"
+import { and, eq, isNotNull, isNull, or, sql } from "drizzle-orm"
 import { Effect } from "effect"
 
 import { DbClient } from "@/infrastructure/db"
@@ -21,6 +21,11 @@ type UpsertMaterializedDemoSourceInput = {
 }
 
 type DemoSourceRepository = {
+  readonly listLegacyDemoSourcesEffect: (workspaceId: string) => Effect.Effect<Source[], never, DbClient>
+  readonly findLegacyDemoSourceEffect: (workspaceId: string, sourceId: string) => Effect.Effect<Source | null, never, DbClient>
+  readonly listLegacyDemoDocumentIdsEffect: (workspaceId: string) => Effect.Effect<string[], never, DbClient>
+  readonly listSelectedDemoSourceIdsEffect: (workspaceId: string) => Effect.Effect<string[], never, DbClient>
+  readonly restoreDemoSourceEffect: (workspaceId: string, demoSourceId: string) => Effect.Effect<void, never, DbClient>
   readonly listHiddenDemoSourceIdsEffect: (
     workspaceId: string,
   ) => Effect.Effect<string[], never, DbClient>
@@ -33,6 +38,38 @@ type DemoSourceRepository = {
     input: UpsertMaterializedDemoSourceInput,
   ) => Effect.Effect<Source, never, DbClient>
 }
+
+const listLegacyDemoSourcesEffect: DemoSourceRepository["listLegacyDemoSourcesEffect"] = Effect.fn("demoSources.listLegacySources")(function* (workspaceId: string) {
+  const db = yield* DbClient
+  return yield* Effect.promise(() => db.select().from(sources).where(and(eq(sources.workspaceId, workspaceId), isNotNull(sources.demoKey))))
+})
+
+const findLegacyDemoSourceEffect: DemoSourceRepository["findLegacyDemoSourceEffect"] = Effect.fn("demoSources.findLegacySource")(function* (workspaceId: string, sourceId: string) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(sourceId)) return null
+  const db = yield* DbClient
+  const rows = yield* Effect.promise(() => db.select().from(sources).where(and(eq(sources.workspaceId, workspaceId), eq(sources.id, sourceId), isNotNull(sources.demoKey))).limit(1))
+  return rows[0] ?? null
+})
+
+const listLegacyDemoDocumentIdsEffect: DemoSourceRepository["listLegacyDemoDocumentIdsEffect"] = Effect.fn("demoSources.listLegacyDocumentIds")(function* (workspaceId: string) {
+  const db = yield* DbClient
+  const rows = yield* Effect.promise(() => db.select({ documentId: sources.knowhereDocumentId }).from(sources).where(and(eq(sources.workspaceId, workspaceId), isNotNull(sources.demoKey), isNotNull(sources.knowhereDocumentId))))
+  return rows.flatMap((row) => row.documentId ? [row.documentId] : [])
+})
+
+const listSelectedDemoSourceIdsEffect: DemoSourceRepository["listSelectedDemoSourceIdsEffect"] = Effect.fn("demoSources.listSelected")(function* (workspaceId: string) {
+  const db = yield* DbClient
+  const rows = yield* Effect.promise(() => db.select({ demoSourceId: demoSourceVisibilities.demoSourceId }).from(demoSourceVisibilities).where(and(eq(demoSourceVisibilities.workspaceId, workspaceId), isNull(demoSourceVisibilities.hiddenAt), isNull(demoSourceVisibilities.deletedAt))))
+  return rows.map((row) => row.demoSourceId)
+})
+
+const restoreDemoSourceEffect: DemoSourceRepository["restoreDemoSourceEffect"] = Effect.fn("demoSources.restore")(function* (workspaceId: string, demoSourceId: string) {
+  const db = yield* DbClient
+  yield* Effect.promise(() => db.insert(demoSourceVisibilities).values({ workspaceId, demoSourceId, hiddenAt: null, deletedAt: null }).onConflictDoUpdate({
+    target: [demoSourceVisibilities.workspaceId, demoSourceVisibilities.demoSourceId],
+    set: { hiddenAt: null, deletedAt: null, updatedAt: sql`now()` },
+  }))
+})
 
 const listHiddenDemoSourceIdsEffect: DemoSourceRepository["listHiddenDemoSourceIdsEffect"] =
   (workspaceId: string) =>
@@ -138,6 +175,11 @@ const upsertMaterializedDemoSourceEffect: DemoSourceRepository["upsertMaterializ
     })
 
 export const demoSourceRepository: DemoSourceRepository = {
+  listLegacyDemoSourcesEffect,
+  findLegacyDemoSourceEffect,
+  listLegacyDemoDocumentIdsEffect,
+  listSelectedDemoSourceIdsEffect,
+  restoreDemoSourceEffect,
   listHiddenDemoSourceIdsEffect,
   hideDemoSourceEffect,
   upsertMaterializedDemoSourceEffect,

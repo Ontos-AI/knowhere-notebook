@@ -14,6 +14,7 @@ import type { ParsedChunkView } from "@/domains/chunks/types"
 import type { SourceView } from "@/domains/sources/types"
 
 type WorkspaceSelectedChunksInput = {
+  readonly selectedSourceOverride?: SourceView | null
   readonly selectedSourceId: string | null
   readonly sources: readonly SourceView[]
   readonly prefetchedChunksBySourceId: Readonly<Record<string, ParsedChunkView[]>>
@@ -31,24 +32,27 @@ type WorkspaceSelectedChunks = {
 
 export function useWorkspaceSelectedChunks({
   selectedSourceId,
+  selectedSourceOverride,
   sources,
   prefetchedChunksBySourceId,
 }: WorkspaceSelectedChunksInput): WorkspaceSelectedChunks {
   const rawSelectedSource = sources.find(
     (source) => source.id === selectedSourceId,
   )
-  const selectedSource = rawSelectedSource
-  const prefetchedSelectedChunks = selectedSourceId
-    ? prefetchedChunksBySourceId[selectedSourceId]
+  const selectedSource = selectedSourceOverride ?? rawSelectedSource
+  const readOptions = {
+    ...(selectedSource?.jobResultId ? { jobResultId: selectedSource.jobResultId } : {}),
+    ...(selectedSource?.namespace ? { namespace: selectedSource.namespace } : {}),
+    ...(selectedSource?.documentPresentation?.kind === "page-assets" ? { chunkType: "page" as const } : {}),
+  }
+  const selectedReadKey = selectedSource ? workspaceClientCache.getSourceReadKey(selectedSource.id, readOptions) : null
+  const prefetchedSelectedChunks = selectedReadKey
+    ? prefetchedChunksBySourceId[selectedReadKey]
     : undefined
   const selectedChunkSourceId =
     selectedSource && selectedSource.status === "ready"
       ? selectedSource.id
       : null
-  const pageChunkType =
-    selectedSource?.documentPresentation?.kind === "page-assets"
-      ? "page"
-      : undefined
   const {
     data: selectedChunkPages,
     isLoading: isChunksLoading,
@@ -60,12 +64,11 @@ export function useWorkspaceSelectedChunks({
         selectedChunkSourceId,
         pageIndex,
         previousPageData,
+        readOptions,
       ),
-    ([, sourceId, page]: SourceChunksKey) =>
-      pageChunkType
-        ? workspaceClient.fetchChunkPage(sourceId, page, {
-            chunkType: pageChunkType,
-          })
+    ([, sourceId, page, jobResultId, namespace, chunkType]: SourceChunksKey) =>
+      jobResultId || namespace || chunkType
+        ? workspaceClient.fetchChunkPage(sourceId, page, readOptions)
         : workspaceClient.fetchChunkPage(sourceId, page),
     {
       revalidateIfStale: false,

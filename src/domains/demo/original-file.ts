@@ -1,30 +1,21 @@
 import type { SourceOriginalFileView } from "@/domains/sources/types"
 
 type DemoOriginalSource = {
+  readonly demoSourceId: string
+  readonly jobResultId?: string
   readonly originalFile: {
     readonly url: string
     readonly mimeType: string
     readonly sizeBytes: number
     readonly canDownload: boolean
   }
-  readonly officialLibrary?: {
-    readonly sourceUrl: string
-  }
 }
 
-export const demoOriginalFile = {
-  getPublicUrl,
-  toSourceOriginalFileView,
-} as const
+export const demoOriginalFile = { getPublicUrl, toSourceOriginalFileView } as const
 
-function toSourceOriginalFileView(
-  source: DemoOriginalSource,
-): SourceOriginalFileView | null {
-  const url = getPublicUrl(source)
-  if (!url) return null
-
+function toSourceOriginalFileView(source: DemoOriginalSource): SourceOriginalFileView {
   return {
-    url,
+    url: getPublicUrl(source),
     mimeType: source.originalFile.mimeType,
     sizeBytes: source.originalFile.sizeBytes,
     canDownload: source.originalFile.canDownload,
@@ -32,31 +23,11 @@ function toSourceOriginalFileView(
   }
 }
 
-function getPublicUrl(source: DemoOriginalSource): string | null {
-  const originalUrl = toPublicHttpUrl(source.originalFile.url)
-  if (originalUrl) return originalUrl
-
-  return source.officialLibrary
-    ? toPublicHttpUrl(source.officialLibrary.sourceUrl)
-    : null
-}
-
-function toPublicHttpUrl(value: string): string | null {
-  try {
-    const parsedUrl = new URL(value)
-    if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
-      return null
-    }
-    if (isDemoOriginalProxyPath(parsedUrl.pathname)) return null
-    return parsedUrl.toString()
-  } catch {
-    return null
-  }
-}
-
-function isDemoOriginalProxyPath(pathname: string): boolean {
-  return (
-    /^\/api\/v1\/demo\/sources\/[^/]+\/original\/?$/.test(pathname) ||
-    /^\/api\/demo-sources\/[^/]+\/original\/?$/.test(pathname)
-  )
+function getPublicUrl(source: DemoOriginalSource): string {
+  const originalUrl: URL = new URL(source.originalFile.url, "https://notebook.invalid")
+  const jobResultId: string | null | undefined = source.jobResultId ?? originalUrl.searchParams.get("job_result_id")
+  const parameters: URLSearchParams = new URLSearchParams()
+  if (jobResultId) parameters.set("job_result_id", jobResultId)
+  const query: string = parameters.size > 0 ? `?${parameters.toString()}` : ""
+  return `/api/demo-sources/${encodeURIComponent(source.demoSourceId)}/original${query}`
 }

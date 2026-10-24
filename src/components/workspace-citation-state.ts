@@ -45,11 +45,13 @@ function findCitationSource(
   sources: readonly SourceView[],
   citation: ChatCitationView,
 ): SourceView | null {
-  return (
-    sources.find(
-      (source) => source.documentId === citation.source.documentId,
-    ) ?? null
+  const matches = sources.filter((source) =>
+    source.documentId === citation.source.documentId &&
+    (!citation.source.namespace || source.namespace === citation.source.namespace),
   )
+  const source = matches.find((candidate) => candidate.jobResultId === citation.source.jobResultId) ?? matches[0]
+  if (source?.namespace === "__knowhere_demo__" && !citation.source.jobResultId) return null
+  return source ?? null
 }
 
 function getLoadedCitationChunkId(
@@ -69,6 +71,7 @@ function getLoadedCitationChunkId(
 }
 
 function hasExactCitationTargetHint(citation: ChatCitationView): boolean {
+  if (citation.chunkId || citation.chunkRowId) return true
   if (typeof citation.content === "string" && citation.content.trim().length > 0) {
     return true
   }
@@ -117,7 +120,9 @@ function resolveCitationPageChunkId(
   if (pageNumber === null) return null
 
   const documentChunks = citation.source.documentId
-    ? chunks.filter((chunk) => chunk.documentId === citation.source.documentId)
+    ? chunks.filter((chunk) => chunk.documentId === citation.source.documentId &&
+      (!citation.source.namespace || chunk.namespace === citation.source.namespace) &&
+      (!citation.source.jobResultId || chunk.jobResultId === citation.source.jobResultId))
     : chunks
   const matches = documentChunks.filter((chunk) =>
     isChunkForPageNumber(chunk, pageNumber),

@@ -15,7 +15,12 @@ type SourceChunksResponse = Awaited<
 type ChatThreadDetailResponse = Awaited<
   ReturnType<typeof workspaceClient.fetchChatThread>
 >
-type SourceChunksKey = readonly ["source-chunks", string, number]
+type SourceChunksCacheOptions = {
+  readonly namespace?: string
+  readonly jobResultId?: string
+  readonly chunkType?: "text" | "image" | "table" | "page"
+}
+type SourceChunksKey = readonly ["source-chunks", string, number, string, string, string]
 type ChatThreadKey = readonly ["chat-thread", string]
 
 type LoadedChatThreadDetail = ChatThreadDetailResponse & {
@@ -24,6 +29,7 @@ type LoadedChatThreadDetail = ChatThreadDetailResponse & {
 }
 
 type WorkspaceClientCache = {
+  readonly getSourceReadKey: (sourceId: string, options?: SourceChunksCacheOptions) => string
   readonly getCachedChatThreadData: (
     cache: Cache<unknown>,
     threadId: string,
@@ -31,12 +37,14 @@ type WorkspaceClientCache = {
   readonly getCachedSourceChunks: (
     cache: Cache<unknown>,
     sourceId: string,
+    options?: SourceChunksCacheOptions,
   ) => ParsedChunkView[] | null
   readonly getChatThreadKey: (threadId: string) => ChatThreadKey
   readonly getSourceChunksKey: (
     sourceId: string | null,
     pageIndex: number,
     previousPageData: SourceChunksResponse | null,
+    options?: SourceChunksCacheOptions,
   ) => SourceChunksKey | null
   readonly hasLoadedChatThreadData: (
     value: ChatThreadDetailResponse | null | undefined,
@@ -49,6 +57,7 @@ type WorkspaceClientCache = {
     mutate: (key: SourceChunksKey, data: SourceChunksResponse) => unknown,
     sourceId: string,
     chunks: readonly ParsedChunkView[],
+    options?: SourceChunksCacheOptions,
   ) => void
 }
 
@@ -56,10 +65,11 @@ function getSourceChunksKey(
   sourceId: string | null,
   pageIndex: number,
   previousPageData: SourceChunksResponse | null,
+  options: SourceChunksCacheOptions = {},
 ): SourceChunksKey | null {
   if (!sourceId) return null
   if (previousPageData && !hasMoreChunkPage(previousPageData)) return null
-  return ["source-chunks", sourceId, pageIndex + 1] as const
+  return ["source-chunks", sourceId, pageIndex + 1, options.jobResultId ?? "", options.namespace ?? "", options.chunkType ?? ""] as const
 }
 
 function hasMoreChunkPages(
@@ -110,12 +120,13 @@ function isSourceChunksResponse(
 function getCachedSourceChunks(
   cache: Cache<unknown>,
   sourceId: string,
+  options: SourceChunksCacheOptions = {},
 ): ParsedChunkView[] | null {
   const chunks: ParsedChunkView[] = []
   let previous: SourceChunksResponse | null = null
 
   for (let pageIndex = 0; pageIndex < 200; pageIndex += 1) {
-    const key = getSourceChunksKey(sourceId, pageIndex, previous)
+    const key = getSourceChunksKey(sourceId, pageIndex, previous, options)
     if (!key) break
 
     const cachedState = cache.get(unstable_serialize(key))
@@ -135,8 +146,9 @@ function hydrateSourceChunks(
   mutate: (key: SourceChunksKey, data: SourceChunksResponse) => unknown,
   sourceId: string,
   chunks: readonly ParsedChunkView[],
+  options: SourceChunksCacheOptions = {},
 ): void {
-  const key = getSourceChunksKey(sourceId, 0, null)
+  const key = getSourceChunksKey(sourceId, 0, null, options)
   if (!key) return
 
   const total = chunks.length
@@ -161,7 +173,13 @@ function isChatThreadDetailResponse(
   return response.requestedThreadId === threadId
 }
 
+function getSourceReadKey(sourceId: string, options: SourceChunksCacheOptions = {}): string {
+  if (!options.jobResultId && !options.namespace && !options.chunkType) return sourceId
+  return JSON.stringify([sourceId, options.jobResultId ?? "", options.namespace ?? "", options.chunkType ?? ""])
+}
+
 export const workspaceClientCache: WorkspaceClientCache = {
+  getSourceReadKey,
   getCachedChatThreadData,
   getCachedSourceChunks,
   getChatThreadKey,
@@ -176,5 +194,6 @@ export type {
   ChatThreadDetailResponse,
   ChatThreadKey,
   SourceChunksKey,
+  SourceChunksCacheOptions,
   SourceChunksResponse,
 }
