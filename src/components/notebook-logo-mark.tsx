@@ -1,8 +1,9 @@
 import Image from "next/image";
+import { cn } from "@/lib/utils";
 
 const DASHBOARD_MARK = {
-  height: 84,
-  width: 92,
+  height: 42,
+  width: 37,
 } as const;
 
 type NotebookLogoMarkProps = {
@@ -15,10 +16,10 @@ export function NotebookLogoMark({ width, className }: NotebookLogoMarkProps) {
 
   return (
     <Image
-      src="/images/knowhere/logo-icon.png"
+      src="/images/knowhere/logo-mark.svg"
       alt=""
       aria-hidden
-      className={className}
+      className={cn("dark:invert", className)}
       width={width}
       height={height}
       style={{ height: "auto" }}
