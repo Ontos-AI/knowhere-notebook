@@ -29,7 +29,7 @@ export async function LoginContent() {
       <Card className="m-auto w-full max-w-md rounded-2xl border-none bg-transparent shadow-none">
         <CardContent className="flex flex-col items-center p-8 text-center">
           <div className="mb-6 flex size-12 items-center justify-center">
-            <NotebookLogoMark width={28} />
+            <NotebookLogoMark width={28} className="dark:invert-0" />
           </div>
           <h1 className="mb-8 text-2xl font-bold tracking-tight">
             Knowhere Brain

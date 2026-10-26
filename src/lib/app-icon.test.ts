@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import { appMetadata } from "./app-metadata";
 
-const notebookIconPath = "/images/knowhere/logo-icon.png" as const;
+const notebookIconPath = "/images/knowhere/favicon.svg" as const;
 const rootDirectory: string = process.cwd();
 
 async function hasFile(filePath: string): Promise<boolean> {
@@ -22,7 +22,7 @@ describe("notebook page icon", () => {
     const serializedIcons: string = JSON.stringify(appMetadata.icons);
 
     expect(serializedIcons).toContain(notebookIconPath);
-    expect(serializedIcons).toContain("image/png");
+    expect(serializedIcons).toContain("image/svg+xml");
   });
 
   it("keeps the configured icon asset available from public", async () => {
@@ -31,7 +31,7 @@ describe("notebook page icon", () => {
       "public",
       "images",
       "knowhere",
-      "logo-icon.png",
+      "favicon.svg",
     );
 
     await expect(hasFile(iconFilePath)).resolves.toBe(true);

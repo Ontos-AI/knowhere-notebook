@@ -7,9 +7,9 @@ export const appMetadata: Metadata = {
   icons: {
     icon: [
       {
-        url: "/images/knowhere/logo-icon.png",
-        type: "image/png",
-        sizes: "92x84",
+        url: "/images/knowhere/favicon.svg",
+        type: "image/svg+xml",
+        sizes: "any",
       },
     ],
   },
